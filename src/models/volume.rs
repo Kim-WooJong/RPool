@@ -82,11 +82,7 @@ string_id!(
     "shard id",
     "Retained typed volume identity contract; legacy manifests do not serialize domain IDs"
 );
-string_id!(
-    FailureDomainId,
-    "failure domain id",
-    "Failure-domain identity is retained for future placement policies"
-);
+string_id!(FailureDomainId, "failure domain id");
 string_id!(CapacityDomainId, "capacity domain id");
 
 #[cfg(test)]

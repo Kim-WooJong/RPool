@@ -11,8 +11,8 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
-Version 0.6.0 with batched Unreleased changes. Local-first writable mounts and
-optional shared revision exchange are implemented and synthetically tested.
+Version 0.6.0 with batched Unreleased changes. Replica mounts remain the default;
+experimental metadata-first virtual mounts are connected and synthetically tested.
 No real cloud/multiple-PC/WinFsp integration validation has been performed here.
 
 ## Working
@@ -25,46 +25,41 @@ No real cloud/multiple-PC/WinFsp integration validation has been performed here.
 - Bounded configured-remote fairness, reserved hedge capacity and cooperative loser cancellation.
 - Slot-free exponential retry backoff; restore-only fallback for exhausted network failures.
 - Overlapping data/parity uploads, immediate verified-shard checkpoints, <=2 staged parity groups.
-- Optional Resilient placement with backing-alias resolution and parity concentration bounds.
+- Optional Resilient placement with declared correlated outage groups and parity concentration bounds.
 - Persistent local workspace, verified archive writeback, retained old versions.
 - Optional encrypted shared-root + worker-name GUI/CLI inputs.
 - Immutable causal file revisions; deterministic worker-labelled conflict copies.
 - Offline edit/edit and edit/delete preservation, causal deletion/recreation.
 - Incoming reconciliation with displaced-byte recovery journal and catalog v2.
 
-## In Progress
+## Current bounded batch
 
-No unfinished implementation in the bounded mount quota/capacity/migration task.
-Unrelated config-sync/path changes may be present in the working tree; preserve them.
+Implemented the bounded five-lane integration batch (virtual mode opt-in/experimental):
+1. Dynamic quota diagnostics, explicit account/outage identities, placement-aware capacity/admission.
+2. Virtual-v3 metadata-only namespace and parity-free logical usage.
+3. Authenticated stable DAV endpoint, lazy verified shard reads, group-local RS recovery.
+4. Live event exchange with conservative revision pinning, lossless conflicts, durable file/folder moves.
+5. Durable checkpoint/spool, explicit sealed/partial spool recovery export, safe clean-cache trim.
 
-## Next
+## Next / runtime gates
 
-1. Optional actual-cloud interoperability/outage validation when feasible; no active speed benchmark is required.
-2. Validate on actual Windows/WinFsp with two PCs and test cloud accounts.
-3. If live incoming replacement while mounted is required, design a filesystem
-   write barrier/open-handle-aware integration before removing the current gate.
-4. Plan shared-history compaction before deployments exceed exchange limits.
+- Validate actual Windows/WinFsp and Linux/FUSE with rclone and two PCs; this environment has no rclone binary available at standard locations.
+- Test actual dirty native VFS cache replay after process crash. Endpoint/cache identity is stable, but synthetic preservation does not prove native replay.
+- True transparent replacement of open native file handles needs a stronger filesystem/client revision protocol.
+- Remote history compaction needs offline-writer fencing/leases and complete reachability; remains disabled.
 
-## Known Issues
+## Known limits
 
-- Cloud capacity is a conservative full-group estimate using minimum known quota; small-file parity/encryption/metadata/external changes differ. OS statfs remains LOCAL disk capacity.
-- Unknown accounting scopes (not only missing numbers) are excluded; known account quota scopes currently cover Drive/OneDrive/Dropbox/Box/pCloud and wrappers.
-- Migration switches active workspace archives only, retains original/history bytes and does not relocate shared-root metadata. History warnings remain; no remote GC.
-- Partial upload admission credits fully reverified data only; parity is charged again. Eligibility changes may leave additional retained copies.
-
-- Delayed hedging uses passive estimates, not active speed benchmarks or live-cloud measured thresholds.
-- Two-group RS staging window; one decoder; single-worker mode has no speculative racing.
-- Scheduler limits are per operation and configured remote name, not across processes or proven accounts.
-- Resilient guards one resolved backing target within M; independent provider failure domains remain unknown.
-- Existing Pool/workspace policies stay unchanged. Older binaries cannot load the new Resilient enum.
-
-- Mounted mode publishes/fetches revisions only. Incoming files/deletions require
-  unmounted reconciliation with no remaining VFS cache files or mount lease.
-- Case/prefix collisions of live paths fail closed; no silent overwrite.
-- Empty directories remain local-only. Rename is new path plus deletion.
-- No history/recovery GC; exchange limits: 10k events, 8 MiB/event, 64 MiB total.
-- Shared metadata root is a separate availability dependency. All PCs need the
-  appropriate crypt keys and compatible remote aliases for archive manifests.
+- Virtual is opt-in and requires a NEW workspace; separate shared-root/virtual-v3 avoids mixing legacy catalogs/hash semantics.
+- Served paths pin a session revision. Incoming updates appear as copies; deletes of served remote paths take effect at remount. Local acknowledged saves/deletes update visibility. Generic writes may conservatively create extra conflict copies.
+- Empty directories are local-only. File/folder moves checkpoint together locally, but there is no cross-PC transaction/locking guarantee.
+- Capacity is placement-aware but not a reservation. Simulation cap 65,536 physical shards marks lower-bound estimates. Alias/undeclared accounting is conservative; mixed unresolved accounts are excluded until mapped.
+- Logical virtual usage is known shared namespace + sealed pending work, not every archive in the cloud. Replica OS space remains local disk; virtual DAV quota is tested over HTTP, not native Explorer.
+- Corrupt primary namespace fails closed. Recovery exports spool without rewriting checkpoint; rclone-only dirty cache requires the original mount.
+- Migration remains replica active-archive copy/switch, not entire shared history or metadata-root migration.
+- All old cloud versions are retained. Cleanup trims only clean shards; no cloud reclamation.
+- Shared exchange limits remain 10k events, 8 MiB/event, 64 MiB total.
+- Unrelated config-sync/path edits remain outside this batch.
 
 ## Decisions
 
@@ -83,10 +78,14 @@ Unrelated config-sync/path changes may be present in the working tree; preserve 
 - Conflict outcome is causal, not timestamp-based last-writer-wins.
 - Preserve both concurrent file versions and retain an edit concurrent with deletion.
 - Each PC owns its own workspace/cache. Never share/copy an active workspace.
-- No remote deletion and no automatic deletion of local recovery/cache data.
+- No remote deletion; explicit clean-shard cache trimming never touches dirty spool or recovery data.
 - Quiescent local files are required while unmounted reconciliation runs.
 
 ## Architecture
+
+- `src/storage/admin/{domains,budget}.rs`: non-secret account/outage declarations and pooled snapshots.
+- `src/mount/{namespace,virtual_drive}.rs`: metadata checkpoints, durable intents, live event sync and recovery export.
+- `src/mount/{dav,shard_cache}.rs`: authenticated stable bridge, quota, immutable reads and group-specific verified recovery.
 
 - `src/mount/capacity.rs`: runtime quota eligibility, conservative admission and full-group estimates.
 - `src/mount/workspace_capacity.rs`: scoped archive warnings, usage, migration and durable receipt recovery.
@@ -110,16 +109,21 @@ Unrelated config-sync/path changes may be present in the working tree; preserve 
 ## Validation
 
 2026-09-28, macOS:
-- `cargo test --locked --bin rpool`: 267 passed, 12 ignored.
-- `cargo test --locked --features opendal-prototype --bin rpool`: 278 passed, 12 ignored.
-- Default and optional `cargo rustc --locked --release --bin rpool -- -D warnings`: passed.
-- 12 new regressions cover quota filtering/recovery/aliases/parity estimates, migration failures/lease/cache/receipt restart, manifest-only shared successors, missing remote metadata completion and CLI maintenance modes.
-- `git diff --check`: passed. Synthetic tests do not prove actual clouds or Windows/Linux/FUSE/WinFsp runtime.
+- Default tests: 289 passed, 12 ignored.
+- Optional `opendal-prototype`: 300 passed, 12 ignored.
+- `RUSTFLAGS="-D warnings" cargo build --release --locked` default/optional: both passed.
+- Release binary `mount --help`: new virtual/cache/recovery/account/outage flags verified.
+- `git diff --check`: passed.
+- Actual loopback HTTP authentication, PUT durability, range GET, metadata listing and quota exercised without rclone.
+- Range cache tests: only intersecting shards fetched; corrupted cache rejected; last nonzero/short RS group recovers without unrelated groups; clean eviction retains unknown/dirty files.
+- New regressions cover pinned local save/delete, temp-file MOVE causality, directory MOVE/back after restart, pending directory-case collisions, checksum fail-closed, spool export, stable/occupied endpoint, alias/mixed quota accounting, skewed placement and outage grouping.
+- Read-only expert review identified/fixed resume destination quota accounting, mixed undeclared-account overcount, local pin reversion, pending-source deletion causality, MOVE durability and rename-back tombstone ancestry.
+- No real cloud, native Windows/Linux/FUSE/WinFsp or process-crash dirty VFS replay claim.
 
 ## Resume
 
-Quota-aware mount capacity and active-archive migration are implemented, tested and
-built on macOS. `docs/MOUNT.md` describes exclusion scope, conservative estimates,
-retained originals/history, maintenance CLI and the local OS filesystem limit.
-Preserve unrelated config-sync/path worktree edits. No actual user cloud data was
-migrated during implementation. Real cloud and Windows/Linux runtime remain unverified.
+This batch follows 34e36b5. Do not restart the five-lane implementation from scratch.
+See docs/MOUNT.md for activation and intentionally conservative boundaries.
+Keep unrelated config-sync/path edits out of this commit. Future native runtime
+validation and fenced remote history reclamation are separate work; neither is
+silently claimed complete by the synthetic tests.

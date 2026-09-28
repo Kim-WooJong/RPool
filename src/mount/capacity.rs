@@ -14,12 +14,20 @@ pub(crate) struct CapacityStatus {
     pub eligible: Vec<String>,
     pub excluded: Vec<Excluded>,
     pub logical_used: u64,
+    #[serde(default)]
+    pub committed_logical_used: Option<u64>,
+    #[serde(default)]
+    pub usage_scope: String,
     pub additional_estimate: u64,
+    #[serde(default)]
+    pub estimate_limited: bool,
     pub logical_ceiling_estimate: u64,
     pub affected_active: usize,
     pub retained_archives: usize,
     pub observed_unix: u64,
     pub note: String,
+    #[serde(default)]
+    pub targets: Vec<crate::storage::admin::budget::TargetBudget>,
     #[serde(skip)]
     pub(super) budget: u64,
     #[serde(skip)]
@@ -39,76 +47,61 @@ impl CapacityStatus {
         policy: &PoolDefinition,
     ) -> Result<Self> {
         let mut status = Self::default();
-        let mut reports = BTreeMap::new();
-        let mut domains = BTreeMap::<String, u64>::new();
         let remotes = crate::remote_root::apply_remote_roots(policy.remotes.clone())?;
-        for remote in remotes {
-            let binding = match catalog.capacity(&remote) {
-                Ok(b) if b.domain.is_some() => b,
-                _ => {
-                    status.excluded.push(Excluded {
-                        remote,
-                        reason: "Quota accounting scope is unknown".into(),
-                        temporary: false,
-                    });
-                    continue;
-                }
-            };
-            let report = reports
-                .entry(binding.target.clone())
-                .or_insert_with(|| admin.quota(&binding.target));
-            let valid = report.error.is_none()
-                && matches!((report.total, report.free), (Some(t), Some(f)) if f <= t)
-                && !matches!((report.total, report.used), (Some(t), Some(u)) if u > t)
-                && !matches!((report.total, report.used, report.free), (Some(t), Some(u), Some(f)) if u.checked_add(f).is_none_or(|sum| sum > t));
-            if !valid {
-                status.excluded.push(Excluded {
-                    remote,
-                    reason: if report.error.is_some() {
-                        "Quota query failed; excluded until a successful refresh"
-                    } else {
-                        "Quota is missing or inconsistent"
-                    }
-                    .into(),
-                    temporary: report.error.is_some(),
-                });
-                continue;
-            }
-            domains.insert(
-                binding.domain.unwrap().as_str().to_owned(),
-                report.free.unwrap(),
-            );
-            status.eligible.push(remote);
-        }
-        // Account independence is unproven, even for distinct config sections.
-        // A common minimum is intentionally conservative and matches free-ratio.
-        status.budget = domains.values().copied().min().unwrap_or(0);
+        let snapshot =
+            crate::storage::admin::budget::BudgetSnapshot::query(admin, catalog, &remotes);
+        status.eligible = snapshot.targets.iter().map(|t| t.remote.clone()).collect();
+        status.excluded = snapshot
+            .rejected
+            .iter()
+            .map(|(remote, reason, temporary)| Excluded {
+                remote: remote.clone(),
+                reason: reason.clone(),
+                temporary: *temporary,
+            })
+            .collect();
+        status.budget = snapshot.total_free()?;
+        status.targets = snapshot.targets;
         let shard = policy
             .shard_mib
             .checked_mul(1048576)
             .context("shard size overflow")?;
-        let k = policy.data_shards as u64;
+        let k = if policy.parity_shards == 0 {
+            1
+        } else {
+            policy.data_shards as u64
+        };
         let m = policy.parity_shards as u64;
         let group = shard.checked_mul(k + m).context("group size overflow")?;
-        let feasible = policy.placement != Placement::Resilient
-            || (m > 0 && (k + m).div_ceil(domains.len().max(1) as u64) <= m);
-        status.additional_estimate = if !feasible {
-            0
-        } else if m == 0 {
-            status.budget
-        } else {
-            (status.budget / group)
-                .saturating_mul(shard)
-                .saturating_mul(k)
-        };
+        let upper = status.budget / group;
+        let cap = 65536 / (k + m);
+        let mut low = 0;
+        let mut high = upper.min(cap);
+        while low < high {
+            let mid = low + (high - low).div_ceil(2);
+            if status.check_upload(policy, mid * k * shard).is_ok() {
+                low = mid;
+            } else {
+                high = mid - 1;
+            }
+        }
+        status.additional_estimate = low * k * shard;
+        status.estimate_limited = upper > cap && low == cap;
+        let feasible = status.check_upload(policy, k * shard).is_ok();
         status.observed_unix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_secs();
-        status.note = "Conservative additional capacity for full coding groups; small files need proportionally more parity. Distinct accounts are not proven independent, so the smallest known free quota is used, not a sum. Encryption/metadata, external writers and local staging space are not reserved. OS drive space remains LOCAL disk space.".into();
+        status.note = "Full-group logical capacity estimate, not a fixed nominal disk size. Explicitly declared independent account budgets are summed; aliases and unverified accounts share a minimum quota within their group. Small files, metadata/encryption and external changes reduce usable space. OS replica-mode space remains local disk space.".into();
+        if status.estimate_limited {
+            status.note.push_str(" Simulation limit reached: displayed space is a verified lower bound, not the maximum.");
+        }
+        if status.targets.iter().any(|t| !t.declared) {
+            status.note.insert_str(0, "Account identities are unverified: declare capacity groups below to combine independent accounts. ");
+        }
         if !feasible {
             status.note.insert_str(
                 0,
-                "Insufficient eligible targets for the configured parity bound. ",
+                "Selected placement cannot fit a full group within current account quotas/outage constraints. ",
             );
         }
         Ok(status)
@@ -122,6 +115,26 @@ impl CapacityStatus {
         if physical > self.budget {
             bail!("Insufficient conservative quota budget including full parity shards; local changes retained");
         }
+        let shard = policy
+            .shard_mib
+            .checked_mul(1048576)
+            .context("shard size overflow")?;
+        let coding = (size > 0 && policy.parity_shards > 0).then(|| Coding {
+            algorithm: RS_ALGORITHM.into(),
+            data_shards: policy.data_shards,
+            parity_shards: policy.parity_shards,
+            stripe_size: 1048576,
+        });
+        let specs = crate::planning::physical_specs(size, shard, coding.as_ref())?;
+        crate::placement::assign_with_budget(
+            &crate::storage::admin::budget::BudgetSnapshot {
+                targets: self.targets.clone(),
+                rejected: vec![],
+            },
+            &specs,
+            policy.placement,
+            coding.as_ref().map(|c| c.parity_shards),
+        )?;
         Ok(())
     }
 }
@@ -134,7 +147,10 @@ pub(crate) fn physical_bytes(policy: &PoolDefinition, size: u64) -> Result<u64> 
         .shard_mib
         .checked_mul(1048576)
         .context("shard size overflow")?;
-    let groups = size.div_ceil(shard).div_ceil(policy.data_shards as u64);
+    let groups = size
+        .div_ceil(shard)
+        .max(1)
+        .div_ceil(policy.data_shards as u64);
     groups
         .checked_mul(policy.parity_shards as u64)
         .and_then(|n| n.checked_mul(shard))
@@ -198,16 +214,13 @@ mod tests {
         }
     }
     #[test]
-    fn unknown_and_failed_quota_excluded_without_policy_mutation_and_aliases_not_summed() {
+    fn dynamic_backend_quota_supported_and_failed_queries_excluded_without_double_counting() {
         let p = policy();
         let s = CapacityStatus::inspect(&admin(), &p).unwrap();
-        assert_eq!(s.eligible, ["x:", "y:"]);
-        assert_eq!(s.excluded.len(), 2);
+        assert_eq!(s.eligible, ["x:", "y:", "unknown:"]);
+        assert_eq!(s.excluded.len(), 1);
         assert!(s.excluded.iter().any(|e| e.remote == "z:" && e.temporary));
-        assert!(s
-            .excluded
-            .iter()
-            .any(|e| e.remote == "unknown:" && !e.temporary));
+        assert!(s.targets.iter().any(|t| t.remote == "unknown:"));
         assert_eq!(s.budget, 80 * 1048576);
         assert_eq!(s.additional_estimate, 64 * 1048576);
         assert_eq!(p.remotes.len(), 4);
@@ -221,7 +234,7 @@ mod tests {
         a.report.error = None;
         a.report.free = Some(0);
         let s = CapacityStatus::inspect(&a, &p).unwrap();
-        assert_eq!(s.eligible.len(), 2);
+        assert_eq!(s.eligible.len(), 3);
         assert_eq!(s.additional_estimate, 0);
         assert!(s.check_upload(&p, 1).is_err());
     }
@@ -247,6 +260,71 @@ mod tests {
         let mut s = CapacityStatus::inspect(&admin(), &p).unwrap();
         s.budget = 2 * 1048576;
         assert!(s.check_upload(&p, 1).is_err());
+    }
+    #[test]
+    fn skewed_quotas_follow_selected_policy_and_empty_mount_files_cost_no_parity() {
+        let targets = [("a", 1), ("b", 99)]
+            .into_iter()
+            .map(|(name, n)| crate::storage::admin::budget::TargetBudget {
+                remote: format!("{name}:"),
+                backing: name.into(),
+                capacity_domain: name.into(),
+                failure_domain: Some(name.into()),
+                declared: true,
+                total: 100 * 1048576,
+                free: n * 1048576,
+            })
+            .collect();
+        let s = CapacityStatus {
+            eligible: vec!["a:".into(), "b:".into()],
+            targets,
+            budget: 100 * 1048576,
+            ..Default::default()
+        };
+        let mut p = policy();
+        p.parity_shards = 0;
+        p.placement = Placement::RoundRobin;
+        assert!(s.check_upload(&p, 2 * 1048576).is_ok());
+        assert!(s.check_upload(&p, 3 * 1048576).is_err());
+        p.placement = Placement::FreeRatio;
+        assert!(s.check_upload(&p, 100 * 1048576).is_ok());
+        let mut full = s.clone();
+        full.budget = 0;
+        for t in &mut full.targets {
+            t.free = 0;
+        }
+        p.parity_shards = 2;
+        assert!(full.check_upload(&p, 0).is_ok());
+        assert!(full.check_upload(&p, 1).is_err());
+    }
+    #[test]
+    fn failure_domains_are_independent_of_quota_domains() {
+        let mut s = CapacityStatus {
+            eligible: vec!["a:".into(), "b:".into(), "c:".into()],
+            budget: 30 * 1048576,
+            ..Default::default()
+        };
+        s.targets = ["a", "b", "c"]
+            .into_iter()
+            .map(|name| crate::storage::admin::budget::TargetBudget {
+                remote: format!("{name}:"),
+                backing: name.into(),
+                capacity_domain: name.into(),
+                failure_domain: Some("same-provider".into()),
+                declared: true,
+                total: 10 * 1048576,
+                free: 10 * 1048576,
+            })
+            .collect();
+        let mut p = policy();
+        p.data_shards = 2;
+        p.parity_shards = 1;
+        p.placement = Placement::Resilient;
+        assert!(s.check_upload(&p, 2 * 1048576).is_err());
+        for t in &mut s.targets {
+            t.failure_domain = Some(t.backing.clone());
+        }
+        assert!(s.check_upload(&p, 2 * 1048576).is_ok());
     }
     #[test]
     fn filtered_resilient_never_downgrades_or_claims_capacity() {

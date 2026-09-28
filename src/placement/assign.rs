@@ -22,13 +22,67 @@ pub(crate) fn assign_remotes(
             let catalog = RcloneAdmin::inherited(rclone).catalog()?;
             let targets = remotes
                 .iter()
-                .map(|r| catalog.placement_target(r))
+                .map(|r| declared_failure(&catalog, r))
                 .collect::<Result<Vec<_>>>()?;
             let assignments = balanced_assign(&targets, specs)?;
             ensure_parity_bound(&targets, specs, &assignments, parity_shards.unwrap_or(0))?;
             Ok(assignments)
         }
     }
+}
+
+fn declared_failure(
+    catalog: &crate::storage::admin::RemoteCatalog,
+    remote: &str,
+) -> Result<String> {
+    catalog
+        .capacity(remote)?
+        .failure_domain
+        .map(|d| d.as_str().to_owned())
+        .context("Resilient placement requires a declared outage group for every backing remote")
+}
+
+pub(crate) fn assign_with_budget(
+    snapshot: &crate::storage::admin::budget::BudgetSnapshot,
+    specs: &[PhysicalSpec],
+    placement: Placement,
+    parity: Option<usize>,
+) -> Result<Vec<usize>> {
+    let assignments = match placement {
+        Placement::FreeRatio => super::free_ratio::allocate(snapshot, specs, parity.is_some())?,
+        Placement::RoundRobin => balanced_assign(
+            &snapshot
+                .targets
+                .iter()
+                .map(|t| crate::storage::scheduler::remote_key(&t.remote))
+                .collect::<Vec<_>>(),
+            specs,
+        )?,
+        Placement::Resilient => {
+            let domains = snapshot
+                .targets
+                .iter()
+                .map(|t| {
+                    t.failure_domain
+                        .clone()
+                        .context("Declare outage groups before Resilient placement")
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let assigned = balanced_assign(&domains, specs)?;
+            ensure_parity_bound(&domains, specs, &assigned, parity.unwrap_or(0))?;
+            assigned
+        }
+    };
+    let mut budgets = snapshot.budgets();
+    for (spec, index) in specs.iter().zip(&assignments) {
+        let free = budgets
+            .get_mut(&snapshot.targets[*index].capacity_domain)
+            .context("missing quota group")?;
+        *free = free
+            .checked_sub(spec.size)
+            .context("Selected placement exceeds an account quota; local data retained")?;
+    }
+    Ok(assignments)
 }
 
 pub(crate) fn balanced_assign(targets: &[String], specs: &[PhysicalSpec]) -> Result<Vec<usize>> {
@@ -67,7 +121,7 @@ fn validate_resilient_catalog(
     let targets = plan
         .shards
         .iter()
-        .map(|s| catalog.placement_target(&s.object))
+        .map(|s| declared_failure(catalog, &s.object))
         .collect::<Result<Vec<_>>>()?;
     let specs = plan
         .shards
@@ -107,13 +161,29 @@ mod tests {
         .unwrap();
         plan.placement = Placement::Resilient;
         let catalog = |collapse| {
-            crate::storage::admin::RemoteCatalog::parse(&serde_json::json!({
+            let mut catalog = crate::storage::admin::RemoteCatalog::parse(&serde_json::json!({
                 "a":{"type":"s3"}, "b":{"type":"s3"}, "c":{"type":"s3"},
                 "x":{"type":"crypt","remote":"a:"},
                 "y":{"type":"crypt","remote": if collapse {"a:"} else {"b:"}},
                 "z":{"type":"crypt","remote":"c:"}
             }))
-            .unwrap()
+            .unwrap();
+            catalog.set_domains(crate::storage::admin::domains::DomainStore {
+                version: 1,
+                remotes: ["a", "b", "c"]
+                    .into_iter()
+                    .map(|name| {
+                        (
+                            name.into(),
+                            crate::storage::admin::domains::DomainIdentity {
+                                capacity: name.into(),
+                                failure: name.into(),
+                            },
+                        )
+                    })
+                    .collect(),
+            });
+            catalog
         };
         assert!(validate_resilient_catalog(&catalog(false), &plan).is_ok());
         assert!(validate_resilient_catalog(&catalog(true), &plan).is_err());

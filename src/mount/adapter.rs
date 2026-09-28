@@ -15,6 +15,7 @@ pub(crate) struct MountConfig {
     pub(crate) cache_dir: PathBuf,
     pub(crate) target: PathBuf,
     pub(crate) shared: bool,
+    pub(crate) webdav: Option<(String, String)>,
 }
 
 pub(crate) struct StopReport {
@@ -38,7 +39,7 @@ impl MountProcess {
         std::fs::create_dir_all(&config.cache_dir).context("cannot create durable VFS cache")?;
         let files = config.files_dir.canonicalize()?;
         let cache = config.cache_dir.canonicalize()?;
-        let lease = MountLease::prepare(&files, &cache, &config.target)?;
+        let lease = MountLease::prepare(&files, &cache, &config.target, config.webdav.as_ref())?;
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let address = listener.local_addr()?;
         let mut random = [0u8; 32];
@@ -51,6 +52,14 @@ impl MountProcess {
         let credential = base64(format!("rpool:{password}").as_bytes());
         let mut source = std::ffi::OsString::from(":local:");
         source.push(files.as_os_str());
+        if config.webdav.is_some() {
+            source = ":webdav:".into();
+        }
+        let cache_mode = if config.webdav.is_some() {
+            "full"
+        } else {
+            "writes"
+        };
         let mut command = Command::new(&config.rclone);
         command
             .arg("mount")
@@ -58,7 +67,7 @@ impl MountProcess {
             .arg(&config.target)
             .args([
                 "--vfs-cache-mode",
-                "writes",
+                cache_mode,
                 "--vfs-write-back",
                 "0s",
                 "--cache-dir",
@@ -71,6 +80,16 @@ impl MountProcess {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if let Some((url, token)) = &config.webdav {
+            command
+                .env("RCLONE_WEBDAV_URL", url)
+                .env("RCLONE_WEBDAV_BEARER_TOKEN", token)
+                .env("RCLONE_WEBDAV_VENDOR", "other")
+                .env("RCLONE_WEBDAV_USER", "")
+                .env("RCLONE_WEBDAV_PASS", "")
+                .env("RCLONE_WEBDAV_BEARER_TOKEN_COMMAND", "")
+                .args(["--dir-cache-time", "2s", "--vfs-read-chunk-size", "0"]);
+        }
         if config.shared {
             // Only rclone may evict its clean, unused cache entries. Short
             // retention allows an unmounted shared reconciliation without
@@ -110,10 +129,22 @@ impl MountProcess {
         }
         let logs = Arc::new(Mutex::new(VecDeque::new()));
         if let Some(stdout) = child.stdout.take() {
-            collect_log(stdout, logs.clone(), password.clone(), credential.clone());
+            collect_log(
+                stdout,
+                logs.clone(),
+                password.clone(),
+                credential.clone(),
+                config.webdav.as_ref().map(|(_, token)| token.clone()),
+            );
         }
         if let Some(stderr) = child.stderr.take() {
-            collect_log(stderr, logs.clone(), password, credential.clone());
+            collect_log(
+                stderr,
+                logs.clone(),
+                password,
+                credential.clone(),
+                config.webdav.as_ref().map(|(_, token)| token.clone()),
+            );
         }
         Ok(Self {
             child,
@@ -240,6 +271,8 @@ struct MountIdentity {
     cache: PathBuf,
     target: PathBuf,
     cache_mode: String,
+    #[serde(default)]
+    backend_identity: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -256,7 +289,12 @@ struct MountLease {
 }
 
 impl MountLease {
-    fn prepare(source: &Path, cache: &Path, target: &Path) -> Result<Self> {
+    fn prepare(
+        source: &Path,
+        cache: &Path,
+        target: &Path,
+        webdav: Option<&(String, String)>,
+    ) -> Result<Self> {
         let metadata = source
             .parent()
             .context("workspace root missing")?
@@ -304,7 +342,12 @@ impl MountLease {
             source: source.into(),
             cache: cache.into(),
             target,
-            cache_mode: "writes".into(),
+            cache_mode: if webdav.is_some() { "full" } else { "writes" }.into(),
+            backend_identity: webdav.map(|(url, token)| {
+                blake3::hash(format!("webdav-other:{url}:{token}").as_bytes())
+                    .to_hex()
+                    .to_string()
+            }),
         };
         let identity_path = metadata.join("mount-identity.json");
         reject_link(&identity_path)?;
@@ -520,6 +563,7 @@ fn collect_log<R: Read + Send + 'static>(
     logs: Arc<Mutex<VecDeque<String>>>,
     password: String,
     credential: String,
+    bearer: Option<String>,
 ) {
     thread::spawn(move || {
         // Bound both individual line allocation and retained output.
@@ -562,6 +606,9 @@ fn collect_log<R: Read + Send + 'static>(
                     .replace(&password, "[redacted]")
                     .replace(&credential, "[redacted]")
             };
+            let text = bearer
+                .as_ref()
+                .map_or(text.clone(), |token| text.replace(token, "[redacted]"));
             if let Ok(mut buffer) = logs.lock() {
                 if buffer.len() >= 200 {
                     buffer.pop_front();
@@ -628,19 +675,19 @@ mod tests {
     #[test]
     fn lease_survives_owner_drop_and_uncertain_launch_blocks_restart() {
         let (_root, _other, files, cache, target) = lease_fixture();
-        let lease = MountLease::prepare(&files, &cache, &target).unwrap();
-        assert!(MountLease::prepare(&files, &cache, &target).is_err());
+        let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
+        assert!(MountLease::prepare(&files, &cache, &target, None).is_err());
         lease.record(&LeaseState::Launching).unwrap();
         let path = lease.path.clone();
         drop(lease);
         assert!(path.exists());
-        assert!(MountLease::prepare(&files, &cache, &target).is_err());
+        assert!(MountLease::prepare(&files, &cache, &target, None).is_err());
     }
 
     #[test]
     fn active_pid_blocks_restart_without_sending_signal() {
         let (_root, _other, files, cache, target) = lease_fixture();
-        let lease = MountLease::prepare(&files, &cache, &target).unwrap();
+        let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
         lease
             .record(&LeaseState::Running {
                 pid: std::process::id(),
@@ -648,21 +695,21 @@ mod tests {
             .unwrap();
         drop(lease);
         assert!(process_alive(std::process::id()).unwrap());
-        assert!(MountLease::prepare(&files, &cache, &target).is_err());
+        assert!(MountLease::prepare(&files, &cache, &target, None).is_err());
         assert!(process_alive(0).is_err());
     }
 
     #[test]
     fn identity_is_stable_after_clean_stop() {
         let (_root, _other, files, cache, target) = lease_fixture();
-        let lease = MountLease::prepare(&files, &cache, &target).unwrap();
+        let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
         lease.record(&LeaseState::Launching).unwrap();
         lease.clear().unwrap();
         drop(lease);
-        drop(MountLease::prepare(&files, &cache, &target).unwrap());
+        drop(MountLease::prepare(&files, &cache, &target, None).unwrap());
         let different_cache = cache.parent().unwrap().join("other-cache");
         std::fs::create_dir(&different_cache).unwrap();
-        assert!(MountLease::prepare(&files, &different_cache, &target).is_err());
+        assert!(MountLease::prepare(&files, &different_cache, &target, None).is_err());
         #[cfg(windows)]
         let different_target = PathBuf::from("S:");
         #[cfg(not(windows))]
@@ -671,7 +718,7 @@ mod tests {
         let different_target_path = different_target.path();
         #[cfg(windows)]
         let different_target_path = different_target.as_path();
-        assert!(MountLease::prepare(&files, &cache, different_target_path).is_err());
+        assert!(MountLease::prepare(&files, &cache, different_target_path, None).is_err());
     }
 
     #[cfg(unix)]
@@ -680,7 +727,7 @@ mod tests {
         let (_root, _other, files, cache, target) = lease_fixture();
         let sentinel = cache.join("pending-write");
         std::fs::write(&sentinel, b"must survive").unwrap();
-        let lease = MountLease::prepare(&files, &cache, &target).unwrap();
+        let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
         lease.record(&LeaseState::Launching).unwrap();
         // Synthetic local child only: no rclone, driver, cloud or configuration access.
         let child = Command::new("/bin/sh")
@@ -734,6 +781,7 @@ mod tests {
             cache_dir: root.join("cache"),
             target: target.clone(),
             shared: false,
+            webdav: None,
         };
         assert!(validate_mountpoint(&config).is_ok());
         let metadata = root.join(".rpool/archives");
@@ -751,4 +799,23 @@ mod tests {
         config.target = link;
         assert!(validate_mountpoint(&config).is_err());
     }
+}
+
+/// Called before reconnecting an existing DAV endpoint to an orphaned rclone.
+pub(crate) fn preflight_virtual(root: &Path) -> Result<()> {
+    let path = root.join(".rpool/mount-process.json");
+    reject_link(&path)?;
+    if path.exists() {
+        let lease: LeaseState = serde_json::from_slice(&std::fs::read(path)?)?;
+        match lease {
+            LeaseState::Launching => {
+                bail!("uncertain previous mount launch; preserve cache and inspect process")
+            }
+            LeaseState::Running { pid } if process_alive(pid)? => {
+                bail!("previous mount PID {pid} is still active")
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }

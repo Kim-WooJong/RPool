@@ -28,22 +28,24 @@ mod placement_tests {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RemoteCatalog {
     entries: BTreeMap<String, Entry>,
+    domains: super::domains::DomainStore,
 }
 #[derive(Debug, Clone)]
 pub(crate) struct CapacityBinding {
     pub(crate) target: String,
     pub(crate) domain: Option<CapacityDomainId>,
     // Config section identity alone cannot prove an independent outage domain.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Failure-domain placement metadata is retained independently of capacity grouping"
-        )
-    )]
     pub(crate) failure_domain: Option<FailureDomainId>,
 }
 impl RemoteCatalog {
+    pub(crate) fn set_domains(&mut self, domains: super::domains::DomainStore) {
+        self.domains = domains;
+    }
+    pub(crate) fn identity_declared(&self, raw: &str) -> bool {
+        self.placement_target(raw)
+            .is_ok_and(|name| self.domains.remotes.contains_key(&name))
+    }
+
     /// Resolve known wrappers to one configured backing section. This collapses
     /// known aliases, but is NOT proof of independent accounts/providers.
     pub(crate) fn placement_target(&self, raw: &str) -> Result<String> {
@@ -99,7 +101,10 @@ impl RemoteCatalog {
                 );
             }
         }
-        Ok(Self { entries })
+        Ok(Self {
+            entries,
+            domains: Default::default(),
+        })
     }
     /// Physical/base providers not covered by an encrypted crypt remote.
     /// Wrapper chains are followed without treating folder suffixes as names.
@@ -206,17 +211,30 @@ impl RemoteCatalog {
                 Ok(binding)
             }
             "union" | "combine" => bail!("aggregate remote capacity is unresolved"),
-            // These backends report account-wide quota; paths share that quota.
-            "drive" | "onedrive" | "dropbox" | "box" | "pcloud" => Ok(CapacityBinding {
-                target: format!("{name}:"),
-                domain: Some(CapacityDomainId::new(format!("rclone-alias-group:{name}"))?),
-                failure_domain: None,
-            }),
-            _ => Ok(CapacityBinding {
-                target: raw.to_owned(),
-                domain: None,
-                failure_domain: None,
-            }),
+            _ => {
+                let identity = self.domains.remotes.get(name);
+                // Query every concrete backend; about support is a runtime fact,
+                // not a provider allowlist. Undeclared identities share a
+                // conservative overlap group rather than pretending independence.
+                let domain = identity
+                    .map(|i| i.capacity.clone())
+                    .unwrap_or_else(|| "unverified-accounts".into());
+                Ok(CapacityBinding {
+                    target: if matches!(
+                        entry.kind.as_str(),
+                        "drive" | "onedrive" | "dropbox" | "box" | "pcloud"
+                    ) {
+                        format!("{name}:")
+                    } else {
+                        raw.to_owned()
+                    },
+                    domain: Some(CapacityDomainId::new(domain)?),
+                    failure_domain: identity
+                        .filter(|i| !i.failure.is_empty())
+                        .map(|i| FailureDomainId::new(i.failure.clone()))
+                        .transpose()?,
+                })
+            }
         }
     }
     pub(crate) fn capacity_remotes(&self, remotes: &[String]) -> Result<Vec<String>> {
@@ -224,11 +242,7 @@ impl RemoteCatalog {
         let mut targets = BTreeSet::new();
         for remote in remotes {
             let b = self.capacity(remote)?;
-            let identity = b
-                .domain
-                .as_ref()
-                .map(|id| format!("domain:{}", id.as_str()))
-                .unwrap_or_else(|| format!("target:{}", b.target));
+            let identity = b.target.clone();
             if seen.insert(identity) {
                 targets.insert(b.target);
             }

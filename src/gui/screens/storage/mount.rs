@@ -19,6 +19,9 @@ pub(crate) struct MountForm {
     notice: Option<String>,
     capacity: Option<crate::mount::capacity::CapacityStatus>,
     capacity_read: std::time::Instant,
+    identity_editor: String,
+    virtual_drive: bool,
+    cache_gib: u64,
 }
 
 impl Default for MountForm {
@@ -41,7 +44,18 @@ impl Default for MountForm {
             stopping: false,
             notice: None,
             capacity: None,
+            virtual_drive: false,
+            cache_gib: 10,
             capacity_read: std::time::Instant::now(),
+            identity_editor: crate::storage::admin::domains::DomainStore::load()
+                .map(|s| {
+                    s.remotes
+                        .iter()
+                        .map(|(remote, id)| format!("{} {} {}", remote, id.capacity, id.failure))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+                .unwrap_or_default(),
         }
     }
 }
@@ -119,15 +133,20 @@ impl MountForm {
             &control.path().join("stop"),
             sync_only,
         );
+        if self.virtual_drive {
+            args.push("--virtual-drive".into());
+            args.push(format!("--cache-gib={}", self.cache_gib).into());
+        }
         args.push("--status-file".into());
         args.push(control.path().join("capacity.json").into_os_string());
         if action >= 2 {
             args.retain(|arg| arg != "--sync-only");
             args.push(
-                if action == 2 {
-                    "--capacity-only"
-                } else {
-                    "--migrate-excluded"
+                match action {
+                    2 => "--capacity-only",
+                    4 => "--cleanup-cache",
+                    5 => "--recover-spool",
+                    _ => "--migrate-excluded",
                 }
                 .into(),
             );
@@ -138,6 +157,10 @@ impl MountForm {
                 "Check pool capacity"
             } else if action == 3 {
                 "Migrate active archives (retain originals)"
+            } else if action == 4 {
+                "Trim clean shard cache"
+            } else if action == 5 {
+                "Export recoverable spool"
             } else if sync_only {
                 "Sync local workspace"
             } else {
@@ -148,7 +171,7 @@ impl MountForm {
         )?;
         self.control = Some(control);
         self.stopping = false;
-        self.notice = Some(if sync_only { "Synchronizing local workspace. See log for verified archive results." } else {
+        self.notice = Some(if action >= 2 { "Maintenance running. See log for capacity, cleanup or recovery results." } else if sync_only { "Synchronizing local workspace. See log for verified archive results." } else {
             "Mount process started; this is not yet proof that the drive is mounted or cloud changes are committed. See log for readiness and sync status."
         }.into());
         Ok(())
@@ -178,7 +201,8 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
     let form = &mut state.mount;
     ui.heading("Mount a writable workspace");
     ui.label("Use Explorer/Finder to add, edit and delete files. Changes are archived to the selected pool in the background.");
-    ui.group(|ui| {
+    if !form.virtual_drive {
+        ui.group(|ui| {
         ui.label("This keeps a complete plaintext local copy, plus a persistent VFS cache. Reserve enough disk space and protect the local workspace.");
         ui.label("Leave shared root and worker name empty for local-only mode. Existing archives are imported only from manifests you explicitly select.");
         ui.label("Shared mode uses eventual synchronization, not file locking. Use the same encrypted shared root on every PC and a distinct worker name. Conflicting edits create conflict copies to preserve both versions.");
@@ -186,11 +210,15 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
         ui.label("If cached writes remain, recover them through the original mount before synchronizing. The local copy and persistent cache are retained.");
         ui.label("In local-only mode, deletion affects only this workspace; shared deletions propagate during safe reconciliation. Previous remote archives are retained. Pending edits may remain local or in the VFS cache until the same workspace is restarted.");
     });
+    } else {
+        ui.label("Metadata-first virtual mode: verified shards are fetched on demand. Saves retain local spool/cache until cloud verification. Shared changes arrive live; served remote revisions appear as incoming copies.");
+    }
     let input_identity = (
         form.pool.clone(),
         form.workspace.clone(),
         form.shared_root.clone(),
         form.manifests.clone(),
+        form.virtual_drive,
     );
     ui.add_enabled_ui(!form.runner.is_running(), |ui| {
         ui.horizontal(|ui| {
@@ -207,6 +235,11 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
                     }
                 });
         });
+        ui.checkbox(&mut form.virtual_drive,"Virtual cloud drive — experimental (NEW workspace; lazy verified shards)");
+        if form.virtual_drive {
+            ui.label("Compatibility-safe virtual namespace uses shared-root/virtual-v3. Served files stay pinned for this mount; incoming changes appear as named revision copies. Dirty writes and history are retained. Empty directories currently remain local.");
+            ui.horizontal(|ui| {ui.label("Clean shard cache budget (GiB)");ui.add(egui::DragValue::new(&mut form.cache_gib).range(1..=1048576));});
+        }
         directory_field(ui, "Persistent local workspace", &mut form.workspace);
         ui.label("Shared encrypted root (optional, e.g. crypt:teamspace)");
         ui.text_edit_singleline(&mut form.shared_root);
@@ -272,6 +305,12 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
                     form.notice = Some(error);
                 }
             }
+            if form.virtual_drive && ui.button("Trim clean cache (retain dirty/history)").clicked() {
+                if let Err(error)=form.start_action(&state.settings.rclone,4){form.notice=Some(error);}
+            }
+            if form.virtual_drive && ui.button("Export recoverable spool (unmounted)").clicked() {
+                if let Err(error) = form.start_action(&state.settings.rclone, 5) { form.notice = Some(error); }
+            }
             if ui.button("Refresh capacity / check exclusions").clicked() {
                 if let Err(error) = form.start_action(&state.settings.rclone, 2) {
                     form.notice = Some(error);
@@ -290,29 +329,57 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
             form.workspace.clone(),
             form.shared_root.clone(),
             form.manifests.clone(),
+            form.virtual_drive,
         )
     {
         form.capacity = None;
     }
+    ui.collapsing("Account capacity / outage identities", |ui| {
+        ui.label("One line: backing-remote account-budget-id outage-group-id. Use the SAME budget ID for aliases/accounts sharing quota; distinct budget IDs assert independent capacity. Outage groups are separate: accounts on one provider may fail together. No passwords or tokens.");
+        ui.add_enabled_ui(!form.runner.is_running(), |ui| {
+            ui.text_edit_multiline(&mut form.identity_editor);
+            if ui.button("Save account identities").clicked() {
+                let result: anyhow::Result<()> = (|| {
+                    let mut store = crate::storage::admin::domains::DomainStore::default();
+                    for line in form.identity_editor.lines().filter(|line| !line.trim().is_empty()) {
+                        let words: Vec<_> = line.split_whitespace().collect();
+                        if !(2..=3).contains(&words.len()) { anyhow::bail!("Use two or three fields per line"); }
+                        if store.remotes.insert(words[0].into(), crate::storage::admin::domains::DomainIdentity {
+                            capacity: words[1].into(), failure: words.get(2).copied().unwrap_or("").into()
+                        }).is_some() { anyhow::bail!("Duplicate backing remote"); }
+                    }
+                    store.save()
+                })();
+                form.notice = Some(match result { Ok(()) => {form.capacity=None; "Identity declarations saved; refresh capacity.".into()}, Err(e)=>format!("{e:#}") });
+            }
+        });
+    });
     if let Some(capacity) = &form.capacity {
         let mut migrate = false;
         ui.group(|ui| {
             ui.heading("Cloud pool capacity (estimate)");
-            ui.label(format!("Current local files: {:.2} GiB / estimated usable ceiling: {:.2} GiB",
-                capacity.logical_used as f64 / 1073741824.0, capacity.logical_ceiling_estimate as f64 / 1073741824.0));
+            ui.label(format!("{} (without parity): {:.2} GiB / estimated usable ceiling: {:.2} GiB",
+                if capacity.usage_scope == "shared-namespace" {"Known shared files + pending"} else {"Current local files"}, capacity.logical_used as f64 / 1073741824.0, capacity.logical_ceiling_estimate as f64 / 1073741824.0));
             let age = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs().saturating_sub(capacity.observed_unix)).unwrap_or(0);
             ui.label(format!("Additional full-group capacity: {:.2} GiB · eligible targets: {} · snapshot: {} seconds ago",
                 capacity.additional_estimate as f64 / 1073741824.0, capacity.eligible.len(), age));
             ui.small(&capacity.note);
-            ui.small("Local file usage includes pending edits, but may exclude writes still in VFS cache. Cloud history is retained and consumes quota. Explorer/Finder disk space describes the local staging disk.");
+            for target in &capacity.targets {
+                ui.small(format!("{} → {} · quota group {} · free {:.2} / total {:.2} GiB · {}",
+                    target.remote, target.backing, target.capacity_domain,
+                    target.free as f64 / 1073741824.0, target.total as f64 / 1073741824.0,
+                    if target.declared { "user-declared identity" } else { "unverified overlap" }));
+            }
+            if let Some(committed) = capacity.committed_logical_used { ui.small(format!("Known committed shared namespace: {:.2} GiB (data only)", committed as f64 / 1073741824.0)); }
+            ui.small("Usage excludes parity and may exclude writes still in VFS cache. Retained cloud history consumes physical quota. Replica mode reports local disk space; virtual mode serves this estimate through DAV quota.");
             for excluded in &capacity.excluded {
                 ui.colored_label(egui::Color32::YELLOW, format!("{}: {}", excluded.remote, excluded.reason));
             }
             if capacity.retained_archives > 0 {
                 ui.colored_label(egui::Color32::YELLOW, format!("{} active archives and {} locally known archive manifests reference excluded targets.", capacity.affected_active, capacity.retained_archives));
                 ui.label("Migration switches active references only after verified copying. Originals and historical/shared references are retained; this does not free space on the old storage. Unmount and drain VFS cache first.");
-                migrate = ui.add_enabled(!form.runner.is_running() && capacity.affected_active > 0 && !capacity.eligible.is_empty(),
+                migrate = ui.add_enabled(!form.virtual_drive && !form.runner.is_running() && capacity.affected_active > 0 && !capacity.eligible.is_empty(),
                     egui::Button::new("Migrate active archives — retain originals")).clicked();
             }
         });

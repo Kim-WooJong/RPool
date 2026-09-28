@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Opt-in metadata-first virtual drive via authenticated persistent loopback DAV: lazy verified shard reads, group-local RS recovery, bounded clean cache, durable write spool, live causal metadata exchange and worker-labelled conflict copies. Incoming replacements of already served paths appear as copies until remount; native handle-coherent replacement and real WinFsp/FUSE deployment remain unvalidated.
+- Provider quotas are queried dynamically. Non-secret account/outage declarations separate overlapping budgets from correlated failures; capacity/admission use the selected placement and exact per-domain budgets. Virtual usage excludes parity/cache and is exposed through DAV quota. Explicit spool export and clean-cache trimming retain all remote history; no remote pruning or automatic corrupt-checkpoint rollback.
+
 - Quota-aware mount writeback excludes unknown/unavailable accounting targets without changing Pool policy or old reads. Mount panel displays exclusions, local logical usage and conservative parity-aware capacity estimates. Explicit unmounted migration copies and verifies affected active archives, switches references with durable receipts and publishes manifest-only shared successors; originals/history remain stored. OS filesystem capacity remains local-disk-based.
 
 - Delayed bounded hedged RS downloads: passive stall/progress estimates, verified per-read staging, early per-group recovery and cooperative cancellation of losing requests. Two-group staging window and reserved parity slots remain within the worker cap. Superseded slow candidates are retained for required recovery; parent cancellation/deadlines and fatal adapter errors remain visible. Single-worker reads retain non-speculative recovery. No real-cloud latency claim.

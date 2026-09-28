@@ -1,13 +1,21 @@
 pub(crate) mod adapter;
 pub(crate) mod capacity;
+mod dav;
+mod namespace;
+mod shard_cache;
 mod shared_model;
 mod shared_transport;
+mod virtual_drive;
 mod workspace;
 
 use anyhow::{Context, Result};
 use std::time::{Duration, Instant};
 
 pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
+    crate::storage::admin::domains::update(&args.capacity_domain, &args.failure_domain)?;
+    if args.virtual_drive {
+        return virtual_drive::run(rclone, args);
+    }
     if args.stop_file.as_ref().is_some_and(|path| path.exists()) {
         anyhow::bail!("stop file already exists; choose a fresh control path");
     }
@@ -67,6 +75,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         cache_dir,
         target,
         shared: workspace.is_shared(),
+        webdav: None,
     })?;
     println!("Mount process started. Waiting for filesystem readiness; close files before requesting unmount.");
     let mut last_scan = Instant::now();
@@ -171,3 +180,6 @@ fn report_capacity(workspace: &workspace::Workspace, path: Option<&std::path::Pa
         }
     }
 }
+
+#[cfg(test)]
+mod virtual_tests;

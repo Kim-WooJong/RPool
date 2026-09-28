@@ -3,6 +3,18 @@ use std::path::PathBuf;
 
 #[derive(Args, Debug)]
 pub(crate) struct MountArgs {
+    /// Opt-in metadata-first virtual drive (requires a NEW empty workspace).
+    #[arg(long)]
+    pub(crate) virtual_drive: bool,
+    /// Verified clean-shard cache budget in GiB. Dirty writes are never evicted.
+    #[arg(long, default_value_t = 10)]
+    pub(crate) cache_gib: u64,
+    /// Trim only verified clean cache; never delete remote history or dirty spool.
+    #[arg(long, requires = "virtual_drive", conflicts_with_all = ["capacity_only", "sync_only", "migrate_excluded"])]
+    pub(crate) cleanup_cache: bool,
+    /// Export recoverable local spool without mounting, uploading or rewriting metadata.
+    #[arg(long, requires = "virtual_drive", conflicts_with_all = ["cleanup_cache", "capacity_only", "sync_only", "migrate_excluded"])]
+    pub(crate) recover_spool: bool,
     /// Pool receiving verified versions of files changed in this workspace.
     #[arg(long)]
     pub(crate) pool: String,
@@ -17,7 +29,7 @@ pub(crate) struct MountArgs {
     #[arg(long, requires = "shared_root")]
     pub(crate) worker_name: Option<String>,
     /// Unused Windows drive letter, or an existing empty Unix mount directory.
-    #[arg(long, required_unless_present_any = ["sync_only", "capacity_only", "migrate_excluded"])]
+    #[arg(long, required_unless_present_any = ["sync_only", "capacity_only", "migrate_excluded", "cleanup_cache", "recover_spool"])]
     pub(crate) mountpoint: Option<PathBuf>,
     /// Explicit existing archives to import; pool membership is not inferred.
     #[arg(long = "manifest")]
@@ -34,6 +46,12 @@ pub(crate) struct MountArgs {
     /// Machine-readable capacity status for the GUI, atomically replaced each scan.
     #[arg(long)]
     pub(crate) status_file: Option<PathBuf>,
+    /// Declare backing-remote=account-budget; shared quotas must use the same ID.
+    #[arg(long)]
+    pub(crate) capacity_domain: Vec<String>,
+    /// Declare backing-remote=outage-group (independent from capacity identity).
+    #[arg(long)]
+    pub(crate) failure_domain: Vec<String>,
     /// Delay between writeback scans; open VFS handles may remain locally cached.
     #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(2..=86400))]
     pub(crate) interval_seconds: u64,

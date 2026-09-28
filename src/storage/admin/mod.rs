@@ -1,5 +1,7 @@
 //! Provider administration and tool diagnostics, deliberately separate from data I/O.
+pub(crate) mod budget;
 pub(crate) mod catalog;
+pub(crate) mod domains;
 mod quota;
 use super::error::StorageError;
 use super::rclone::RcloneContext;
@@ -50,7 +52,9 @@ impl BackendAdmin for RcloneAdmin {
         Ok(names)
     }
     fn catalog(&self) -> Result<RemoteCatalog> {
-        RemoteCatalog::parse(&self.context.config_dump(&self.operation())?)
+        let mut catalog = RemoteCatalog::parse(&self.context.config_dump(&self.operation())?)?;
+        catalog.set_domains(domains::DomainStore::load()?);
+        Ok(catalog)
     }
     fn probe(&self, remote: &str) -> Result<()> {
         // Capture is bounded and errors sanitized by the existing process owner.

@@ -491,14 +491,14 @@ mod shared;
 #[path = "workspace_capacity.rs"]
 mod capacity;
 
-fn upload_eligible(
+pub(super) fn upload_eligible(
     rclone: &str,
     policy: &PoolDefinition,
     pool: &str,
     source: &Path,
     id: &str,
 ) -> Result<Manifest> {
-    let mut status = super::capacity::CapacityStatus::inspect(
+    let status = super::capacity::CapacityStatus::inspect(
         &crate::storage::admin::RcloneAdmin::inherited(rclone),
         policy,
     )?;
@@ -572,13 +572,31 @@ fn upload_eligible(
             &plan,
             &mut journal,
         )?;
-        let credit = journal.completed.values().try_fold(0u64, |sum, shard| {
-            sum.checked_add(shard.size)
-                .context("resume credit overflow")
-        })?;
-        status.budget = status.budget.saturating_add(credit.min(size));
+        let snapshot = crate::storage::admin::budget::BudgetSnapshot {
+            targets: status.targets.clone(),
+            rejected: vec![],
+        };
+        let mut budgets = snapshot.budgets();
+        for shard in &plan.shards {
+            if shard.kind == ShardKind::Data && journal.completed.contains_key(&shard.index) {
+                continue;
+            }
+            let target = status
+                .targets
+                .iter()
+                .find(|target| target.remote == shard.remote)
+                .context("saved target excluded")?;
+            let free = budgets
+                .get_mut(&target.capacity_domain)
+                .context("saved target has no quota")?;
+            *free = free
+                .checked_sub(shard.size)
+                .context("insufficient quota to resume saved placement")?;
+        }
+        crate::placement::validate_resilient_plan(rclone, &plan)?;
+    } else {
+        status.check_upload(policy, size)?;
     }
-    status.check_upload(policy, size)?;
     crate::commands::put_with_storage(
         &crate::storage::writer::StorageWriter::rclone(rclone),
         rclone,

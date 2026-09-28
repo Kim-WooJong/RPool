@@ -19,7 +19,7 @@ pub(crate) fn build_upload_plan(
     };
 
     let mut plan_shards = Vec::new();
-    let mut specs = Vec::new();
+    let specs = physical_specs(source_size, shard_size, coding.as_ref())?;
 
     if let Some(coding) = &coding {
         let groups = coding_group_count(data_count, coding.data_shards);
@@ -44,10 +44,6 @@ pub(crate) fn build_upload_plan(
                     group: group as u32,
                     slot: (data_index - group_start) as u16,
                 });
-                specs.push(PhysicalSpec {
-                    group: group as u32,
-                    size,
-                });
             }
 
             for parity_index in 0..coding.parity_shards {
@@ -62,10 +58,6 @@ pub(crate) fn build_upload_plan(
                     kind: ShardKind::Parity,
                     group: group as u32,
                     slot: (coding.data_shards + parity_index) as u16,
-                });
-                specs.push(PhysicalSpec {
-                    group: group as u32,
-                    size: shard_size,
                 });
             }
         }
@@ -87,10 +79,6 @@ pub(crate) fn build_upload_plan(
                 kind: ShardKind::Data,
                 group: 0,
                 slot: 0,
-            });
-            specs.push(PhysicalSpec {
-                group: data_index as u32,
-                size,
             });
         }
     }
@@ -121,4 +109,45 @@ pub(crate) fn build_upload_plan(
         coding,
         shards: plan_shards,
     })
+}
+
+/// Exactly the upload planner's data/whole-parity ordering, also used for admission.
+pub(crate) fn physical_specs(
+    size: u64,
+    shard: u64,
+    coding: Option<&Coding>,
+) -> Result<Vec<PhysicalSpec>> {
+    if shard == 0 {
+        bail!("zero shard size");
+    }
+    let data = size.div_ceil(shard).max(1);
+    let k = coding.map_or(1, |c| c.data_shards as u64);
+    let m = coding.map_or(0, |c| c.parity_shards as u64);
+    if k == 0 {
+        bail!("zero data shards");
+    }
+    let groups = data.div_ceil(k);
+    let count = data
+        .checked_add(groups.checked_mul(m).context("shard count overflow")?)
+        .context("shard count overflow")?;
+    if count > u32::MAX as u64 {
+        bail!("too many shards");
+    }
+    let mut specs = Vec::new();
+    specs.try_reserve_exact(usize::try_from(count)?)?;
+    for group in 0..groups {
+        for index in (group * k)..((group + 1) * k).min(data) {
+            specs.push(PhysicalSpec {
+                group: group as u32,
+                size: size.saturating_sub(index * shard).min(shard),
+            });
+        }
+        for _ in 0..m {
+            specs.push(PhysicalSpec {
+                group: group as u32,
+                size: shard,
+            });
+        }
+    }
+    Ok(specs)
 }

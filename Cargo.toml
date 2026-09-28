@@ -17,11 +17,11 @@ path = "src/main.rs"
 [features]
 default = []
 # Synthetic Memory adapter only; does not enable production native writes.
-opendal-prototype = ["dep:opendal", "dep:tokio"]
+opendal-prototype = ["dep:opendal"]
 
 [dependencies]
 opendal = { version = "=0.59.3", default-features = false, optional = true }
-tokio = { version = "1.52", default-features = false, features = ["rt-multi-thread"], optional = true }
+tokio = { version = "1.52", default-features = false, features = ["rt-multi-thread", "net", "sync", "time", "io-util"] }
 anyhow = "1"
 # Explicit OpenGL renderer avoids the wgpu staging-buffer failure reported on Windows.
 eframe = { version = "=0.36.2", default-features = false, features = ["accesskit", "default_fonts", "links", "wayland", "web_screen_reader", "glow", "x11"] }
@@ -36,6 +36,12 @@ serde_json = "1"
 # Already present in Cargo.lock; promoted for secret generation/atomic ciphertext writes.
 getrandom = "0.3.4"
 tempfile = "3.27.0"
+dav-server = { version = "0.8", default-features = false }
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+futures-util = "0.3"
 
 # Isolated synthetic LocalBackend: descriptor-relative, no-follow Unix filesystem I/O.
 [target.'cfg(unix)'.dev-dependencies]

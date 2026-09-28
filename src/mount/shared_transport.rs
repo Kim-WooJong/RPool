@@ -75,6 +75,12 @@ impl SharedTransport {
     }
 
     pub(crate) fn list(&self) -> Result<BTreeMap<String, Vec<u8>>> {
+        self.list_missing(&std::collections::BTreeSet::new())
+    }
+    pub(crate) fn list_missing(
+        &self,
+        known: &std::collections::BTreeSet<String>,
+    ) -> Result<BTreeMap<String, Vec<u8>>> {
         let context = RcloneContext::inherited(&self.rclone);
         let operation = OperationContext::none();
         context.ensure_crypt(&operation, &self.root)?;
@@ -108,6 +114,9 @@ impl SharedTransport {
                 .ok_or_else(|| anyhow::anyhow!("shared event size overflow"))?;
             if total > TOTAL_LIMIT {
                 bail!("shared event collection exceeds size limit");
+            }
+            if known.contains(id) {
+                continue;
             }
             let address = remote_join(&events, &entry.path);
             let metadata = storage.reader().stat(&address)?;

@@ -100,7 +100,7 @@ fn overlaps(a: &str, b: &str) -> bool {
         || b.strip_prefix(&a).is_some_and(|s| s.starts_with('/'))
 }
 
-fn conflict_path(path: &str, worker: &str, id: &str, attempt: usize) -> Result<String> {
+pub(crate) fn conflict_path(path: &str, worker: &str, id: &str, attempt: usize) -> Result<String> {
     let (directory, name) = path.rsplit_once('/').map_or(("", path), |(d, n)| (d, n));
     let (stem, extension) = name
         .rsplit_once('.')

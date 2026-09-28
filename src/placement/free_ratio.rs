@@ -21,127 +21,51 @@ pub(crate) fn plan_free_ratio_with_admin(
     prefer_group_diversity: bool,
 ) -> Result<Vec<usize>> {
     let catalog = admin.catalog()?;
-    #[derive(Clone)]
-    struct Q {
-        total: u64,
-        free: u64,
-        assigned: u64,
+    let snapshot = crate::storage::admin::budget::BudgetSnapshot::query(admin, &catalog, remotes);
+    if !snapshot.rejected.is_empty() {
+        bail!("quota planning unavailable: {:?}", snapshot.rejected);
     }
+    allocate(&snapshot, specs, prefer_group_diversity)
+}
 
-    let mut backing_by_remote = Vec::with_capacity(remotes.len());
-    let mut quotas: BTreeMap<String, Q> = BTreeMap::new();
-    for remote in remotes {
-        let binding = catalog.capacity(remote)?;
-        let backing = binding
-            .domain
-            .as_ref()
-            .map(|d| d.as_str().to_owned())
-            .ok_or_else(|| anyhow!("capacity domain unresolved for free-ratio placement"))?;
-        if !quotas.contains_key(&backing) {
-            let report = admin.quota(&binding.target);
-            if let Some(error) = report.error {
-                bail!(
-                    "backing remote does not provide usable quota data for --placement free-ratio: {} (storage target {}): {}",
-                    backing,
-                    remote,
-                    error
-                );
-            }
-            let total = report
-                .total
-                .ok_or_else(|| anyhow!("{backing}: rclone about did not return total"))?;
-            let free = report
-                .free
-                .ok_or_else(|| anyhow!("{backing}: rclone about did not return free"))?;
-            quotas.insert(
-                backing.clone(),
-                Q {
-                    total,
-                    free,
-                    assigned: 0,
-                },
-            );
-        }
-        backing_by_remote.push(backing);
-    }
-
-    // Distinct configuration sections may still share one account. Without
-    // explicit account identity, bound combined allocation by the smallest
-    // available quota rather than summing possibly overlapping budgets.
-    let shared_budget = quotas.values().map(|q| q.free).min().unwrap_or(0);
-    let mut shared_assigned = 0u64;
+pub(crate) fn allocate(
+    snapshot: &crate::storage::admin::budget::BudgetSnapshot,
+    specs: &[PhysicalSpec],
+    diversity: bool,
+) -> Result<Vec<usize>> {
+    let mut budgets = snapshot.budgets();
+    let targets = &snapshot.targets;
     let mut result = Vec::with_capacity(specs.len());
-    let mut group_counts: BTreeMap<u32, BTreeMap<String, usize>> = BTreeMap::new();
+    let mut counts = BTreeMap::<u32, BTreeMap<String, usize>>::new();
+    let distinct: BTreeSet<_> = targets.iter().map(|t| t.backing.as_str()).collect();
     let mut group_sizes = BTreeMap::<u32, usize>::new();
     for spec in specs {
         *group_sizes.entry(spec.group).or_default() += 1;
     }
-
     for spec in specs {
-        if spec.size > shared_budget.saturating_sub(shared_assigned) {
-            bail!(
-                "insufficient conservative shared quota budget; account independence is unverified"
-            );
-        }
-        shared_assigned = shared_assigned
-            .checked_add(spec.size)
-            .ok_or_else(|| anyhow!("allocation overflow"))?;
-        let counts = group_counts.entry(spec.group).or_default();
-        let ceiling = group_sizes[&spec.group].div_ceil(quotas.len().max(1));
-
-        let min_count = if prefer_group_diversity {
-            remotes
-                .iter()
-                .enumerate()
-                .filter_map(|(index, _)| {
-                    let backing = &backing_by_remote[index];
-                    let quota = quotas.get(backing)?;
-                    if quota.free.saturating_sub(quota.assigned) < spec.size {
-                        return None;
-                    }
-                    Some(*counts.get(backing).unwrap_or(&0))
-                })
-                .min()
-        } else {
-            None
-        };
-
-        let mut best: Option<(usize, f64)> = None;
-        for (index, _) in remotes.iter().enumerate() {
-            let backing = &backing_by_remote[index];
-            let quota = quotas
-                .get(backing)
-                .ok_or_else(|| anyhow!("missing quota state for backing remote {backing}"))?;
-            let available = quota.free.saturating_sub(quota.assigned);
-            if available < spec.size {
+        let group = counts.entry(spec.group).or_default();
+        let ceiling = group_sizes[&spec.group].div_ceil(distinct.len().max(1));
+        let mut best: Option<(usize, usize, f64)> = None;
+        for (i, t) in targets.iter().enumerate() {
+            let free = budgets[&t.capacity_domain];
+            let count = group.get(&t.backing).copied().unwrap_or(0);
+            if free < spec.size || (diversity && count >= ceiling) {
                 continue;
             }
-            if prefer_group_diversity && counts.get(backing).copied().unwrap_or(0) >= ceiling {
-                continue;
-            }
-            if let Some(min_count) = min_count {
-                if *counts.get(backing).unwrap_or(&0) != min_count {
-                    continue;
-                }
-            }
-            let score = available as f64 / quota.total.max(1) as f64;
-            if best.map(|(_, old)| score > old).unwrap_or(true) {
-                best = Some((index, score));
+            let rank = if diversity { count } else { 0 };
+            let ratio = free as f64 / t.total.max(1) as f64;
+            if best.is_none_or(|(_, r, q)| rank < r || (rank == r && ratio > q)) {
+                best = Some((i, rank, ratio));
             }
         }
-
         let index = best
-            .map(|(index, _)| index)
-            .ok_or_else(|| anyhow!("insufficient reported free space for planned shards"))?;
-        let backing = backing_by_remote[index].clone();
-        let quota = quotas
-            .get_mut(&backing)
-            .ok_or_else(|| anyhow!("missing quota state for backing remote {backing}"))?;
-        quota.assigned = quota.assigned.saturating_add(spec.size);
-        *counts.entry(backing).or_insert(0) += 1;
+            .context("insufficient domain quota for the requested placement")?
+            .0;
+        let t = &targets[index];
+        *budgets.get_mut(&t.capacity_domain).unwrap() -= spec.size;
+        *group.entry(t.backing.clone()).or_default() += 1;
         result.push(index);
     }
-
     Ok(result)
 }
 

@@ -1,12 +1,69 @@
-# Read/write Pool drive (local workspace)
+# Read/write Pool drive
 
-The drive is a **full persistent local replica**, not an on-demand cloud filesystem.
-Explorer/Finder writes first land in rclone's local VFS cache and workspace. RPool
-periodically archives changed files to the workspace's Pool and verifies them before
-committing its catalog. A successful application save does not mean cloud upload has
-finished. Close files before unmounting and inspect writeback results.
+Two modes are available. **Replica** (default) keeps a full local copy. The new
+**Virtual cloud drive** is opt-in: it lists the shared metadata namespace without
+restoring all files, then downloads/verifies only intersecting shards on reads.
+Both modes keep writes on local disk before asynchronous verified cloud publication.
+An application save is **not** a completed-cloud-replication acknowledgment.
 
-## GUI
+## Virtual drive (new workspace only)
+
+Select **Virtual cloud drive** in Mount drive, a NEW empty persistent workspace,
+Pool, mountpoint, and optionally shared root + worker name. All participating PCs
+must use virtual mode and the same shared root; its events live under
+`shared-root/virtual-v3`, isolated from older replica catalogs. Existing archives
+are imported explicitly from manifests; listing imports does not download content.
+Never point this mode at an existing replica or copy/share an active workspace.
+
+The authenticated loopback DAV bridge mounts through rclone, requiring WinFsp on
+Windows or a mount-capable FUSE installation on Linux/macOS. Its private persisted
+endpoint/token must remain unchanged alongside the VFS cache after interruption.
+An occupied saved port or live/uncertain old mount lease fails closed.
+
+- Range reads verify whole requested shards (the archive format has no subshard
+  hashes). Missing/unavailable data uses the existing parallel RS recovery scheduler
+  for only the affected coding group. Clean shard cache is bounded; dirty spool is
+  never evicted. Uncached content needs network access.
+- PUT completion at the bridge flushes content, recovery receipt and namespace.
+  Native application writes can still be in rclone's VFS cache; keep that cache too.
+- Shared changes are fetched while mounted. Previously unserved paths update live.
+  Served paths retain an immutable mount-session revision; newer remote versions
+  appear as `conflict-incoming-ID` copies until remount. This avoids combining bytes
+  from different versions across generic DAV range requests. Local acknowledged
+  saves/deletes/renames update their visible paths; already-open DAV read handles
+  retain their selected revision. DAV mtime is a synthetic revision discriminator,
+  not the original source modification time. **No distributed locking or transparent native
+  open-handle coherence guarantee.** Generic writes use conservative observed bases,
+  so some sequential edits can produce extra conflict copies rather than overwrite.
+- File and directory moves checkpoint their local namespace changes together.
+  Empty directories remain local-only. Metadata-only deletion is not remote erasure.
+- Usage counts known live shared file contents plus sealed pending changes,
+  **excluding parity and cache copies**. A separate committed logical counter is
+  shown. Unimported archives and writes still in VFS cache are not included.
+- Virtual mode exports this logical usage and placement-aware ceiling via standard
+  DAV quota. Real HTTP quota tests pass; Explorer/WinFsp and live rclone mount
+  behavior have **not** been validated on a real multi-PC deployment.
+
+### Recovery and safe cleanup
+
+Restart the SAME workspace/mountpoint to replay durable pending work. Do not delete
+`vfs-cache`, `spool`, `dav-identity.json`, or mount identity files. If the primary
+namespace is corrupt, RPool fails closed instead of silently reverting to a backup
+that might omit acknowledged writes.
+
+**Export recoverable spool (unmounted)** / `--virtual-drive --recover-spool` copies
+sealed or partial spool files to `recovered-writes`, with receipts preserving the
+original paths. It does not repair/replace a corrupt checkpoint or upload anything.
+Partial files are explicitly labelled and need inspection. Recovery cannot export
+writes that exist only in rclone's cache; recover those through the original mount.
+
+**Trim clean cache** / `--virtual-drive --cleanup-cache` enforces `--cache-gib`
+(default 10) on verified clean shard entries only. All dirty writes and remote
+versions are retained. Remote history pruning is deliberately NOT enabled: offline
+clients may still reference old versions, and there is no fencing/retention protocol
+that proves deletion safe. This is safe local cleanup, not cloud space reclamation.
+
+## Replica GUI
 
 1. Create/select a Pool under Storage → Pools.
 2. Open Storage → Mount drive. Select the Pool and a durable local workspace
@@ -25,37 +82,46 @@ process alone is not considered a ready filesystem. Startup times out after 30 s
 
 ## Quota-aware placement and capacity
 
-Mount writeback automatically excludes destinations without a trustworthy reported
-free quota **and a resolved capacity accounting scope**. It does not remove them
-from the saved Pool, alter old manifests, or block reads from existing archives.
-Known wrapper aliases share one quota. Unresolved/aggregate scopes are excluded even
-if a backend happens to return a number. Current scope resolution recognizes
-Drive, OneDrive, Dropbox, Box and pCloud account quotas through known wrappers.
-Temporary query failures are labeled separately and eligibility is refreshed before
-each new archive upload. Known zero-free targets are full, not unknown.
+Mount writeback queries actual backend quotas instead of rejecting provider types
+with a fixed allowlist. Missing total/free, contradictory results, unsupported
+wrapper resolution and transient query failures have separate diagnostics. Zero
+free space means full, not unknown. Exclusion affects new placement only; old
+manifests remain readable.
 
-Use **Refresh capacity / check exclusions** before mounting. During a mount the
-capacity panel refreshes after writeback scans and shows snapshot age, current local
-file bytes, additional full-group logical capacity and their sum (estimated usable
-ceiling). Local usage includes pending plaintext edits but may not include open VFS
-cache writes. Retained old versions still consume cloud quota. This is not a pool-wide
-inventory and not a cloud-committed-byte counter.
+The **Account capacity / outage identities** editor accepts one line per concrete
+backing remote (not its crypt wrapper):
 
-The estimate deliberately uses the smallest known free quota, rather than summing
-configuration sections whose account independence cannot be proven. It charges full
-parity groups and checks Resilient placement feasibility. Small files/partial groups
-have greater overhead: a nonempty file of size L needs
-`L + ceil(ceil(L / shard_size) / K) * M * shard_size` physical bytes. Upload admission
-checks this cost independently. Metadata/encryption overhead, concurrent external
-writers and local staging space are not reserved. These are conservative estimates,
-**not a guarantee or the provider's nominal maximum capacity**.
+```text
+backing-a account-a provider-a
+backing-b account-b provider-b
+```
 
-**Explorer/Finder/df still report the local staging disk.** The cloud figures are in
-the RPool Mount drive panel and CLI log; RPool does not override OS filesystem statfs.
-If no eligible targets remain, existing local files remain usable and failed new
-writeback retains local edits. Insufficient Resilient targets never silently downgrade
-parity protection. Shared pre-mount writeback failure skips incoming replacement but
-allows local mount recovery.
+These are non-secret user declarations, not automatically proven account identities.
+Use the SAME quota-group ID for remotes sharing an account/quota. Use the SAME outage
+ID for accounts that fail together. Independent budgets are summed; alias budgets
+are counted once. Without declarations, all unresolved accounts share the smallest
+reported budget conservatively. When some accounts are declared, unresolved accounts
+are excluded until mapped, because they might alias one of the declared accounts.
+CLI equivalents: `--capacity-domain backing-a=account-a` and
+`--failure-domain backing-a=provider-a`.
+
+Capacity uses the SAME round-robin/free-ratio/resilient allocation logic as fresh
+uploads, debiting actual account budgets. Resilient now requires declared outage
+groups and limits each group's shard concentration to M. Saved uploads validate
+remaining shards against their saved destinations, crediting only reverified data;
+parity remains fully charged. Existing Pool policies are not silently changed.
+
+The panel shows logical used bytes, additional full-group capacity, their sum and
+snapshot age. Simulation is bounded to 65,536 physical shards; if capped, the panel
+explicitly marks a verified **lower bound, not a maximum**. Small nonempty files need
+`L + ceil(ceil(L / shard_size) / K) * M * shard_size` physical bytes. Empty mount files
+are uncoded. Metadata/encryption overhead and external writers can reduce usable
+space; these are estimates, not reservations or nominal provider capacities.
+
+Replica mode counts local files and OS space remains the local staging disk.
+Virtual mode counts its known shared namespace and provides quota through DAV.
+Historical archives consume provider quota even though they are not logical live
+file usage. No mode infers a complete cloud inventory from a Pool name.
 
 ### Move active data away from excluded storage
 
