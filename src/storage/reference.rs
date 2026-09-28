@@ -176,10 +176,12 @@ impl LegacyAddress {
         &self.remote
     }
 
+    #[cfg(test)]
     pub(crate) fn path(&self) -> &str {
         &self.path
     }
 
+    #[cfg(test)]
     pub(crate) fn original(&self) -> &str {
         &self.original
     }

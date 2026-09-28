@@ -1,3 +1,4 @@
+#[cfg(test)]
 use super::age_vault::AgeEncrypt;
 use super::secret_process::{execute, rclone_command, Output, MAX_SECRET_BYTES};
 use crate::models::secrets::{unique_map, CryptSecret, SecretBundle};
@@ -76,6 +77,7 @@ pub(crate) fn extract_crypt_secrets(executable: &Path, config: &Path) -> Result<
     Ok((bundle, portable))
 }
 
+#[cfg(test)]
 pub(crate) fn export_crypt_secret_vault(executable: &Path, config: &Path, age: &AgeEncrypt<'_>, output: &Path) -> Result<Vec<PortableCryptRemote>> {
     let (secrets, portable) = extract_crypt_secrets(executable, config)?;
     age.write_bundle(output, &secrets)?;

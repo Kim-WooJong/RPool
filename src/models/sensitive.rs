@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct SensitiveText(String);
 
 impl SensitiveText {
+    #[cfg(test)]
     pub(crate) fn new(value: String) -> Self { Self(value) }
     pub(crate) fn as_str(&self) -> &str { &self.0 }
 }

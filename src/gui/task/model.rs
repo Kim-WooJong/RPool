@@ -2,35 +2,10 @@ use std::ffi::OsString;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum JobStatus {
-    Pending,
     Running,
     Completed,
     Failed,
     Cancelled,
-}
-
-impl JobStatus {
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Self::Pending => "Pending",
-            Self::Running => "Running",
-            Self::Completed => "Completed",
-            Self::Failed => "Failed",
-            Self::Cancelled => "Cancelled",
-        }
-    }
-
-    pub(crate) fn is_running(self) -> bool {
-        self == Self::Running
-    }
-
-    pub(crate) fn is_terminal(self) -> bool {
-        matches!(self, Self::Completed | Self::Failed | Self::Cancelled)
-    }
-
-    pub(crate) fn is_retryable(self) -> bool {
-        matches!(self, Self::Failed | Self::Cancelled)
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -45,16 +20,6 @@ pub(crate) struct TaskProgress {
 }
 
 impl TaskProgress {
-    pub(crate) fn is_empty(&self) -> bool {
-        self.completed_bytes.is_none()
-            && self.transferred_bytes.is_none()
-            && self.total_bytes.is_none()
-            && self.bytes_per_second.is_none()
-            && self.eta_seconds.is_none()
-            && self.current_item.is_none()
-            && self.total_items.is_none()
-    }
-
     pub(crate) fn fraction(&self) -> Option<f32> {
         if let Some(total) = self.total_bytes {
             if total == 0 {
@@ -75,7 +40,6 @@ impl TaskProgress {
 #[derive(Debug, Clone)]
 pub(crate) struct TaskInvocation {
     pub(crate) task_name: String,
-    pub(crate) rclone: String,
     pub(crate) args: Vec<OsString>,
 }
 

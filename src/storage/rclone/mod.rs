@@ -19,6 +19,7 @@ const ADMIN_LIMIT: usize = 8 * 1024 * 1024;
 #[derive(Clone)]
 pub(crate) enum ConfigSelection {
     Inherited,
+    #[cfg_attr(not(test), expect(dead_code, reason = "Explicit config selection remains available to opt-in backend callers"))]
     File(PathBuf),
 }
 
@@ -287,6 +288,7 @@ impl RcloneContext {
             version: None,
         })
     }
+    #[cfg_attr(not(test), expect(dead_code, reason = "Native copy implements the retained same-backend copy contract"))]
     pub(crate) fn copy_raw(
         &self,
         ctx: &OperationContext,
@@ -354,6 +356,7 @@ pub(crate) struct RcloneBackend {
     legacy_object: Option<String>,
 }
 impl RcloneBackend {
+    #[cfg(test)]
     pub(crate) fn new(
         id: BackendId,
         context: RcloneContext,

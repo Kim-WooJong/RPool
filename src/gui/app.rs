@@ -12,6 +12,8 @@ use std::time::Duration;
 pub(crate) fn launch(startup_rclone: &str) -> Result<()> {
     let startup_rclone = startup_rclone.to_string();
     let native_options = eframe::NativeOptions {
+        // Select explicitly: enabling another backend later must not silently change this.
+        renderer: eframe::Renderer::Glow,
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1180.0, 800.0])
             .with_min_inner_size([800.0, 600.0]),

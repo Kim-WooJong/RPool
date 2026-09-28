@@ -14,6 +14,7 @@ use crate::storage::reference::validate_identifier;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct Generation(u64);
 
+#[cfg_attr(not(test), expect(dead_code, reason = "Retained typed volume identity contract; legacy manifests do not serialize domain IDs"))]
 impl Generation {
     pub(crate) fn new(value: u64) -> Self {
         Self(value)
@@ -36,10 +37,11 @@ impl Default for Generation {
 }
 
 macro_rules! string_id {
-    ($name:ident, $label:literal) => {
+    ($name:ident, $label:literal $(, $future:literal)?) => {
         #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub(crate) struct $name(String);
 
+        $(#[cfg_attr(not(test), expect(dead_code, reason = $future))])?
         impl $name {
             pub(crate) fn new(raw: impl Into<String>) -> Result<Self, StorageError> {
                 let raw = raw.into();
@@ -54,11 +56,11 @@ macro_rules! string_id {
     };
 }
 
-string_id!(VolumeId, "volume id");
-string_id!(ObjectId, "object id");
-string_id!(TransactionId, "transaction id");
-string_id!(ShardId, "shard id");
-string_id!(FailureDomainId, "failure domain id");
+string_id!(VolumeId, "volume id", "Retained typed volume identity contract; legacy manifests do not serialize domain IDs");
+string_id!(ObjectId, "object id", "Retained typed volume identity contract; legacy manifests do not serialize domain IDs");
+string_id!(TransactionId, "transaction id", "Retained typed volume identity contract; legacy manifests do not serialize domain IDs");
+string_id!(ShardId, "shard id", "Retained typed volume identity contract; legacy manifests do not serialize domain IDs");
+string_id!(FailureDomainId, "failure domain id", "Failure-domain identity is retained for future placement policies");
 string_id!(CapacityDomainId, "capacity domain id");
 
 #[cfg(test)]
@@ -80,10 +82,10 @@ mod tests {
         assert!(VolumeId::new("a/b").is_err());
         assert!(VolumeId::new("vol-1").is_ok());
         assert_eq!(VolumeId::new("vol-1").unwrap().as_str(), "vol-1");
-        assert!(ObjectId::new("obj-1").is_ok());
-        assert!(TransactionId::new("tx-1").is_ok());
-        assert!(ShardId::new("shard-1").is_ok());
-        assert!(FailureDomainId::new("fd-1").is_ok());
+        assert_eq!(ObjectId::new("obj-1").unwrap().as_str(), "obj-1");
+        assert_eq!(TransactionId::new("tx-1").unwrap().as_str(), "tx-1");
+        assert_eq!(ShardId::new("shard-1").unwrap().as_str(), "shard-1");
+        assert_eq!(FailureDomainId::new("fd-1").unwrap().as_str(), "fd-1");
         assert!(CapacityDomainId::new("cd-1").is_ok());
     }
 }

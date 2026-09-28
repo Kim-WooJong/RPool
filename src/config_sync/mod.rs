@@ -10,6 +10,7 @@ pub(crate) use validate::validate_bundle;
 
 // Crypt Secret Portability B1-B7 implementation.
 pub(crate) mod age_vault;
+#[cfg(test)]
 pub(crate) mod crypt_generate;
 pub(crate) mod crypt_restore;
 pub(crate) mod crypt_secrets;

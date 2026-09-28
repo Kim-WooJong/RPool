@@ -894,5 +894,17 @@
       "test": 10,
       "build": 46
     }
+  },
+  "gui_renderer_warning_fix": {
+    "date": "2026-09-28",
+    "report": "docs/architecture/gui-renderer-fix-20260928.md",
+    "renderer": "Glow (OpenGL), WGPU disabled",
+    "default_tests_passed": 151,
+    "optional_tests_passed": 162,
+    "ignored_per_suite": 11,
+    "release_builds": "default and optional passed with -D warnings",
+    "warnings": 0,
+    "gui_smoke": "8 seconds alive, no log errors; no interaction verified",
+    "windows": "workaround awaiting user retest"
   }
 }

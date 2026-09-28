@@ -45,6 +45,7 @@ pub(crate) enum StorageError {
     Cancelled { detail: String },
     InvalidInput { detail: String },
     Unsupported { operation: String },
+    #[cfg_attr(not(test), expect(dead_code, reason = "Conditional-update failure remains part of the backend error contract"))]
     PreconditionFailed { detail: String },
     CorruptData { found: String, expected: String },
     TransientIo { detail: String },
@@ -85,6 +86,7 @@ impl StorageError {
         )
     }
 
+    #[cfg_attr(not(test), expect(dead_code, reason = "Preserve provider retry hints without enabling automatic retries"))]
     pub(crate) fn retry_after(&self) -> Option<Duration> {
         match self {
             Self::RateLimited { retry_after, .. } => *retry_after,

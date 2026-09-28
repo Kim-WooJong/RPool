@@ -53,6 +53,7 @@ impl BackendRegistry {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn ids(&self) -> Vec<BackendId> {
         self.backends
             .keys()
@@ -60,6 +61,7 @@ impl BackendRegistry {
             .collect()
     }
 
+    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.backends.is_empty()
     }

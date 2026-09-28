@@ -16,6 +16,7 @@ pub(crate) struct CapacityBinding {
     pub(crate) target: String,
     pub(crate) domain: Option<CapacityDomainId>,
     // Config section identity alone cannot prove an independent outage domain.
+    #[cfg_attr(not(test), expect(dead_code, reason = "Failure-domain placement metadata is retained independently of capacity grouping"))]
     pub(crate) failure_domain: Option<FailureDomainId>,
 }
 impl RemoteCatalog {

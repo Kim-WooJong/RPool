@@ -6,6 +6,7 @@ use std::path::Path;
 
 /// Explicit recovery only. Startup/import must not silently roll back a later
 /// independent configuration edit. No paths are taken from the journal.
+#[cfg_attr(not(test), expect(dead_code, reason = "Explicit recovery remains opt-in; startup and import must not automatically roll back config"))]
 pub(crate) fn recover_interrupted(config: &Path, snapshots: &impl SnapshotStore) -> Result<RecoveryOutcome> {
     let target = files::target_path(config)?;
     let _lock = ConfigLock::acquire(&target)?;

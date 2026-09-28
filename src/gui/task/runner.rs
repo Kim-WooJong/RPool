@@ -76,7 +76,6 @@ impl TaskRunner {
         let command_preview = format_command(&executable, &full_args);
         let invocation = TaskInvocation {
             task_name: task_name.clone(),
-            rclone: rclone.to_string(),
             args: task_args,
         };
 
@@ -232,22 +231,7 @@ impl TaskRunner {
         self.last_outcome.as_ref()
     }
 
-    pub(crate) fn retry_last(&mut self) -> Result<(), String> {
-        if self.running {
-            return Err("another rpool operation is already running".to_string());
-        }
-        let invocation = self
-            .last_task
-            .as_ref()
-            .and_then(|task| task.invocation.clone())
-            .ok_or_else(|| "the last task does not have retry metadata".to_string())?;
-        let TaskInvocation {
-            task_name,
-            rclone,
-            args,
-        } = invocation;
-        self.start_rpool(task_name, &rclone, args)
-    }
+
 }
 
 fn run_process(

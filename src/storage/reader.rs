@@ -48,6 +48,7 @@ impl StorageReader {
             context: OperationContext::none(),
         }
     }
+    #[cfg(test)]
     pub(crate) fn from_registry(
         registry: BackendRegistry,
         bindings: BTreeMap<String, ObjectRef>,
