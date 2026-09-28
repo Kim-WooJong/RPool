@@ -1,3 +1,4 @@
+mod pool_picker;
 pub(crate) mod pools;
 pub(crate) mod providers;
 pub(crate) mod reprocess;

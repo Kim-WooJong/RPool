@@ -26,7 +26,12 @@ pub(crate) fn show(
     }
 
     if groups.is_empty() && degraded_groups > 0 {
-        ui.label(egui::RichText::new("This integrity snapshot predates group-level repair data. Run a new scrub first.").weak());
+        ui.label(
+            egui::RichText::new(
+                "This integrity snapshot predates group-level repair data. Run a new scrub first.",
+            )
+            .weak(),
+        );
         return;
     }
 
@@ -44,41 +49,48 @@ pub(crate) fn show(
         ui.checkbox(&mut form.repair_dry_run, "Dry run");
     });
 
-    egui::Grid::new("repair-groups-grid").striped(true).show(ui, |ui| {
-        ui.strong("Repair");
-        ui.strong("Group");
-        ui.strong("Status");
-        ui.strong("Bad shards");
-        ui.end_row();
-        for group in &groups {
-            let enabled = group.is_recoverable();
-            let mut selected = form.selected_groups.contains(&group.group);
-            if ui.add_enabled(enabled, egui::Checkbox::new(&mut selected, "")).changed() {
-                if selected {
-                    form.selected_groups.insert(group.group);
-                } else {
-                    form.selected_groups.remove(&group.group);
-                }
-            }
-            ui.label(group.group.to_string());
-            let tone = if group.has_provider_error() || group.is_unrecoverable() {
-                StatusTone::Error
-            } else if group.is_recoverable() {
-                StatusTone::Warning
-            } else {
-                StatusTone::Success
-            };
-            status_badge(ui, &group.status, tone);
-            ui.label(group.bad_shards.to_string());
+    egui::Grid::new("repair-groups-grid")
+        .striped(true)
+        .show(ui, |ui| {
+            ui.strong("Repair");
+            ui.strong("Group");
+            ui.strong("Status");
+            ui.strong("Bad shards");
             ui.end_row();
-        }
-    });
+            for group in &groups {
+                let enabled = group.is_recoverable();
+                let mut selected = form.selected_groups.contains(&group.group);
+                if ui
+                    .add_enabled(enabled, egui::Checkbox::new(&mut selected, ""))
+                    .changed()
+                {
+                    if selected {
+                        form.selected_groups.insert(group.group);
+                    } else {
+                        form.selected_groups.remove(&group.group);
+                    }
+                }
+                ui.label(group.group.to_string());
+                let tone = if group.has_provider_error() || group.is_unrecoverable() {
+                    StatusTone::Error
+                } else if group.is_recoverable() {
+                    StatusTone::Warning
+                } else {
+                    StatusTone::Success
+                };
+                status_badge(ui, &group.status, tone);
+                ui.label(group.bad_shards.to_string());
+                ui.end_row();
+            }
+        });
 
     ui.small("Repair always performs a full BLAKE3 preflight before reconstruction, even when the last scrub was Quick.");
-    let can_start = !task.is_running()
-        && !form.manifest.trim().is_empty()
-        && !form.selected_groups.is_empty();
-    if ui.add_enabled(can_start, egui::Button::new("Repair selected groups")).clicked() {
+    let can_start =
+        !task.is_running() && !form.manifest.trim().is_empty() && !form.selected_groups.is_empty();
+    if ui
+        .add_enabled(can_start, egui::Button::new("Repair selected groups"))
+        .clicked()
+    {
         form.error = start(form, task, rclone, workers, retries).err();
         form.notice = None;
     }

@@ -36,9 +36,11 @@ pub(crate) fn show(ui: &mut egui::Ui, row: Option<&InventoryRow>) -> Option<Inve
         });
     });
     ui.label(
-        egui::RichText::new("Inventory stores metadata only. Run Status or Verify for current remote health.")
-            .small()
-            .weak(),
+        egui::RichText::new(
+            "Inventory stores metadata only. Run Status or Verify for current remote health.",
+        )
+        .small()
+        .weak(),
     );
 
     ui.add_space(theme::SECTION_GAP);

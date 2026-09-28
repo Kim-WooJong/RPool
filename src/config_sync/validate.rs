@@ -10,7 +10,10 @@ pub(crate) fn validate_bundle(bundle: &PortableConfig) -> Result<()> {
         bail!("unsupported config bundle version: {}", bundle.version);
     }
     if bundle.pools.version != 1 {
-        bail!("unsupported pool config version in bundle: {}", bundle.pools.version);
+        bail!(
+            "unsupported pool config version in bundle: {}",
+            bundle.pools.version
+        );
     }
     if bundle.remote_roots.version != 1 {
         bail!(
@@ -29,7 +32,9 @@ pub(crate) fn validate_bundle(bundle: &PortableConfig) -> Result<()> {
     let mut crypt_names = std::collections::BTreeSet::new();
     for remote in &bundle.crypt_remotes {
         remote.validate_structure()?;
-        if !crypt_names.insert(&remote.name) { bail!("duplicate portable crypt remote"); }
+        if !crypt_names.insert(&remote.name) {
+            bail!("duplicate portable crypt remote");
+        }
     }
 
     for (name, pool) in &bundle.pools.pools {

@@ -55,7 +55,8 @@ impl PortableSecretVault {
     }
 
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
-        if self.format != SECRET_VAULT_FORMAT || self.path != SECRET_VAULT_PATH
+        if self.format != SECRET_VAULT_FORMAT
+            || self.path != SECRET_VAULT_PATH
             || self.blake3.len() != 64
             || !self.blake3.bytes().all(|byte| byte.is_ascii_hexdigit())
         {
@@ -79,7 +80,12 @@ pub(crate) struct PortableCryptRemote {
 impl PortableCryptRemote {
     pub(crate) fn validate_structure(&self) -> anyhow::Result<()> {
         super::secrets::validate_remote_name(&self.name)?;
-        if self.kind != "crypt" || !matches!(self.filename_encryption.as_str(), "standard" | "obfuscate" | "off") {
+        if self.kind != "crypt"
+            || !matches!(
+                self.filename_encryption.as_str(),
+                "standard" | "obfuscate" | "off"
+            )
+        {
             anyhow::bail!("unsupported portable crypt definition");
         }
         if self.remote.chars().any(char::is_control) {
@@ -87,13 +93,13 @@ impl PortableCryptRemote {
         }
         // Named remotes only. In-line :backend,key=credential: connection
         // strings would turn supposedly portable metadata into a secret store.
-        let (backing, _) = self.remote.split_once(':')
-            .ok_or_else(|| anyhow::anyhow!("portable crypt backing must reference a named remote"))?;
+        let (backing, _) = self.remote.split_once(':').ok_or_else(|| {
+            anyhow::anyhow!("portable crypt backing must reference a named remote")
+        })?;
         super::secrets::validate_remote_name(backing)?;
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -219,6 +219,29 @@ fn dispatch(cli: Cli) -> Result<()> {
             args.groups,
         ),
         Commands::Provider(args) => match args.command {
+            ProviderCommands::Encrypt {
+                name,
+                provider,
+                root,
+                entropy_bits,
+                filename_encryption,
+                directory_encryption,
+            } => {
+                let backing = crate::config_sync::provision::create_crypt(
+                    std::path::Path::new(&cli.rclone),
+                    &crate::config_sync::provision::CryptSetup {
+                        name,
+                        provider,
+                        root,
+                        entropy_bits,
+                        filename_encryption,
+                        directory_encryption,
+                    },
+                )?;
+                println!("Encrypted provider created. Fresh backing folder: {backing}");
+                println!("Back up the rclone configuration / encrypted secret vault before storing data. Losing these keys loses access to the data.");
+                Ok(())
+            }
             ProviderCommands::Health {
                 remotes,
                 pool,

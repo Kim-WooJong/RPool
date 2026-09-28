@@ -64,4 +64,3 @@ pub(crate) fn append_suffix(path: &Path, suffix: &str) -> PathBuf {
     value.push(suffix);
     PathBuf::from(value)
 }
-

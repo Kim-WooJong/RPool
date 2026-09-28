@@ -19,7 +19,12 @@ pub(crate) fn show(
     let pool_warnings: Vec<_> = data
         .pools
         .iter()
-        .filter(|pool| matches!(pool_health(pool, crypt_remotes), PoolHealth::Empty | PoolHealth::MissingRemote))
+        .filter(|pool| {
+            matches!(
+                pool_health(pool, crypt_remotes),
+                PoolHealth::Empty | PoolHealth::MissingRemote
+            )
+        })
         .collect();
 
     if data.warnings.is_empty()

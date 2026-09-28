@@ -1,7 +1,7 @@
 use crate::gui::navigation;
 use crate::gui::screens::{dashboard, files, jobs, maintenance, settings, storage};
 use crate::gui::state::{self, GuiState, Page};
-use crate::gui::task::TaskRunner;
+use crate::gui::task::{JobStatus, TaskRunner};
 use crate::gui::theme;
 use crate::gui::usage_refresh::UsageRefresh;
 use crate::gui::widgets::task_console;
@@ -34,6 +34,7 @@ struct RpoolGui {
     state: GuiState,
     task: TaskRunner,
     usage: UsageRefresh,
+    refresh_pending: bool,
 }
 
 impl RpoolGui {
@@ -45,11 +46,17 @@ impl RpoolGui {
             state,
             task: TaskRunner::default(),
             usage,
+            refresh_pending: false,
         }
     }
 
     fn poll_background(&mut self) {
+        let provisioning = self.task.task_name() == Some("Create encrypted provider");
         let task_finished = self.task.poll();
+        if provisioning && task_finished == Some(JobStatus::Completed) {
+            self.refresh_pending = true;
+            self.state.providers.setup_notice = Some("Encrypted provider created. Provider list refreshed automatically; back up your rclone configuration before uploading.".into());
+        }
         if let Some(status) = task_finished {
             storage::pools::handle_task_completion(&mut self.state, &self.task, status);
             storage::reprocess::handle_task_completion(&mut self.state, &self.task, status);
@@ -64,7 +71,8 @@ impl RpoolGui {
                 Ok(snapshot) => {
                     self.state.usage_reports = snapshot.reports;
                     self.state.crypt_remotes = snapshot.crypt_remotes;
-                    self.state.usage_error = None;
+                    self.state.backing_remotes = snapshot.backing_remotes;
+                    self.state.usage_error = snapshot.warning;
                 }
                 Err(error) => self.state.usage_error = Some(error),
             }
@@ -111,5 +119,15 @@ impl eframe::App for RpoolGui {
             Page::Maintenance => maintenance::show(ui, &mut self.state, &mut self.task),
             Page::Settings => settings::show(ui, &mut self.state),
         });
+        self.refresh_pending |= std::mem::take(&mut self.state.providers.refresh_requested);
+        self.refresh_pending |= std::mem::take(&mut self.state.pools.refresh_requested);
+        if self.refresh_pending && !self.usage.is_running() {
+            self.refresh_pending = false;
+            self.usage.start(
+                self.state.settings.rclone.clone(),
+                self.state.settings.workers,
+            );
+            ui.ctx().request_repaint();
+        }
     }
 }

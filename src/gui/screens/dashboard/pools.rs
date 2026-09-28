@@ -7,7 +7,11 @@ use eframe::egui;
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Pools").size(theme::SECTION_TITLE_SIZE).strong());
+        ui.label(
+            egui::RichText::new("Pools")
+                .size(theme::SECTION_TITLE_SIZE)
+                .strong(),
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.link("Open Storage").clicked() {
                 state.page = Page::Storage;
@@ -48,9 +52,7 @@ fn pool_row(ui: &mut egui::Ui, pool: &DashboardPool, crypt_remotes: &[String]) {
         PoolHealth::Ready => status_badge(ui, "Ready", StatusTone::Success),
         PoolHealth::Checking => status_badge(ui, "Checking", StatusTone::Neutral),
         PoolHealth::Empty => status_badge(ui, "Empty", StatusTone::Error),
-        PoolHealth::MissingRemote => {
-            status_badge(ui, "Missing remote", StatusTone::Warning)
-        }
+        PoolHealth::MissingRemote => status_badge(ui, "Missing remote", StatusTone::Warning),
     }
     ui.end_row();
 }

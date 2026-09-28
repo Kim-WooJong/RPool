@@ -6,7 +6,12 @@ use std::ffi::OsString;
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     ui.label(egui::RichText::new("Manifest replicas").strong());
-    ui.label(egui::RichText::new("Verify, replicate, or recover the metadata required to reconstruct an archive.").weak());
+    ui.label(
+        egui::RichText::new(
+            "Verify, replicate, or recover the metadata required to reconstruct an archive.",
+        )
+        .weak(),
+    );
 
     local_file_field(
         ui,
@@ -37,9 +42,16 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     ui.collapsing("Recover manifest", |ui| {
         ui.horizontal(|ui| {
             ui.label("Archive ID");
-            ui.add(egui::TextEdit::singleline(&mut state.manifest.recovery_archive_id).desired_width(360.0));
+            ui.add(
+                egui::TextEdit::singleline(&mut state.manifest.recovery_archive_id)
+                    .desired_width(360.0),
+            );
         });
-        output_file_field(ui, "Output manifest (optional)", &mut state.manifest.recovery_output);
+        output_file_field(
+            ui,
+            "Output manifest (optional)",
+            &mut state.manifest.recovery_output,
+        );
 
         if state.manifest.pool_name.is_empty() {
             remote_selector(
@@ -51,7 +63,10 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 &mut state.manifest.manual_remote,
             );
         } else {
-            ui.label(format!("Recovery will search pool '{}'.", state.manifest.pool_name));
+            ui.label(format!(
+                "Recovery will search pool '{}'.",
+                state.manifest.pool_name
+            ));
         }
 
         if ui
@@ -68,7 +83,11 @@ fn pool_selector(ui: &mut egui::Ui, pool_names: &[String], selected: &mut String
     ui.horizontal(|ui| {
         ui.label("Target pool (optional)");
         egui::ComboBox::from_id_salt("manifest-pool")
-            .selected_text(if selected.is_empty() { "Derive from manifest" } else { selected.as_str() })
+            .selected_text(if selected.is_empty() {
+                "Derive from manifest"
+            } else {
+                selected.as_str()
+            })
             .show_ui(ui, |ui| {
                 ui.selectable_value(selected, String::new(), "Derive from manifest");
                 for name in pool_names {
@@ -78,7 +97,11 @@ fn pool_selector(ui: &mut egui::Ui, pool_names: &[String], selected: &mut String
     });
 }
 
-fn start_reference_action(state: &GuiState, task: &mut TaskRunner, action: &str) -> Result<(), String> {
+fn start_reference_action(
+    state: &GuiState,
+    task: &mut TaskRunner,
+    action: &str,
+) -> Result<(), String> {
     let reference = state.manifest.reference.trim();
     if reference.is_empty() {
         return Err("Select or enter a reference manifest first.".to_string());

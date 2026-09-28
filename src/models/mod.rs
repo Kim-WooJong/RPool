@@ -7,13 +7,13 @@ mod maintenance;
 mod manifest;
 mod placement;
 mod pool;
+mod portable_config;
+mod probe;
 mod provider;
 mod put_options;
-mod probe;
 mod quota;
 mod remote_root;
 mod resume;
-mod portable_config;
 pub(crate) mod secrets;
 pub(crate) mod sensitive;
 mod upload;
@@ -28,14 +28,14 @@ pub(crate) use maintenance::{ScrubReport, ShardHealth};
 pub(crate) use manifest::{Manifest, Shard};
 pub(crate) use placement::Placement;
 pub(crate) use pool::{PoolDefinition, PoolStore};
-pub(crate) use provider::ProviderHealthReport;
-pub(crate) use put_options::ResolvedPutOptions;
-pub(crate) use probe::Probe;
-pub(crate) use quota::QuotaReport;
-pub(crate) use remote_root::RemoteRootStore;
-pub(crate) use resume::ResumeState;
 pub(crate) use portable_config::{
     PortableConfig, PortableCryptRemote, PortableGuiSettings, PortableSecretVault,
     CONFIG_SYNC_FORMAT, CONFIG_SYNC_VERSION, SECRET_VAULT_PATH,
 };
+pub(crate) use probe::Probe;
+pub(crate) use provider::ProviderHealthReport;
+pub(crate) use put_options::ResolvedPutOptions;
+pub(crate) use quota::QuotaReport;
+pub(crate) use remote_root::RemoteRootStore;
+pub(crate) use resume::ResumeState;
 pub(crate) use upload::{GeneratedParity, PhysicalSpec, PlanShard, UploadPlan};

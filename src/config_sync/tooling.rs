@@ -8,11 +8,13 @@ use std::process::{Command, Stdio};
 const MAX_TOOL_OUTPUT: usize = 64 * 1024;
 
 fn regular_config(path: &Path) -> Result<PathBuf> {
-    let meta = fs::symlink_metadata(path).map_err(|_| anyhow!("rclone configuration file is missing"))?;
+    let meta =
+        fs::symlink_metadata(path).map_err(|_| anyhow!("rclone configuration file is missing"))?;
     if !meta.is_file() || meta.file_type().is_symlink() {
         bail!("rclone configuration must be a regular non-symlink file");
     }
-    path.canonicalize().map_err(|_| anyhow!("cannot resolve rclone configuration path"))
+    path.canonicalize()
+        .map_err(|_| anyhow!("cannot resolve rclone configuration path"))
 }
 
 pub(crate) fn resolve_rclone_config(executable: &Path, explicit: Option<&Path>) -> Result<PathBuf> {
@@ -36,12 +38,20 @@ pub(crate) fn resolve_rclone_config(executable: &Path, explicit: Option<&Path>) 
 fn parse_rclone_config_file_output(raw: &[u8]) -> Result<PathBuf> {
     let text = std::str::from_utf8(raw)
         .map_err(|_| anyhow!("rclone configuration path response is not UTF-8"))?;
-    let candidate = text.lines().rev().map(str::trim).find(|line| !line.is_empty())
+    let candidate = text
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
         .ok_or_else(|| anyhow!("rclone did not report a configuration path"))?;
     Ok(PathBuf::from(candidate))
 }
 
-pub(crate) fn derive_age_recipient(age_keygen: &Path, identity: &Path, artifact_root: &Path) -> Result<String> {
+pub(crate) fn derive_age_recipient(
+    age_keygen: &Path,
+    identity: &Path,
+    artifact_root: &Path,
+) -> Result<String> {
     let identity = checked_identity_path(identity, artifact_root)?;
     let mut command = Command::new(age_keygen);
     command.arg("-y").arg(identity);
@@ -63,7 +73,8 @@ mod tests {
     fn parses_unix_rclone_config_file_output() {
         let path = parse_rclone_config_file_output(
             b"Configuration file is stored at:\n/home/user/.config/rclone/rclone.conf\n",
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(path, PathBuf::from("/home/user/.config/rclone/rclone.conf"));
     }
 
@@ -72,6 +83,9 @@ mod tests {
         let path = parse_rclone_config_file_output(
             b"Configuration file is stored at:\r\nC:\\Users\\Test User\\AppData\\Roaming\\rclone\\rclone.conf\r\n",
         ).unwrap();
-        assert_eq!(path, PathBuf::from(r"C:\Users\Test User\AppData\Roaming\rclone\rclone.conf"));
+        assert_eq!(
+            path,
+            PathBuf::from(r"C:\Users\Test User\AppData\Roaming\rclone\rclone.conf")
+        );
     }
 }

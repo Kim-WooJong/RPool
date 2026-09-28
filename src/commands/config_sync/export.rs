@@ -17,7 +17,10 @@ pub(crate) fn run_package(rclone: &str, args: &ExportArgs) -> Result<()> {
         &args.age,
         args.age_recipient.as_deref(),
     )?;
-    println!("exported rpool artifact: {}", outcome.artifact_root.display());
+    println!(
+        "exported rpool artifact: {}",
+        outcome.artifact_root.display()
+    );
     println!("portable config: {}", outcome.portable_path.display());
     if let Some(vault) = outcome.vault_path {
         println!("encrypted crypt vault: {}", vault.display());

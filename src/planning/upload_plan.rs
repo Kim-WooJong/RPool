@@ -1,6 +1,6 @@
-use crate::prelude::*;
 use crate::manifest::coding_group_count;
 use crate::placement::assign_remotes;
+use crate::prelude::*;
 use crate::utils::remote_join;
 
 pub(crate) fn build_upload_plan(
@@ -52,9 +52,7 @@ pub(crate) fn build_upload_plan(
 
             for parity_index in 0..coding.parity_shards {
                 let physical_index = data_count + group * coding.parity_shards + parity_index;
-                let relative = format!(
-                    "{archive_id}/parity/g{group:08}-p{parity_index:03}.bin"
-                );
+                let relative = format!("{archive_id}/parity/g{group:08}-p{parity_index:03}.bin");
                 plan_shards.push(PlanShard {
                     index: physical_index as u32,
                     offset: 0,
@@ -97,13 +95,7 @@ pub(crate) fn build_upload_plan(
         }
     }
 
-    let remote_indexes = assign_remotes(
-        rclone,
-        &remotes,
-        &specs,
-        placement,
-        coding.is_some(),
-    )?;
+    let remote_indexes = assign_remotes(rclone, &remotes, &specs, placement, coding.is_some())?;
 
     for (shard, remote_index) in plan_shards.iter_mut().zip(remote_indexes) {
         let remote = remotes[remote_index].clone();

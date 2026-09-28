@@ -16,7 +16,9 @@ struct Line {
 }
 
 impl Drop for Line {
-    fn drop(&mut self) { self.body.fill(0); }
+    fn drop(&mut self) {
+        self.body.fill(0);
+    }
 }
 
 fn split_lines(raw: &[u8]) -> Result<Vec<Line>> {
@@ -26,7 +28,9 @@ fn split_lines(raw: &[u8]) -> Result<Vec<Line>> {
     let mut lines = Vec::new();
     let mut start = 0usize;
     for (index, byte) in raw.iter().enumerate() {
-        if *byte != b'\n' { continue; }
+        if *byte != b'\n' {
+            continue;
+        }
         let mut body_end = index;
         let ending = if index > start && raw[index - 1] == b'\r' {
             body_end -= 1;
@@ -34,53 +38,83 @@ fn split_lines(raw: &[u8]) -> Result<Vec<Line>> {
         } else {
             b"\n".as_slice()
         };
-        lines.push(Line { body: raw[start..body_end].to_vec(), ending: ending.to_vec() });
+        lines.push(Line {
+            body: raw[start..body_end].to_vec(),
+            ending: ending.to_vec(),
+        });
         start = index + 1;
     }
     if start < raw.len() {
-        lines.push(Line { body: raw[start..].to_vec(), ending: Vec::new() });
+        lines.push(Line {
+            body: raw[start..].to_vec(),
+            ending: Vec::new(),
+        });
     } else if raw.is_empty() {
-        lines.push(Line { body: Vec::new(), ending: Vec::new() });
+        lines.push(Line {
+            body: Vec::new(),
+            ending: Vec::new(),
+        });
     }
     Ok(lines)
 }
 
 fn trim_ascii(mut bytes: &[u8]) -> &[u8] {
-    while bytes.first().is_some_and(u8::is_ascii_whitespace) { bytes = &bytes[1..]; }
-    while bytes.last().is_some_and(u8::is_ascii_whitespace) { bytes = &bytes[..bytes.len() - 1]; }
+    while bytes.first().is_some_and(u8::is_ascii_whitespace) {
+        bytes = &bytes[1..];
+    }
+    while bytes.last().is_some_and(u8::is_ascii_whitespace) {
+        bytes = &bytes[..bytes.len() - 1];
+    }
     bytes
 }
 
 fn section_name(body: &[u8]) -> Option<&[u8]> {
     let line = trim_ascii(body);
-    if line.len() < 3 || line.first() != Some(&b'[') || line.last() != Some(&b']') { return None; }
+    if line.len() < 3 || line.first() != Some(&b'[') || line.last() != Some(&b']') {
+        return None;
+    }
     let name = trim_ascii(&line[1..line.len() - 1]);
     (!name.is_empty()).then_some(name)
 }
 
 fn key_value(body: &[u8]) -> Option<(&[u8], &[u8])> {
     let line = trim_ascii(body);
-    if line.is_empty() || matches!(line.first(), Some(b'#' | b';' | b'[')) { return None; }
+    if line.is_empty() || matches!(line.first(), Some(b'#' | b';' | b'[')) {
+        return None;
+    }
     let eq = line.iter().position(|byte| *byte == b'=')?;
     let key = trim_ascii(&line[..eq]);
-    if key.is_empty() { return None; }
+    if key.is_empty() {
+        return None;
+    }
     Some((key, trim_ascii(&line[eq + 1..])))
 }
 
-fn key_is(key: &[u8], expected: &[u8]) -> bool { key.eq_ignore_ascii_case(expected) }
+fn key_is(key: &[u8], expected: &[u8]) -> bool {
+    key.eq_ignore_ascii_case(expected)
+}
 
 fn default_ending(lines: &[Line]) -> Vec<u8> {
-    lines.iter().find(|line| !line.ending.is_empty())
-        .map(|line| line.ending.clone()).unwrap_or_else(|| b"\n".to_vec())
+    lines
+        .iter()
+        .find(|line| !line.ending.is_empty())
+        .map(|line| line.ending.clone())
+        .unwrap_or_else(|| b"\n".to_vec())
 }
 
 fn find_section(lines: &[Line], remote: &str) -> Result<(usize, usize)> {
     let expected = remote.as_bytes();
     let mut found = None;
     for (index, line) in lines.iter().enumerate() {
-        let Some(name) = section_name(&line.body) else { continue; };
-        if name != expected { continue; }
-        if found.is_some() { bail!("duplicate crypt section in plaintext config"); }
+        let Some(name) = section_name(&line.body) else {
+            continue;
+        };
+        if name != expected {
+            continue;
+        }
+        if found.is_some() {
+            bail!("duplicate crypt section in plaintext config");
+        }
         found = Some(index);
     }
     let start = found.ok_or_else(|| anyhow!("crypt section is missing from plaintext config"))?;
@@ -93,9 +127,15 @@ fn find_section(lines: &[Line], remote: &str) -> Result<(usize, usize)> {
 fn find_key(lines: &[Line], start: usize, end: usize, key: &[u8]) -> Result<Option<usize>> {
     let mut found = None;
     for (index, line) in lines.iter().enumerate().take(end).skip(start + 1) {
-        let Some((candidate, _)) = key_value(&line.body) else { continue; };
-        if !key_is(candidate, key) { continue; }
-        if found.is_some() { bail!("duplicate crypt secret key in plaintext config"); }
+        let Some((candidate, _)) = key_value(&line.body) else {
+            continue;
+        };
+        if !key_is(candidate, key) {
+            continue;
+        }
+        if found.is_some() {
+            bail!("duplicate crypt secret key in plaintext config");
+        }
         found = Some(index);
     }
     Ok(found)
@@ -112,29 +152,52 @@ fn secret_line(key: &[u8], value: &[u8]) -> Vec<u8> {
 fn insert_line(lines: &mut Vec<Line>, index: usize, body: Vec<u8>, ending: &[u8]) {
     if index == lines.len() && index > 0 && lines[index - 1].ending.is_empty() {
         lines[index - 1].ending.extend_from_slice(ending);
-        lines.push(Line { body, ending: Vec::new() });
+        lines.push(Line {
+            body,
+            ending: Vec::new(),
+        });
     } else {
-        lines.insert(index, Line { body, ending: ending.to_vec() });
+        lines.insert(
+            index,
+            Line {
+                body,
+                ending: ending.to_vec(),
+            },
+        );
     }
 }
 
-fn set_secret(lines: &mut Vec<Line>, remote: &str, key: &[u8], value: Option<&str>, ending: &[u8]) -> Result<()> {
+fn set_secret(
+    lines: &mut Vec<Line>,
+    remote: &str,
+    key: &[u8],
+    value: Option<&str>,
+    ending: &[u8],
+) -> Result<()> {
     let (start, end) = find_section(lines, remote)?;
     let existing = find_key(lines, start, end, key)?;
     match (existing, value) {
         (Some(index), Some(secret)) => {
-            let mut old = std::mem::replace(&mut lines[index].body, secret_line(key, secret.as_bytes()));
+            let mut old =
+                std::mem::replace(&mut lines[index].body, secret_line(key, secret.as_bytes()));
             old.fill(0);
         }
-        (None, Some(secret)) => insert_line(lines, end, secret_line(key, secret.as_bytes()), ending),
-        (Some(index), None) => { lines.remove(index); }
+        (None, Some(secret)) => {
+            insert_line(lines, end, secret_line(key, secret.as_bytes()), ending)
+        }
+        (Some(index), None) => {
+            lines.remove(index);
+        }
         (None, None) => (),
     }
     Ok(())
 }
 
 fn encode(lines: Vec<Line>) -> SensitiveBytes {
-    let capacity = lines.iter().map(|line| line.body.len() + line.ending.len()).sum();
+    let capacity = lines
+        .iter()
+        .map(|line| line.body.len() + line.ending.len())
+        .sum();
     let mut output = Vec::with_capacity(capacity);
     for line in &lines {
         output.extend_from_slice(&line.body);
@@ -144,7 +207,10 @@ fn encode(lines: Vec<Line>) -> SensitiveBytes {
     SensitiveBytes(output)
 }
 
-pub(super) fn apply_crypt_secrets(original: &[u8], secrets: &SecretBundle) -> Result<SensitiveBytes> {
+pub(super) fn apply_crypt_secrets(
+    original: &[u8],
+    secrets: &SecretBundle,
+) -> Result<SensitiveBytes> {
     secrets.validate()?;
     if super::transaction::files::encrypted_header(original) {
         bail!("plaintext editor refuses encrypted rclone config");
@@ -152,8 +218,20 @@ pub(super) fn apply_crypt_secrets(original: &[u8], secrets: &SecretBundle) -> Re
     let mut lines = split_lines(original)?;
     let ending = default_ending(&lines);
     for (remote, secret) in &secrets.rclone.crypt {
-        set_secret(&mut lines, remote, b"password", Some(secret.obscured_password.as_str()), &ending)?;
-        set_secret(&mut lines, remote, b"password2", secret.obscured_password2.as_ref().map(|v| v.as_str()), &ending)?;
+        set_secret(
+            &mut lines,
+            remote,
+            b"password",
+            Some(secret.obscured_password.as_str()),
+            &ending,
+        )?;
+        set_secret(
+            &mut lines,
+            remote,
+            b"password2",
+            secret.obscured_password2.as_ref().map(|v| v.as_str()),
+            &ending,
+        )?;
     }
     let output = encode(lines);
     verify_crypt_secrets(&output.0, secrets)?;
@@ -172,8 +250,13 @@ pub(super) fn verify_crypt_secrets(raw: &[u8], secrets: &SecretBundle) -> Result
         let password2 = find_key(&lines, start, end, b"password2")?
             .and_then(|index| key_value(&lines[index].body).map(|(_, value)| value))
             .filter(|value| !value.is_empty());
-        let expected2 = secret.obscured_password2.as_ref().map(|value| value.as_str().as_bytes());
-        if password2 != expected2 { bail!("plaintext crypt password2 preservation check failed"); }
+        let expected2 = secret
+            .obscured_password2
+            .as_ref()
+            .map(|value| value.as_str().as_bytes());
+        if password2 != expected2 {
+            bail!("plaintext crypt password2 preservation check failed");
+        }
     }
     Ok(())
 }
@@ -186,10 +269,13 @@ mod tests {
     use std::collections::BTreeMap;
 
     fn bundle(password2: Option<&str>) -> SecretBundle {
-        SecretBundle::new(BTreeMap::from([("vault".into(), CryptSecret {
-            obscured_password: SensitiveText::new("AAAAAAAAAAAAAAAAAAAAAAA".into()),
-            obscured_password2: password2.map(|v| SensitiveText::new(v.into())),
-        })]))
+        SecretBundle::new(BTreeMap::from([(
+            "vault".into(),
+            CryptSecret {
+                obscured_password: SensitiveText::new("AAAAAAAAAAAAAAAAAAAAAAA".into()),
+                obscured_password2: password2.map(|v| SensitiveText::new(v.into())),
+            },
+        )]))
     }
 
     #[test]

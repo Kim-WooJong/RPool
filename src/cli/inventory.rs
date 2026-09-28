@@ -10,14 +10,10 @@ pub(crate) struct InventoryArgs {
 #[derive(Subcommand, Debug)]
 pub(crate) enum InventoryCommands {
     /// Add or refresh one manifest in the local rebuildable inventory.
-    Add {
-        manifest: String,
-    },
+    Add { manifest: String },
 
     /// Rebuild the local inventory from manifests found recursively in a directory.
-    Rebuild {
-        directory: PathBuf,
-    },
+    Rebuild { directory: PathBuf },
 
     /// List indexed archives.
     List {

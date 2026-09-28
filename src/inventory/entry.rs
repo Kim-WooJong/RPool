@@ -2,7 +2,10 @@ use crate::manifest::manifest_remotes;
 use crate::models::{InventoryEntry, Manifest};
 use crate::utils::now_unix;
 
-pub(crate) fn entry_from_manifest(manifest: &Manifest, source: impl Into<String>) -> InventoryEntry {
+pub(crate) fn entry_from_manifest(
+    manifest: &Manifest,
+    source: impl Into<String>,
+) -> InventoryEntry {
     InventoryEntry {
         archive_id: manifest.archive_id.clone(),
         original_name: manifest.original_name.clone(),

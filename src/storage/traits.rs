@@ -43,7 +43,13 @@ impl ReadRange {
     }
 
     /// `offset + length`. Safe: `new` guarantees no overflow.
-    #[cfg_attr(not(test), expect(dead_code, reason = "Retained backend contract; production callers currently use the legacy operation subset"))]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Retained backend contract; production callers currently use the legacy operation subset"
+        )
+    )]
     pub(crate) fn end(&self) -> u64 {
         self.offset + self.length
     }
@@ -134,7 +140,13 @@ impl OperationContext {
         }
     }
 
-    #[cfg_attr(not(test), expect(dead_code, reason = "Retained backend contract; production callers currently use the legacy operation subset"))]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Retained backend contract; production callers currently use the legacy operation subset"
+        )
+    )]
     pub(crate) fn with_cancel(cancel: Arc<AtomicBool>) -> Self {
         Self {
             deadline: None,
@@ -142,7 +154,13 @@ impl OperationContext {
         }
     }
 
-    #[cfg_attr(not(test), expect(dead_code, reason = "Retained backend contract; production callers currently use the legacy operation subset"))]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Retained backend contract; production callers currently use the legacy operation subset"
+        )
+    )]
     pub(crate) fn with_deadline_and_cancel(deadline: Instant, cancel: Arc<AtomicBool>) -> Self {
         Self {
             deadline: Some(deadline),
@@ -156,7 +174,13 @@ impl OperationContext {
             .map_or(false, |c| c.load(Ordering::Acquire))
     }
 
-    #[cfg_attr(not(test), expect(dead_code, reason = "Retained backend contract; production callers currently use the legacy operation subset"))]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Retained backend contract; production callers currently use the legacy operation subset"
+        )
+    )]
     pub(crate) fn deadline(&self) -> Option<Instant> {
         self.deadline
     }
@@ -180,7 +204,13 @@ impl Default for OperationContext {
 pub(crate) trait StorageBackend: Send + Sync {
     fn id(&self) -> BackendId;
 
-    #[cfg_attr(not(test), expect(dead_code, reason = "Retained backend contract; production callers currently use the legacy operation subset"))]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Retained backend contract; production callers currently use the legacy operation subset"
+        )
+    )]
     fn capabilities(&self) -> BackendCapabilities;
 
     fn stat(&self, ctx: &OperationContext, key: &ObjectKey)
@@ -215,7 +245,13 @@ pub(crate) trait StorageBackend: Send + Sync {
 
     fn delete(&self, ctx: &OperationContext, key: &ObjectKey) -> Result<(), StorageError>;
 
-    #[cfg_attr(not(test), expect(dead_code, reason = "Retained backend contract; production callers currently use the legacy operation subset"))]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Retained backend contract; production callers currently use the legacy operation subset"
+        )
+    )]
     fn list(
         &self,
         ctx: &OperationContext,
@@ -225,7 +261,13 @@ pub(crate) trait StorageBackend: Send + Sync {
 
     /// Same-backend native copy. Cross-backend copy is a transfer-service
     /// concern (read → write → verify), not a backend primitive.
-    #[cfg_attr(not(test), expect(dead_code, reason = "Retained backend contract; production callers currently use the legacy operation subset"))]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Retained backend contract; production callers currently use the legacy operation subset"
+        )
+    )]
     fn copy(
         &self,
         ctx: &OperationContext,
@@ -235,7 +277,13 @@ pub(crate) trait StorageBackend: Send + Sync {
 
     /// Optional atomic rename. Implementations that cannot provide atomicity
     /// must return `Unsupported` rather than emulate with copy+delete.
-    #[cfg_attr(not(test), expect(dead_code, reason = "Retained backend contract; production callers currently use the legacy operation subset"))]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Retained backend contract; production callers currently use the legacy operation subset"
+        )
+    )]
     fn rename(
         &self,
         ctx: &OperationContext,

@@ -72,4 +72,3 @@ pub(crate) fn scan_manifest_with_storage(
         probes,
     ))
 }
-

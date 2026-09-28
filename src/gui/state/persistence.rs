@@ -1,5 +1,5 @@
-use crate::gui::settings as gui_settings;
 use super::app_state::GuiState;
+use crate::gui::settings as gui_settings;
 
 pub(crate) fn load(startup_rclone: &str) -> GuiState {
     let settings = gui_settings::load(startup_rclone);

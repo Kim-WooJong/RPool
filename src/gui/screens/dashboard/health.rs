@@ -36,10 +36,7 @@ pub(crate) fn pool_health(pool: &DashboardPool, crypt_remotes: &[String]) -> Poo
     }
 }
 
-pub(crate) fn pools_needing_attention(
-    pools: &[DashboardPool],
-    crypt_remotes: &[String],
-) -> usize {
+pub(crate) fn pools_needing_attention(pools: &[DashboardPool], crypt_remotes: &[String]) -> usize {
     pools
         .iter()
         .filter(|pool| {

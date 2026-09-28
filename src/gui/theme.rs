@@ -17,18 +17,41 @@ pub(crate) const PROGRESS_BAR_HEIGHT: f32 = 22.0;
 pub(crate) fn apply(ctx: &egui::Context) {
     ctx.all_styles_mut(|style| {
         style.spacing.item_spacing = egui::vec2(10.0, 8.0);
-        style.text_styles.insert(egui::TextStyle::Body, egui::FontId::proportional(14.0));
-        style.text_styles.insert(egui::TextStyle::Button, egui::FontId::proportional(14.0));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Body, egui::FontId::proportional(14.0));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Button, egui::FontId::proportional(14.0));
         style.spacing.button_padding = egui::vec2(8.0, 4.0);
         style.spacing.interact_size.y = CONTROL_HEIGHT;
         style.spacing.indent = 16.0;
         style.spacing.window_margin = egui::Margin::same(CONTENT_MARGIN);
 
         let dark = style.visuals.dark_mode;
-        style.visuals.panel_fill = if dark { egui::Color32::from_rgb(22, 28, 39) } else { egui::Color32::from_rgb(247, 249, 252) };
-        style.visuals.extreme_bg_color = if dark { egui::Color32::from_rgb(15, 20, 29) } else { egui::Color32::from_rgb(237, 241, 247) };
-        style.visuals.selection.bg_fill = if dark { egui::Color32::from_rgb(36, 79, 114) } else { egui::Color32::from_rgb(202, 225, 245) };
-        style.visuals.selection.stroke = egui::Stroke::new(1.0, if dark { egui::Color32::from_rgb(204, 232, 255) } else { egui::Color32::from_rgb(23, 63, 99) });
+        style.visuals.panel_fill = if dark {
+            egui::Color32::from_rgb(22, 28, 39)
+        } else {
+            egui::Color32::from_rgb(247, 249, 252)
+        };
+        style.visuals.extreme_bg_color = if dark {
+            egui::Color32::from_rgb(15, 20, 29)
+        } else {
+            egui::Color32::from_rgb(237, 241, 247)
+        };
+        style.visuals.selection.bg_fill = if dark {
+            egui::Color32::from_rgb(36, 79, 114)
+        } else {
+            egui::Color32::from_rgb(202, 225, 245)
+        };
+        style.visuals.selection.stroke = egui::Stroke::new(
+            1.0,
+            if dark {
+                egui::Color32::from_rgb(204, 232, 255)
+            } else {
+                egui::Color32::from_rgb(23, 63, 99)
+            },
+        );
         let radius = egui::CornerRadius::same(CORNER_RADIUS);
         style.visuals.widgets.noninteractive.corner_radius = radius;
         style.visuals.widgets.inactive.corner_radius = radius;
@@ -103,7 +126,11 @@ pub(crate) fn neutral_colors(dark: bool) -> (egui::Color32, egui::Color32) {
 
 pub(crate) fn card(ui: &egui::Ui) -> egui::Frame {
     egui::Frame::new()
-        .fill(if ui.visuals().dark_mode { egui::Color32::from_rgb(29, 37, 50) } else { egui::Color32::WHITE })
+        .fill(if ui.visuals().dark_mode {
+            egui::Color32::from_rgb(29, 37, 50)
+        } else {
+            egui::Color32::WHITE
+        })
         .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
         .corner_radius(CORNER_RADIUS)
         .inner_margin(14)

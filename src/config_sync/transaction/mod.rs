@@ -61,6 +61,10 @@ pub(crate) struct AgeSnapshot<'a, 'b> {
 }
 
 impl SnapshotStore for AgeSnapshot<'_, '_> {
-    fn seal(&self, output: &Path, bytes: &[u8]) -> Result<()> { self.encrypt.write_snapshot(output, bytes) }
-    fn open(&self, input: &Path) -> Result<SensitiveBytes> { self.decrypt.read_bytes(input) }
+    fn seal(&self, output: &Path, bytes: &[u8]) -> Result<()> {
+        self.encrypt.write_snapshot(output, bytes)
+    }
+    fn open(&self, input: &Path) -> Result<SensitiveBytes> {
+        self.decrypt.read_bytes(input)
+    }
 }

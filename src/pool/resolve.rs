@@ -43,12 +43,30 @@ pub(crate) fn resolve_put_options(
 
     Ok(ResolvedPutOptions {
         remotes,
-        shard_mib: shard_mib.unwrap_or_else(|| pool.as_ref().map(|p| p.shard_mib).unwrap_or(DEFAULT_SHARD_MIB)),
-        workers: workers.unwrap_or_else(|| pool.as_ref().map(|p| p.workers).unwrap_or(DEFAULT_WORKERS)),
-        retries: retries.unwrap_or_else(|| pool.as_ref().map(|p| p.retries).unwrap_or(DEFAULT_RETRIES)),
-        placement: placement.unwrap_or_else(|| pool.as_ref().map(|p| p.placement).unwrap_or(Placement::RoundRobin)),
-        data_shards: data_shards.unwrap_or_else(|| pool.as_ref().map(|p| p.data_shards).unwrap_or(DEFAULT_DATA_SHARDS)),
-        parity_shards: parity_shards.unwrap_or_else(|| pool.as_ref().map(|p| p.parity_shards).unwrap_or(DEFAULT_PARITY_SHARDS)),
+        shard_mib: shard_mib.unwrap_or_else(|| {
+            pool.as_ref()
+                .map(|p| p.shard_mib)
+                .unwrap_or(DEFAULT_SHARD_MIB)
+        }),
+        workers: workers
+            .unwrap_or_else(|| pool.as_ref().map(|p| p.workers).unwrap_or(DEFAULT_WORKERS)),
+        retries: retries
+            .unwrap_or_else(|| pool.as_ref().map(|p| p.retries).unwrap_or(DEFAULT_RETRIES)),
+        placement: placement.unwrap_or_else(|| {
+            pool.as_ref()
+                .map(|p| p.placement)
+                .unwrap_or(Placement::RoundRobin)
+        }),
+        data_shards: data_shards.unwrap_or_else(|| {
+            pool.as_ref()
+                .map(|p| p.data_shards)
+                .unwrap_or(DEFAULT_DATA_SHARDS)
+        }),
+        parity_shards: parity_shards.unwrap_or_else(|| {
+            pool.as_ref()
+                .map(|p| p.parity_shards)
+                .unwrap_or(DEFAULT_PARITY_SHARDS)
+        }),
         pool_name: pool_name.map(ToOwned::to_owned),
     })
 }

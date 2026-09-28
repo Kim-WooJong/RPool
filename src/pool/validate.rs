@@ -7,7 +7,10 @@ pub(crate) fn validate_pool_name(name: &str) -> Result<()> {
     if name.is_empty() {
         bail!("pool name cannot be empty");
     }
-    if !name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) {
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
         bail!("pool name may contain only ASCII letters, numbers, '.', '-' and '_'");
     }
     Ok(())

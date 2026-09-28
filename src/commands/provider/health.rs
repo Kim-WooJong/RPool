@@ -1,9 +1,9 @@
-use crate::prelude::*;
 use crate::pool::resolve_target_remotes;
+use crate::prelude::*;
 use crate::provider::check_providers;
+use crate::remote_root::apply_remote_roots;
 use crate::storage::list_crypt_remotes;
 use crate::utils::ensure_positive;
-use crate::remote_root::apply_remote_roots;
 
 pub(crate) fn run(
     rclone: &str,
@@ -25,7 +25,10 @@ pub(crate) fn run(
     if json {
         println!("{}", serde_json::to_string_pretty(&reports)?);
     } else {
-        println!("{:<34} {:<10} {:>10} {:>8}  {}", "REMOTE", "STATUS", "LATENCY", "USED%", "DETAIL");
+        println!(
+            "{:<34} {:<10} {:>10} {:>8}  {}",
+            "REMOTE", "STATUS", "LATENCY", "USED%", "DETAIL"
+        );
         println!("{}", "-".repeat(88));
         for report in &reports {
             let used = report
@@ -41,7 +44,11 @@ pub(crate) fn run(
             println!(
                 "{:<34} {:<10} {:>7} ms {:>8}  {}",
                 report.remote,
-                if report.accessible { "healthy" } else { "failed" },
+                if report.accessible {
+                    "healthy"
+                } else {
+                    "failed"
+                },
                 report.latency_ms,
                 used,
                 detail

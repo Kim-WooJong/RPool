@@ -23,7 +23,10 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         Some("rpool manifest"),
         &["json"],
     );
-    ui.checkbox(&mut state.verify.full, "Full remote read + BLAKE3 verification");
+    ui.checkbox(
+        &mut state.verify.full,
+        "Full remote read + BLAKE3 verification",
+    );
 
     if let Some(error) = &state.verify.error {
         ui.label(error);

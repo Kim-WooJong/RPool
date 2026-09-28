@@ -1,5 +1,5 @@
-use crate::models::PoolStore;
 use crate::config::pools_path;
+use crate::models::PoolStore;
 use crate::utils::save_json_atomic;
 use anyhow::Result;
 use std::path::PathBuf;

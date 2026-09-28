@@ -1,11 +1,16 @@
-use crate::prelude::*;
 use crate::manifest::{coding_group_count, data_shards};
+use crate::prelude::*;
 
 pub(crate) fn analyze_groups(manifest: &Manifest, probes: &[(Shard, Probe)]) -> Vec<GroupHealth> {
     let Some(coding) = &manifest.coding else {
         let bad_shards = probes
             .iter()
-            .filter(|(_, probe)| matches!(probe, Probe::Missing | Probe::BadSize { .. } | Probe::Corrupt { .. }))
+            .filter(|(_, probe)| {
+                matches!(
+                    probe,
+                    Probe::Missing | Probe::BadSize { .. } | Probe::Corrupt { .. }
+                )
+            })
             .count();
         let provider_errors = probes
             .iter()
@@ -41,13 +46,21 @@ pub(crate) fn analyze_groups(manifest: &Manifest, probes: &[(Shard, Probe)]) -> 
 
         let bad_shards = group_probes
             .iter()
-            .filter(|(_, probe)| matches!(probe, Probe::Missing | Probe::BadSize { .. } | Probe::Corrupt { .. }))
+            .filter(|(_, probe)| {
+                matches!(
+                    probe,
+                    Probe::Missing | Probe::BadSize { .. } | Probe::Corrupt { .. }
+                )
+            })
             .count();
         let provider_errors = group_probes
             .iter()
             .filter(|(_, probe)| matches!(probe, Probe::Error(_)))
             .count();
-        let healthy_physical = group_probes.iter().filter(|(_, probe)| probe.is_ok()).count();
+        let healthy_physical = group_probes
+            .iter()
+            .filter(|(_, probe)| probe.is_ok())
+            .count();
 
         let status = if provider_errors > 0 {
             "provider-error"

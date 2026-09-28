@@ -52,7 +52,8 @@ impl IntegrityForm {
                             .collect()
                     })
                     .unwrap_or_default();
-                self.selected_groups.retain(|group| recoverable.contains(group));
+                self.selected_groups
+                    .retain(|group| recoverable.contains(group));
             }
             Err(error) => {
                 self.error = Some(format!("Integrity snapshot could not be loaded: {error:#}"));

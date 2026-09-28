@@ -1,12 +1,7 @@
 use crate::gui::theme;
 use eframe::egui;
 
-pub(crate) fn capacity_bar_sized(
-    ui: &mut egui::Ui,
-    ratio: Option<f32>,
-    text: &str,
-    width: f32,
-) {
+pub(crate) fn capacity_bar_sized(ui: &mut egui::Ui, ratio: Option<f32>, text: &str, width: f32) {
     let ratio = ratio.map(|value| value.clamp(0.0, 1.0));
     let (rect, _) = ui.allocate_exact_size(
         egui::vec2(width.max(1.0), theme::CAPACITY_BAR_HEIGHT),

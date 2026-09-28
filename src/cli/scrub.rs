@@ -1,5 +1,5 @@
-use clap::Args;
 use crate::config::constants::{DEFAULT_RETRIES, DEFAULT_WORKERS};
+use clap::Args;
 
 #[derive(Args, Debug)]
 pub(crate) struct ScrubArgs {

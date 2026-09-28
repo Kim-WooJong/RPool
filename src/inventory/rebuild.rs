@@ -7,7 +7,10 @@ use std::path::{Path, PathBuf};
 
 pub(crate) fn rebuild_from_directory(root: &Path) -> Result<(InventoryStore, usize)> {
     if !root.is_dir() {
-        bail!("inventory rebuild root is not a directory: {}", root.display());
+        bail!(
+            "inventory rebuild root is not a directory: {}",
+            root.display()
+        );
     }
 
     let mut candidates = Vec::new();
@@ -50,6 +53,9 @@ fn collect_candidates(root: &Path, output: &mut Vec<PathBuf>) -> Result<()> {
 }
 
 fn is_manifest_candidate(path: &Path) -> bool {
-    let name = path.file_name().and_then(|value| value.to_str()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
     name.ends_with(".rpool.json") || name == "manifest.json"
 }

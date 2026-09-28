@@ -1,5 +1,5 @@
-use super::{start, validation};
 use super::state::UploadItemStatus;
+use super::{start, validation};
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 
@@ -52,7 +52,8 @@ pub(crate) fn poll_batch(state: &mut GuiState, task: &mut TaskRunner) {
 
     if outcome.cancelled {
         state.upload.batch_active = false;
-        state.upload.error = Some("Upload batch cancelled. Pending files were kept in the queue.".to_string());
+        state.upload.error =
+            Some("Upload batch cancelled. Pending files were kept in the queue.".to_string());
         return;
     }
     if !outcome.success {

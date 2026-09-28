@@ -1,6 +1,6 @@
+use super::Shard;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use super::Shard;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct UploadJournal {

@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::ShardHealth;
+use serde::{Deserialize, Serialize};
 
 pub(crate) const INTEGRITY_SNAPSHOT_VERSION: u32 = 2;
 

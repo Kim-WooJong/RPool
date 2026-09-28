@@ -48,7 +48,8 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
         });
 
     if state.settings.parity_shards > 0 && state.settings.data_shards > 0 {
-        let overhead = state.settings.parity_shards as f64 / state.settings.data_shards as f64 * 100.0;
+        let overhead =
+            state.settings.parity_shards as f64 / state.settings.data_shards as f64 * 100.0;
         ui.label(format!(
             "Erasure coding: {}+{} · parity overhead {:.1}%",
             state.settings.data_shards, state.settings.parity_shards, overhead

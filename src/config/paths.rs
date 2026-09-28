@@ -8,9 +8,11 @@ pub(crate) fn app_config_dir() -> Result<PathBuf> {
             .map(PathBuf::from)
             .map(|base| base.join("rpool"))
     } else if cfg!(target_os = "macos") {
-        env::var_os("HOME")
-            .map(PathBuf::from)
-            .map(|home| home.join("Library").join("Application Support").join("rpool"))
+        env::var_os("HOME").map(PathBuf::from).map(|home| {
+            home.join("Library")
+                .join("Application Support")
+                .join("rpool")
+        })
     } else if let Some(base) = env::var_os("XDG_CONFIG_HOME").map(PathBuf::from) {
         Some(base.join("rpool"))
     } else {
@@ -38,11 +40,9 @@ pub(crate) fn gui_settings_path() -> Result<PathBuf> {
     Ok(app_config_dir()?.join("gui.json"))
 }
 
-
 pub(crate) fn remote_roots_path() -> Result<PathBuf> {
     Ok(app_config_dir()?.join("remote_roots.json"))
 }
-
 
 pub(crate) fn integrity_snapshot_path() -> Result<PathBuf> {
     Ok(app_config_dir()?.join("integrity.json"))

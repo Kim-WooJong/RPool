@@ -8,9 +8,12 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct SensitiveText(String);
 
 impl SensitiveText {
-    #[cfg(test)]
-    pub(crate) fn new(value: String) -> Self { Self(value) }
-    pub(crate) fn as_str(&self) -> &str { &self.0 }
+    pub(crate) fn new(value: String) -> Self {
+        Self(value)
+    }
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 impl Drop for SensitiveText {
@@ -23,5 +26,7 @@ impl Drop for SensitiveText {
 pub(crate) struct SensitiveBytes(pub(crate) Vec<u8>);
 
 impl Drop for SensitiveBytes {
-    fn drop(&mut self) { self.0.fill(0); }
+    fn drop(&mut self) {
+        self.0.fill(0);
+    }
 }

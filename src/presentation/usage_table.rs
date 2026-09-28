@@ -11,7 +11,14 @@ pub(crate) fn print_usage_table(reports: &[QuotaReport]) {
 
     println!(
         "{:<remote_width$}  {:>10}  {:>10}  {:>10}  {:>7}  {:<12}  {:>10}  {}",
-        "REMOTE", "USED", "FREE", "TOTAL", "USED%", "USAGE", "TRASH", "STATUS",
+        "REMOTE",
+        "USED",
+        "FREE",
+        "TOTAL",
+        "USED%",
+        "USAGE",
+        "TRASH",
+        "STATUS",
         remote_width = remote_width
     );
     println!(

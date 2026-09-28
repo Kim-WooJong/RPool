@@ -1,5 +1,5 @@
-use serde::Serialize;
 use super::QuotaReport;
+use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct ProviderHealthReport {

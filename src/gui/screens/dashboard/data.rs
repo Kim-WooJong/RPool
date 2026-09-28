@@ -27,10 +27,9 @@ impl DashboardData {
         match load_inventory() {
             Ok(store) => {
                 data.file_count = store.entries.len();
-                data.logical_bytes = store
-                    .entries
-                    .values()
-                    .fold(0_u64, |total, entry| total.saturating_add(entry.original_size));
+                data.logical_bytes = store.entries.values().fold(0_u64, |total, entry| {
+                    total.saturating_add(entry.original_size)
+                });
             }
             Err(error) => data
                 .warnings

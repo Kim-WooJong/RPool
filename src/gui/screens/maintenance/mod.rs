@@ -1,8 +1,8 @@
+pub(crate) mod diagnostics;
 #[path = "integrity/mod.rs"]
 pub(crate) mod integrity;
 #[path = "metadata/mod.rs"]
 pub(crate) mod metadata;
-pub(crate) mod diagnostics;
 
 pub(crate) use diagnostics::SystemForm;
 pub(crate) use integrity::IntegrityForm;
@@ -31,16 +31,23 @@ pub(crate) fn handle_task_completion(state: &mut GuiState, task: &TaskRunner, st
         "Scrub" | "Repair" => {
             state.integrity.refresh_snapshot();
             state.integrity.notice = Some(match status {
-                JobStatus::Completed => format!("{} completed; integrity summary refreshed.", last.name),
+                JobStatus::Completed => {
+                    format!("{} completed; integrity summary refreshed.", last.name)
+                }
                 JobStatus::Cancelled => format!("{} was cancelled.", last.name),
-                JobStatus::Failed => format!("{} finished with errors; the latest available integrity snapshot was loaded.", last.name),
+                JobStatus::Failed => format!(
+                    "{} finished with errors; the latest available integrity snapshot was loaded.",
+                    last.name
+                ),
                 _ => last.name.clone(),
             });
         }
         "Inventory rebuild" => {
             state.inventory.refresh();
             state.manifest.notice = Some(match status {
-                JobStatus::Completed => "Inventory rebuild completed and Files was refreshed.".to_string(),
+                JobStatus::Completed => {
+                    "Inventory rebuild completed and Files was refreshed.".to_string()
+                }
                 JobStatus::Cancelled => "Inventory rebuild was cancelled.".to_string(),
                 JobStatus::Failed => "Inventory rebuild failed. See Jobs for details.".to_string(),
                 _ => "Inventory rebuild updated.".to_string(),

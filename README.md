@@ -719,3 +719,8 @@ Repair is linked to the last Scrub result for the currently selected target. Rec
 ### Metadata and diagnostics
 
 Maintenance > Metadata groups manifest replica verification/repair/recovery with inventory rebuild. The inventory remains a rebuildable local cache; manifests and remote shards remain authoritative. Maintenance > Diagnostics runs Doctor checks and presents each check as OK, WARN, FAIL, or INFO, including rclone, remotes, pools, local inventory/history, and the last integrity snapshot.
+
+
+### Cloud provider setup and pool selection
+
+See [Provider setup](docs/PROVIDER_SETUP.md) for cloud connection, automatic crypt setup and the encrypted-provider picker.

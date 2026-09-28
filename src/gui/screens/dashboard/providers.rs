@@ -6,7 +6,13 @@ use crate::presentation::format_optional_bytes;
 use eframe::egui;
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
-    section_title(ui, state, "Providers", "Open Storage", StorageSection::Providers);
+    section_title(
+        ui,
+        state,
+        "Providers",
+        "Open Storage",
+        StorageSection::Providers,
+    );
 
     if state.usage_reports.is_empty() {
         ui.label("No provider capacity data is available yet.");
@@ -64,7 +70,11 @@ fn section_title(
     section: StorageSection,
 ) {
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(title).size(theme::SECTION_TITLE_SIZE).strong());
+        ui.label(
+            egui::RichText::new(title)
+                .size(theme::SECTION_TITLE_SIZE)
+                .strong(),
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.link(action).clicked() {
                 state.page = Page::Storage;

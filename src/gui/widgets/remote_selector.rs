@@ -69,7 +69,10 @@ fn configured_or_default_path<'a>(
     default_remote_path: &'a str,
     remote_roots: &'a BTreeMap<String, String>,
 ) -> &'a str {
-    let name = remote.split_once(':').map(|(name, _)| name).unwrap_or(remote);
+    let name = remote
+        .split_once(':')
+        .map(|(name, _)| name)
+        .unwrap_or(remote);
     remote_roots
         .get(name)
         .map(String::as_str)

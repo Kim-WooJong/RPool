@@ -46,11 +46,10 @@ impl BackendRegistry {
         &self,
         reference: &ObjectRef,
     ) -> Result<&Arc<dyn StorageBackend>, StorageError> {
-        self.get(&reference.backend()).ok_or_else(|| {
-            StorageError::NotFound {
+        self.get(&reference.backend())
+            .ok_or_else(|| StorageError::NotFound {
                 path: format!("backend {}", reference.backend().as_str()),
-            }
-        })
+            })
     }
 
     #[cfg(test)]

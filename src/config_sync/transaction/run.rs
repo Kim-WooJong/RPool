@@ -1,28 +1,47 @@
-use super::files::{self, Committer, ConfigCommit, ConfigFormat, ConfigLock, Journal, Phase, SNAPSHOT, STAGE};
+use super::files::{
+    self, Committer, ConfigCommit, ConfigFormat, ConfigLock, Journal, Phase, SNAPSHOT, STAGE,
+};
 use super::{ConfigDriver, SnapshotStore, TransactionOutcome};
 use crate::config_sync::age_vault::sync_directory;
 use anyhow::{anyhow, bail, Result};
 use std::fs;
 use std::path::Path;
 
-pub(crate) fn run(config: &Path, driver: &impl ConfigDriver, snapshots: &impl SnapshotStore) -> Result<TransactionOutcome> {
+pub(crate) fn run(
+    config: &Path,
+    driver: &impl ConfigDriver,
+    snapshots: &impl SnapshotStore,
+) -> Result<TransactionOutcome> {
     run_with(config, driver, snapshots, &ConfigCommit)
 }
 
-pub(super) fn run_with(config: &Path, driver: &impl ConfigDriver, snapshots: &impl SnapshotStore, committer: &impl Committer) -> Result<TransactionOutcome> {
+pub(super) fn run_with(
+    config: &Path,
+    driver: &impl ConfigDriver,
+    snapshots: &impl SnapshotStore,
+    committer: &impl Committer,
+) -> Result<TransactionOutcome> {
     let target = files::target_path(config)?;
     let _lock = ConfigLock::acquire(&target)?;
     let recovery = files::recovery_path(&target)?;
-    if files::exists(&recovery)? { bail!("pending rpool recovery must be resolved before another restore"); }
+    if files::exists(&recovery)? {
+        bail!("pending rpool recovery must be resolved before another restore");
+    }
     let metadata = files::regular_file(&target)?;
-    if metadata.permissions().readonly() { bail!("configuration is read-only; restore refused"); }
+    if metadata.permissions().readonly() {
+        bail!("configuration is read-only; restore refused");
+    }
     let permissions = metadata.permissions();
     let original = files::read_config(&target)?;
     let format = files::format(&original.0)?;
 
     let already_exact = driver.preflight(&target)?;
-    if files::read_config(&target)?.0 != original.0 { bail!("configuration changed during preflight; nothing was written"); }
-    if already_exact { return Ok(TransactionOutcome::NoChanges); }
+    if files::read_config(&target)?.0 != original.0 {
+        bail!("configuration changed during preflight; nothing was written");
+    }
+    if already_exact {
+        return Ok(TransactionOutcome::NoChanges);
+    }
 
     files::create_recovery(&recovery)?;
     let mut journal = Journal::new(&original.0, format);
@@ -32,7 +51,9 @@ pub(super) fn run_with(config: &Path, driver: &impl ConfigDriver, snapshots: &im
         snapshots.seal(&snapshot, &original.0)?;
         // A recipient typo/wrong identity must fail BEFORE config mutation.
         let roundtrip = snapshots.open(&snapshot)?;
-        if roundtrip.0 != original.0 { bail!("encrypted snapshot round-trip verification failed"); }
+        if roundtrip.0 != original.0 {
+            bail!("encrypted snapshot round-trip verification failed");
+        }
 
         let candidate = match format {
             ConfigFormat::Encrypted => {
@@ -44,7 +65,10 @@ pub(super) fn run_with(config: &Path, driver: &impl ConfigDriver, snapshots: &im
                 if files::format(&candidate.0)? != ConfigFormat::Encrypted {
                     bail!("encrypted staging config changed representation");
                 }
-                fs::OpenOptions::new().read(true).write(true).open(&stage)
+                fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&stage)
                     .and_then(|file| file.sync_all())
                     .map_err(|_| anyhow!("cannot synchronize staging config"))?;
                 candidate
@@ -59,7 +83,9 @@ pub(super) fn run_with(config: &Path, driver: &impl ConfigDriver, snapshots: &im
                 candidate
             }
         };
-        if candidate.0 == original.0 { bail!("restore candidate unexpectedly contains no changes"); }
+        if candidate.0 == original.0 {
+            bail!("restore candidate unexpectedly contains no changes");
+        }
         journal.candidate_digest = Some(files::digest(&candidate.0));
         journal.phase = Phase::Ready;
         journal.write(&recovery)?;
@@ -69,7 +95,9 @@ pub(super) fn run_with(config: &Path, driver: &impl ConfigDriver, snapshots: &im
         Ok(value) => value,
         Err(_) => {
             let cleaned = files::cleanup_recovery(&recovery);
-            if cleaned { bail!("restore preparation failed; live configuration was not changed"); }
+            if cleaned {
+                bail!("restore preparation failed; live configuration was not changed");
+            }
             bail!("restore preparation failed; live configuration was not changed; recovery cleanup is pending");
         }
     };
@@ -77,7 +105,9 @@ pub(super) fn run_with(config: &Path, driver: &impl ConfigDriver, snapshots: &im
     // The sidecar lock is cooperative. Detect non-rpool edits immediately before
     // mutation and refuse to overwrite them.
     if files::read_config(&target)?.0 != original.0 {
-        bail!("external configuration change detected; not overwritten; encrypted recovery retained");
+        bail!(
+            "external configuration change detected; not overwritten; encrypted recovery retained"
+        );
     }
     journal.phase = Phase::Committing;
     journal.write(&recovery)?;
@@ -93,23 +123,40 @@ pub(super) fn run_with(config: &Path, driver: &impl ConfigDriver, snapshots: &im
             // the bytes and durability sync can both be verified.
             if format == ConfigFormat::Plaintext {
                 let _ = committer.replace(&target, &original.0, &permissions, format);
-                let bytes_ok = files::read_config(&target).map(|value| value.0 == original.0).unwrap_or(false);
-                let file_sync_ok = fs::OpenOptions::new().read(true).write(true).open(&target)
-                    .and_then(|file| file.sync_all()).is_ok();
-                let dir_sync_ok = target.parent().map(|parent| sync_directory(parent).is_ok()).unwrap_or(false);
+                let bytes_ok = files::read_config(&target)
+                    .map(|value| value.0 == original.0)
+                    .unwrap_or(false);
+                let file_sync_ok = fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&target)
+                    .and_then(|file| file.sync_all())
+                    .is_ok();
+                let dir_sync_ok = target
+                    .parent()
+                    .map(|parent| sync_directory(parent).is_ok())
+                    .unwrap_or(false);
                 plaintext_write_recovery_failed = !(bytes_ok && file_sync_ok && dir_sync_ok);
             }
             bail!("configuration commit failed");
         }
-        sync_directory(target.parent().ok_or_else(|| anyhow!("configuration parent missing"))?)?;
+        sync_directory(
+            target
+                .parent()
+                .ok_or_else(|| anyhow!("configuration parent missing"))?,
+        )?;
         driver.verify(&target)?;
-        if files::read_config(&target)?.0 != candidate.0 { bail!("configuration changed during post-commit verification"); }
+        if files::read_config(&target)?.0 != candidate.0 {
+            bail!("configuration changed during post-commit verification");
+        }
         journal.phase = Phase::Verified;
         journal.write(&recovery)?;
         Ok(())
     })();
     if committed.is_ok() {
-        return Ok(TransactionOutcome::Committed { recovery_cleanup_pending: !files::cleanup_recovery(&recovery) });
+        return Ok(TransactionOutcome::Committed {
+            recovery_cleanup_pending: !files::cleanup_recovery(&recovery),
+        });
     }
     if plaintext_write_recovery_failed {
         bail!("restore commit failed; plaintext rollback durability could not be verified; encrypted recovery retained; further restore is blocked");
@@ -120,16 +167,28 @@ pub(super) fn run_with(config: &Path, driver: &impl ConfigDriver, snapshots: &im
     // encrypted recovery is retained above instead of claiming success.
     let rollback = (|| -> Result<()> {
         let current = files::read_config(&target)?;
-        if current.0 == original.0 { return Ok(()); }
-        if current.0 != candidate.0 { bail!("configuration no longer belongs to this transaction"); }
+        if current.0 == original.0 {
+            return Ok(());
+        }
+        if current.0 != candidate.0 {
+            bail!("configuration no longer belongs to this transaction");
+        }
         committer.replace(&target, &original.0, &permissions, format)?;
-        sync_directory(target.parent().ok_or_else(|| anyhow!("configuration parent missing"))?)?;
-        if files::read_config(&target)?.0 != original.0 { bail!("rollback verification failed"); }
+        sync_directory(
+            target
+                .parent()
+                .ok_or_else(|| anyhow!("configuration parent missing"))?,
+        )?;
+        if files::read_config(&target)?.0 != original.0 {
+            bail!("rollback verification failed");
+        }
         Ok(())
     })();
     if rollback.is_ok() {
         let cleaned = files::cleanup_recovery(&recovery);
-        if cleaned { bail!("restore failed; original configuration was restored and verified byte-for-byte"); }
+        if cleaned {
+            bail!("restore failed; original configuration was restored and verified byte-for-byte");
+        }
         bail!("restore failed; original configuration was restored and verified; recovery cleanup is pending");
     }
     bail!("restore failed; automatic rollback could not be verified; encrypted recovery retained; further restore is blocked")

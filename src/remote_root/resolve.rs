@@ -28,7 +28,10 @@ pub(crate) fn apply_remote_root(remote: &str) -> Result<String> {
 }
 
 pub(crate) fn apply_remote_roots(remotes: Vec<String>) -> Result<Vec<String>> {
-    remotes.into_iter().map(|remote| apply_remote_root(&remote)).collect()
+    remotes
+        .into_iter()
+        .map(|remote| apply_remote_root(&remote))
+        .collect()
 }
 
 fn join_remote_root(name: &str, root: &str) -> String {

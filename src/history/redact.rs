@@ -33,9 +33,17 @@ fn redact_token(token: &str) -> String {
             .map(|index| authority_start + index)
             .unwrap_or_else(|| token.find('?').unwrap_or(token.len()));
         let authority = &token[authority_start..authority_end];
-        let host = authority.rsplit_once('@').map(|(_, host)| host).unwrap_or(authority);
+        let host = authority
+            .rsplit_once('@')
+            .map(|(_, host)| host)
+            .unwrap_or(authority);
         let mut value = if authority.contains('@') {
-            format!("{}://***@{}{}", &token[..scheme_end], host, &token[authority_end..])
+            format!(
+                "{}://***@{}{}",
+                &token[..scheme_end],
+                host,
+                &token[authority_end..]
+            )
         } else {
             token.to_string()
         };

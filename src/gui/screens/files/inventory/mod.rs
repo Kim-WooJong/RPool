@@ -58,9 +58,9 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     }
 
     let rows = state.inventory.visible_rows();
-    let visible_bytes = rows
-        .iter()
-        .fold(0_u64, |total, row| total.saturating_add(row.entry.original_size));
+    let visible_bytes = rows.iter().fold(0_u64, |total, row| {
+        total.saturating_add(row.entry.original_size)
+    });
     ui.add_space(theme::SUBSECTION_GAP);
     ui.label(
         egui::RichText::new(format!(

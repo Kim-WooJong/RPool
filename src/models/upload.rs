@@ -1,6 +1,6 @@
+use super::{Coding, Placement, ShardKind};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use super::{Coding, Placement, ShardKind};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct UploadPlan {

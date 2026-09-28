@@ -2,20 +2,31 @@
 //! These do NOT test age cryptography or real rclone; B6 supplies that coverage.
 use super::files::{self, Committer, ConfigCommit, ConfigFormat, Journal, Phase, SNAPSHOT, STAGE};
 use super::*;
-use anyhow::{bail, Result};
 use crate::models::sensitive::SensitiveBytes;
+use anyhow::{bail, Result};
 use std::cell::Cell;
 use std::fs::{self, Permissions};
 use std::path::{Path, PathBuf};
 
-const ORIGINAL: &[u8] = b"# test fixture, not a usable credential\nRCLONE_ENCRYPT_V0:\nORIGINAL-MOCK-CIPHERTEXT\n";
+const ORIGINAL: &[u8] =
+    b"# test fixture, not a usable credential\nRCLONE_ENCRYPT_V0:\nORIGINAL-MOCK-CIPHERTEXT\n";
 const CANDIDATE: &[u8] = b"RCLONE_ENCRYPT_V0:\nCANDIDATE-MOCK-CIPHERTEXT\n";
 const EXTERNAL: &[u8] = b"RCLONE_ENCRYPT_V0:\nEXTERNAL-MOCK-CIPHERTEXT\n";
 const PLAIN_ORIGINAL: &[u8] = b"[vault]\ntype = crypt\npassword = OLDOLDOLDOLDOLDOLDOLD12\n";
 const PLAIN_CANDIDATE: &[u8] = b"[vault]\ntype = crypt\npassword = AAAAAAAAAAAAAAAAAAAAAAA\n";
 
-struct MockVault { fail_open: bool, corrupt: bool }
-impl MockVault { fn working() -> Self { Self { fail_open: false, corrupt: false } } }
+struct MockVault {
+    fail_open: bool,
+    corrupt: bool,
+}
+impl MockVault {
+    fn working() -> Self {
+        Self {
+            fail_open: false,
+            corrupt: false,
+        }
+    }
+}
 impl SnapshotStore for MockVault {
     fn seal(&self, output: &Path, ciphertext: &[u8]) -> Result<()> {
         // Test fixture wrapper only, NEVER a production SnapshotStore.
@@ -25,11 +36,17 @@ impl SnapshotStore for MockVault {
         Ok(())
     }
     fn open(&self, input: &Path) -> Result<SensitiveBytes> {
-        if self.fail_open { bail!("mock identity failure"); }
+        if self.fail_open {
+            bail!("mock identity failure");
+        }
         let bytes = fs::read(input)?;
-        if !bytes.starts_with(b"MOCK-AGE\n") { bail!("mock corrupted snapshot"); }
+        if !bytes.starts_with(b"MOCK-AGE\n") {
+            bail!("mock corrupted snapshot");
+        }
         let mut output = bytes[9..].to_vec();
-        if self.corrupt { output.push(b'!'); }
+        if self.corrupt {
+            output.push(b'!');
+        }
         Ok(SensitiveBytes(output))
     }
 }
@@ -44,13 +61,21 @@ struct MockDriver {
 }
 impl MockDriver {
     fn new(target: &Path) -> Self {
-        Self { target: target.to_owned(), fail_preflight: false, fail_stage: false,
-            fail_live_verify: false, external_change: false, calls: Cell::new(0) }
+        Self {
+            target: target.to_owned(),
+            fail_preflight: false,
+            fail_stage: false,
+            fail_live_verify: false,
+            external_change: false,
+            calls: Cell::new(0),
+        }
     }
 }
 impl ConfigDriver for MockDriver {
     fn preflight(&self, config: &Path) -> Result<bool> {
-        if self.fail_preflight { bail!("mock invalid target"); }
+        if self.fail_preflight {
+            bail!("mock invalid target");
+        }
         let bytes = fs::read(config)?;
         Ok(bytes == CANDIDATE || bytes == PLAIN_CANDIDATE)
     }
@@ -58,30 +83,52 @@ impl ConfigDriver for MockDriver {
         assert!(config != self.target.as_path());
         self.calls.set(self.calls.get() + 1);
         fs::write(config, CANDIDATE)?;
-        if self.external_change { fs::write(&self.target, EXTERNAL)?; }
-        if self.fail_stage { bail!("mock second remote update failure"); }
+        if self.external_change {
+            fs::write(&self.target, EXTERNAL)?;
+        }
+        if self.fail_stage {
+            bail!("mock second remote update failure");
+        }
         Ok(())
     }
     fn build_plaintext_candidate(&self, original: &[u8]) -> Result<SensitiveBytes> {
         self.calls.set(self.calls.get() + 1);
-        if self.external_change { fs::write(&self.target, b"[external]\ntype = local\n")?; }
-        if self.fail_stage { bail!("mock plaintext candidate failure"); }
-        if original != PLAIN_ORIGINAL { bail!("unexpected plaintext fixture"); }
+        if self.external_change {
+            fs::write(&self.target, b"[external]\ntype = local\n")?;
+        }
+        if self.fail_stage {
+            bail!("mock plaintext candidate failure");
+        }
+        if original != PLAIN_ORIGINAL {
+            bail!("unexpected plaintext fixture");
+        }
         Ok(SensitiveBytes(PLAIN_CANDIDATE.to_vec()))
     }
     fn verify(&self, config: &Path) -> Result<()> {
-        if self.fail_live_verify && config == self.target.as_path() { bail!("mock post-commit verification failure"); }
+        if self.fail_live_verify && config == self.target.as_path() {
+            bail!("mock post-commit verification failure");
+        }
         let bytes = fs::read(config)?;
-        if bytes != CANDIDATE && bytes != PLAIN_CANDIDATE { bail!("mock exact value mismatch"); }
+        if bytes != CANDIDATE && bytes != PLAIN_CANDIDATE {
+            bail!("mock exact value mismatch");
+        }
         Ok(())
     }
 }
 
 struct FailSecondReplace(Cell<usize>);
 impl Committer for FailSecondReplace {
-    fn replace(&self, target: &Path, bytes: &[u8], permissions: &Permissions, format: ConfigFormat) -> Result<()> {
+    fn replace(
+        &self,
+        target: &Path,
+        bytes: &[u8],
+        permissions: &Permissions,
+        format: ConfigFormat,
+    ) -> Result<()> {
         self.0.set(self.0.get() + 1);
-        if self.0.get() == 2 { bail!("mock rollback write failure"); }
+        if self.0.get() == 2 {
+            bail!("mock rollback write failure");
+        }
         ConfigCommit.replace(target, bytes, permissions, format)
     }
 }
@@ -92,13 +139,20 @@ fn setup() -> Result<(tempfile::TempDir, PathBuf)> {
     fs::write(&target, ORIGINAL)?;
     Ok((dir, target.canonicalize()?))
 }
-fn pending(target: &Path) -> Result<PathBuf> { files::recovery_path(target) }
+fn pending(target: &Path) -> Result<PathBuf> {
+    files::recovery_path(target)
+}
 
 #[test]
 fn successful_transaction_commits_verified_candidate() -> Result<()> {
     let (_dir, target) = setup()?;
     let result = run(&target, &MockDriver::new(&target), &MockVault::working())?;
-    assert!(matches!(result, TransactionOutcome::Committed { recovery_cleanup_pending: false }));
+    assert!(matches!(
+        result,
+        TransactionOutcome::Committed {
+            recovery_cleanup_pending: false
+        }
+    ));
     assert!(fs::read(&target)? == CANDIDATE);
     assert!(!pending(&target)?.exists());
     Ok(())
@@ -109,7 +163,10 @@ fn repeated_restore_is_noop_without_snapshot_or_update() -> Result<()> {
     let (_dir, target) = setup()?;
     let driver = MockDriver::new(&target);
     run(&target, &driver, &MockVault::working())?;
-    assert!(matches!(run(&target, &driver, &MockVault::working())?, TransactionOutcome::NoChanges));
+    assert!(matches!(
+        run(&target, &driver, &MockVault::working())?,
+        TransactionOutcome::NoChanges
+    ));
     assert_eq!(driver.calls.get(), 1);
     assert!(!pending(&target)?.exists());
     Ok(())
@@ -121,7 +178,12 @@ fn plaintext_config_commits_without_plaintext_stage_file() -> Result<()> {
     fs::write(&target, PLAIN_ORIGINAL)?;
     let driver = MockDriver::new(&target);
     let result = run(&target, &driver, &MockVault::working())?;
-    assert!(matches!(result, TransactionOutcome::Committed { recovery_cleanup_pending: false }));
+    assert!(matches!(
+        result,
+        TransactionOutcome::Committed {
+            recovery_cleanup_pending: false
+        }
+    ));
     assert!(fs::read(&target)? == PLAIN_CANDIDATE);
     assert_eq!(driver.calls.get(), 1);
     assert!(!pending(&target)?.join(STAGE).exists());
@@ -156,7 +218,15 @@ fn invalid_target_preflight_leaves_original_and_no_recovery_dir() -> Result<()> 
 fn wrong_snapshot_identity_fails_before_any_update() -> Result<()> {
     let (_dir, target) = setup()?;
     let driver = MockDriver::new(&target);
-    assert!(run(&target, &driver, &MockVault { fail_open: true, corrupt: false }).is_err());
+    assert!(run(
+        &target,
+        &driver,
+        &MockVault {
+            fail_open: true,
+            corrupt: false
+        }
+    )
+    .is_err());
     assert!(fs::read(&target)? == ORIGINAL);
     assert_eq!(driver.calls.get(), 0);
     Ok(())
@@ -166,7 +236,15 @@ fn wrong_snapshot_identity_fails_before_any_update() -> Result<()> {
 fn corrupted_snapshot_roundtrip_fails_before_any_update() -> Result<()> {
     let (_dir, target) = setup()?;
     let driver = MockDriver::new(&target);
-    assert!(run(&target, &driver, &MockVault { fail_open: false, corrupt: true }).is_err());
+    assert!(run(
+        &target,
+        &driver,
+        &MockVault {
+            fail_open: false,
+            corrupt: true
+        }
+    )
+    .is_err());
     assert!(fs::read(&target)? == ORIGINAL);
     assert_eq!(driver.calls.get(), 0);
     Ok(())
@@ -236,11 +314,15 @@ fn create_interrupted(target: &Path, phase: Phase) -> Result<()> {
 fn interrupted_commit_can_restore_authenticated_snapshot() -> Result<()> {
     let (_dir, target) = setup()?;
     create_interrupted(&target, Phase::Committing)?;
-    assert!(matches!(recover_interrupted(&target, &MockVault::working())?, RecoveryOutcome::OriginalRestored { cleanup_pending: false }));
+    assert!(matches!(
+        recover_interrupted(&target, &MockVault::working())?,
+        RecoveryOutcome::OriginalRestored {
+            cleanup_pending: false
+        }
+    ));
     assert!(fs::read(&target)? == ORIGINAL);
     Ok(())
 }
-
 
 fn create_plain_interrupted(target: &Path, phase: Phase) -> Result<()> {
     fs::write(target, PLAIN_ORIGINAL)?;
@@ -259,7 +341,12 @@ fn create_plain_interrupted(target: &Path, phase: Phase) -> Result<()> {
 fn interrupted_plaintext_commit_restores_authenticated_snapshot_without_temp() -> Result<()> {
     let (_dir, target) = setup()?;
     create_plain_interrupted(&target, Phase::Committing)?;
-    assert!(matches!(recover_interrupted(&target, &MockVault::working())?, RecoveryOutcome::OriginalRestored { cleanup_pending: false }));
+    assert!(matches!(
+        recover_interrupted(&target, &MockVault::working())?,
+        RecoveryOutcome::OriginalRestored {
+            cleanup_pending: false
+        }
+    ));
     assert!(fs::read(&target)? == PLAIN_ORIGINAL);
     Ok(())
 }
@@ -268,7 +355,12 @@ fn interrupted_plaintext_commit_restores_authenticated_snapshot_without_temp() -
 fn completed_verified_commit_is_not_rolled_back_on_cleanup_retry() -> Result<()> {
     let (_dir, target) = setup()?;
     create_interrupted(&target, Phase::Verified)?;
-    assert!(matches!(recover_interrupted(&target, &MockVault::working())?, RecoveryOutcome::VerifiedCommitKept { cleanup_pending: false }));
+    assert!(matches!(
+        recover_interrupted(&target, &MockVault::working())?,
+        RecoveryOutcome::VerifiedCommitKept {
+            cleanup_pending: false
+        }
+    ));
     assert!(fs::read(&target)? == CANDIDATE);
     Ok(())
 }
@@ -288,7 +380,14 @@ fn recovery_refuses_unknown_current_config() -> Result<()> {
 fn recovery_wrong_identity_does_not_change_candidate() -> Result<()> {
     let (_dir, target) = setup()?;
     create_interrupted(&target, Phase::Committing)?;
-    assert!(recover_interrupted(&target, &MockVault { fail_open: true, corrupt: false }).is_err());
+    assert!(recover_interrupted(
+        &target,
+        &MockVault {
+            fail_open: true,
+            corrupt: false
+        }
+    )
+    .is_err());
     assert!(fs::read(&target)? == CANDIDATE);
     assert!(pending(&target)?.exists());
     Ok(())
@@ -307,7 +406,9 @@ fn os_lock_blocks_second_owner_and_releases_on_drop() -> Result<()> {
 #[test]
 fn encrypted_header_checks_first_meaningful_line_not_substring() {
     assert!(files::encrypted_header(ORIGINAL));
-    assert!(!files::encrypted_header(b"[remote]\npassword=RCLONE_ENCRYPT_V0:\n"));
+    assert!(!files::encrypted_header(
+        b"[remote]\npassword=RCLONE_ENCRYPT_V0:\n"
+    ));
     assert!(!files::encrypted_header(b"RCLONE_ENCRYPT_V1:\n"));
 }
 

@@ -84,12 +84,17 @@ pub(crate) fn export_package(
 
     let recipient = age_recipient
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("--age-recipient is required when crypt remotes are present"))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!("--age-recipient is required when crypt remotes are present")
+        })?;
     if recipient.trim() != recipient {
         bail!("invalid age recipient");
     }
 
-    let encrypt = AgeEncrypt { executable: age, recipient };
+    let encrypt = AgeEncrypt {
+        executable: age,
+        recipient,
+    };
     encrypt.write_bundle(&paths.vault, &secrets)?;
     let binding = paths.binding()?;
     let crypt_count = crypt_remotes.len();

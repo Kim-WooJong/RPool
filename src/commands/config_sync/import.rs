@@ -26,9 +26,15 @@ pub(crate) fn run_package(rclone: &str, args: &ImportArgs) -> Result<()> {
     )?;
 
     if outcome.dry_run {
-        println!("rpool artifact validation passed: {}", outcome.artifact_root.display());
+        println!(
+            "rpool artifact validation passed: {}",
+            outcome.artifact_root.display()
+        );
     } else {
-        println!("imported rpool artifact: {}", outcome.artifact_root.display());
+        println!(
+            "imported rpool artifact: {}",
+            outcome.artifact_root.display()
+        );
     }
     println!("portable config: {}", outcome.portable_path.display());
     println!("crypt remotes: {}", outcome.crypt_remotes);

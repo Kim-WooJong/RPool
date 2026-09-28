@@ -4,7 +4,7 @@ use super::crypt_restore::{preflight_crypt_vault, restore_crypt_vault};
 use super::tooling::{derive_age_recipient, resolve_rclone_config};
 use super::transaction::TransactionOutcome;
 use crate::gui::{load_settings, save_settings, GuiSettings};
-use crate::models::{PortableConfig, PoolStore, RemoteRootStore};
+use crate::models::{PoolStore, PortableConfig, RemoteRootStore};
 use crate::pool::{load_pool_store, save_pool_store};
 use crate::remote_root::{load_remote_root_store, save_remote_root_store};
 use crate::utils::read_json;
@@ -133,8 +133,9 @@ pub(crate) fn import_package(
         });
     }
 
-    let identity = age_identity
-        .ok_or_else(|| anyhow::anyhow!("--age-identity is required when crypt remotes are present"))?;
+    let identity = age_identity.ok_or_else(|| {
+        anyhow::anyhow!("--age-identity is required when crypt remotes are present")
+    })?;
     let config = resolve_rclone_config(rclone, rclone_config)?;
     let decrypt = AgeDecrypt {
         executable: age,
@@ -164,7 +165,10 @@ pub(crate) fn import_package(
     }
 
     prepared.apply()?;
-    let snapshot_encrypt = AgeEncrypt { executable: age, recipient: &recipient };
+    let snapshot_encrypt = AgeEncrypt {
+        executable: age,
+        recipient: &recipient,
+    };
     let restored = restore_crypt_vault(
         rclone,
         &config,
@@ -182,16 +186,19 @@ pub(crate) fn import_package(
                     "crypt restore failed and portable rpool settings rollback also failed: {rollback:#}"
                 ));
             }
-            return Err(error).context("crypt restore failed; portable rpool settings were rolled back");
+            return Err(error)
+                .context("crypt restore failed; portable rpool settings were rolled back");
         }
     };
 
     let crypt = match transaction {
         TransactionOutcome::NoChanges => PackageCryptOutcome::AlreadyExact,
-        TransactionOutcome::Committed { recovery_cleanup_pending: false } => PackageCryptOutcome::Restored,
-        TransactionOutcome::Committed { recovery_cleanup_pending: true } => {
-            PackageCryptOutcome::RestoredWithCleanupPending
-        }
+        TransactionOutcome::Committed {
+            recovery_cleanup_pending: false,
+        } => PackageCryptOutcome::Restored,
+        TransactionOutcome::Committed {
+            recovery_cleanup_pending: true,
+        } => PackageCryptOutcome::RestoredWithCleanupPending,
     };
 
     Ok(PackageImportOutcome {

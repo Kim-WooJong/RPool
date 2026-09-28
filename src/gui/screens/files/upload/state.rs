@@ -42,7 +42,11 @@ pub(crate) struct UploadItem {
 
 impl UploadItem {
     fn new(path: PathBuf) -> Self {
-        let size = path.metadata().ok().filter(|meta| meta.is_file()).map(|meta| meta.len());
+        let size = path
+            .metadata()
+            .ok()
+            .filter(|meta| meta.is_file())
+            .map(|meta| meta.len());
         Self {
             path,
             size,

@@ -33,7 +33,10 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         Some("rpool manifest"),
         &["json"],
     );
-    ui.checkbox(&mut state.status.include_usage, "Append provider usage information");
+    ui.checkbox(
+        &mut state.status.include_usage,
+        "Append provider usage information",
+    );
 
     if let Some(error) = &state.status.error {
         ui.label(error);

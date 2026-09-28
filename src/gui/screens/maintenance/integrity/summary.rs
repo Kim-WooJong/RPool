@@ -45,7 +45,11 @@ pub(crate) fn show(ui: &mut egui::Ui, form: &IntegrityForm) {
             item(
                 ui,
                 "Recoverable",
-                snapshot.groups.iter().filter(|group| group.is_recoverable()).count(),
+                snapshot
+                    .groups
+                    .iter()
+                    .filter(|group| group.is_recoverable())
+                    .count(),
             );
             item(ui, "Unrecoverable", snapshot.unrecoverable_groups);
             item(ui, "Degraded groups", snapshot.degraded_groups);

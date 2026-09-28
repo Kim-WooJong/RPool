@@ -16,7 +16,13 @@ pub(crate) struct CapacityBinding {
     pub(crate) target: String,
     pub(crate) domain: Option<CapacityDomainId>,
     // Config section identity alone cannot prove an independent outage domain.
-    #[cfg_attr(not(test), expect(dead_code, reason = "Failure-domain placement metadata is retained independently of capacity grouping"))]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Failure-domain placement metadata is retained independently of capacity grouping"
+        )
+    )]
     pub(crate) failure_domain: Option<FailureDomainId>,
 }
 impl RemoteCatalog {
@@ -46,6 +52,13 @@ impl RemoteCatalog {
             }
         }
         Ok(Self { entries })
+    }
+    pub(crate) fn backing_remotes(&self) -> Vec<String> {
+        self.entries
+            .iter()
+            .filter(|(_, e)| e.kind != "crypt")
+            .map(|(n, _)| n.clone())
+            .collect()
     }
     pub(crate) fn crypt_remotes(&self) -> Vec<String> {
         self.entries

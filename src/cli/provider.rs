@@ -1,6 +1,6 @@
+use crate::config::constants::{DEFAULT_RETRIES, DEFAULT_WORKERS};
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
-use crate::config::constants::{DEFAULT_RETRIES, DEFAULT_WORKERS};
 
 #[derive(Args, Debug)]
 pub(crate) struct ProviderArgs {
@@ -10,6 +10,24 @@ pub(crate) struct ProviderArgs {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum ProviderCommands {
+    /// Create a new crypt remote with OS-generated keys, never rotate existing keys.
+    Encrypt {
+        #[arg(long)]
+        name: String,
+        /// Existing non-crypt remote name, without colon.
+        #[arg(long)]
+        provider: String,
+        /// Parent folder; a fresh unique child is always allocated.
+        #[arg(long, default_value = "rpool")]
+        root: String,
+        /// Random password entropy; does not change rclone's encryption algorithm.
+        #[arg(long, default_value_t = 256)]
+        entropy_bits: usize,
+        #[arg(long, default_value = "standard")]
+        filename_encryption: String,
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        directory_encryption: bool,
+    },
     /// Check provider accessibility, latency, and quota information.
     Health {
         #[arg(long = "remote")]

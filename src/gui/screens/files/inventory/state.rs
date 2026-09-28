@@ -138,7 +138,11 @@ impl InventoryForm {
         }
         row.entry.original_name.to_ascii_lowercase().contains(query)
             || row.entry.archive_id.to_ascii_lowercase().contains(query)
-            || row.entry.manifest_source.to_ascii_lowercase().contains(query)
+            || row
+                .entry
+                .manifest_source
+                .to_ascii_lowercase()
+                .contains(query)
             || row.pool_label().to_ascii_lowercase().contains(query)
             || row
                 .entry

@@ -45,7 +45,8 @@ pub(crate) fn load(startup_rclone: &str) -> GuiSettings {
 }
 
 pub(crate) fn save(settings: &GuiSettings) -> Result<PathBuf, String> {
-    let path = settings_path().ok_or_else(|| "cannot determine GUI settings directory".to_string())?;
+    let path =
+        settings_path().ok_or_else(|| "cannot determine GUI settings directory".to_string())?;
     save_json_atomic(&path, settings)
         .map_err(|error| format!("failed to save GUI settings: {error:#}"))?;
     Ok(path)

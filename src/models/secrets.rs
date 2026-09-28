@@ -33,7 +33,10 @@ pub(crate) struct SecretBundle {
 
 impl SecretBundle {
     pub(crate) fn new(crypt: BTreeMap<String, CryptSecret>) -> Self {
-        Self { schema_version: SECRET_BUNDLE_SCHEMA_VERSION, rclone: RcloneSecrets { crypt } }
+        Self {
+            schema_version: SECRET_BUNDLE_SCHEMA_VERSION,
+            rclone: RcloneSecrets { crypt },
+        }
     }
 
     pub(crate) fn validate(&self) -> Result<()> {
@@ -55,8 +58,12 @@ impl SecretBundle {
 /// No decoding or recovery of crypt passwords is performed here.
 pub(crate) fn validate_obscured(value: &str) -> Result<()> {
     let bytes = value.as_bytes();
-    if bytes.len() < 23 || bytes.len() > 16384 || bytes.len() % 4 == 1
-        || !bytes.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'-' || *b == b'_')
+    if bytes.len() < 23
+        || bytes.len() > 16384
+        || bytes.len() % 4 == 1
+        || !bytes
+            .iter()
+            .all(|b| b.is_ascii_alphanumeric() || *b == b'-' || *b == b'_')
     {
         bail!("invalid obscured crypt secret encoding");
     }
@@ -65,9 +72,12 @@ pub(crate) fn validate_obscured(value: &str) -> Result<()> {
 
 /// A conservative subset of rclone names; no flags or connection strings.
 pub(crate) fn validate_remote_name(name: &str) -> Result<()> {
-    if name.is_empty() || name.len() > 128
+    if name.is_empty()
+        || name.len() > 128
         || !name.as_bytes()[0].is_ascii_alphanumeric()
-        || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
     {
         bail!("unsupported crypt remote name");
     }
@@ -75,16 +85,28 @@ pub(crate) fn validate_remote_name(name: &str) -> Result<()> {
 }
 
 /// Reject duplicate remote names instead of silently keeping the last secret.
-pub(crate) fn unique_map<'de, D, T>(deserializer: D) -> std::result::Result<BTreeMap<String, T>, D::Error>
-where D: Deserializer<'de>, T: Deserialize<'de> {
+pub(crate) fn unique_map<'de, D, T>(
+    deserializer: D,
+) -> std::result::Result<BTreeMap<String, T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
     struct Unique<T>(PhantomData<T>);
     impl<'de, T: Deserialize<'de>> Visitor<'de> for Unique<T> {
         type Value = BTreeMap<String, T>;
-        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str("a unique-key object") }
-        fn visit_map<A: MapAccess<'de>>(self, mut access: A) -> std::result::Result<Self::Value, A::Error> {
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("a unique-key object")
+        }
+        fn visit_map<A: MapAccess<'de>>(
+            self,
+            mut access: A,
+        ) -> std::result::Result<Self::Value, A::Error> {
             let mut result = BTreeMap::new();
             while let Some((key, value)) = access.next_entry::<String, T>()? {
-                if result.insert(key, value).is_some() { return Err(de::Error::custom("duplicate remote key")); }
+                if result.insert(key, value).is_some() {
+                    return Err(de::Error::custom("duplicate remote key"));
+                }
             }
             Ok(result)
         }
@@ -95,7 +117,8 @@ where D: Deserializer<'de>, T: Deserialize<'de> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    const ONE: &str = r#"{"schema_version":1,"rclone":{"crypt":{"one":{"password":"AAAAAAAAAAAAAAAAAAAAAAA"}}}}"#;
+    const ONE: &str =
+        r#"{"schema_version":1,"rclone":{"crypt":{"one":{"password":"AAAAAAAAAAAAAAAAAAAAAAA"}}}}"#;
     #[test]
     fn optional_password2_and_wire_format() {
         let bundle: SecretBundle = serde_json::from_str(ONE).unwrap();
@@ -108,16 +131,24 @@ mod tests {
     }
     #[test]
     fn unsupported_schema_is_rejected() {
-        let bundle: SecretBundle = serde_json::from_str(&ONE.replace("\"schema_version\":1", "\"schema_version\":2")).unwrap();
+        let bundle: SecretBundle =
+            serde_json::from_str(&ONE.replace("\"schema_version\":1", "\"schema_version\":2"))
+                .unwrap();
         assert!(bundle.validate().is_err());
     }
     #[test]
     fn missing_required_password_is_rejected() {
-        assert!(serde_json::from_str::<SecretBundle>(r#"{"schema_version":1,"rclone":{"crypt":{"one":{}}}}"#).is_err());
+        assert!(serde_json::from_str::<SecretBundle>(
+            r#"{"schema_version":1,"rclone":{"crypt":{"one":{}}}}"#
+        )
+        .is_err());
     }
     #[test]
     fn unknown_secret_fields_are_rejected() {
-        assert!(serde_json::from_str::<SecretBundle>(&ONE.replace("\"password\":", "\"unexpected\":")).is_err());
+        assert!(serde_json::from_str::<SecretBundle>(
+            &ONE.replace("\"password\":", "\"unexpected\":")
+        )
+        .is_err());
     }
     #[test]
     fn duplicate_remote_keys_are_rejected() {

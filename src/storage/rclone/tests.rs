@@ -269,9 +269,13 @@ fn bounded_output_and_stderr_flood_do_not_deadlock() {
         bytes: Vec::new(),
         limit: 1024,
     };
-    assert_eq!(context
-        .read_raw(&budget(), "crypt:oversized", None, &mut limited)
-        .unwrap_err().kind(), StorageErrorKind::InvalidInput);
+    assert_eq!(
+        context
+            .read_raw(&budget(), "crypt:oversized", None, &mut limited)
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::InvalidInput
+    );
     assert!(limited.bytes.len() <= 1024);
 }
 
@@ -323,9 +327,15 @@ fn storage_reader_preserves_adapter_error_taxonomy() {
     let reader = crate::storage::reader::StorageReader::rclone(exe.to_str().unwrap());
     assert_eq!(reader.stat("crypt:object").unwrap().size, 6);
     let missing = reader.stat("crypt:missing").unwrap_err();
-    assert_eq!(missing.downcast_ref::<StorageError>().unwrap().kind(), StorageErrorKind::NotFound);
+    assert_eq!(
+        missing.downcast_ref::<StorageError>().unwrap().kind(),
+        StorageErrorKind::NotFound
+    );
     let auth = reader.stat("crypt:auth").unwrap_err();
-    assert_ne!(auth.downcast_ref::<StorageError>().unwrap().kind(), StorageErrorKind::NotFound);
+    assert_ne!(
+        auth.downcast_ref::<StorageError>().unwrap().kind(),
+        StorageErrorKind::NotFound
+    );
     assert_eq!(reader.read_metadata("crypt:object").unwrap(), b"abcdef");
 }
 
@@ -341,14 +351,22 @@ fn storage_services_verify_hash_offsets_and_uploads() {
     shard.offset = 2;
     storage.write_file(&source, 0, &shard, 3).unwrap();
     storage.write_bytes("crypt:object", b"abcdef", 3).unwrap();
-    storage.copy_verified(&shard, "crypt:destination", 3).unwrap();
+    storage
+        .copy_verified(&shard, "crypt:destination", 3)
+        .unwrap();
     storage.reader().verify(&shard, true).unwrap();
-    assert!(matches!(storage.reader().probe(&shard, true), crate::models::Probe::Ok));
+    assert!(matches!(
+        storage.reader().probe(&shard, true),
+        crate::models::Probe::Ok
+    ));
     let output = dir.path().join("output file");
     std::fs::write(&output, [0u8; 10]).unwrap();
     storage.reader().download(&shard, &output, 2, true).unwrap();
     assert_eq!(std::fs::read(&output).unwrap(), b"\0\0abcdef\0\0");
-    storage.reader().download(&shard, &output, 2, false).unwrap();
+    storage
+        .reader()
+        .download(&shard, &output, 2, false)
+        .unwrap();
     assert_eq!(std::fs::read(&output).unwrap(), b"abcdef");
 }
 

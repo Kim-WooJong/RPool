@@ -1,8 +1,11 @@
 use crate::pool::{load_pool_store, validate_pool};
-use anyhow::{bail, Result};
 use crate::remote_root::apply_remote_roots;
+use anyhow::{bail, Result};
 
-pub(crate) fn resolve_target_remotes(pool_name: Option<&str>, explicit: Vec<String>) -> Result<Vec<String>> {
+pub(crate) fn resolve_target_remotes(
+    pool_name: Option<&str>,
+    explicit: Vec<String>,
+) -> Result<Vec<String>> {
     if pool_name.is_some() && !explicit.is_empty() {
         bail!("--pool and --remote cannot be used together");
     }

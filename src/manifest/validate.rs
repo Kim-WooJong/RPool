@@ -1,6 +1,6 @@
-use crate::prelude::*;
 use crate::erasure::validate_rs_counts;
 use crate::manifest::{coding_group_count, content_root_v1, content_root_v2, data_shards};
+use crate::prelude::*;
 
 pub(crate) fn validate_manifest(manifest: &Manifest) -> Result<()> {
     match manifest.version {
@@ -90,7 +90,10 @@ pub(crate) fn validate_manifest_v2(manifest: &Manifest) -> Result<()> {
             let expected_group = position / coding.data_shards;
             let expected_slot = position % coding.data_shards;
             if shard.group as usize != expected_group || shard.slot as usize != expected_slot {
-                bail!("data shard {} has inconsistent group/slot metadata", shard.index);
+                bail!(
+                    "data shard {} has inconsistent group/slot metadata",
+                    shard.index
+                );
             }
         }
 
@@ -110,11 +113,7 @@ pub(crate) fn validate_manifest_v2(manifest: &Manifest) -> Result<()> {
                 }
             }
         }
-    } else if manifest
-        .shards
-        .iter()
-        .any(|s| s.kind == ShardKind::Parity)
-    {
+    } else if manifest.shards.iter().any(|s| s.kind == ShardKind::Parity) {
         bail!("manifest contains parity shards but no coding metadata");
     }
 

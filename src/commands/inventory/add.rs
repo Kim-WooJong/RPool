@@ -1,5 +1,5 @@
-use crate::inventory::add_manifest;
 use crate::config::inventory_path;
+use crate::inventory::add_manifest;
 use anyhow::Result;
 
 pub(crate) fn run(rclone: &str, manifest: &str) -> Result<()> {

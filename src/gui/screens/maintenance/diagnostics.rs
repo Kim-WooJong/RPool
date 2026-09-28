@@ -27,8 +27,18 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, _task: &mut TaskRunn
         return;
     }
 
-    let failures = state.system.reports.iter().filter(|report| report.status == "fail").count();
-    let warnings = state.system.reports.iter().filter(|report| report.status == "warn").count();
+    let failures = state
+        .system
+        .reports
+        .iter()
+        .filter(|report| report.status == "fail")
+        .count();
+    let warnings = state
+        .system
+        .reports
+        .iter()
+        .filter(|report| report.status == "warn")
+        .count();
     ui.horizontal(|ui| {
         if failures > 0 {
             status_badge(ui, &format!("{failures} failure(s)"), StatusTone::Error);
@@ -40,23 +50,25 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, _task: &mut TaskRunn
     });
 
     egui::ScrollArea::vertical().show(ui, |ui| {
-        egui::Grid::new("doctor-report-grid").striped(true).show(ui, |ui| {
-            ui.strong("Status");
-            ui.strong("Check");
-            ui.strong("Result");
-            ui.end_row();
-            for report in &state.system.reports {
-                let tone = match report.status.as_str() {
-                    "ok" => StatusTone::Success,
-                    "warn" => StatusTone::Warning,
-                    "fail" => StatusTone::Error,
-                    _ => StatusTone::Neutral,
-                };
-                status_badge(ui, &report.status.to_uppercase(), tone);
-                ui.monospace(&report.check);
-                ui.label(&report.message);
+        egui::Grid::new("doctor-report-grid")
+            .striped(true)
+            .show(ui, |ui| {
+                ui.strong("Status");
+                ui.strong("Check");
+                ui.strong("Result");
                 ui.end_row();
-            }
-        });
+                for report in &state.system.reports {
+                    let tone = match report.status.as_str() {
+                        "ok" => StatusTone::Success,
+                        "warn" => StatusTone::Warning,
+                        "fail" => StatusTone::Error,
+                        _ => StatusTone::Neutral,
+                    };
+                    status_badge(ui, &report.status.to_uppercase(), tone);
+                    ui.monospace(&report.check);
+                    ui.label(&report.message);
+                    ui.end_row();
+                }
+            });
     });
 }

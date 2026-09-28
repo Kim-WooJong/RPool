@@ -71,10 +71,8 @@ fn show_archive_id(ui: &mut egui::Ui, state: &mut GuiState) {
     } else {
         state.upload.archive_id.clear();
         ui.label(
-            egui::RichText::new(
-                "Archive IDs are generated automatically for multi-file uploads.",
-            )
-            .weak(),
+            egui::RichText::new("Archive IDs are generated automatically for multi-file uploads.")
+                .weak(),
         );
     }
 }

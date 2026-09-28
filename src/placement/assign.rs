@@ -1,5 +1,5 @@
-use crate::prelude::*;
 use crate::placement::plan_free_ratio;
+use crate::prelude::*;
 
 pub(crate) fn assign_remotes(
     rclone: &str,

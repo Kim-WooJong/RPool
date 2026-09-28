@@ -6,7 +6,9 @@ pub(crate) const PROGRESS_PREFIX: &str = "@rpool-progress ";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub(crate) enum ProgressEvent {
-    Start { total_bytes: u64 },
+    Start {
+        total_bytes: u64,
+    },
     Advance {
         completed_bytes: u64,
         transferred_bytes: u64,

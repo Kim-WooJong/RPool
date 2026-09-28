@@ -1,5 +1,5 @@
-use super::{JobStatus, LogKind, LogLine, TaskInfo, TaskInvocation};
 use super::progress::ProgressTracker;
+use super::{JobStatus, LogKind, LogLine, TaskInfo, TaskInvocation};
 use crate::progress::{parse_line as parse_progress_line, ProgressEvent, PROGRESS_ENV};
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader};
@@ -81,11 +81,7 @@ impl TaskRunner {
 
         self.logs.clear();
         self.last_outcome = None;
-        self.current_task = Some(TaskInfo::running(
-            task_name,
-            command_preview,
-            invocation,
-        ));
+        self.current_task = Some(TaskInfo::running(task_name, command_preview, invocation));
         self.progress.reset();
 
         let (sender, receiver) = mpsc::channel();
@@ -230,8 +226,6 @@ impl TaskRunner {
     pub(crate) fn last_outcome(&self) -> Option<&TaskOutcome> {
         self.last_outcome.as_ref()
     }
-
-
 }
 
 fn run_process(

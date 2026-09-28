@@ -5,14 +5,13 @@ mod inventory;
 mod manifest;
 mod pool;
 mod provider;
-mod repair;
 mod remote_root;
+mod repair;
 mod scrub;
 
-use clap::{Parser, Subcommand};
-use std::path::PathBuf;
 use crate::config::constants::*;
 use crate::models::Placement;
+use clap::{Parser, Subcommand};
 pub(crate) use config_sync::{ConfigArgs, ConfigCommands, ExportArgs, ImportArgs};
 pub(crate) use doctor::DoctorArgs;
 pub(crate) use history::{HistoryArgs, HistoryCommands};
@@ -20,9 +19,10 @@ pub(crate) use inventory::{InventoryArgs, InventoryCommands};
 pub(crate) use manifest::{ManifestArgs, ManifestCommands};
 pub(crate) use pool::{PoolArgs, PoolCommands};
 pub(crate) use provider::{ProviderArgs, ProviderCommands};
-pub(crate) use repair::RepairArgs;
 pub(crate) use remote_root::{RemoteRootArgs, RemoteRootCommands};
+pub(crate) use repair::RepairArgs;
 pub(crate) use scrub::ScrubArgs;
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(

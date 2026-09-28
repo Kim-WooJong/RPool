@@ -1,5 +1,5 @@
-use crate::models::PoolStore;
 use crate::config::pools_path;
+use crate::models::PoolStore;
 use crate::utils::read_json;
 use anyhow::Result;
 

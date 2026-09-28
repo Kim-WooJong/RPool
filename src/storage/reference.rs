@@ -15,19 +15,29 @@ use crate::storage::error::StorageError;
 /// Rules: non-empty, ≤ 256 bytes, no NUL, ASCII only, no path separator.
 pub(crate) fn validate_identifier(raw: &str, label: &str) -> Result<(), StorageError> {
     if raw.is_empty() {
-        return Err(StorageError::invalid_input(format!("{label} cannot be empty")));
+        return Err(StorageError::invalid_input(format!(
+            "{label} cannot be empty"
+        )));
     }
     if raw.len() > 256 {
-        return Err(StorageError::invalid_input(format!("{label} exceeds 256 bytes")));
+        return Err(StorageError::invalid_input(format!(
+            "{label} exceeds 256 bytes"
+        )));
     }
     if raw.contains('\0') {
-        return Err(StorageError::invalid_input(format!("{label} contains a NUL byte")));
+        return Err(StorageError::invalid_input(format!(
+            "{label} contains a NUL byte"
+        )));
     }
     if !raw.is_ascii() {
-        return Err(StorageError::invalid_input(format!("{label} must be ASCII")));
+        return Err(StorageError::invalid_input(format!(
+            "{label} must be ASCII"
+        )));
     }
     if raw.contains('/') || raw.contains('\\') {
-        return Err(StorageError::invalid_input(format!("{label} cannot contain a path separator")));
+        return Err(StorageError::invalid_input(format!(
+            "{label} cannot contain a path separator"
+        )));
     }
     Ok(())
 }
@@ -79,21 +89,25 @@ impl ObjectKey {
             return Err(StorageError::invalid_input("object key cannot be empty"));
         }
         if raw.contains('\0') {
-            return Err(StorageError::invalid_input("object key contains a NUL byte"));
+            return Err(StorageError::invalid_input(
+                "object key contains a NUL byte",
+            ));
         }
         if !raw.is_ascii() {
             return Err(StorageError::invalid_input("object key must be ASCII"));
         }
         if raw.contains('\\') {
             return Err(StorageError::invalid_input(
-                 "object key cannot contain a backslash",
-             ));
-         }
+                "object key cannot contain a backslash",
+            ));
+        }
         if raw.starts_with('/') {
             return Err(StorageError::invalid_input("object key cannot be absolute"));
         }
         if looks_like_windows_drive(&raw) {
-            return Err(StorageError::invalid_input("object key cannot be a Windows drive path"));
+            return Err(StorageError::invalid_input(
+                "object key cannot be a Windows drive path",
+            ));
         }
         for segment in raw.split('/') {
             if segment == ".." {
@@ -158,7 +172,9 @@ impl LegacyAddress {
         if looks_like_windows_drive(raw) {
             return Err(LegacyAddressError::LooksLikeWindowsDrive);
         }
-        let (remote, path) = raw.split_once(':').ok_or(LegacyAddressError::MissingColon)?;
+        let (remote, path) = raw
+            .split_once(':')
+            .ok_or(LegacyAddressError::MissingColon)?;
         if remote.is_empty() {
             return Err(LegacyAddressError::EmptyRemote);
         }

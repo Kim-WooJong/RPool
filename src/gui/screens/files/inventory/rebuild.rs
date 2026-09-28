@@ -30,7 +30,11 @@ pub(crate) fn show(
                 form.error = start_rebuild(form, task, rclone).err();
             }
         });
-        ui.label(egui::RichText::new("Refresh the file list after the rebuild task completes.").small().weak());
+        ui.label(
+            egui::RichText::new("Refresh the file list after the rebuild task completes.")
+                .small()
+                .weak(),
+        );
     });
 }
 

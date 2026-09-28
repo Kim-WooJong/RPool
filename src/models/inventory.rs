@@ -1,6 +1,6 @@
+use super::Coding;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use super::Coding;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct InventoryEntry {

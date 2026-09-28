@@ -42,13 +42,20 @@ pub(crate) fn show(
             }
         }
     } else if !form.manifest.trim().is_empty() {
-        ui.small(format!("Target manifest {} · workers {}", form.manifest.trim(), workers));
+        ui.small(format!(
+            "Target manifest {} · workers {}",
+            form.manifest.trim(),
+            workers
+        ));
     }
 
     let ready = !form.manifest.trim().is_empty() && !task.is_running();
     ui.horizontal(|ui| {
         ui.label(format!("Workers {workers} · Retries {retries}"));
-        if ui.add_enabled(ready, egui::Button::new("Run scrub")).clicked() {
+        if ui
+            .add_enabled(ready, egui::Button::new("Run scrub"))
+            .clicked()
+        {
             form.error = start(form, task, rclone, workers, retries).err();
             form.notice = None;
         }

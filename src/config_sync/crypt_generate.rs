@@ -25,7 +25,9 @@ fn encode_random(bytes: &[u8]) -> SensitiveText {
         }
         bits &= (1u32 << count) - 1;
     }
-    if count != 0 { encoded.push(BASE64[((bits << (6 - count)) & 63) as usize] as char); }
+    if count != 0 {
+        encoded.push(BASE64[((bits << (6 - count)) & 63) as usize] as char);
+    }
     SensitiveText::new(encoded)
 }
 
@@ -36,13 +38,22 @@ fn generate_one(executable: &Path) -> Result<SensitiveText> {
     let mut command = Command::new(executable);
     for (key, _) in std::env::vars_os() {
         let upper = key.to_string_lossy().to_ascii_uppercase();
-        if upper.starts_with("RCLONE_") || upper.starts_with("_RCLONE_") { command.env_remove(key); }
+        if upper.starts_with("RCLONE_") || upper.starts_with("_RCLONE_") {
+            command.env_remove(key);
+        }
     }
     command.args(["--log-level", "ERROR", "--log-file", "", "obscure", "-"]);
-    let raw = execute(&mut command, |stdin| {
-        stdin.write_all(generated.as_str().as_bytes()).map_err(|_| anyhow!("cannot send generated secret to rclone"))
-    }, Output::Memory(16384))?;
-    let value = std::str::from_utf8(&raw.0).map_err(|_| anyhow!("invalid obscure response"))?
+    let raw = execute(
+        &mut command,
+        |stdin| {
+            stdin
+                .write_all(generated.as_str().as_bytes())
+                .map_err(|_| anyhow!("cannot send generated secret to rclone"))
+        },
+        Output::Memory(16384),
+    )?;
+    let value = std::str::from_utf8(&raw.0)
+        .map_err(|_| anyhow!("invalid obscure response"))?
         .trim_end_matches(|c| c == '\r' || c == '\n');
     validate_obscured(value)?;
     Ok(SensitiveText::new(value.to_owned()))
@@ -51,17 +62,27 @@ fn generate_one(executable: &Path) -> Result<SensitiveText> {
 /// Does not create remotes or rotate keys. Any future provisioning path must
 /// additionally verify that the destination has no existing crypt data and must
 /// vault the generated keys before creating the remote.
-pub(crate) fn generate_new_remote_secrets(executable: &Path, config: &Path, names: &[String]) -> Result<SecretBundle> {
+pub(crate) fn generate_new_remote_secrets(
+    executable: &Path,
+    config: &Path,
+    names: &[String],
+) -> Result<SecretBundle> {
     let existing = read_dump(executable, config)?;
     let mut secrets = BTreeMap::new();
     for name in names {
         validate_remote_name(name)?;
-        if existing.contains_key(name) || secrets.contains_key(name) { bail!("refusing crypt key replacement or duplicate remote"); }
+        if existing.contains_key(name) || secrets.contains_key(name) {
+            bail!("refusing crypt key replacement or duplicate remote");
+        }
         let password = generate_one(executable)?;
         let password2 = generate_one(executable)?;
-        secrets.insert(name.clone(), CryptSecret {
-            obscured_password: password, obscured_password2: Some(password2),
-        });
+        secrets.insert(
+            name.clone(),
+            CryptSecret {
+                obscured_password: password,
+                obscured_password2: Some(password2),
+            },
+        );
     }
     let bundle = SecretBundle::new(secrets);
     bundle.validate()?;

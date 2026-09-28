@@ -27,7 +27,9 @@ impl InventoryRow {
 
 pub(crate) fn load_rows() -> Result<Vec<InventoryRow>> {
     let inventory = load_inventory()?;
-    let pools = load_pool_store().map(|store| store.pools).unwrap_or_default();
+    let pools = load_pool_store()
+        .map(|store| store.pools)
+        .unwrap_or_default();
 
     Ok(inventory
         .entries
@@ -47,7 +49,8 @@ fn match_pool(entry: &InventoryEntry, pools: &BTreeMap<String, PoolDefinition>) 
         if !coding_matches(entry, pool) {
             continue;
         }
-        let resolved = apply_remote_roots(pool.remotes.clone()).unwrap_or_else(|_| pool.remotes.clone());
+        let resolved =
+            apply_remote_roots(pool.remotes.clone()).unwrap_or_else(|_| pool.remotes.clone());
         if normalized_set(resolved) == entry_remotes {
             matches.push(name.clone());
         }

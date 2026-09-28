@@ -8,27 +8,48 @@ use anyhow::{anyhow, bail, Result};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-pub(super) fn validate_matching_names(portable: &[PortableCryptRemote], secrets: &SecretBundle) -> Result<()> {
+pub(super) fn validate_matching_names(
+    portable: &[PortableCryptRemote],
+    secrets: &SecretBundle,
+) -> Result<()> {
     secrets.validate()?;
     let mut names = BTreeSet::new();
     for remote in portable {
         remote.validate_structure()?;
-        if remote.kind != "crypt" || !names.insert(remote.name.as_str()) { bail!("invalid or duplicate portable crypt remote"); }
-        if remote.remote.is_empty() || remote.remote.chars().any(char::is_control) { bail!("invalid crypt backing remote"); }
+        if remote.kind != "crypt" || !names.insert(remote.name.as_str()) {
+            bail!("invalid or duplicate portable crypt remote");
+        }
+        if remote.remote.is_empty() || remote.remote.chars().any(char::is_control) {
+            bail!("invalid crypt backing remote");
+        }
     }
-    if !names.iter().copied().eq(secrets.rclone.crypt.keys().map(String::as_str)) {
+    if !names
+        .iter()
+        .copied()
+        .eq(secrets.rclone.crypt.keys().map(String::as_str))
+    {
         bail!("portable config and secret remote names do not match");
     }
     Ok(())
 }
 
-fn validate_target(portable: &[PortableCryptRemote], current: &BTreeMap<String, DumpRemote>) -> Result<()> {
+fn validate_target(
+    portable: &[PortableCryptRemote],
+    current: &BTreeMap<String, DumpRemote>,
+) -> Result<()> {
     for expected in portable {
-        let remote = current.get(&expected.name).ok_or_else(|| anyhow!("target crypt remote is missing"))?;
-        if remote.kind != "crypt" { bail!("target remote is not crypt"); }
-        if remote.remote != expected.remote || remote.filename_encryption != expected.filename_encryption
-            || bool_setting(&remote.directory_name_encryption, true)? != expected.directory_name_encryption
-            || bool_setting(&remote.no_data_encryption, false)? {
+        let remote = current
+            .get(&expected.name)
+            .ok_or_else(|| anyhow!("target crypt remote is missing"))?;
+        if remote.kind != "crypt" {
+            bail!("target remote is not crypt");
+        }
+        if remote.remote != expected.remote
+            || remote.filename_encryption != expected.filename_encryption
+            || bool_setting(&remote.directory_name_encryption, true)?
+                != expected.directory_name_encryption
+            || bool_setting(&remote.no_data_encryption, false)?
+        {
             bail!("target crypt structure does not match portable config");
         }
     }
@@ -37,11 +58,19 @@ fn validate_target(portable: &[PortableCryptRemote], current: &BTreeMap<String, 
 
 fn exact_secrets(current: &BTreeMap<String, DumpRemote>, secrets: &SecretBundle) -> bool {
     secrets.rclone.crypt.iter().all(|(name, expected)| {
-        current.get(name).map(|remote| {
-            remote.password.as_ref().map(|s| s.as_str().as_bytes()) == Some(expected.obscured_password.as_str().as_bytes())
-                && remote.password2.as_ref().map(|s| s.as_str()).filter(|s| !s.is_empty())
-                    == expected.obscured_password2.as_ref().map(|s| s.as_str())
-        }).unwrap_or(false)
+        current
+            .get(name)
+            .map(|remote| {
+                remote.password.as_ref().map(|s| s.as_str().as_bytes())
+                    == Some(expected.obscured_password.as_str().as_bytes())
+                    && remote
+                        .password2
+                        .as_ref()
+                        .map(|s| s.as_str())
+                        .filter(|s| !s.is_empty())
+                        == expected.obscured_password2.as_ref().map(|s| s.as_str())
+            })
+            .unwrap_or(false)
     })
 }
 
@@ -74,7 +103,10 @@ impl ConfigDriver for RcloneDriver<'_> {
         self.verify(config)
     }
 
-    fn build_plaintext_candidate(&self, original: &[u8]) -> Result<crate::models::sensitive::SensitiveBytes> {
+    fn build_plaintext_candidate(
+        &self,
+        original: &[u8],
+    ) -> Result<crate::models::sensitive::SensitiveBytes> {
         // rclone Save() creates plaintext sibling temp/backup files for a
         // plaintext config. The B5 plaintext path therefore performs the two
         // allowlisted key edits in RAM and relies on rclone for pre/post-read
@@ -85,11 +117,12 @@ impl ConfigDriver for RcloneDriver<'_> {
     fn verify(&self, config: &Path) -> Result<()> {
         let current = read_dump(self.executable, config)?;
         validate_target(self.portable, &current)?;
-        if !exact_secrets(&current, self.secrets) { bail!("restored obscured values do not match"); }
+        if !exact_secrets(&current, self.secrets) {
+            bail!("restored obscured values do not match");
+        }
         Ok(())
     }
 }
-
 
 /// B7 dry-run/preflight entry point. Decrypts and validates the vault and target
 /// structure, but does not create recovery material or mutate rclone.conf.
@@ -103,21 +136,36 @@ pub(crate) fn preflight_crypt_vault(
     super::validate_bundle(portable)?;
     let secrets = decrypt.read_bundle(vault)?;
     validate_matching_names(&portable.crypt_remotes, &secrets)?;
-    let driver = RcloneDriver { executable, portable: &portable.crypt_remotes, secrets: &secrets };
+    let driver = RcloneDriver {
+        executable,
+        portable: &portable.crypt_remotes,
+        secrets: &secrets,
+    };
     driver.preflight(config)
 }
 
 /// The only non-test restore entry point. Validation/decryption precede all config
 /// mutations, and every update goes through the B5 staging transaction.
 pub(crate) fn restore_crypt_vault(
-    executable: &Path, config: &Path, portable: &PortableConfig, vault: &Path,
-    decrypt: &AgeDecrypt<'_>, snapshot_encrypt: &AgeEncrypt<'_>,
+    executable: &Path,
+    config: &Path,
+    portable: &PortableConfig,
+    vault: &Path,
+    decrypt: &AgeDecrypt<'_>,
+    snapshot_encrypt: &AgeEncrypt<'_>,
 ) -> Result<TransactionOutcome> {
     super::validate_bundle(portable)?;
     let secrets = decrypt.read_bundle(vault)?;
     validate_matching_names(&portable.crypt_remotes, &secrets)?;
-    let driver = RcloneDriver { executable, portable: &portable.crypt_remotes, secrets: &secrets };
-    let snapshot = transaction::AgeSnapshot { encrypt: snapshot_encrypt, decrypt };
+    let driver = RcloneDriver {
+        executable,
+        portable: &portable.crypt_remotes,
+        secrets: &secrets,
+    };
+    let snapshot = transaction::AgeSnapshot {
+        encrypt: snapshot_encrypt,
+        decrypt,
+    };
     transaction::run(config, &driver, &snapshot)
 }
 
@@ -127,13 +175,22 @@ mod tests {
     use crate::models::secrets::CryptSecret;
     use crate::models::sensitive::SensitiveText;
     fn portable(name: &str) -> PortableCryptRemote {
-        PortableCryptRemote { name: name.into(), kind: "crypt".into(), remote: "cloud:rpool".into(),
-            filename_encryption: "standard".into(), directory_name_encryption: true }
+        PortableCryptRemote {
+            name: name.into(),
+            kind: "crypt".into(),
+            remote: "cloud:rpool".into(),
+            filename_encryption: "standard".into(),
+            directory_name_encryption: true,
+        }
     }
     fn secrets(name: &str) -> SecretBundle {
-        SecretBundle::new(BTreeMap::from([(name.into(), CryptSecret {
-            obscured_password: SensitiveText::new("AAAAAAAAAAAAAAAAAAAAAAA".into()), obscured_password2: None,
-        })]))
+        SecretBundle::new(BTreeMap::from([(
+            name.into(),
+            CryptSecret {
+                obscured_password: SensitiveText::new("AAAAAAAAAAAAAAAAAAAAAAA".into()),
+                obscured_password2: None,
+            },
+        )]))
     }
     #[test]
     fn portable_and_secret_remote_names_must_match() {
@@ -141,28 +198,40 @@ mod tests {
     }
     #[test]
     fn portable_duplicate_remote_names_are_rejected() {
-        assert!(validate_matching_names(&[portable("one"), portable("one")], &secrets("one")).is_err());
+        assert!(
+            validate_matching_names(&[portable("one"), portable("one")], &secrets("one")).is_err()
+        );
     }
     #[test]
     fn target_type_must_be_crypt_before_restore() {
-        let current = super::super::crypt_secrets::parse_dump(br#"{"one":{"type":"drive"}}"#).unwrap();
+        let current =
+            super::super::crypt_secrets::parse_dump(br#"{"one":{"type":"drive"}}"#).unwrap();
         assert!(validate_target(&[portable("one")], &current).is_err());
     }
     #[test]
     fn different_backing_root_is_rejected() {
-        let current = super::super::crypt_secrets::parse_dump(br#"{"one":{"type":"crypt","remote":"other:rpool"}}"#).unwrap();
+        let current = super::super::crypt_secrets::parse_dump(
+            br#"{"one":{"type":"crypt","remote":"other:rpool"}}"#,
+        )
+        .unwrap();
         assert!(validate_target(&[portable("one")], &current).is_err());
     }
     #[test]
     fn missing_password2_matches_empty_but_not_an_existing_salt() {
-        let empty = super::super::crypt_secrets::parse_dump(br#"{"one":{"type":"crypt","password":"AAAAAAAAAAAAAAAAAAAAAAA","password2":""}}"#).unwrap();
+        let empty = super::super::crypt_secrets::parse_dump(
+            br#"{"one":{"type":"crypt","password":"AAAAAAAAAAAAAAAAAAAAAAA","password2":""}}"#,
+        )
+        .unwrap();
         let nonempty = super::super::crypt_secrets::parse_dump(br#"{"one":{"type":"crypt","password":"AAAAAAAAAAAAAAAAAAAAAAA","password2":"BBBBBBBBBBBBBBBBBBBBBBB"}}"#).unwrap();
         assert!(exact_secrets(&empty, &secrets("one")));
         assert!(!exact_secrets(&nonempty, &secrets("one")));
     }
     #[test]
     fn exact_obscured_comparison_rejects_any_changed_byte() {
-        let changed = super::super::crypt_secrets::parse_dump(br#"{"one":{"type":"crypt","password":"AAAAAAAAAAAAAAAAAAAAAAB"}}"#).unwrap();
+        let changed = super::super::crypt_secrets::parse_dump(
+            br#"{"one":{"type":"crypt","password":"AAAAAAAAAAAAAAAAAAAAAAB"}}"#,
+        )
+        .unwrap();
         assert!(!exact_secrets(&changed, &secrets("one")));
     }
 }
@@ -174,7 +243,24 @@ pub(super) fn configure_secret_update(
     name: &str,
     secret: &crate::models::secrets::CryptSecret,
 ) {
-    command.args(["config", "update", "--no-obscure", "--non-interactive", "--no-output", "--"])
-        .arg(name).arg("password").arg(secret.obscured_password.as_str())
-        .arg("password2").arg(secret.obscured_password2.as_ref().map(|s| s.as_str()).unwrap_or(""));
+    command
+        .args([
+            "config",
+            "update",
+            "--no-obscure",
+            "--non-interactive",
+            "--no-output",
+            "--",
+        ])
+        .arg(name)
+        .arg("password")
+        .arg(secret.obscured_password.as_str())
+        .arg("password2")
+        .arg(
+            secret
+                .obscured_password2
+                .as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or(""),
+        );
 }

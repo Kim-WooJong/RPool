@@ -16,13 +16,20 @@ pub(crate) fn run(archive_id: &str, json: bool) -> Result<()> {
 
     println!("archive_id={}", entry.archive_id);
     println!("name={}", entry.original_name);
-    println!("size={} ({})", entry.original_size, format_bytes(entry.original_size));
+    println!(
+        "size={} ({})",
+        entry.original_size,
+        format_bytes(entry.original_size)
+    );
     println!("created_unix={}", entry.created_unix);
     println!("indexed_unix={}", entry.indexed_unix);
     println!("content_root_blake3={}", entry.content_root_blake3);
     println!("manifest={}", entry.manifest_source);
     if let Some(coding) = &entry.coding {
-        println!("coding={}+{} algorithm={}", coding.data_shards, coding.parity_shards, coding.algorithm);
+        println!(
+            "coding={}+{} algorithm={}",
+            coding.data_shards, coding.parity_shards, coding.algorithm
+        );
     } else {
         println!("coding=disabled");
     }

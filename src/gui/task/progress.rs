@@ -31,7 +31,10 @@ impl ProgressTracker {
                 completed_bytes,
                 transferred_bytes,
             } => {
-                let completed = progress.completed_bytes.unwrap_or(0).saturating_add(completed_bytes);
+                let completed = progress
+                    .completed_bytes
+                    .unwrap_or(0)
+                    .saturating_add(completed_bytes);
                 let transferred = progress
                     .transferred_bytes
                     .unwrap_or(0)
@@ -43,9 +46,8 @@ impl ProgressTracker {
                         .unwrap_or(completed),
                 );
                 progress.transferred_bytes = Some(transferred);
-                self.transferred_for_rate = self
-                    .transferred_for_rate
-                    .saturating_add(transferred_bytes);
+                self.transferred_for_rate =
+                    self.transferred_for_rate.saturating_add(transferred_bytes);
                 self.update_rate_and_eta(progress);
             }
             ProgressEvent::Items {

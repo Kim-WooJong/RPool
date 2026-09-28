@@ -1,8 +1,8 @@
-use crate::prelude::*;
 use crate::manifest::{load_manifest, validate_manifest};
+use crate::prelude::*;
 use crate::provider::drain_manifest;
-use crate::utils::append_suffix;
 use crate::remote_root::apply_remote_root;
+use crate::utils::append_suffix;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(

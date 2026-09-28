@@ -1,7 +1,7 @@
+use super::pool_picker::PoolPicker;
 use crate::gui::settings::GuiSettings;
 use crate::gui::state::{GuiState, StorageSection};
 use crate::gui::task::{JobStatus, TaskRunner};
-use crate::gui::widgets::remote_selector;
 use crate::models::{Placement, PoolDefinition};
 use crate::pool::{load_pool_store, remove_pool};
 use eframe::egui;
@@ -20,6 +20,8 @@ pub(crate) struct PoolForm {
     pub(crate) data_shards: usize,
     pub(crate) parity_shards: usize,
     pub(crate) notice: Option<String>,
+    pub(crate) refresh_requested: bool,
+    picker: PoolPicker,
 }
 
 impl PoolForm {
@@ -36,10 +38,13 @@ impl PoolForm {
             data_shards: settings.data_shards,
             parity_shards: settings.parity_shards,
             notice: None,
+            refresh_requested: false,
+            picker: PoolPicker::default(),
         }
     }
 
     fn load_definition(&mut self, name: String, pool: PoolDefinition) {
+        self.picker = PoolPicker::default();
         self.name = name;
         self.remotes = pool.remotes;
         self.shard_mib = pool.shard_mib;
@@ -53,132 +58,160 @@ impl PoolForm {
 }
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
-    ui.heading("Storage pools");
-    ui.label("Create reusable provider groups and upload policy defaults.");
-    ui.separator();
+    ui.add_enabled_ui(!state.pools.picker.is_open(), |ui| {
+        ui.heading("Storage pools");
+        ui.label("Create reusable provider groups and upload policy defaults.");
+        ui.separator();
 
-    ui.horizontal(|ui| {
-        ui.label("Existing pool");
-        egui::ComboBox::from_id_salt("pool-existing")
-            .selected_text(if state.pools.selected.is_empty() {
-                "Select pool"
-            } else {
-                state.pools.selected.as_str()
-            })
-            .show_ui(ui, |ui| {
-                for name in &state.pool_names {
-                    ui.selectable_value(&mut state.pools.selected, name.clone(), name.as_str());
+        ui.horizontal(|ui| {
+            ui.label("Existing pool");
+            egui::ComboBox::from_id_salt("pool-existing")
+                .selected_text(if state.pools.selected.is_empty() {
+                    "Select pool"
+                } else {
+                    state.pools.selected.as_str()
+                })
+                .show_ui(ui, |ui| {
+                    for name in &state.pool_names {
+                        ui.selectable_value(&mut state.pools.selected, name.clone(), name.as_str());
+                    }
+                });
+            if ui.button("Load").clicked() {
+                load_selected(state);
+            }
+            if ui.button("Reload list").clicked() {
+                refresh_pool_names(state);
+            }
+        });
+
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.label("Pool name");
+            ui.add(egui::TextEdit::singleline(&mut state.pools.name).desired_width(280.0));
+        });
+
+        let gap = ui.spacing().item_spacing.x;
+        let size = egui::vec2(
+            ((ui.available_width() - gap) / 2.0).max(1.0),
+            (ui.available_height() - 44.0).max(1.0),
+        );
+        ui.horizontal(|ui| {
+            pane(ui, "pool-destinations-scroll", size, |ui| {
+                ui.set_min_width(360.0);
+                ui.add_space(8.0);
+                ui.heading("Encrypted providers");
+                ui.small("Only selected destinations belong to this pool.");
+                if ui.button("Choose encrypted providers…").clicked() {
+                    state.pools.picker.open(&state.pools.remotes);
+                }
+                ui.small(format!("{} selected", state.pools.remotes.len()));
+                for remote in &state.pools.remotes {
+                    ui.monospace(remote);
+                }
+                ui.collapsing("Advanced: custom destination", |ui| {
+                    ui.text_edit_singleline(&mut state.pools.manual_remote);
+                    if ui.button("Add custom destination").clicked() {
+                        let target = state.pools.manual_remote.trim().to_string();
+                        if !target.is_empty() && !state.pools.remotes.contains(&target) {
+                            state.pools.remotes.push(target);
+                            state.pools.manual_remote.clear();
+                        }
+                    }
+                });
+            });
+            pane(ui, "pool-policy-scroll", size, |ui| {
+                ui.heading("Pool policy");
+                ui.label(
+                    "Saving affects future uploads. Existing data stays readable and unchanged.",
+                );
+                if ui.button("Reprocess existing data…").clicked() {
+                    state.storage_section = StorageSection::Reprocess;
+                }
+
+                ui.add_space(8.0);
+                egui::Grid::new("pool-options")
+                    .num_columns(2)
+                    .spacing([16.0, 8.0])
+                    .show(ui, |ui| {
+                        ui.label("Shard size (MiB)");
+                        ui.add(
+                            egui::DragValue::new(&mut state.pools.shard_mib).range(1..=1024 * 1024),
+                        );
+                        ui.end_row();
+
+                        ui.label("Workers");
+                        ui.add(egui::DragValue::new(&mut state.pools.workers).range(1..=256));
+                        ui.end_row();
+
+                        ui.label("Retries");
+                        ui.add(egui::DragValue::new(&mut state.pools.retries).range(0..=100));
+                        ui.end_row();
+
+                        ui.label("Placement");
+                        egui::ComboBox::from_id_salt("pool-placement")
+                            .selected_text(state.pools.placement.label())
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut state.pools.placement,
+                                    Placement::RoundRobin,
+                                    Placement::RoundRobin.label(),
+                                );
+                                ui.selectable_value(
+                                    &mut state.pools.placement,
+                                    Placement::FreeRatio,
+                                    Placement::FreeRatio.label(),
+                                );
+                            });
+                        ui.end_row();
+
+                        ui.label("Data shards (K)");
+                        ui.add(egui::DragValue::new(&mut state.pools.data_shards).range(1..=255));
+                        ui.end_row();
+
+                        ui.label("Parity shards (M)");
+                        ui.add(egui::DragValue::new(&mut state.pools.parity_shards).range(0..=254));
+                        ui.end_row();
+                    });
+
+                if let Some(notice) = &state.pools.notice {
+                    ui.label(notice);
                 }
             });
-        if ui.button("Load").clicked() {
-            load_selected(state);
-        }
-        if ui.button("Reload list").clicked() {
-            refresh_pool_names(state);
-        }
-    });
+        });
 
-    ui.add_space(8.0);
-    ui.horizontal(|ui| {
-        ui.label("Pool name");
-        ui.add(egui::TextEdit::singleline(&mut state.pools.name).desired_width(280.0));
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(!task.is_running(), egui::Button::new("Save pool"))
+                .clicked()
+            {
+                save_current(state, task);
+            }
+            if ui
+                .add_enabled(!task.is_running(), egui::Button::new("Remove selected"))
+                .clicked()
+            {
+                remove_selected(state);
+            }
+            if ui
+                .add_enabled(!task.is_running(), egui::Button::new("New / clear"))
+                .clicked()
+            {
+                state.pools = PoolForm::from_settings(&state.settings);
+            }
+        });
     });
-
-    let gap = ui.spacing().item_spacing.x;
-    let size = egui::vec2(
-        ((ui.available_width() - gap) / 2.0).max(1.0),
-        (ui.available_height() - 44.0).max(1.0),
+    let action = state.pools.picker.show(
+        ui.ctx(),
+        &mut state.pools.remotes,
+        &state.crypt_remotes,
+        &state.settings.default_remote_path,
+        &state.remote_roots,
     );
-    ui.horizontal(|ui| {
-        pane(ui, "pool-destinations-scroll", size, |ui| {
-            ui.set_min_width(360.0);
-            ui.add_space(8.0);
-            remote_selector(
-                ui,
-                &mut state.pools.remotes,
-                &state.crypt_remotes,
-                &state.settings.default_remote_path,
-                &state.remote_roots,
-                &mut state.pools.manual_remote,
-            );
-        });
-        pane(ui, "pool-policy-scroll", size, |ui| {
-            ui.heading("Pool policy");
-            ui.label("Saving affects future uploads. Existing data stays readable and unchanged.");
-            if ui.button("Reprocess existing data…").clicked() {
-                state.storage_section = StorageSection::Reprocess;
-            }
-
-            ui.add_space(8.0);
-            egui::Grid::new("pool-options")
-                .num_columns(2)
-                .spacing([16.0, 8.0])
-                .show(ui, |ui| {
-                    ui.label("Shard size (MiB)");
-                    ui.add(egui::DragValue::new(&mut state.pools.shard_mib).range(1..=1024 * 1024));
-                    ui.end_row();
-
-                    ui.label("Workers");
-                    ui.add(egui::DragValue::new(&mut state.pools.workers).range(1..=256));
-                    ui.end_row();
-
-                    ui.label("Retries");
-                    ui.add(egui::DragValue::new(&mut state.pools.retries).range(0..=100));
-                    ui.end_row();
-
-                    ui.label("Placement");
-                    egui::ComboBox::from_id_salt("pool-placement")
-                        .selected_text(state.pools.placement.label())
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut state.pools.placement,
-                                Placement::RoundRobin,
-                                Placement::RoundRobin.label(),
-                            );
-                            ui.selectable_value(
-                                &mut state.pools.placement,
-                                Placement::FreeRatio,
-                                Placement::FreeRatio.label(),
-                            );
-                        });
-                    ui.end_row();
-
-                    ui.label("Data shards (K)");
-                    ui.add(egui::DragValue::new(&mut state.pools.data_shards).range(1..=255));
-                    ui.end_row();
-
-                    ui.label("Parity shards (M)");
-                    ui.add(egui::DragValue::new(&mut state.pools.parity_shards).range(0..=254));
-                    ui.end_row();
-                });
-
-            if let Some(notice) = &state.pools.notice {
-                ui.label(notice);
-            }
-        });
-    });
-
-    ui.add_space(8.0);
-    ui.horizontal(|ui| {
-        if ui
-            .add_enabled(!task.is_running(), egui::Button::new("Save pool"))
-            .clicked()
-        {
-            save_current(state, task);
-        }
-        if ui
-            .add_enabled(!task.is_running(), egui::Button::new("Remove selected"))
-            .clicked()
-        {
-            remove_selected(state);
-        }
-        if ui
-            .add_enabled(!task.is_running(), egui::Button::new("New / clear"))
-            .clicked()
-        {
-            state.pools = PoolForm::from_settings(&state.settings);
-        }
-    });
+    state.pools.refresh_requested |= action.refresh;
+    if action.setup {
+        state.storage_section = StorageSection::Providers;
+    }
 }
 
 // Allocate before rendering: expanding content cannot resize a neighboring pane.

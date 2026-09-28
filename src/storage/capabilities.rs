@@ -15,7 +15,13 @@ pub(crate) enum Capability {
 }
 
 impl Capability {
-    #[cfg_attr(not(test), expect(dead_code, reason = "Backend capability contract remains available before production capability-based routing"))]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Backend capability contract remains available before production capability-based routing"
+        )
+    )]
     pub(crate) fn is_supported(&self) -> bool {
         matches!(self, Capability::Supported)
     }
@@ -24,7 +30,13 @@ impl Capability {
 /// Consistency scope a backend can guarantee. `ProcessLocal` is NOT
 /// multi-client safe and must not be advertised as `Strong` (ADR-002/003).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "Backend capability contract remains available before production capability-based routing"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Backend capability contract remains available before production capability-based routing"
+    )
+)]
 pub(crate) enum ConsistencyScope {
     /// Linearizable / strong consistency.
     Strong,

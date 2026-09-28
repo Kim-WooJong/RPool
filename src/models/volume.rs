@@ -14,7 +14,13 @@ use crate::storage::reference::validate_identifier;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct Generation(u64);
 
-#[cfg_attr(not(test), expect(dead_code, reason = "Retained typed volume identity contract; legacy manifests do not serialize domain IDs"))]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "Retained typed volume identity contract; legacy manifests do not serialize domain IDs"
+    )
+)]
 impl Generation {
     pub(crate) fn new(value: u64) -> Self {
         Self(value)
@@ -56,11 +62,31 @@ macro_rules! string_id {
     };
 }
 
-string_id!(VolumeId, "volume id", "Retained typed volume identity contract; legacy manifests do not serialize domain IDs");
-string_id!(ObjectId, "object id", "Retained typed volume identity contract; legacy manifests do not serialize domain IDs");
-string_id!(TransactionId, "transaction id", "Retained typed volume identity contract; legacy manifests do not serialize domain IDs");
-string_id!(ShardId, "shard id", "Retained typed volume identity contract; legacy manifests do not serialize domain IDs");
-string_id!(FailureDomainId, "failure domain id", "Failure-domain identity is retained for future placement policies");
+string_id!(
+    VolumeId,
+    "volume id",
+    "Retained typed volume identity contract; legacy manifests do not serialize domain IDs"
+);
+string_id!(
+    ObjectId,
+    "object id",
+    "Retained typed volume identity contract; legacy manifests do not serialize domain IDs"
+);
+string_id!(
+    TransactionId,
+    "transaction id",
+    "Retained typed volume identity contract; legacy manifests do not serialize domain IDs"
+);
+string_id!(
+    ShardId,
+    "shard id",
+    "Retained typed volume identity contract; legacy manifests do not serialize domain IDs"
+);
+string_id!(
+    FailureDomainId,
+    "failure domain id",
+    "Failure-domain identity is retained for future placement policies"
+);
 string_id!(CapacityDomainId, "capacity domain id");
 
 #[cfg(test)]

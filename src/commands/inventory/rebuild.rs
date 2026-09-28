@@ -1,5 +1,5 @@
-use crate::inventory::rebuild_from_directory;
 use crate::config::inventory_path;
+use crate::inventory::rebuild_from_directory;
 use anyhow::Result;
 use std::path::Path;
 

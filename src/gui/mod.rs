@@ -1,12 +1,12 @@
 mod app;
 mod navigation;
+mod screens;
 mod settings;
 #[path = "state/mod.rs"]
 mod state;
 mod task;
 mod theme;
 mod usage_refresh;
-mod screens;
 mod widgets;
 
 pub(crate) use app::launch;

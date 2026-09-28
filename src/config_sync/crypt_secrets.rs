@@ -28,14 +28,19 @@ pub(super) struct DumpRemote {
     #[serde(default)]
     pub(super) password2: Option<SensitiveText>,
 }
-fn standard() -> String { "standard".into() }
-fn true_string() -> String { "true".into() }
+fn standard() -> String {
+    "standard".into()
+}
+fn true_string() -> String {
+    "true".into()
+}
 #[derive(Deserialize)]
 #[serde(transparent)]
 struct Dump(#[serde(deserialize_with = "unique_map")] BTreeMap<String, DumpRemote>);
 
 pub(super) fn parse_dump(raw: &[u8]) -> Result<BTreeMap<String, DumpRemote>> {
-    let dump: Dump = serde_json::from_slice(raw).map_err(|_| anyhow!("invalid rclone config response"))?;
+    let dump: Dump =
+        serde_json::from_slice(raw).map_err(|_| anyhow!("invalid rclone config response"))?;
     Ok(dump.0)
 }
 
@@ -55,22 +60,39 @@ pub(super) fn bool_setting(value: &str, default: bool) -> Result<bool> {
     }
 }
 
-pub(crate) fn extract_crypt_secrets(executable: &Path, config: &Path) -> Result<(SecretBundle, Vec<PortableCryptRemote>)> {
+pub(crate) fn extract_crypt_secrets(
+    executable: &Path,
+    config: &Path,
+) -> Result<(SecretBundle, Vec<PortableCryptRemote>)> {
     let mut crypt = BTreeMap::new();
     let mut portable = Vec::new();
     for (name, remote) in read_dump(executable, config)? {
-        if remote.kind != "crypt" { continue; }
-        if bool_setting(&remote.no_data_encryption, false)? { bail!("unencrypted crypt content is not supported"); }
-        let password = remote.password.ok_or_else(|| anyhow!("crypt remote has no password"))?;
+        if remote.kind != "crypt" {
+            continue;
+        }
+        if bool_setting(&remote.no_data_encryption, false)? {
+            bail!("unencrypted crypt content is not supported");
+        }
+        let password = remote
+            .password
+            .ok_or_else(|| anyhow!("crypt remote has no password"))?;
         let password2 = remote.password2.filter(|value| !value.as_str().is_empty());
         let definition = PortableCryptRemote {
-            name: name.clone(), kind: "crypt".into(), remote: remote.remote,
+            name: name.clone(),
+            kind: "crypt".into(),
+            remote: remote.remote,
             filename_encryption: remote.filename_encryption,
             directory_name_encryption: bool_setting(&remote.directory_name_encryption, true)?,
         };
         definition.validate_structure()?;
         portable.push(definition);
-        crypt.insert(name, CryptSecret { obscured_password: password, obscured_password2: password2 });
+        crypt.insert(
+            name,
+            CryptSecret {
+                obscured_password: password,
+                obscured_password2: password2,
+            },
+        );
     }
     let bundle = SecretBundle::new(crypt);
     bundle.validate()?;
@@ -78,7 +100,12 @@ pub(crate) fn extract_crypt_secrets(executable: &Path, config: &Path) -> Result<
 }
 
 #[cfg(test)]
-pub(crate) fn export_crypt_secret_vault(executable: &Path, config: &Path, age: &AgeEncrypt<'_>, output: &Path) -> Result<Vec<PortableCryptRemote>> {
+pub(crate) fn export_crypt_secret_vault(
+    executable: &Path,
+    config: &Path,
+    age: &AgeEncrypt<'_>,
+    output: &Path,
+) -> Result<Vec<PortableCryptRemote>> {
     let (secrets, portable) = extract_crypt_secrets(executable, config)?;
     age.write_bundle(output, &secrets)?;
     Ok(portable)
@@ -100,7 +127,9 @@ mod tests {
     }
     #[test]
     fn dump_errors_do_not_echo_bad_input() {
-        let err = parse_dump(br#"{"crypt":{"password": ["fictional-sensitive-marker"]}}"#).err().expect("expected failure");
+        let err = parse_dump(br#"{"crypt":{"password": ["fictional-sensitive-marker"]}}"#)
+            .err()
+            .expect("expected failure");
         assert!(!err.to_string().contains("fictional-sensitive-marker"));
     }
 }

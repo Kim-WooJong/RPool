@@ -7,6 +7,8 @@ use std::thread;
 pub(crate) struct UsageSnapshot {
     pub(crate) reports: Vec<QuotaReport>,
     pub(crate) crypt_remotes: Vec<String>,
+    pub(crate) backing_remotes: Vec<String>,
+    pub(crate) warning: Option<String>,
 }
 
 pub(crate) struct UsageRefresh {
@@ -37,25 +39,23 @@ impl UsageRefresh {
                 let catalog = admin
                     .catalog()
                     .map_err(|error| format!("remote discovery failed: {error:#}"))?;
-                let physical = catalog
-                    .physical_remotes()
-                    .map_err(|error| format!("capacity discovery failed: {error:#}"))?;
-                let capacity_remotes = catalog
-                    .capacity_remotes(&physical)
-                    .map_err(|error| format!("capacity mapping failed: {error:#}"))?;
                 let crypt_remotes = catalog.crypt_remotes();
-                if capacity_remotes.is_empty() {
-                    return Err(
-                        "rclone has no physical remotes available for capacity reporting"
-                            .to_string(),
-                    );
-                }
-                let reports =
-                    collect_quota_reports(admin.as_ref(), &capacity_remotes, workers.max(1))
-                        .map_err(|error| format!("failed to query provider usage: {error:#}"))?;
+                let backing_remotes = catalog.backing_remotes();
+                // Discovery is useful even when a provider cannot report capacity.
+                let capacity = (|| {
+                    let physical = catalog.physical_remotes()?;
+                    let remotes = catalog.capacity_remotes(&physical)?;
+                    collect_quota_reports(admin.as_ref(), &remotes, workers.max(1))
+                })();
+                let (reports, warning) = match capacity {
+                    Ok(reports) => (reports, None),
+                    Err(error) => (Vec::new(), Some(format!("Capacity unavailable: {error:#}"))),
+                };
                 Ok(UsageSnapshot {
                     reports,
                     crypt_remotes,
+                    backing_remotes,
+                    warning,
                 })
             })();
             let _ = sender.send(result);
@@ -88,6 +88,40 @@ mod tests {
     use super::*;
     use crate::storage::admin::RemoteCatalog;
     use std::sync::{mpsc, Barrier};
+    struct CryptOnly;
+    impl BackendAdmin for CryptOnly {
+        fn catalog(&self) -> anyhow::Result<RemoteCatalog> {
+            RemoteCatalog::parse(
+                &serde_json::json!({"encrypted": {"type": "crypt", "remote": "missing:folder"}}),
+            )
+        }
+        fn discover(&self) -> anyhow::Result<Vec<String>> {
+            unreachable!()
+        }
+        fn probe(&self, _: &str) -> anyhow::Result<()> {
+            unreachable!()
+        }
+        fn quota(&self, _: &str) -> QuotaReport {
+            unreachable!()
+        }
+        fn ensure_encrypted(&self, _: &str) -> anyhow::Result<()> {
+            unreachable!()
+        }
+    }
+    #[test]
+    fn encrypted_provider_discovery_does_not_require_capacity_reports() {
+        let mut refresh = UsageRefresh::default();
+        refresh.start_with_admin(Arc::new(CryptOnly), 1);
+        let snapshot = refresh
+            .receiver
+            .as_ref()
+            .unwrap()
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap()
+            .unwrap();
+        assert_eq!(snapshot.crypt_remotes, vec!["encrypted:"]);
+        assert!(snapshot.reports.is_empty());
+    }
     struct Blocked {
         entered: mpsc::Sender<()>,
         release: Arc<Barrier>,

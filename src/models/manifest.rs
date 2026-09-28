@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::{Coding, ShardKind};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Manifest {

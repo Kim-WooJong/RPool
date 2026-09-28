@@ -39,7 +39,12 @@ pub(crate) fn evaluate(state: &GuiState) -> UploadPreflight {
         .upload
         .items
         .iter()
-        .filter(|item| matches!(item.status, UploadItemStatus::Pending | UploadItemStatus::Running))
+        .filter(|item| {
+            matches!(
+                item.status,
+                UploadItemStatus::Pending | UploadItemStatus::Running
+            )
+        })
         .filter_map(|item| item.size)
         .sum();
     let missing_files = state
@@ -160,10 +165,9 @@ fn validate_manual_target(
         issues.push("Workers must be greater than zero.".to_string());
     }
     if state.settings.parity_shards > 0 {
-        if let Err(error) = validate_rs_counts(
-            state.settings.data_shards,
-            state.settings.parity_shards,
-        ) {
+        if let Err(error) =
+            validate_rs_counts(state.settings.data_shards, state.settings.parity_shards)
+        {
             issues.push(format!("Invalid Reed-Solomon policy: {error:#}"));
         }
     }
