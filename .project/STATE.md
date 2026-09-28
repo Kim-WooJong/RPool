@@ -97,8 +97,9 @@ Implemented the bounded five-lane integration batch (virtual mode opt-in/experim
 ## Bounded shared-v5 decisions
 
 - User explicitly prioritizes bounded cloud storage over indefinitely protecting old offline PCs.
-- Opt-in GUI/CLI (`--bounded-shared`, coordinator `--shared-coordinator`, default `--shared-keep-previous 1`). NEW workspace + `virtual-v5` remote subroot and binding/namespace5 fence old clients.
+- Opt-in GUI/CLI (`--bounded-shared`, coordinator `--shared-coordinator`, default `--shared-keep-previous 0` (latest-only)). NEW workspace + `virtual-v5` remote subroot and binding/namespace5 fence old clients.
 - Exactly one externally designated coordinator. No generic-rclone CAS, election or takeover; never clone coordinator workspace. Workers publish requests and await positive checkpoint receipts before local cleanup.
+- Latest only by default; explicitly configured N previous versions remain optional. Bounded mounts require successful initial cloud synchronization before exposing DAV/native mount; errors retain local work and stop startup. File bytes remain on-demand downloads, with periodic eventual reconciliation while mounted.
 - Latest + N previous per live path. Delete retires all owned history for that path. Live conflicts protected. Replacement requires old/new overlap space; provider trash can delay release.
 - Whole current checkpoints replace causal-log replay. Coordinator durable transition journal activates/readbacks before exact sweep; every pointer observation checks durable high-water before writes/deletes.
 - Unique per-attempt upload ledgers before writing, old unfinished attempts reswept for late writes. Protected archive ledgers retain alternate-layout references until retirement. Small unfinished ledger metadata can accumulate under unlimited failures.
@@ -137,6 +138,11 @@ Implemented the bounded five-lane integration batch (virtual mode opt-in/experim
 
 ## Validation
 
+2026-09-28 latest-only follow-up, macOS:
+- Default tests: 336 passed, 12 ignored; optional OpenDAL: 347 passed, 12 ignored.
+- Default release with RUSTFLAGS="-D warnings" passed. cargo fmt --check and git diff --check passed.
+- Independent diff review found no material issues. Native startup failure gate reviewed in code, not exercised with rclone/cloud.
+
 2026-09-28, macOS, bounded shared-v5 batch:
 - Default: **333 passed**, 12 ignored. Optional OpenDAL: **344 passed**, 12 ignored.
 - New checkpoint/adapter regressions: retention over 120 versions, stalled/late upload ledgers, stale edit chains, accepted vs published state, local reader leases, multi-file queue, cloud/directory MOVE prerequisites, retired-read races, rollback-before-GC, native cache isolation, unknown pointer outcome and GC retry.
@@ -160,7 +166,10 @@ Previous unshared hardening batch (macOS):
 
 ## Resume
 
-Bounded shared-v5 is implemented and validated in synthetic/local tests. Stop this
+Cloud-authoritative latest-only defaults and fail-closed bounded startup are implemented.
+The latest-only tests cover repeated replacement, offline checkpoint refresh/recovery,
+and removal of existing retained history without new proposals. No native startup
+failure/cloud integration test has been run. Bounded shared-v5 is validated in synthetic/local tests. Stop this
 bounded batch; do not repeat successful verification without a new change.
 Preserve unrelated config-sync/path working-tree changes. Do not enable TTL or
 head-only deletion over the legacy causal event graph. Actual cloud/native
