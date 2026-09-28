@@ -108,6 +108,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             }
         },
         Commands::Pool(args) => match args.command {
+            PoolCommands::Capacity(args) => pool::capacity::run(&cli.rclone, args),
             PoolCommands::PlanReprocess {
                 name,
                 manifests,

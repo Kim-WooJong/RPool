@@ -22,6 +22,7 @@ pub(crate) struct PoolForm {
     pub(crate) notice: Option<String>,
     pub(crate) refresh_requested: bool,
     picker: PoolPicker,
+    capacity: crate::gui::widgets::pool_capacity::CapacityPreview,
 }
 
 impl PoolForm {
@@ -40,6 +41,7 @@ impl PoolForm {
             notice: None,
             refresh_requested: false,
             picker: PoolPicker::default(),
+            capacity: Default::default(),
         }
     }
 
@@ -178,6 +180,19 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                         ui.end_row();
                     });
 
+                let draft = PoolDefinition {
+                    remotes: state.pools.remotes.clone(),
+                    shard_mib: state.pools.shard_mib,
+                    workers: state.pools.workers,
+                    retries: state.pools.retries,
+                    placement: state.pools.placement,
+                    data_shards: state.pools.data_shards,
+                    parity_shards: state.pools.parity_shards,
+                };
+                state
+                    .pools
+                    .capacity
+                    .show(ui, &state.settings.rclone, &draft);
                 if let Some(notice) = &state.pools.notice {
                     ui.label(notice);
                 }

@@ -9,6 +9,8 @@ pub(crate) struct PoolArgs {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum PoolCommands {
+    /// Query capacity using saved or unsaved pool options; no workspace or mount.
+    Capacity(PoolCapacityArgs),
     /// Calculate and save a source-preserving reprocessing plan. No remote writes.
     PlanReprocess {
         name: String,
@@ -68,4 +70,57 @@ pub(crate) enum PoolCommands {
 
     /// Remove a storage pool definition. Stored shards are not touched.
     Remove { name: String },
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct PoolCapacityArgs {
+    /// Saved pool name; omit when supplying --remote for an unsaved draft.
+    pub name: Option<String>,
+    #[arg(long = "remote")]
+    pub remotes: Vec<String>,
+    #[arg(long)]
+    pub shard_mib: Option<u64>,
+    #[arg(long)]
+    pub data_shards: Option<usize>,
+    #[arg(long)]
+    pub parity_shards: Option<usize>,
+    #[arg(long, value_enum)]
+    pub placement: Option<Placement>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[cfg(test)]
+mod capacity_tests {
+    use clap::Parser;
+    #[test]
+    fn saved_and_unsaved_capacity_queries_need_no_workspace_or_mount() {
+        for args in [
+            vec![
+                "rpool",
+                "pool",
+                "capacity",
+                "my-pool",
+                "--parity-shards=0",
+                "--json",
+            ],
+            vec![
+                "rpool",
+                "pool",
+                "capacity",
+                "--remote=a:",
+                "--data-shards=2",
+                "--parity-shards=1",
+                "--placement=resilient",
+            ],
+        ] {
+            let cli = crate::cli::Cli::try_parse_from(args).unwrap();
+            assert!(matches!(
+                cli.command,
+                Some(crate::cli::Commands::Pool(super::PoolArgs {
+                    command: super::PoolCommands::Capacity(_)
+                }))
+            ));
+        }
+    }
 }

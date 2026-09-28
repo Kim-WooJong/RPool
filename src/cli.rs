@@ -4,7 +4,7 @@ mod history;
 mod inventory;
 mod manifest;
 mod mount;
-mod pool;
+pub(crate) mod pool;
 mod provider;
 mod remote_root;
 mod repair;

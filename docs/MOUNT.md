@@ -6,6 +6,14 @@ restoring all files, then downloads/verifies only intersecting shards on reads.
 Both modes keep writes on local disk before asynchronous verified cloud publication.
 An application save is **not** a completed-cloud-replication acknowledgment.
 
+## Capacity display and configuration preview
+
+For **account used/total/free**, coding upper bounds, and placement-aware additional
+space, see [Pool capacity](POOL_CAPACITY.md). Storage → Pools can calculate the
+current unsaved options without creating a workspace or mounting. The same engine
+feeds mount reports. Virtual DAV quotas expire stale samples and reserve queued
+upload space; replica OS capacity remains local disk capacity.
+
 ## Automatic history collection — private snapshots v7 (NEW workspace)
 
 In the GUI choose **Virtual cloud drive → Automatic pool sync → Automatic history

@@ -842,6 +842,7 @@ impl VirtualDrive {
         Ok(())
     }
     pub(crate) fn sync(&self) -> Result<()> {
+        *self.capacity.lock().unwrap() = None;
         if self.peer_retention {
             return self.sync_snapshots();
         }
@@ -974,7 +975,35 @@ impl VirtualDrive {
         }
         Ok(())
     }
+    pub(crate) fn quota(&self) -> Option<(u64, Option<u64>)> {
+        let capacity = self.capacity.lock().ok()?.clone()?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_secs();
+        if now.saturating_sub(capacity.observed_unix) > 120 || capacity.eligible.is_empty() {
+            return None;
+        }
+        let state = self.state.lock().ok()?;
+        let used = state.visible_logical_used().ok()?;
+        let pending: Vec<_> = state.pending.iter().map(|i| i.id.clone()).collect();
+        let unchanged_events = state.events.keys().eq(capacity.namespace_event_ids.iter());
+        let free =
+            if unchanged_events && pending == capacity.pending_ids && used == capacity.logical_used
+            {
+                capacity.additional_estimate
+            } else {
+                0
+            };
+        Some((used, Some(used.saturating_add(free))))
+    }
     pub(crate) fn refresh_capacity(&self) -> Result<CapacityStatus> {
+        let _gate = self
+            .sync_gate
+            .lock()
+            .map_err(|_| anyhow!("sync lock poisoned"))?;
+        // Never leave a failed quota refresh looking like a fresh successful one.
+        *self.capacity.lock().unwrap() = None;
         let mut status = CapacityStatus::inspect(
             &crate::storage::admin::RcloneAdmin::inherited(&self.rclone),
             &self.policy,
@@ -986,6 +1015,14 @@ impl VirtualDrive {
         status.spool_bytes = self.spool_bytes()?;
         status.spool_limit_bytes = self.spool_limit;
         status.pending_writes = state.pending.len();
+        status.pending_ids = state.pending.iter().map(|i| i.id.clone()).collect();
+        status.namespace_event_ids = state.events.keys().cloned().collect();
+        let pending_sizes: Vec<_> = state
+            .pending
+            .iter()
+            .filter(|i| i.spool.is_some())
+            .map(|i| i.size)
+            .collect();
         if !self.pool_sync_roots.is_empty() {
             status.pool_sync_roots = self.pool_sync_roots.clone();
             status.desired_history_limit = self.pool_history_limit;
@@ -998,6 +1035,13 @@ impl VirtualDrive {
         if self.peer_retention {
             status.conflicts = self.snapshot_conflicts()?;
             status.note.push_str(" V7 private snapshots: automatic history deletion enabled; current/conflict bytes protected, legacy data untouched. Copying needs temporary space.");
+        }
+        status.reserve_pending(&self.policy, &pending_sizes)?;
+        if self.peer_retention && status.pending_writes > 0 {
+            // Private retained copies require per-object destinations, not just
+            // plaintext capacity. Do not promise their space from aggregate quota.
+            status.additional_estimate = 0;
+            status.note.push_str(" Pending v7 private-copy cost is not yet fully reserved: additional writable space is conservatively zero until synchronization finishes.");
         }
         status.logical_ceiling_estimate = status
             .logical_used

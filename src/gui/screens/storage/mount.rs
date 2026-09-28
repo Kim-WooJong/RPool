@@ -469,12 +469,13 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
     if let Some(capacity) = &form.capacity {
         let mut migrate = false;
         ui.group(|ui| {
-            ui.heading("Cloud pool capacity (estimate)");
+            ui.heading("Cloud pool capacity");
+            crate::gui::widgets::pool_capacity::summary(ui, capacity);
             ui.label(format!("{} (without parity): {:.2} GiB / estimated usable ceiling: {:.2} GiB",
                 if capacity.usage_scope == "shared-namespace" {"Known shared files + pending"} else {"Current local files"}, capacity.logical_used as f64 / 1073741824.0, capacity.logical_ceiling_estimate as f64 / 1073741824.0));
             let age = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs().saturating_sub(capacity.observed_unix)).unwrap_or(0);
-            ui.label(format!("Additional full-group capacity: {:.2} GiB · eligible targets: {} · snapshot: {} seconds ago",
+            ui.label(format!("Additional file capacity estimate: {:.2} GiB · eligible targets: {} · snapshot: {} seconds ago",
                 capacity.additional_estimate as f64 / 1073741824.0, capacity.eligible.len(), age));
             ui.small(&capacity.note);
             for target in &capacity.targets {

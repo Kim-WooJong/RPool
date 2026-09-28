@@ -58,6 +58,7 @@ pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> 
             ),
         },
         Commands::Pool(args) => match &args.command {
+            PoolCommands::Capacity(args) => ("pool-capacity".into(), args.name.clone()),
             PoolCommands::PlanReprocess { name, .. } => {
                 ("pool-plan-reprocess".to_string(), Some(name.clone()))
             }

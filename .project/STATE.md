@@ -1,6 +1,6 @@
 # Project State
 
-Updated: 2026-09-28
+Updated: 2026-09-29
 
 ## Project
 
@@ -23,6 +23,27 @@ Requires a NEW workspace and identical fixed policy across PCs. Legacy v6/v5
 objects are untouched. Copies need temporary capacity/transfers; causal metadata
 and unfinished unpublished uploads remain (no general orphan sweep). Actual cloud,
 multiple-PC OS mounts, Windows and power-loss behavior remain unverified.
+
+## Capacity follow-up (2026-09-29)
+
+Implemented workspace-free `pool capacity [NAME]` with read-only overrides and
+JSON output, plus asynchronous unsaved GUI pool-policy preview. Shared capacity
+calculation distinguishes account quota occupied/total/free, coding-only nominal
+upper bound (uncapped), and placement-verified feasible file estimate (bounded).
+Aliases stay deduplicated; missing/unverified quota is explicitly incomplete.
+Partial-file search checks changing data-shard/diversity boundaries.
+
+Virtual DAV quota reflects current namespace use, reserves queued archive data+
+parity, invalidates on synchronization/refresh failure, expires after 120 seconds,
+and detects same-size committed replacements. Pending v7 private-copy overhead is
+conservatively reported as zero additional space until sync, not guessed. Replica
+OS capacity stays local disk space. GUI/CLI use the same calculation; no namespace
+usage is invented for pure pool queries. See docs/POOL_CAPACITY.md.
+
+Validation: default 390 / optional 401 tests passed (12 ignored each);
+warning-denied release build, formatting/diff checks and CLI help passed.
+Local HTTP quota and headless late-GUI-result tests run; actual provider quota and
+Windows/Finder/FUSE mount acceptance remain unverified. No cloud data changed.
 
 ## Working
 

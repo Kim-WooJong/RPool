@@ -441,3 +441,44 @@ fn directory_rename_back_descends_from_tombstones_after_restart() {
         vec!["folder/a"]
     );
 }
+
+#[test]
+fn quota_never_reuses_same_size_committed_replacement_or_expired_snapshot() {
+    let root = tempfile::tempdir().unwrap();
+    let drive = fixture(root.path());
+    {
+        let mut state = drive.state.lock().unwrap();
+        add(&mut state, "file", Some(b"old"), vec![], "a");
+    }
+    let state = drive.state.lock().unwrap();
+    let used = state.visible_logical_used().unwrap();
+    *drive.capacity.lock().unwrap() = Some(super::capacity::CapacityStatus {
+        eligible: vec!["offline:".into()],
+        logical_used: used,
+        additional_estimate: 100,
+        namespace_event_ids: state.events.keys().cloned().collect(),
+        observed_unix: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+        ..Default::default()
+    });
+    drop(state);
+    assert_eq!(drive.quota(), Some((3, Some(103))));
+    {
+        let mut state = drive.state.lock().unwrap();
+        let parents = state.base("file").unwrap();
+        add(&mut state, "file", Some(b"new"), parents, "b");
+    }
+    assert_eq!(drive.quota(), Some((3, Some(3))));
+    drive
+        .capacity
+        .lock()
+        .unwrap()
+        .as_mut()
+        .unwrap()
+        .observed_unix = 0;
+    assert_eq!(drive.quota(), None);
+    *drive.capacity.lock().unwrap() = None;
+    assert_eq!(drive.quota(), None);
+}

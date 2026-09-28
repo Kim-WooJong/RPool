@@ -295,11 +295,7 @@ impl DavFileSystem for VirtualFs {
         })
     }
     fn get_quota(&self) -> FsFuture<'_, (u64, Option<u64>)> {
-        Box::pin(async move {
-            let c = self.drive.capacity.lock().unwrap();
-            let c = c.as_ref().ok_or(FsError::NotImplemented)?;
-            Ok((c.logical_used, Some(c.logical_ceiling_estimate)))
-        })
+        Box::pin(async move { self.drive.quota().ok_or(FsError::NotImplemented) })
     }
 }
 struct Handle {
@@ -580,8 +576,13 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let drive = Arc::new(super::super::virtual_drive::fixture(temp.path()));
         *drive.capacity.lock().unwrap() = Some(super::super::capacity::CapacityStatus {
-            logical_used: 12,
-            logical_ceiling_estimate: 112,
+            logical_used: 0,
+            additional_estimate: 100,
+            eligible: vec!["test:".into()],
+            observed_unix: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
             ..Default::default()
         });
         let server = Server::start(drive.clone()).unwrap();
@@ -603,8 +604,44 @@ mod tests {
             body,
             true,
         );
-        assert!(quota.contains(">12</"), "{quota}");
-        assert!(quota.contains(">100</"), "{quota}");
+        // Newly queued writes have not yet been reserved by the last quota sample.
+        assert!(quota.contains(">5</"), "{quota}");
+        assert!(quota.contains(">0</"), "{quota}");
+        {
+            let state = drive.state.lock().unwrap();
+            let mut cached = drive.capacity.lock().unwrap();
+            let c = cached.as_mut().unwrap();
+            c.logical_used = 5;
+            c.pending_ids = state.pending.iter().map(|i| i.id.clone()).collect();
+        }
+        let quota = request(
+            &server,
+            "PROPFIND",
+            "/",
+            "Depth: 0\r\nContent-Type: application/xml\r\n",
+            body,
+            true,
+        );
+        assert!(
+            quota.contains(">5</") && quota.contains(">100</"),
+            "{quota}"
+        );
+        drive
+            .capacity
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .observed_unix = 0;
+        let quota = request(
+            &server,
+            "PROPFIND",
+            "/",
+            "Depth: 0\r\nContent-Type: application/xml\r\n",
+            body,
+            true,
+        );
+        assert!(quota.contains("404"), "{quota}");
         let bad = request(&server, "PUT", "/%2e%2e/outside", "", b"bad", true);
         assert!(!bad.starts_with("HTTP/1.1 201"));
     }

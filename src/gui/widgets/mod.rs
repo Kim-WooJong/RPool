@@ -1,5 +1,6 @@
 mod capacity_bar;
 mod file_field;
+pub(crate) mod pool_capacity;
 mod progress_view;
 mod remote_selector;
 mod section_header;
