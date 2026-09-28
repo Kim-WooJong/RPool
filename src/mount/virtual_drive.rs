@@ -1194,6 +1194,8 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         rclone: rclone.into(),
         files_dir: drive.root.join("anchor"),
         cache_dir: drive.root.join("vfs-cache"),
+        vfs_cache_gib: args.vfs_cache_gib,
+        cache_min_free_gib: args.cache_min_free_gib,
         target: args.mountpoint.context("mountpoint required")?,
         shared: true,
         webdav: Some((format!("http://{}/", server.address), server.token.clone())),

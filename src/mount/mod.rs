@@ -83,6 +83,8 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         rclone: rclone.into(),
         files_dir: workspace.files_dir().to_owned(),
         cache_dir,
+        vfs_cache_gib: args.vfs_cache_gib,
+        cache_min_free_gib: args.cache_min_free_gib,
         target,
         shared: workspace.is_shared(),
         webdav: None,

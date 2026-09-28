@@ -1,4 +1,6 @@
 //! Clean immutable cache; dirty spool never enters this directory.
+//! The limit bounds clean payload plus conservative restore working space.
+//! Zero disables admission (nonempty reads fail); unknown files are untouched.
 use crate::prelude::*;
 use crate::storage::reader::{is_restore_unavailable, StorageReader};
 
@@ -11,12 +13,14 @@ pub(crate) struct ShardCache {
 impl ShardCache {
     pub(crate) fn new(root: PathBuf, limit: u64) -> Result<Self> {
         fs::create_dir_all(&root)?;
-        Ok(Self {
+        let cache = Self {
             root,
             limit,
             gate: Mutex::new(()),
             verified: Mutex::new(BTreeMap::new()),
-        })
+        };
+        cache.cleanup()?;
+        Ok(cache)
     }
     fn path(&self, s: &Shard) -> PathBuf {
         self.root.join(format!("{}-{}", s.blake3, s.size))
@@ -76,6 +80,7 @@ impl ShardCache {
         if self.valid(s)? {
             return Ok(());
         }
+        self.reserve_locked(s.size)?;
         let mut temp = tempfile::NamedTempFile::new_in(&self.root)?;
         match reader.verified_read(s, &mut temp) {
             Ok(()) => {
@@ -86,6 +91,29 @@ impl ShardCache {
             }
             Err(e) if is_restore_unavailable(&e) && m.coding.is_some() => {
                 let mini = group_manifest(m, s.group)?;
+                // Drop the failed direct-read bytes before reserving recovery space.
+                drop(temp);
+                let manifest_bytes = serde_json::to_vec_pretty(&mini)?.len() as u64;
+                // Restore holds the group output, staged shard attempts (including
+                // failed attempts), and published data concurrently. Include bounded
+                // resume JSON and its atomic replacement, even outside this root.
+                let staged = mini.shards.iter().try_fold(0u64, |n, shard| {
+                    n.checked_add(
+                        shard
+                            .size
+                            .checked_mul(retries.max(1) as u64)
+                            .context("recovery cache size overflow")?,
+                    )
+                    .context("recovery cache size overflow")
+                })?;
+                let required = mini
+                    .original_size
+                    .checked_mul(2)
+                    .and_then(|n| n.checked_add(staged))
+                    .and_then(|n| n.checked_add(manifest_bytes))
+                    .and_then(|n| n.checked_add(8192 + mini.shards.len() as u64 * 32))
+                    .context("recovery cache size overflow")?;
+                self.reserve_locked(required)?;
                 let stage = tempfile::tempdir_in(&self.root)?;
                 let manifest = stage.path().join("manifest.json");
                 super::namespace::durable_json(&manifest, &mini)?;
@@ -119,34 +147,52 @@ impl ShardCache {
             .gate
             .lock()
             .map_err(|_| anyhow!("cache lock poisoned"))?;
-        if offset >= m.original_size {
-            return Ok(vec![]);
-        }
-        let count = (count as u64).min(m.original_size - offset) as usize;
-        let end = offset.checked_add(count as u64).context("range overflow")?;
-        let mut result = Vec::with_capacity(count);
-        for s in crate::manifest::data_shards(m) {
-            let shard_end = s
-                .offset
-                .checked_add(s.size)
-                .context("shard range overflow")?;
-            if s.offset >= end || shard_end <= offset {
-                continue;
+        let outcome = (|| -> Result<Vec<u8>> {
+            self.trim_locked()?;
+            if count == 0 || offset >= m.original_size {
+                return Ok(vec![]);
             }
-            self.ensure(reader, m, s, workers, retries)?;
-            let start = offset.max(s.offset);
-            let n = (end.min(shard_end) - start) as usize;
-            let mut f = File::open(self.path(s))?;
-            f.seek(SeekFrom::Start(start - s.offset))?;
-            let old = result.len();
-            result.resize(old + n, 0);
-            f.read_exact(&mut result[old..])?;
+            let count = (count as u64).min(m.original_size - offset) as usize;
+            let end = offset.checked_add(count as u64).context("range overflow")?;
+            let mut result = Vec::with_capacity(count);
+            for s in crate::manifest::data_shards(m) {
+                let shard_end = s
+                    .offset
+                    .checked_add(s.size)
+                    .context("shard range overflow")?;
+                if s.offset >= end || shard_end <= offset {
+                    continue;
+                }
+                self.ensure(reader, m, s, workers, retries)?;
+                let start = offset.max(s.offset);
+                let n = (end.min(shard_end) - start) as usize;
+                let mut f = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(self.path(s))?;
+                f.seek(SeekFrom::Start(start - s.offset))?;
+                let old = result.len();
+                result.resize(old + n, 0);
+                f.read_exact(&mut result[old..])?;
+                // Explicit access updates are independent of OS noatime/relatime.
+                f.set_times(std::fs::FileTimes::new().set_accessed(SystemTime::now()))?;
+            }
+            if result.len() != count {
+                bail!("incomplete verified range");
+            }
+            Ok(result)
+        })();
+        let cleanup = self.trim_locked();
+        match outcome {
+            Ok(bytes) => {
+                cleanup?;
+                Ok(bytes)
+            }
+            Err(error) => {
+                let _ = cleanup;
+                Err(error)
+            }
         }
-        if result.len() != count {
-            bail!("incomplete verified range");
-        }
-        self.trim_locked()?;
-        Ok(result)
     }
     pub(crate) fn cleanup(&self) -> Result<u64> {
         let _guard = self
@@ -156,6 +202,16 @@ impl ShardCache {
         self.trim_locked()
     }
     fn trim_locked(&self) -> Result<u64> {
+        self.reserve_locked(0)
+    }
+    fn reserve_locked(&self, required: u64) -> Result<u64> {
+        if required > self.limit {
+            bail!(
+                "cache limit {} bytes is smaller than required working set {required} bytes",
+                self.limit
+            );
+        }
+        let target = self.limit - required;
         let mut entries = vec![];
         let mut total = 0u64;
         for item in fs::read_dir(&self.root)? {
@@ -173,13 +229,13 @@ impl ShardCache {
             let m = fs::symlink_metadata(item.path())?;
             if m.is_file() && !m.file_type().is_symlink() {
                 total = total.saturating_add(m.len());
-                entries.push((m.modified()?, item.path(), m.len()));
+                entries.push((m.accessed()?, item.path(), m.len()));
             }
         }
         entries.sort();
         let mut removed = 0;
         for (_, path, size) in entries {
-            if total <= self.limit {
+            if total <= target {
                 break;
             }
             fs::remove_file(&path)?;
@@ -245,6 +301,7 @@ mod tests {
     use crate::storage::reference::{BackendId, ObjectKey, ObjectRef};
     use crate::storage::registry::BackendRegistry;
     use crate::storage::traits::{OperationContext, StorageBackend, WriteOptions};
+    use std::time::Duration;
     struct Fixture {
         memory: Arc<MemoryBackend>,
         manifest: Manifest,
@@ -392,7 +449,7 @@ mod tests {
     fn final_nonzero_group_recovers_without_unrelated_group() {
         let f = Fixture::new(true);
         let temp = tempfile::tempdir().unwrap();
-        let cache = ShardCache::new(temp.path().into(), 100).unwrap();
+        let cache = ShardCache::new(temp.path().into(), 20000).unwrap();
         for index in [0, 1, 2, 3, 4] {
             f.delete(index);
         }
@@ -407,17 +464,94 @@ mod tests {
             .is_err());
     }
     #[test]
+    fn access_recency_survives_reopen_and_evicted_bytes_redownload() {
+        let f = Fixture::new(false);
+        let temp = tempfile::tempdir().unwrap();
+        let cache = ShardCache::new(temp.path().into(), 8).unwrap();
+        let reader = f.reader(vec![]);
+        cache.read(&reader, &f.manifest, 0, 8, 2, 0).unwrap();
+        let first = cache.path(&f.manifest.shards[0]);
+        let second = cache.path(&f.manifest.shards[1]);
+        let old = SystemTime::UNIX_EPOCH + Duration::from_secs(10);
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&first)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_accessed(old))
+            .unwrap();
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&second)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_accessed(old + Duration::from_secs(1)))
+            .unwrap();
+        cache.read(&reader, &f.manifest, 0, 1, 2, 0).unwrap();
+        assert!(fs::metadata(&first).unwrap().accessed().unwrap() > old);
+        drop(cache);
+        let cache = ShardCache::new(temp.path().into(), 8).unwrap();
+        cache.read(&reader, &f.manifest, 8, 1, 2, 0).unwrap();
+        assert!(first.exists());
+        assert!(!second.exists());
+        assert_eq!(
+            cache.read(&reader, &f.manifest, 4, 4, 2, 0).unwrap(),
+            b"EFGH"
+        );
+        let bytes: u64 = fs::read_dir(temp.path())
+            .unwrap()
+            .map(|e| e.unwrap().metadata().unwrap().len())
+            .sum();
+        assert!(bytes <= 8);
+    }
+
+    #[test]
+    fn reopening_with_lower_limit_trims_clean_data_without_a_read() {
+        let f = Fixture::new(false);
+        let temp = tempfile::tempdir().unwrap();
+        let cache = ShardCache::new(temp.path().into(), 8).unwrap();
+        cache
+            .read(&f.reader(vec![]), &f.manifest, 0, 8, 2, 0)
+            .unwrap();
+        fs::write(temp.path().join("unknown-dirty"), b"preserve").unwrap();
+        drop(cache);
+        let _cache = ShardCache::new(temp.path().into(), 0).unwrap();
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+        assert_eq!(
+            fs::read(temp.path().join("unknown-dirty")).unwrap(),
+            b"preserve"
+        );
+    }
+
+    #[test]
+    fn recovery_rejects_insufficient_working_set_and_zero_read_is_empty() {
+        let f = Fixture::new(true);
+        let temp = tempfile::tempdir().unwrap();
+        let cache = ShardCache::new(temp.path().into(), 4).unwrap();
+        f.delete(0);
+        let error = cache
+            .read(&f.reader(vec![]), &f.manifest, 0, 1, 2, 0)
+            .unwrap_err();
+        assert!(error.to_string().contains("required working set"));
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 0);
+        let cache = ShardCache::new(temp.path().into(), 0).unwrap();
+        assert!(cache
+            .read(&f.reader(vec![]), &f.manifest, 1, 0, 2, 0)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
     fn eviction_removes_only_clean_entries_not_unknown_files() {
         let f = Fixture::new(false);
         let temp = tempfile::tempdir().unwrap();
         let cache = ShardCache::new(temp.path().into(), 0).unwrap();
         fs::write(temp.path().join("dirty-spool"), b"keep").unwrap();
-        assert_eq!(
-            cache
-                .read(&f.reader(vec![]), &f.manifest, 0, 2, 2, 0)
-                .unwrap(),
-            b"AB"
-        );
+        assert!(cache
+            .read(&f.reader(vec![]), &f.manifest, 0, 2, 2, 0)
+            .unwrap_err()
+            .to_string()
+            .contains("required working set"));
         assert!(!cache.path(&f.manifest.shards[0]).exists());
         assert_eq!(fs::read(temp.path().join("dirty-spool")).unwrap(), b"keep");
     }

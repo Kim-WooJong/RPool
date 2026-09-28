@@ -665,3 +665,40 @@ cold bootstrap remains unchanged.
 
 References: [rclone mount](https://rclone.org/commands/rclone_mount/),
 [local backend](https://rclone.org/local/).
+
+
+## Local cache size and least-recently-used eviction
+
+In **Storage → Mount**, choose **virtual mode** for metadata-first browsing and
+on-demand downloads. A replica workspace retains a full plaintext copy; its
+`files/` directory is not a disposable cache. Use a new virtual workspace rather
+than changing/deleting an existing replica's files.
+
+The mount form exposes independent limits (GiB = 1024³ bytes):
+
+| Setting | CLI | Default | Behavior |
+| --- | --- | --- | --- |
+| Clean shard cache budget | `--cache-gib` | 10 GiB | Verified immutable shards, oldest successful access evicted first before download admission |
+| Native OS cache target | `--vfs-cache-gib` | 10 GiB | rclone's independent cache; clean unused data evicted under pressure |
+| Keep disk free | `--cache-min-free-gib` | 2 GiB | rclone native-cache free-space target, **not** a reservation |
+| Pending write spool limit | `--spool-gib` | 64 GiB | Virtual pending writes; rejects growth instead of discarding unsynced data |
+
+For example, add `--cache-gib=4 --vfs-cache-gib=4 --cache-min-free-gib=2 --spool-gib=8` to a virtual mount command. Settings apply when the next process
+starts. Supply CLI overrides on each launch; GUI fields remain in the current
+mount form, not in a shared/cloud pool policy.
+
+Reading evicted content downloads and verifies it again; offline access to it is
+not available. Shard download/recovery admission refuses a working set that does
+not fit the shard budget: increase that budget when the error requests it. `--cache-gib=0` disables
+nonempty shard download admission; it does not mean unlimited storage.
+
+**These are not one aggregate hard disk limit.** The shard and native caches are
+separate copies, and the write spool adds to both. Native eviction is polled every
+five seconds; open files and pending writes cannot be safely evicted and can
+exceed its target. Shared mounts also expire unused native cache promptly for
+safe reconciliation. Upload staging, metadata, recovered native caches, exported
+recovery files and other applications need additional disk space. No automatic
+cleanup deletes dirty/unknown data, recovery directories, full replica files or
+remote cloud objects.
+
+Native limit semantics: [rclone mount VFS cache documentation](https://rclone.org/commands/rclone_mount/#vfs-file-caching).

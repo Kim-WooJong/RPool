@@ -24,6 +24,27 @@ objects are untouched. Copies need temporary capacity/transfers; causal metadata
 and unfinished unpublished uploads remain (no general orphan sweep). Actual cloud,
 multiple-PC OS mounts, Windows and power-loss behavior remain unverified.
 
+## Local cache limits (2026-09-29)
+
+Completed GUI/CLI native VFS cache target (`--vfs-cache-gib`, 10 GiB), native
+free-space target (`--cache-min-free-gib`, 2 GiB), and GUI exposure of existing
+virtual spool budget (64 GiB). Shard cache uses persisted explicit access times,
+LRU pre-download eviction, startup trimming after workspace locking, conservative
+recovery working-set admission, and error-path cleanup. Windows time updates use
+write-capable file handles. A too-small/zero shard budget rejects download
+admission; unknown/dirty data is never evicted. Settings are per launch/current
+GUI form, not persisted to cloud pool policy.
+
+Native limits remain soft for open/dirty files; separate caches/spool add together.
+Full replica files, recovery exports and upload staging are outside these targets.
+No remote data changed or live mounts started. See docs/MOUNT.md local cache section.
+
+Validation: default 394 passed / 12 ignored after Windows handle correction;
+final optional OpenDAL suite 406 passed / 12 ignored including the subsequent
+startup-trim regression. Warning-denied release build, fmt/diff checks and release
+CLI help passed. Independent review covered layer separation, Windows handle
+permissions and recovery staging. Real cloud/native Windows/Linux remain untested.
+
 ## Capacity follow-up (2026-09-29)
 
 Implemented workspace-free `pool capacity [NAME]` with read-only overrides and
@@ -253,10 +274,8 @@ Previous unshared hardening batch (macOS):
 
 ## Resume
 
-Continue the current retention + metadata-only MOVE task. Obtain the user's
-architecture preference already requested in chat; do not repeat it. Await bounded
-move/provenance implementation from expert_conflict_review (namespace.rs and
-virtual_tests.rs only); main owns integration, tests and docs. GC architecture
-review: expert_peer_snapshot_design. Do not enable naive v6 reference-scan GC.
-Existing v6 objects must stay protected from new-protocol cleanup and old binaries.
-Preserve unrelated config-sync/path changes. Last completed C batch: 8632ff0.
+Latest requested local-cache configuration and LRU batch is complete and validated.
+No active workers or unanswered architecture decision block this batch. Next work
+should follow the user's request; real Windows/WinFsp and cloud mount acceptance
+remain runtime gates. Preserve unrelated config-sync/path changes. Do not restart
+legacy retention work based on older handoff notes; v7 implementation is present.

@@ -15,6 +15,8 @@ pub(crate) struct MountConfig {
     pub(crate) cache_dir: PathBuf,
     pub(crate) target: PathBuf,
     pub(crate) shared: bool,
+    pub(crate) vfs_cache_gib: u64,
+    pub(crate) cache_min_free_gib: u64,
     pub(crate) webdav: Option<(String, String)>,
 }
 
@@ -90,16 +92,16 @@ impl MountProcess {
                 .env("RCLONE_WEBDAV_BEARER_TOKEN_COMMAND", "")
                 .args(["--dir-cache-time", "2s", "--vfs-read-chunk-size", "0"]);
         }
+        configure_cache(
+            &mut command,
+            config.vfs_cache_gib,
+            config.cache_min_free_gib,
+        );
         if config.shared {
             // Only rclone may evict its clean, unused cache entries. Short
             // retention allows an unmounted shared reconciliation without
             // deleting potentially dirty cache files ourselves.
-            command.args([
-                "--vfs-cache-max-age",
-                "1s",
-                "--vfs-cache-poll-interval",
-                "5s",
-            ]);
+            command.args(["--vfs-cache-max-age", "1s"]);
         }
         #[cfg(windows)]
         {
@@ -781,6 +783,8 @@ mod tests {
             cache_dir: root.join("cache"),
             target: target.clone(),
             shared: false,
+            vfs_cache_gib: 10,
+            cache_min_free_gib: 2,
             webdav: None,
         };
         assert!(validate_mountpoint(&config).is_ok());
@@ -818,4 +822,38 @@ pub(crate) fn preflight_virtual(root: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+// rclone owns native cache eviction: never remove dirty/open native files ourselves.
+fn configure_cache(command: &mut Command, limit_gib: u64, min_free_gib: u64) {
+    command.args([
+        "--vfs-cache-max-size",
+        &format!("{limit_gib}G"),
+        "--vfs-cache-min-free-space",
+        &format!("{min_free_gib}G"),
+        "--vfs-cache-poll-interval",
+        "5s",
+    ]);
+}
+
+#[cfg(test)]
+mod cache_option_tests {
+    use super::*;
+    #[test]
+    fn forwards_bounded_native_cache_and_disk_headroom_without_touching_files() {
+        let mut command = Command::new("unused");
+        configure_cache(&mut command, 7, 3);
+        let args: Vec<_> = command.get_args().map(|a| a.to_str().unwrap()).collect();
+        assert_eq!(
+            args,
+            [
+                "--vfs-cache-max-size",
+                "7G",
+                "--vfs-cache-min-free-space",
+                "3G",
+                "--vfs-cache-poll-interval",
+                "5s"
+            ]
+        );
+    }
 }

@@ -27,9 +27,15 @@ pub(crate) struct MountArgs {
     /// Previous cloud revisions per path; default 0 keeps latest only. Offline PCs never pin history.
     #[arg(long, default_value_t = 0)]
     pub(crate) shared_keep_previous: usize,
-    /// Verified clean-shard cache budget in GiB. Dirty writes are never evicted.
+    /// Clean-shard/read-working-space budget in GiB (0 rejects uncached reads); dirty writes are never evicted.
     #[arg(long, default_value_t = 10)]
     pub(crate) cache_gib: u64,
+    /// Native VFS cache target in GiB; open/dirty files may temporarily exceed it.
+    #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u64).range(1..=1048576))]
+    pub(crate) vfs_cache_gib: u64,
+    /// Ask rclone to preserve this much free disk space (GiB); not a hard reservation.
+    #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u64).range(0..=1048576))]
+    pub(crate) cache_min_free_gib: u64,
     /// Maximum local virtual write spool in GiB (includes partial writes); growth fails safely at the limit.
     #[arg(long, default_value_t = 64, value_parser = clap::value_parser!(u64).range(1..))]
     pub(crate) spool_gib: u64,
@@ -294,6 +300,48 @@ mod pool_sync_tests {
             assert!(
                 crate::cli::Cli::try_parse_from(base.into_iter().chain([incompatible])).is_err()
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use clap::Parser;
+    #[test]
+    fn cache_limits_parse_and_reject_unbounded_native_target() {
+        let base = [
+            "rpool",
+            "mount",
+            "--pool=p",
+            "--workspace=/persistent",
+            "--sync-only",
+        ];
+        let parsed = crate::cli::Cli::try_parse_from(base.into_iter().chain([
+            "--vfs-cache-gib=7",
+            "--cache-min-free-gib=3",
+            "--cache-gib=5",
+            "--spool-gib=8",
+        ]))
+        .unwrap();
+        let Some(crate::cli::Commands::Mount(args)) = parsed.command else {
+            panic!("mount expected")
+        };
+        assert_eq!(
+            (
+                args.vfs_cache_gib,
+                args.cache_min_free_gib,
+                args.cache_gib,
+                args.spool_gib
+            ),
+            (7, 3, 5, 8)
+        );
+        for invalid in [
+            "--vfs-cache-gib=0",
+            "--vfs-cache-gib=1048577",
+            "--cache-min-free-gib=-1",
+            "--spool-gib=0",
+        ] {
+            assert!(crate::cli::Cli::try_parse_from(base.into_iter().chain([invalid])).is_err());
         }
     }
 }

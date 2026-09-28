@@ -30,6 +30,9 @@ pub(crate) struct MountForm {
     shared_coordinator: bool,
     shared_keep_previous: usize,
     cache_gib: u64,
+    vfs_cache_gib: u64,
+    cache_min_free_gib: u64,
+    spool_gib: u64,
 }
 
 impl Default for MountForm {
@@ -62,6 +65,9 @@ impl Default for MountForm {
             shared_coordinator: false,
             shared_keep_previous: 0,
             cache_gib: 10,
+            vfs_cache_gib: 10,
+            cache_min_free_gib: 2,
+            spool_gib: 64,
             capacity_read: std::time::Instant::now(),
             identity_editor: crate::storage::admin::domains::DomainStore::load()
                 .map(|s| {
@@ -169,7 +175,10 @@ impl MountForm {
             &control.path().join("stop"),
             sync_only,
         );
+        args.push(format!("--vfs-cache-gib={}", self.vfs_cache_gib).into());
+        args.push(format!("--cache-min-free-gib={}", self.cache_min_free_gib).into());
         if self.virtual_drive {
+            args.push(format!("--spool-gib={}", self.spool_gib).into());
             args.push("--virtual-drive".into());
             args.push(format!("--cache-gib={}", self.cache_gib).into());
             if automatic {
@@ -319,6 +328,15 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
             }
             ui.horizontal(|ui| {ui.label("Clean shard cache budget (GiB)");ui.add(egui::DragValue::new(&mut form.cache_gib).range(1..=1048576));});
         }
+        ui.horizontal(|ui| { ui.label("Native OS cache target (GiB)"); ui.add(egui::DragValue::new(&mut form.vfs_cache_gib).range(1..=1048576)); });
+        ui.horizontal(|ui| { ui.label("Keep disk free (GiB, native cache target)"); ui.add(egui::DragValue::new(&mut form.cache_min_free_gib).range(0..=1048576)); });
+        if form.virtual_drive {
+            ui.horizontal(|ui| { ui.label("Pending write spool limit (GiB)"); ui.add(egui::DragValue::new(&mut form.spool_gib).range(1..=1048576)); });
+            ui.label("Least-recently-used clean data is evicted and downloaded again when needed. Shard, OS cache and pending-write limits are separate and add together. A shard/recovery group must fit the shard budget.");
+        } else {
+            ui.label("Replica mode retains the complete local file copy; the OS cache target does not limit that copy. Use a NEW virtual workspace for on-demand downloads.");
+        }
+        ui.label("Open files and unsaved native writes are protected and may exceed the OS cache target. Recovery copies, metadata and upload staging need additional disk space. Cache settings apply on the next start.");
         directory_field(ui, "Persistent local workspace", &mut form.workspace);
         if !(form.virtual_drive && form.pool_sync) {
             ui.label("Shared encrypted root (optional, e.g. crypt:teamspace)");
