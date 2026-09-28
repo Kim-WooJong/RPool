@@ -14,6 +14,7 @@ pub(crate) struct MountConfig {
     pub(crate) files_dir: PathBuf,
     pub(crate) cache_dir: PathBuf,
     pub(crate) target: PathBuf,
+    pub(crate) shared: bool,
 }
 
 pub(crate) struct StopReport {
@@ -70,6 +71,17 @@ impl MountProcess {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if config.shared {
+            // Only rclone may evict its clean, unused cache entries. Short
+            // retention allows an unmounted shared reconciliation without
+            // deleting potentially dirty cache files ourselves.
+            command.args([
+                "--vfs-cache-max-age",
+                "1s",
+                "--vfs-cache-poll-interval",
+                "5s",
+            ]);
+        }
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -721,6 +733,7 @@ mod tests {
             files_dir: files.clone(),
             cache_dir: root.join("cache"),
             target: target.clone(),
+            shared: false,
         };
         assert!(validate_mountpoint(&config).is_ok());
         let metadata = root.join(".rpool/archives");

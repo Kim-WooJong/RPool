@@ -18,6 +18,8 @@ struct Catalog {
     policy: PoolDefinition,
     entries: BTreeMap<String, Entry>,
     directories: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shared: Option<shared::SharedState>,
 }
 
 #[derive(Debug, Default)]
@@ -88,7 +90,10 @@ impl Workspace {
             )?;
             require_regular(&catalog_path)?;
             let saved: Catalog = read_json(&catalog_path)?;
-            if saved.version != 1 || saved.pool != pool_name {
+            if !matches!(saved.version, 1 | 2)
+                || saved.pool != pool_name
+                || (saved.version == 2) != saved.shared.is_some()
+            {
                 bail!("workspace version or pool binding mismatch");
             }
             crate::pool::validate_pool(&saved.policy)?;
@@ -109,6 +114,7 @@ impl Workspace {
                 policy,
                 entries: BTreeMap::new(),
                 directories: BTreeSet::new(),
+                shared: None,
             };
             fs::create_dir(&files)?;
             atomic_json(&catalog_path, &saved)?;
@@ -505,3 +511,6 @@ fn scan(root: &Path) -> Result<(BTreeMap<String, LocalFile>, BTreeSet<String>)> 
 #[cfg(test)]
 #[path = "workspace_tests.rs"]
 mod tests;
+
+#[path = "workspace_shared.rs"]
+mod shared;

@@ -1,4 +1,6 @@
 pub(crate) mod adapter;
+mod shared_model;
+mod shared_transport;
 mod workspace;
 
 use anyhow::{Context, Result};
@@ -11,6 +13,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     println!("Preparing durable local workspace. Imported files are restored in full; local disk space is required.");
     let mut workspace =
         workspace::Workspace::open(rclone, &args.pool, &args.workspace, args.manifests)?;
+    workspace.configure_shared(args.shared_root.as_deref(), args.worker_name.as_deref())?;
     println!(
         "Workspace pool={} targets={} (policy frozen at creation)",
         workspace.pool_name(),
@@ -18,6 +21,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     );
     if args.sync_only {
         let report = workspace.sync_once()?;
+        workspace.sync_shared(true)?;
         println!(
             "writeback uploaded={} logically_deleted={} unchanged={} pending={}",
             report.uploaded, report.deleted, report.unchanged, report.pending
@@ -32,6 +36,12 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         return Ok(());
     }
     let target = args.mountpoint.context("mountpoint required")?;
+    // Before mounting there can be no new VFS writes. Existing cache is checked
+    // independently; pending recovery never grants permission to replace files.
+    if workspace.is_shared() {
+        workspace.sync_once()?;
+        workspace.sync_shared(true)?;
+    }
     let cache_dir = workspace
         .files_dir()
         .parent()
@@ -42,6 +52,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         files_dir: workspace.files_dir().to_owned(),
         cache_dir,
         target,
+        shared: workspace.is_shared(),
     })?;
     println!("Mount process started. Waiting for filesystem readiness; close files before requesting unmount.");
     let mut last_scan = Instant::now();
@@ -67,6 +78,9 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         if ready_reported && last_scan.elapsed() >= Duration::from_secs(args.interval_seconds) {
             match workspace.sync_once() {
                 Ok(report) => {
+                    if let Err(error) = workspace.sync_shared(false) {
+                        eprintln!("Shared sync pending; local data retained: {error:#}");
+                    }
                     println!("writeback uploaded={} logically_deleted={} unchanged={} pending={}; open/cached writes may still be pending", report.uploaded, report.deleted, report.unchanged, report.pending);
                     for warning in report.warnings {
                         eprintln!("{warning}");
@@ -91,6 +105,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     let report = workspace.sync_once().context(
         "unmounted, but final cloud writeback failed; local files and VFS cache retained",
     )?;
+    workspace.sync_shared(!stopped.forced)?;
     println!(
         "Final local scan: uploaded={} logically_deleted={} unchanged={} pending={}",
         report.uploaded, report.deleted, report.unchanged, report.pending

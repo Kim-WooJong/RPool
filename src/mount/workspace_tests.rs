@@ -1,6 +1,6 @@
 use super::*;
 
-fn fixture() -> (tempfile::TempDir, Workspace) {
+pub(super) fn fixture() -> (tempfile::TempDir, Workspace) {
     let root = tempfile::tempdir().unwrap();
     let metadata = root.path().join(".rpool");
     let files = root.path().join("files");
@@ -24,6 +24,7 @@ fn fixture() -> (tempfile::TempDir, Workspace) {
         },
         entries: BTreeMap::new(),
         directories: BTreeSet::new(),
+        shared: None,
     };
     atomic_json(&metadata.join("catalog.json"), &catalog).unwrap();
     (
@@ -38,7 +39,7 @@ fn fixture() -> (tempfile::TempDir, Workspace) {
     )
 }
 
-fn fake_upload(path: &Path, id: &str) -> Result<Manifest> {
+pub(super) fn fake_upload(path: &Path, id: &str) -> Result<Manifest> {
     let bytes = fs::read(path)?;
     let shards = if bytes.is_empty() {
         vec![]

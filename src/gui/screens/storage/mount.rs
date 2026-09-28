@@ -8,6 +8,8 @@ pub(crate) struct MountForm {
     pool: String,
     workspace: String,
     mountpoint: String,
+    shared_root: String,
+    worker_name: String,
     manifests: Vec<String>,
     manifest_input: String,
     interval_seconds: u64,
@@ -27,6 +29,8 @@ impl Default for MountForm {
             } else {
                 String::new()
             },
+            shared_root: String::new(),
+            worker_name: String::new(),
             manifests: Vec::new(),
             manifest_input: String::new(),
             interval_seconds: 30,
@@ -70,6 +74,9 @@ impl MountForm {
         if self.pool.trim().is_empty() || self.workspace.trim().is_empty() {
             return Err("Select an upload pool and a persistent local workspace.".into());
         }
+        if self.shared_root.trim().is_empty() != self.worker_name.trim().is_empty() {
+            return Err("Enter both a shared root and a worker name, or leave both empty for local-only mode.".into());
+        }
         if !sync_only && self.mountpoint.trim().is_empty() {
             return Err(
                 "Enter an unused Windows drive letter or an existing empty Unix mount directory."
@@ -87,6 +94,8 @@ impl MountForm {
             self.pool.trim(),
             Path::new(self.workspace.trim()),
             self.mountpoint.trim(),
+            self.shared_root.trim(),
+            self.worker_name.trim(),
             &self.manifests,
             self.interval_seconds,
             &control.path().join("stop"),
@@ -135,8 +144,11 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
     ui.label("Use Explorer/Finder to add, edit and delete files. Changes are archived to the selected pool in the background.");
     ui.group(|ui| {
         ui.label("This keeps a complete plaintext local copy, plus a persistent VFS cache. Reserve enough disk space and protect the local workspace.");
-        ui.label("The workspace has its own local file list; it is not a shared live cloud filesystem. Existing archives are imported only from manifests you explicitly select.");
-        ui.label("Deleting a file removes it from this workspace only. Previous remote archives are retained. Pending edits may remain local or in the VFS cache until the same workspace is restarted.");
+        ui.label("Leave shared root and worker name empty for local-only mode. Existing archives are imported only from manifests you explicitly select.");
+        ui.label("Shared mode uses eventual synchronization, not file locking. Use the same encrypted shared root on every PC and a distinct worker name. Conflicting edits create conflict copies to preserve both versions.");
+        ui.label("While mounted, local changes are published and shared metadata is fetched, but incoming files do not replace local files live. Incoming changes and shared deletions are applied only during safe unmounted reconciliation or next start, with an empty persistent VFS cache.");
+        ui.label("If cached writes remain, recover them through the original mount before synchronizing. The local copy and persistent cache are retained.");
+        ui.label("In local-only mode, deletion affects only this workspace; shared deletions propagate during safe reconciliation. Previous remote archives are retained. Pending edits may remain local or in the VFS cache until the same workspace is restarted.");
     });
     ui.add_enabled_ui(!form.runner.is_running(), |ui| {
         ui.horizontal(|ui| {
@@ -154,6 +166,10 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
                 });
         });
         directory_field(ui, "Persistent local workspace", &mut form.workspace);
+        ui.label("Shared encrypted root (optional, e.g. crypt:teamspace)");
+        ui.text_edit_singleline(&mut form.shared_root);
+        ui.label("Worker name (required with shared root; used in conflict filenames)");
+        ui.text_edit_singleline(&mut form.worker_name);
         ui.label(if cfg!(windows) {
             "Unused drive letter (requires WinFsp), e.g. R:"
         } else {
@@ -267,6 +283,8 @@ fn build_args(
     pool: &str,
     workspace: &Path,
     mountpoint: &str,
+    shared_root: &str,
+    worker_name: &str,
     manifests: &[String],
     interval: u64,
     stop: &Path,
@@ -282,6 +300,12 @@ fn build_args(
         "--stop-file".into(),
         stop.as_os_str().into(),
     ];
+    if !shared_root.is_empty() {
+        args.push(format!("--shared-root={shared_root}").into());
+    }
+    if !worker_name.is_empty() {
+        args.push(format!("--worker-name={worker_name}").into());
+    }
     if sync_only {
         args.push("--sync-only".into());
     } else {
@@ -300,12 +324,18 @@ mod tests {
     use std::path::PathBuf;
     #[test]
     fn mount_arguments_roundtrip_and_sync_omits_mountpoint() {
-        for sync_only in [false, true] {
+        for (sync_only, shared) in [(false, false), (true, false), (false, true), (true, true)] {
             let mut args = vec![OsString::from("rpool")];
             args.extend(build_args(
                 "-pool 한 글",
                 &PathBuf::from("/persistent workspace"),
                 "R:",
+                if shared {
+                    "crypt:team space/한 글"
+                } else {
+                    ""
+                },
+                if shared { "-PC 한 글" } else { "" },
                 &[
                     "-manifest 한 글.json".into(),
                     "crypt:path with spaces/manifest.json".into(),
@@ -321,6 +351,11 @@ mod tests {
             assert_eq!(parsed.pool, "-pool 한 글");
             assert_eq!(parsed.workspace, PathBuf::from("/persistent workspace"));
             assert_eq!(parsed.sync_only, sync_only);
+            assert_eq!(
+                parsed.shared_root.as_deref(),
+                shared.then_some("crypt:team space/한 글")
+            );
+            assert_eq!(parsed.worker_name.as_deref(), shared.then_some("-PC 한 글"));
             assert_eq!(parsed.mountpoint, (!sync_only).then(|| PathBuf::from("R:")));
             assert_eq!(
                 parsed.manifests,

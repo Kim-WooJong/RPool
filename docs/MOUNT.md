@@ -48,7 +48,69 @@ this workspace. Only then may that **lease file alone** be removed for recovery;
 `mount-identity.json`, all local files and the VFS cache. A clean stop clears the lease
 automatically. Ctrl+C/forced termination is not a verified graceful shutdown path.
 
-## Durability and limits
+## Shared workspaces (multiple computers)
+
+Set **Shared encrypted folder** and **Worker name** on the Mount drive screen,
+or use both CLI options:
+
+```powershell
+rpool mount --pool mypool --workspace C:\RPoolAlice --mountpoint R: --shared-root crypt:teamspace --worker-name Alice
+rpool mount --pool mypool --workspace C:\RPoolBob --sync-only --shared-root crypt:teamspace --worker-name Bob
+```
+
+Every computer uses its **own local workspace/cache**, but the same actual shared
+encrypted directory. Each computer must have working rclone crypt configuration,
+keys and remote aliases for the archives being shared. A matching Pool name alone
+does not establish a shared folder. Keep worker names recognizable; equal names
+are supported through distinct device/revision identities. Never copy an active
+workspace or synchronize its `.rpool`/VFS cache between computers.
+
+Shared mode publishes immutable, verified, content-addressed revision records.
+The records contain file paths, worker/device identity, parent revisions and full
+archive manifests; they are encrypted using the normal crypt-only write policy.
+There is no mutable shared catalog whose last uploader wins. Each client retains
+all revisions it has observed and computes the same shared file list from them.
+Provider listing visibility can delay convergence; a failed listing is not a deletion.
+
+- Independent file edits can be published concurrently.
+- Concurrent versions of one file are both retained. One deterministic version
+  keeps the original path and the others get worker-named conflict paths with
+  revision identifiers. This is not an automatic document merge.
+- Concurrent deletion/edit retains the edited version as a named conflict copy.
+  Sequential deletion is a logical shared deletion, never cloud archive erasure.
+- Offline edits retain the revision that was actually present locally, not a
+  newer revision merely discovered while synchronizing.
+- Names, case/prefix collisions, malformed records and missing ancestors are
+  checked before applying the shared tree. Unsupported combinations fail closed.
+
+**Incoming-file safety boundary:** while a drive is mounted, RPool archives local
+changes and exchanges the shared revision list, but does not replace local files
+with incoming versions. Incoming additions, updates and deletions are applied at
+safe unmounted sync/next startup, only when no mount lease and no persistent VFS
+cache files remain. Shared mounts ask rclone to expire clean unused cache entries
+on a short (5-second) polling cycle. Close applications and allow writeback/cache
+expiry before unmounting. If cache remains, resume
+the original mount and let rclone drain/expire it; never delete the cache to force
+sync. Shared mode is eventual synchronization, not live network filesystem locking.
+
+Displaced local bytes remain in `.rpool/shared-recovery`. An interrupted apply uses
+a local journal and restores displaced bytes without overwriting newer files;
+recovery may expose additional `recovered-*.bin` files for manual inspection.
+Keep these backups until the shared result is checked. Do not modify the workspace
+directly while an unmounted reconciliation runs.
+
+Shared mode currently synchronizes files and their necessary parent directories;
+empty directories are local-only. Renames are a new path plus deletion of the old
+path. Revision history, tombstones and recovery backups are not garbage-collected.
+The shared metadata directory is a required availability dependency (not sharded
+across Pool providers). Existing archive data remains independently restorable.
+Exchange currently fails closed above 10,000 listed events, 8 MiB per event or
+64 MiB per listing's event contents. There is no automatic history compaction yet.
+Shared workspaces upgrade their local catalog to v2; older RPool binaries refuse
+them instead of silently dropping synchronization ancestry. Local-only catalogs
+remain v1.
+
+## Local workspace durability and limits
 
 - Keep **the entire workspace**, including `.rpool`, `files` and `vfs-cache`, on reliable
   local storage. These contain plaintext; use OS disk encryption as appropriate.
@@ -59,13 +121,14 @@ automatically. Ctrl+C/forced termination is not a verified graceful shutdown pat
 - Deletion creates a local catalog tombstone, **not remote erasure**. Prior cloud
   versions remain in inventory and continue consuming capacity. Rename currently
   archives the new path and tombstones the old one.
-- Directory structure/empty directories and logical deletion state live in the local
-  catalog. This is not a distributed multi-machine namespace; back up the workspace
+- In local-only mode, directory structure/empty directories and logical deletion state live in the local
+  catalog. This mode is not a distributed multi-machine namespace; back up the workspace
   metadata. Individual cloud archive manifests cannot reconstruct the complete tree.
 - A workspace freezes its Pool policy on creation. Later Pool configuration changes
   do not silently redistribute it. Use a new workspace to select a different policy.
-- One writer owns a workspace. Separate local workspaces are not a shared editing or
-  conflict-resolution system. Do not edit internal metadata/transactions/cache.
+- One writer owns each local workspace. Separate workspaces participate in shared
+  conflict handling only when explicitly bound to the same shared encrypted folder.
+  Do not edit internal metadata/transactions/cache.
 - Symlinks, junctions, special files, case-colliding names and nonportable Windows names
   are rejected. Imports need a hard-link-capable filesystem (for example NTFS/APFS).
   This is not a sandbox against a hostile local process swapping filesystem paths.
@@ -80,6 +143,14 @@ Explorer/WinFsp, macOS/Linux FUSE and live cloud mounting remain unverified here
 222 passed / 12 ignored; macOS release build passed with warnings denied. Release
 `mount --help` routing was exercised. Synthetic child stop/reaping is not a real
 filesystem-driver test.
+
+Shared-mode validation (2026-09-28): default suite 226 passed / 12 ignored;
+optional OpenDAL suite 237 passed / 12 ignored; default and optional macOS release
+builds passed with crate warnings denied. Synthetic two-workspace tests cover
+offline divergent edits, edit/delete conflicts, causal recreation, long Unicode
+conflict names, directory-to-file changes, failed downloads, dirty-file refusal,
+cache/lease gating and interrupted reconciliation. Real cloud exchange and
+multiple-machine Explorer/WinFsp/FUSE execution remain unverified.
 
 References: [rclone mount](https://rclone.org/commands/rclone_mount/),
 [local backend](https://rclone.org/local/).
