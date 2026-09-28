@@ -3,6 +3,40 @@ use super::shared_model::{Content, Event};
 use super::virtual_drive::{fixture, recover_spool, Revision};
 use crate::prelude::*;
 
+#[test]
+fn online_mount_refuses_legacy_or_nonempty_workspace_without_changing_files() {
+    for replica in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("keep-local-write");
+        fs::write(&file, b"not uploaded").unwrap();
+        if replica {
+            fs::create_dir(temp.path().join(".rpool")).unwrap();
+            fs::write(temp.path().join(".rpool/catalog.json"), b"legacy").unwrap();
+        }
+        let error = super::virtual_drive::VirtualDrive::open(
+            "unused-rclone",
+            "unused-pool",
+            temp.path(),
+            "pc",
+            None,
+            8,
+            false,
+            false,
+            false,
+        )
+        .err()
+        .expect("must not convert existing data");
+        assert!(error.to_string().contains(if replica {
+            "never silently converted"
+        } else {
+            "initially be empty"
+        }));
+        assert_eq!(fs::read(file).unwrap(), b"not uploaded");
+        assert!(!temp.path().join("virtual.json").exists());
+        assert!(!temp.path().join("virtual.lock").exists());
+    }
+}
+
 fn content(bytes: &[u8]) -> Content {
     let hash = blake3::hash(bytes).to_hex().to_string();
     let shards = vec![Shard {

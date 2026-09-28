@@ -1132,7 +1132,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     if args.cleanup_cache {
         println!(
             "clean_cache_bytes_removed={} committed_spool_bytes_removed={}; dirty/unknown spool and remote history retained",
-            drive.cache.cleanup()?, drive.cleanup_committed_spool()?
+            drive.cache.startup_removed_bytes.saturating_add(drive.cache.cleanup()?), drive.cleanup_committed_spool()?
         );
         return Ok(());
     }

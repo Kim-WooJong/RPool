@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- GUI mounts default to online/on-demand files with automatic pool metadata sync; explicit replica mode and legacy workspace guards remain. Cache limits and online/replica preference persist locally via Save or mount/sync launch. Cleanup reporting includes bytes reclaimed on cache startup. Existing replica files and uncertain native recovery data are never silently migrated or deleted.
+
 - Configurable native mount cache size/free-disk targets, GUI pending-spool budget, and access-based clean-shard LRU with pre-download admission. Dirty/open native data stays protected; native limits are soft and replica files/recovery data are not cache-evicted.
 
 - Automatic pool sync (`--virtual-drive --pool-sync`): immutable metadata replicated inside existing encrypted pool destinations, no shared-root setup or coordinator PC. New namespace/workspace v6 preserves original + every worker-labelled concurrent edit and exposes structured GUI conflict groups. Publication is acknowledged only after all configured metadata replicas verify it. Per-workspace `history_limit` config is saved for future retention, **not enforced**; append-only peer history/bootstrap limits remain. Revision-changing reads require remount to fence unconditioned native range requests. No automatic legacy migration or real-cloud/native validation.

@@ -48,6 +48,7 @@ impl GuiState {
     ) -> Self {
         let pool_names: Vec<String> = pool_definitions.keys().cloned().collect();
         let pools = PoolForm::from_settings(&settings);
+        let mount = crate::gui::screens::storage::mount::MountForm::from_settings(&settings);
         Self {
             page: Page::default(),
             files_section: FilesSection::default(),
@@ -64,7 +65,7 @@ impl GuiState {
             providers: ProviderForm::default(),
             reprocess: crate::gui::screens::storage::reprocess::ReprocessForm::default(),
             pools,
-            mount: crate::gui::screens::storage::mount::MountForm::default(),
+            mount,
             manifest: ManifestForm::default(),
             system: SystemForm::default(),
             jobs: JobsForm::default(),

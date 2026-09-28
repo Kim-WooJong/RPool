@@ -669,8 +669,11 @@ References: [rclone mount](https://rclone.org/commands/rclone_mount/),
 
 ## Local cache size and least-recently-used eviction
 
-In **Storage → Mount**, choose **virtual mode** for metadata-first browsing and
-on-demand downloads. A replica workspace retains a full plaintext copy; its
+In **Storage → Mount**, **Online drive** is now selected by default for metadata-first
+browsing and on-demand downloads. It uses the existing virtual filesystem and
+automatic pool sync, without retaining a full local copy. All files in the
+synchronized/imported namespace stay visible; this does not discover unrelated
+objects in a provider account. A replica workspace retains a full plaintext copy; its
 `files/` directory is not a disposable cache. Use a new virtual workspace rather
 than changing/deleting an existing replica's files.
 
@@ -684,8 +687,31 @@ The mount form exposes independent limits (GiB = 1024³ bytes):
 | Pending write spool limit | `--spool-gib` | 64 GiB | Virtual pending writes; rejects growth instead of discarding unsynced data |
 
 For example, add `--cache-gib=4 --vfs-cache-gib=4 --cache-min-free-gib=2 --spool-gib=8` to a virtual mount command. Settings apply when the next process
-starts. Supply CLI overrides on each launch; GUI fields remain in the current
-mount form, not in a shared/cloud pool policy.
+starts. **Save cache settings** persists these limits and the online/replica
+selection on this PC. **Mount read/write** and **Sync without mounting** also
+save them before starting. Restarting the app restores them. Workspace paths and
+cloud history settings are not changed by saving cache preferences. Supply CLI
+overrides on each launch; CLI compatibility is unchanged and online mounts still
+require `--virtual-drive --pool-sync` explicitly.
+
+Example: 4 GiB shard + 4 GiB native cache means 8 GiB of clean-cache targets,
+with an additional 8 GiB pending-write spool if configured as above. Space is
+not preallocated. Verified, published write spool is automatically released when
+no live reader needs it. Pending or uncertain writes are retained.
+
+### Switching from a full replica
+
+Create a **new empty persistent workspace**, select Online drive and the pool,
+then mount it. Existing online peers with the same pool mapping synchronize their
+namespace. Legacy replica files are **not automatically migrated**: first finish
+their original writeback, then explicitly import the desired verified archive
+manifests into the new online workspace. Imports use archive filenames, not the
+original replica folder tree; recreate desired folders/names and inspect any
+same-name conflict copies. Optional v7 history mode copies imports into independent
+snapshots and needs additional local working space. Validate contents before manually
+retiring any old replica. Do not delete `files/` or VFS recovery data as a cache
+cleanup operation. Keep using the original replica workspace to recover pending
+writes. Switching the checkbox does not convert a workspace in place.
 
 Reading evicted content downloads and verifies it again; offline access to it is
 not available. Shard download/recovery admission refuses a working set that does

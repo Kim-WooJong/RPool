@@ -7,19 +7,21 @@ use crate::storage::reader::{is_restore_unavailable, StorageReader};
 pub(crate) struct ShardCache {
     pub root: PathBuf,
     pub limit: u64,
+    pub(crate) startup_removed_bytes: u64,
     gate: Mutex<()>,
     verified: Mutex<BTreeMap<PathBuf, (u64, SystemTime)>>,
 }
 impl ShardCache {
     pub(crate) fn new(root: PathBuf, limit: u64) -> Result<Self> {
         fs::create_dir_all(&root)?;
-        let cache = Self {
+        let mut cache = Self {
             root,
             limit,
+            startup_removed_bytes: 0,
             gate: Mutex::new(()),
             verified: Mutex::new(BTreeMap::new()),
         };
-        cache.cleanup()?;
+        cache.startup_removed_bytes = cache.cleanup()?;
         Ok(cache)
     }
     fn path(&self, s: &Shard) -> PathBuf {
@@ -515,7 +517,9 @@ mod tests {
             .unwrap();
         fs::write(temp.path().join("unknown-dirty"), b"preserve").unwrap();
         drop(cache);
-        let _cache = ShardCache::new(temp.path().into(), 0).unwrap();
+        let cache = ShardCache::new(temp.path().into(), 0).unwrap();
+        assert_eq!(cache.startup_removed_bytes, 8);
+        assert_eq!(cache.cleanup().unwrap(), 0);
         assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
         assert_eq!(
             fs::read(temp.path().join("unknown-dirty")).unwrap(),

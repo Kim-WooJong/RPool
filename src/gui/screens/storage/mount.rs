@@ -55,7 +55,7 @@ impl Default for MountForm {
             stopping: false,
             notice: None,
             capacity: None,
-            virtual_drive: false,
+            virtual_drive: true,
             bounded_shared: false,
             pool_sync: true,
             pool_retention: false,
@@ -83,6 +83,48 @@ impl Default for MountForm {
 }
 
 impl MountForm {
+    pub(crate) fn from_settings(settings: &crate::gui::settings::GuiSettings) -> Self {
+        let cache = &settings.mount_cache;
+        let mut form = Self::default();
+        form.virtual_drive = cache.online_drive;
+        form.cache_gib = cache.shard_gib;
+        form.vfs_cache_gib = cache.native_gib;
+        form.cache_min_free_gib = cache.min_free_gib;
+        form.spool_gib = cache.spool_gib;
+        form
+    }
+
+    fn cache_settings(&self) -> crate::gui::settings::MountCacheSettings {
+        crate::gui::settings::MountCacheSettings {
+            online_drive: self.virtual_drive,
+            shard_gib: self.cache_gib,
+            native_gib: self.vfs_cache_gib,
+            min_free_gib: self.cache_min_free_gib,
+            spool_gib: self.spool_gib,
+        }
+    }
+
+    fn save_cache_settings(
+        &self,
+        settings: &mut crate::gui::settings::GuiSettings,
+    ) -> Result<(), String> {
+        let mut next = settings.clone();
+        next.mount_cache = self.cache_settings();
+        crate::gui::settings::save(&next)?;
+        *settings = next;
+        Ok(())
+    }
+
+    fn append_cache_args(&self, args: &mut Vec<OsString>) {
+        args.push(format!("--vfs-cache-gib={}", self.vfs_cache_gib).into());
+        args.push(format!("--cache-min-free-gib={}", self.cache_min_free_gib).into());
+        if self.virtual_drive {
+            args.push("--virtual-drive".into());
+            args.push(format!("--spool-gib={}", self.spool_gib).into());
+            args.push(format!("--cache-gib={}", self.cache_gib).into());
+        }
+    }
+
     pub(crate) fn is_running(&self) -> bool {
         self.runner.is_running()
     }
@@ -175,12 +217,8 @@ impl MountForm {
             &control.path().join("stop"),
             sync_only,
         );
-        args.push(format!("--vfs-cache-gib={}", self.vfs_cache_gib).into());
-        args.push(format!("--cache-min-free-gib={}", self.cache_min_free_gib).into());
+        self.append_cache_args(&mut args);
         if self.virtual_drive {
-            args.push(format!("--spool-gib={}", self.spool_gib).into());
-            args.push("--virtual-drive".into());
-            args.push(format!("--cache-gib={}", self.cache_gib).into());
             if automatic {
                 args.push("--pool-sync".into());
                 if self.pool_retention {
@@ -304,7 +342,11 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
                     }
                 });
         });
-        ui.checkbox(&mut form.virtual_drive,"Virtual cloud drive — experimental (NEW workspace; lazy verified shards)");
+        ui.checkbox(&mut form.virtual_drive,"Online drive — on-demand files and automatic local cache cleanup (recommended)");
+        if form.virtual_drive {
+            ui.label("All known files remain visible; only needed contents are downloaded. Clean shards are evicted in least-recently-used order; unused OS cache also expires promptly. Cloud files are not deleted. Internet access is required for evicted contents.");
+            ui.label("Use a NEW workspace when switching from a full replica. Existing replica files are not converted or deleted automatically. Native mount support remains experimental.");
+        }
         if form.virtual_drive {
             ui.checkbox(&mut form.pool_sync, "Automatic pool sync — no coordinator (NEW workspace)");
             if form.pool_sync {
@@ -337,6 +379,19 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
             ui.label("Replica mode retains the complete local file copy; the OS cache target does not limit that copy. Use a NEW virtual workspace for on-demand downloads.");
         }
         ui.label("Open files and unsaved native writes are protected and may exceed the OS cache target. Recovery copies, metadata and upload staging need additional disk space. Cache settings apply on the next start.");
+        if form.virtual_drive {
+            ui.label(format!("Clean data cache targets combined: {} GiB. Pending writes: up to {} GiB separately (not preallocated).", form.cache_gib.saturating_add(form.vfs_cache_gib), form.spool_gib));
+        } else {
+            ui.label("The native cache target does not limit replica files or pending replica writes.");
+        }
+        if ui.button("Save cache settings").clicked() {
+            form.notice = Some(match form.save_cache_settings(&mut state.settings) {
+                Ok(()) => {
+                    "Cache settings saved on this PC; they survive app restart and apply on the next mount.".into()
+                }
+                Err(error) => error,
+            });
+        }
         directory_field(ui, "Persistent local workspace", &mut form.workspace);
         if !(form.virtual_drive && form.pool_sync) {
             ui.label("Shared encrypted root (optional, e.g. crypt:teamspace)");
@@ -400,7 +455,8 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
         }
         ui.horizontal(|ui| {
             if ui.button("Mount read/write").clicked() {
-                if let Err(error) = form.start(&state.settings.rclone, false) {
+                if let Err(error) = form.save_cache_settings(&mut state.settings)
+                    .and_then(|()| form.start(&state.settings.rclone, false)) {
                     form.notice = Some(error);
                 }
             }
@@ -416,7 +472,8 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
                 }
             }
             if ui.button("Sync without mounting").clicked() {
-                if let Err(error) = form.start(&state.settings.rclone, true) {
+                if let Err(error) = form.save_cache_settings(&mut state.settings)
+                    .and_then(|()| form.start(&state.settings.rclone, true)) {
                     form.notice = Some(error);
                 }
             }
@@ -604,6 +661,46 @@ fn build_args(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn saved_cache_preferences_reach_mount_cli_and_keep_explicit_replica() {
+        use clap::Parser;
+        for online in [true, false] {
+            let mut settings = crate::gui::settings::GuiSettings::default();
+            settings.mount_cache = crate::gui::settings::MountCacheSettings {
+                online_drive: online,
+                shard_gib: 4,
+                native_gib: 5,
+                min_free_gib: 3,
+                spool_gib: 8,
+            };
+            let restored = serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+            let form = super::MountForm::from_settings(&restored);
+            assert_eq!(form.cache_settings(), settings.mount_cache);
+            let mut args: Vec<std::ffi::OsString> = [
+                "rpool",
+                "mount",
+                "--pool=p",
+                "--workspace=/new",
+                "--sync-only",
+            ]
+            .into_iter()
+            .map(Into::into)
+            .collect();
+            form.append_cache_args(&mut args);
+            let parsed = crate::cli::Cli::try_parse_from(args).unwrap();
+            let Some(crate::cli::Commands::Mount(args)) = parsed.command else {
+                panic!("mount")
+            };
+            assert_eq!(args.virtual_drive, online);
+            assert_eq!((args.vfs_cache_gib, args.cache_min_free_gib), (5, 3));
+            if online {
+                assert_eq!((args.cache_gib, args.spool_gib), (4, 8));
+            }
+        }
+        let form = super::MountForm::from_settings(&crate::gui::settings::GuiSettings::default());
+        assert!(form.virtual_drive && form.pool_sync);
+        assert!(form.workspace.is_empty());
+    }
     use super::*;
     use clap::Parser;
     use std::path::PathBuf;

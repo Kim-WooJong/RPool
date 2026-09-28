@@ -32,18 +32,27 @@ virtual spool budget (64 GiB). Shard cache uses persisted explicit access times,
 LRU pre-download eviction, startup trimming after workspace locking, conservative
 recovery working-set admission, and error-path cleanup. Windows time updates use
 write-capable file handles. A too-small/zero shard budget rejects download
-admission; unknown/dirty data is never evicted. Settings are per launch/current
-GUI form, not persisted to cloud pool policy.
+admission; unknown/dirty data is never evicted.
+
+Online-first follow-up: GUI defaults to virtual/on-demand mode and automatic
+pool sync. Machine-local cache settings and explicit online/replica preference
+persist through Save cache settings or mount/sync launch and restore at GUI
+startup; CLI still requires --virtual-drive explicitly. All known namespace
+entries remain visible without full local replicas. Existing verified/published
+spool reclamation and LRU redownload paths are reused, not rewritten. Legacy
+replica workspaces refuse in-place conversion; original local files remain intact.
+Explicit cleanup reporting now includes bytes reclaimed during cache startup.
 
 Native limits remain soft for open/dirty files; separate caches/spool add together.
 Full replica files, recovery exports and upload staging are outside these targets.
 No remote data changed or live mounts started. See docs/MOUNT.md local cache section.
 
-Validation: default 394 passed / 12 ignored after Windows handle correction;
-final optional OpenDAL suite 406 passed / 12 ignored including the subsequent
-startup-trim regression. Warning-denied release build, fmt/diff checks and release
-CLI help passed. Independent review covered layer separation, Windows handle
-permissions and recovery staging. Real cloud/native Windows/Linux remain untested.
+Current follow-up validation: focused cache tests 19 passed; full default suite
+399 passed / 12 ignored, optional OpenDAL suite 410 passed / 12 ignored.
+Warning-denied release build and formatting/diff checks passed.
+Independent reviews verified read leases/publication gates and found
+the cleanup-report bug and replica-mode spool-limit label, both corrected.
+Real cloud/native Windows/Linux and interactive GUI remain untested.
 
 ## Capacity follow-up (2026-09-29)
 
@@ -274,8 +283,9 @@ Previous unshared hardening batch (macOS):
 
 ## Resume
 
-Latest requested local-cache configuration and LRU batch is complete and validated.
-No active workers or unanswered architecture decision block this batch. Next work
-should follow the user's request; real Windows/WinFsp and cloud mount acceptance
-remain runtime gates. Preserve unrelated config-sync/path changes. Do not restart
-legacy retention work based on older handoff notes; v7 implementation is present.
+Online-first/cache persistence follow-up complete and validated. No active workers
+or pending implementation steps. Do not migrate/delete existing replica data or
+start real cloud mounts implicitly. Future work follows a new user request.
+Preserve unrelated config-sync/path changes. Real Windows/WinFsp and cloud mount
+acceptance remain runtime gates. Do not restart legacy retention work from older
+handoff notes; v7 implementation is present.
