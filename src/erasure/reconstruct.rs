@@ -1,65 +1,16 @@
 use crate::manifest::data_shards;
 use crate::prelude::*;
-use crate::storage::reader::{is_restore_unavailable, StorageReader};
 use crate::utils::{hash_file_range, read_exact_at, write_all_at};
 
 pub(crate) fn reconstruct_group(
-    reader: &StorageReader,
     manifest: &Manifest,
     coding: &Coding,
     group: u32,
     missing_data: &[Shard],
     output: &Path,
-    retries: u32,
-    workers: usize,
+    local_parity: &[(usize, PathBuf)],
 ) -> Result<()> {
     let needed = missing_data.len();
-    let parity: Vec<Shard> = manifest
-        .shards
-        .iter()
-        .filter(|s| s.kind == ShardKind::Parity && s.group == group)
-        .cloned()
-        .collect();
-
-    // Unique operation-owned directory; declared before handles so Windows closes
-    // every parity file before TempDir cleanup on success or early error.
-    let temporary = tempfile::Builder::new()
-        .prefix("rpool-restore-")
-        .tempdir()?;
-    let temp_root = temporary.path();
-
-    let mut local_parity: Vec<(usize, PathBuf)> = Vec::new();
-    // Start up to the number needed. Failed candidates are replaced without
-    // waiting for another healthy candidate; all in-flight work is joined.
-    let mut candidates = parity.into_iter();
-    let initial: Vec<_> = candidates.by_ref().take(needed).collect();
-    crate::storage::scheduler::run(
-        initial,
-        workers,
-        retries,
-        |s| crate::storage::scheduler::remote_key(&s.remote),
-        |shard| {
-            let path = temp_root.join(format!("p{:03}.bin", shard.slot));
-            reader.download(shard, &path, 1, false)?;
-            Ok(path)
-        },
-        crate::storage::scheduler::read_retry,
-        |shard, result| {
-            match result {
-                Ok(path) => local_parity.push((shard.slot as usize, path)),
-                Err(error) if is_restore_unavailable(&error) => {
-                    eprintln!(
-                        "[degraded] parity shard g{group:08}/s{:03} unavailable: {error:#}",
-                        shard.slot
-                    );
-                    return Ok(candidates.next().into_iter().collect());
-                }
-                Err(error) => return Err(error),
-            }
-            Ok(vec![])
-        },
-    )?;
-
     if local_parity.len() < needed {
         bail!(
             "group {} requires {} parity shards but only {} valid parity shards were available",
@@ -74,7 +25,7 @@ pub(crate) fn reconstruct_group(
     let output_file = OpenOptions::new().read(true).write(true).open(output)?;
 
     let mut parity_files: Vec<Option<File>> = (0..coding.parity_shards).map(|_| None).collect();
-    for (slot, path) in &local_parity {
+    for (slot, path) in local_parity {
         let parity_index = slot - coding.data_shards;
         parity_files[parity_index] = Some(File::open(path)?);
     }

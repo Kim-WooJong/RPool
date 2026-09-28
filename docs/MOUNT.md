@@ -112,8 +112,9 @@ remain v1.
 
 ## Transfer scheduling and resilient placement
 
-Mount writeback and shared-file downloads use the same bounded transfer scheduler
-as put/get. To enable strict shard distribution for a **new** workspace, select a
+Mount writeback and shared-file downloads use the archive transfer paths of
+put/get. Erasure-coded incoming files automatically use delayed hedged reads and
+early group recovery; the safe unmounted-apply boundary remains unchanged. To enable strict shard distribution for a **new** workspace, select a
 Pool configured with `Resilient (parity-bound)` and nonzero parity. Existing
 workspaces freeze their original Pool policy; editing the Pool alone does not
 change them. Empty files retain the existing no-parity handling. See README's

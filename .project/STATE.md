@@ -17,7 +17,8 @@ No real cloud/multiple-PC/WinFsp integration validation has been performed here.
 
 ## Working
 
-- Cross-group data download scheduling, per-configured-remote fairness and bounded global tasks.
+- Two-group delayed hedged RS downloads, per-read verified staging and early recovery.
+- Bounded configured-remote fairness, reserved hedge capacity and cooperative loser cancellation.
 - Slot-free exponential retry backoff; restore-only fallback for exhausted network failures.
 - Overlapping data/parity uploads, immediate verified-shard checkpoints, <=2 staged parity groups.
 - Optional Resilient placement with backing-alias resolution and parity concentration bounds.
@@ -29,12 +30,12 @@ No real cloud/multiple-PC/WinFsp integration validation has been performed here.
 
 ## In Progress
 
-No unfinished implementation in this bounded transfer scheduling/placement update.
+No unfinished implementation in the bounded delayed-hedge restore task.
 Unrelated config-sync/path changes may be present in the working tree; preserve them.
 
 ## Next
 
-1. Measure 1-vs-N-worker large-file transfers and provider outages on actual test clouds.
+1. Optional actual-cloud interoperability/outage validation when feasible; no active speed benchmark is required.
 2. Validate on actual Windows/WinFsp with two PCs and test cloud accounts.
 3. If live incoming replacement while mounted is required, design a filesystem
    write barrier/open-handle-aware integration before removing the current gate.
@@ -42,8 +43,8 @@ Unrelated config-sync/path changes may be present in the working tree; preserve 
 
 ## Known Issues
 
-- No live-cloud speed/outage validation; no speculative fastest-K/cancellation of slow reads.
-- Direct reads finish before recovery; damaged groups decode sequentially with parallel parity fetch.
+- Delayed hedging uses passive estimates, not active speed benchmarks or live-cloud measured thresholds.
+- Two-group RS staging window; one decoder; single-worker mode has no speculative racing.
 - Scheduler limits are per operation and configured remote name, not across processes or proven accounts.
 - Resilient guards one resolved backing target within M; independent provider failure domains remain unknown.
 - Existing Pool/workspace policies stay unchanged. Older binaries cannot load the new Resilient enum.
@@ -58,6 +59,12 @@ Unrelated config-sync/path changes may be present in the working tree; preserve 
 
 ## Decisions
 
+- RS workers write only private staging files; coordinator alone commits output and resume state.
+- Child cancellation retains parent flags/deadline. Canceled slow candidates are not assumed lost.
+- One speculative request/group, <=2 globally; total read requests never exceed workers.
+- Required parity may borrow one extra per-remote slot if ordinary fairness would strand capacity.
+- Two groups and one decoder bound resources; normal data slots reserve hedge headroom.
+
 - Missing/corrupt classification for mutation reuse and upload journals remains unchanged.
 - Only restore accepts exhausted timeout/transient/rate-limit failures as parity candidates.
 - Local-output/auth/cancel errors are terminal; failed readback cannot replay acknowledged writes.
@@ -71,6 +78,9 @@ Unrelated config-sync/path changes may be present in the working tree; preserve 
 - Quiescent local files are required while unmounted reconciliation runs.
 
 ## Architecture
+
+- `src/commands/get_hedged.rs`: RS-only timer/coordinator, early group completion and candidate retirement.
+- `src/storage/reader.rs`, `traits.rs`: progress observation, private staging and composed child context.
 
 - `src/storage/scheduler.rs`: bounded round-robin dispatch, delayed retries, dynamic parity jobs.
 - `src/commands/put.rs`, `get.rs`: verified scheduler/journal integration.
@@ -87,17 +97,16 @@ Unrelated config-sync/path changes may be present in the working tree; preserve 
 ## Validation
 
 2026-09-28, macOS:
-- `cargo test --locked --bin rpool`: 242 passed, 12 ignored.
-- `cargo test --locked --features opendal-prototype --bin rpool`: 253 passed, 12 ignored.
+- `cargo test --locked --bin rpool`: 255 passed, 12 ignored.
+- `cargo test --locked --features opendal-prototype --bin rpool`: 266 passed, 12 ignored.
 - Default and optional `cargo rustc --locked --release --bin rpool -- -D warnings`: passed.
-- 16 added regressions: dispatch limits/fairness/dynamic tails, cross-group progress, network parity fallback, output failure refusal, multi-group roundtrip, alias collapse/resume and readback replay refusal.
+- 13 new regressions: delayed/required parity replacement, late writes, parent cancel/deadline, retained candidates, remote-slot contention, early checkpoints, final virtual zeros and fatal-error preservation.
 - Synthetic behavior is not real cloud/WinFsp/FUSE proof.
 
 ## Resume
 
-Transfer scheduling and optional Resilient placement are implemented and validated
-on macOS with synthetic backends. Read README "Strict placement and fair transfers"
-for bounds. Next useful validation is controlled live-cloud throughput/outage tests.
-Preserve unrelated config-sync/path edits; do not automatically change live Pool
-policies. Existing workspaces freeze their policy and need explicit new-workspace
-selection/reprocessing to adopt a different layout.
+Delayed hedged RS restore is implemented, tested and built on macOS. Read README
+"Delayed hedged RS downloads" for automatic activation, worker/staging limits and
+passive timing. Existing archives and Pool policies remain unchanged. Preserve
+unrelated config-sync/path worktree edits. Real clouds/Windows/Linux runtime remain
+unverified; a speed benchmark is not required for the completed implementation.

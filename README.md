@@ -542,8 +542,9 @@ Uploads and downloads share a bounded, fair transfer dispatcher per operation:
   each configured remote name gets at most `ceil(workers/2)` active tasks;
   one-domain transfers may use all workers. This is not a global limit across
   separate RPool processes, nor an inferred provider/account rate limit.
-- Download data jobs span all groups, eliminating the old per-group barrier.
-  Completed verified shards are checkpointed immediately.
+- Plain downloads use the common dispatcher. RS downloads use a two-group
+  window with delayed hedges and early group recovery (below). Verified data
+  shards and reconstructed groups are checkpointed immediately.
 - Read retries release their worker slots and rejoin the queue after exponential
   backoff (100 ms to 6.4 s), respecting a longer provider retry hint.
 - Data uploads overlap parity generation/transfers; ready data and generated
@@ -556,10 +557,45 @@ Uploads and downloads share a bounded, fair transfer dispatcher per operation:
   use parity just like missing/corrupt shards. Auth, permission, cancellation,
   configuration and local-output failures remain terminal. An acknowledged write
   with failed readback and unknown mutation outcomes are never blindly retried.
-- Recovery starts after direct data jobs drain. Damaged groups decode one at a
-  time to bound memory/disk; needed parity is fetched concurrently, replacing
-  unavailable candidates. There is no speculative fastest-K racing or automatic
-  slow-provider cancellation yet. A slow in-flight request can still delay a phase.
+- RS recovery no longer waits for the complete direct-download phase. Data and
+  parity downloads first land in private staging files and must pass size/BLAKE3
+  verification. Only the coordinator writes output; late losing reads cannot
+  overwrite a reconstructed range.
+
+#### Delayed hedged RS downloads
+
+Enabled automatically for erasure-coded archives; no manifest migration or active
+speed benchmark is required. Initial stall detection uses two seconds without
+progress. After at least four successful reads, recent size-normalized completion
+times also guide remaining-time estimates (threshold 250 ms–30 s). Connection or
+first-byte response alone never counts as an available shard.
+
+- At most one speculative parity request per group and two globally. With at
+  least two workers, `clamp(workers / 4, 1, 2)` slots are reserved for replacement
+  progress; the **total remains bounded by workers**. For example workers=8 has
+  six normal-data slots and two reserved slots. workers=1 retains error recovery
+  but does not race slow requests. Healthy-transfer throughput can therefore
+  trade off against lower tail latency; these constants are not live-tuned claims.
+- As soon as a group has enough distinct verified real inputs (accounting for
+  implicit zero slots in a short final group), it reconstructs without waiting
+  for other groups. One decoder runs at a time. Its work overlaps existing reads,
+  though dispatch/commit coordination pauses during decoding.
+- Verified parity may replace a stalled data request to free normal capacity.
+  Superseded candidates remain eligible for one protected required-recovery retry
+  if other inputs fail; a slow response is never classified as permanent loss.
+- A stalled parity candidate can be retired when alternatives exist, including
+  parity needed after a data failure. Retries and protected last attempts remain
+  bounded; there is no endless rotation of canceled requests.
+- Configured-remote fairness is retained. If ordinary per-remote limits strand
+  reserved capacity, a parity read may borrow **one** extra remote slot, never
+  exceeding the total worker bound.
+- Two active groups bound staging to approximately `(workers + 2*M) * shard_size`
+  plus stripe decode buffers. Verified direct-data staging is removed after
+  commit. Group directories remain alive until every losing worker has returned.
+- Parent cancellation/deadlines propagate to each child request. User cancellation,
+  authentication, configuration and local-output errors are not swallowed as
+  successful hedge cancellation. Cancellation cannot refund already transferred
+  bytes, and an adapter that does not cooperate can delay final cleanup.
 
 These changes improve scheduling, not measured Internet bandwidth. Tests use
 synthetic storage/faults; real multi-cloud throughput and provider-outage behavior

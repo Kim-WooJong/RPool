@@ -45,6 +45,16 @@ impl Gate {
 }
 
 pub(crate) enum Fault {
+    CancelThenError {
+        cancel: Arc<std::sync::atomic::AtomicBool>,
+        error: StorageError,
+    },
+    /// Cancellation-aware read stall with a watchdog, unlike the legacy barrier.
+    WaitForCancel {
+        started: Arc<std::sync::atomic::AtomicBool>,
+        stopped: Arc<std::sync::atomic::AtomicBool>,
+        late_write: bool,
+    },
     /// Returned before delegation; storage is untouched.
     Error(StorageError),
     PauseBefore(Gate),
@@ -72,6 +82,7 @@ struct Schedule {
 pub(crate) struct FaultBackend {
     inner: Arc<dyn StorageBackend>,
     schedule: Mutex<Schedule>,
+    keyed_reads: Mutex<BTreeMap<ObjectKey, std::collections::VecDeque<Fault>>>,
 }
 
 impl FaultBackend {
@@ -109,7 +120,25 @@ impl FaultBackend {
         Ok(Self {
             inner,
             schedule: Mutex::new(schedule),
+            keyed_reads: Mutex::new(BTreeMap::new()),
         })
+    }
+
+    pub(crate) fn keyed_reads(
+        inner: Arc<dyn StorageBackend>,
+        rules: Vec<(ObjectKey, Fault)>,
+    ) -> Self {
+        let backend = Self::new(inner, vec![]).unwrap();
+        for (key, fault) in rules {
+            backend
+                .keyed_reads
+                .lock()
+                .unwrap()
+                .entry(key)
+                .or_default()
+                .push_back(fault);
+        }
+        backend
     }
 
     fn enter(
@@ -229,7 +258,53 @@ impl StorageBackend for FaultBackend {
         range: &ReadRange,
         sink: &mut dyn Write,
     ) -> Result<ReadReceipt, StorageError> {
-        let fault = self.enter(Operation::Read, ctx)?;
+        let keyed = self
+            .keyed_reads
+            .lock()
+            .unwrap()
+            .get_mut(key)
+            .and_then(|q| q.pop_front());
+        let fault = if keyed.is_some() {
+            keyed
+        } else {
+            self.enter(Operation::Read, ctx)?
+        };
+        match &fault {
+            Some(Fault::CancelThenError { cancel, error }) => {
+                cancel.store(true, std::sync::atomic::Ordering::Release);
+                return Err(error.clone());
+            }
+            Some(Fault::Error(error)) => return Err(error.clone()),
+            Some(Fault::PauseBefore(gate)) => gate.wait(),
+            Some(Fault::WaitForCancel {
+                started,
+                stopped,
+                late_write,
+            }) => {
+                use std::sync::atomic::Ordering;
+                started.store(true, Ordering::Release);
+                let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                while !ctx.is_cancelled()
+                    && !ctx.deadline_passed()
+                    && std::time::Instant::now() < until
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                stopped.store(true, Ordering::Release);
+                if !ctx.is_cancelled() && !ctx.deadline_passed() {
+                    return Err(StorageError::Other {
+                        detail: "test stall watchdog fired".into(),
+                    });
+                }
+                if *late_write {
+                    return self.inner.read(&OperationContext::none(), key, range, sink);
+                }
+                return Err(StorageError::Cancelled {
+                    detail: "test stalled read cancelled".into(),
+                });
+            }
+            _ => {}
+        }
         let remaining = match &fault {
             Some(Fault::ShortRead(n)) => Some(*n),
             _ => None,

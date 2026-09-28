@@ -121,6 +121,15 @@ impl Fixture {
         registry.register(backend).unwrap();
         StorageReader::from_registry(registry, self.bindings.clone(), OperationContext::none())
     }
+    fn keyed_reader(&self, rules: Vec<(u32, Fault)>, context: OperationContext) -> StorageReader {
+        let backend = Arc::new(FaultBackend::keyed_reads(
+            self.memory.clone(),
+            rules.into_iter().map(|(i, f)| (native(i), f)).collect(),
+        ));
+        let mut registry = BackendRegistry::new();
+        registry.register(backend).unwrap();
+        StorageReader::from_registry(registry, self.bindings.clone(), context)
+    }
     fn delete(&self, index: u32) {
         self.memory
             .delete(&OperationContext::none(), &native(index))
@@ -511,4 +520,483 @@ fn exhausted_retries_then_parity_preserves_resume_and_content() {
     let out = temp.path().join("out");
     get_with_storage(&reader, "meta:manifest", &out, 1, 2).unwrap();
     assert_eq!(fs::read(out).unwrap(), b"ABCDEFGHI");
+}
+
+fn hedge_policy() -> super::hedged::Policy {
+    super::hedged::Policy {
+        delay: std::time::Duration::from_millis(10),
+        tick: std::time::Duration::from_millis(2),
+        adaptive: false,
+    }
+}
+
+#[test]
+fn hedged_read_cancels_slow_data_and_late_writes_cannot_corrupt_output() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    for late_write in [false, true] {
+        let f = Fixture::new(true);
+        let started = Arc::new(AtomicBool::new(false));
+        let stopped = Arc::new(AtomicBool::new(false));
+        let reader = f.keyed_reader(
+            vec![(
+                0,
+                Fault::WaitForCancel {
+                    started: started.clone(),
+                    stopped: stopped.clone(),
+                    late_write,
+                },
+            )],
+            OperationContext::none(),
+        );
+        let temp = tempfile::tempdir().unwrap();
+        let out = temp.path().join("out");
+        super::hedged::restore(
+            &reader,
+            &f.manifest,
+            f.manifest.coding.as_ref().unwrap(),
+            &out,
+            4,
+            1,
+            hedge_policy(),
+        )
+        .unwrap();
+        assert!(started.load(Ordering::Acquire));
+        assert!(stopped.load(Ordering::Acquire));
+        assert_eq!(fs::read(&out).unwrap(), b"ABCDEFGHI");
+        assert!(!append_suffix(&out, ".rpool.resume.json").exists());
+    }
+}
+
+#[test]
+fn slow_speculative_parity_is_replaced_and_corrupt_parity_never_counts() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    for corrupt in [false, true] {
+        let f = Fixture::new(true);
+        let started = Arc::new(AtomicBool::new(false));
+        let stopped = Arc::new(AtomicBool::new(false));
+        let parity_stopped = Arc::new(AtomicBool::new(false));
+        let fault = if corrupt {
+            Fault::CorruptRead
+        } else {
+            Fault::WaitForCancel {
+                started: Arc::new(AtomicBool::new(false)),
+                stopped: parity_stopped.clone(),
+                late_write: false,
+            }
+        };
+        let reader = f.keyed_reader(
+            vec![
+                (
+                    0,
+                    Fault::WaitForCancel {
+                        started,
+                        stopped: stopped.clone(),
+                        late_write: false,
+                    },
+                ),
+                (3, fault),
+            ],
+            OperationContext::none(),
+        );
+        let temp = tempfile::tempdir().unwrap();
+        let out = temp.path().join("out");
+        super::hedged::restore(
+            &reader,
+            &f.manifest,
+            f.manifest.coding.as_ref().unwrap(),
+            &out,
+            4,
+            1,
+            hedge_policy(),
+        )
+        .unwrap();
+        assert!(stopped.load(Ordering::Acquire));
+        if !corrupt {
+            assert!(parity_stopped.load(Ordering::Acquire));
+        }
+        assert_eq!(fs::read(out).unwrap(), b"ABCDEFGHI");
+    }
+}
+
+#[test]
+fn healthy_data_finishes_without_requesting_parity() {
+    let f = Fixture::new(true);
+    let reader = f.keyed_reader(
+        (3..7)
+            .map(|i| {
+                (
+                    i,
+                    Fault::Error(StorageError::Authentication {
+                        detail: "parity must not be read".into(),
+                    }),
+                )
+            })
+            .collect(),
+        OperationContext::none(),
+    );
+    let temp = tempfile::tempdir().unwrap();
+    let out = temp.path().join("out");
+    super::hedged::restore(
+        &reader,
+        &f.manifest,
+        f.manifest.coding.as_ref().unwrap(),
+        &out,
+        4,
+        1,
+        super::hedged::Policy::default(),
+    )
+    .unwrap();
+    assert_eq!(fs::read(out).unwrap(), b"ABCDEFGHI");
+}
+
+#[test]
+fn hedged_short_final_group_uses_virtual_zeros() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let f = Fixture::new(true);
+    let stopped = Arc::new(AtomicBool::new(false));
+    let reader = f.keyed_reader(
+        vec![(
+            2,
+            Fault::WaitForCancel {
+                started: Arc::new(AtomicBool::new(false)),
+                stopped: stopped.clone(),
+                late_write: true,
+            },
+        )],
+        OperationContext::none(),
+    );
+    let temp = tempfile::tempdir().unwrap();
+    let out = temp.path().join("out");
+    super::hedged::restore(
+        &reader,
+        &f.manifest,
+        f.manifest.coding.as_ref().unwrap(),
+        &out,
+        4,
+        1,
+        hedge_policy(),
+    )
+    .unwrap();
+    assert!(stopped.load(Ordering::Acquire));
+    assert_eq!(fs::read(out).unwrap(), b"ABCDEFGHI");
+}
+
+#[test]
+fn parent_cancellation_stops_hedge_children_and_keeps_resume() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let f = Fixture::new(true);
+    let cancel = Arc::new(AtomicBool::new(false));
+    let started = Arc::new(AtomicBool::new(false));
+    let stopped = Arc::new(AtomicBool::new(false));
+    let reader = f.keyed_reader(
+        vec![(
+            0,
+            Fault::WaitForCancel {
+                started: started.clone(),
+                stopped: stopped.clone(),
+                late_write: false,
+            },
+        )],
+        OperationContext::with_cancel(cancel.clone()),
+    );
+    let temp = tempfile::tempdir().unwrap();
+    let out = temp.path().join("out");
+    std::thread::scope(|scope| {
+        let task = scope.spawn(|| {
+            super::hedged::restore(
+                &reader,
+                &f.manifest,
+                f.manifest.coding.as_ref().unwrap(),
+                &out,
+                4,
+                1,
+                super::hedged::Policy::default(),
+            )
+        });
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !started.load(Ordering::Acquire) && std::time::Instant::now() < until {
+            std::thread::yield_now();
+        }
+        cancel.store(true, Ordering::Release);
+        let error = task.join().unwrap().unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<StorageError>().unwrap().kind(),
+            StorageErrorKind::Cancelled
+        );
+    });
+    assert!(stopped.load(Ordering::Acquire));
+    assert!(append_suffix(&out, ".rpool.resume.json").exists());
+}
+
+#[test]
+fn reserved_parity_slot_progresses_when_normal_remote_limit_is_full() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let mut f = Fixture::new(true);
+    for shard in &mut f.manifest.shards {
+        shard.remote = if shard.index == 0 || shard.kind == ShardKind::Parity {
+            "a:"
+        } else {
+            "b:"
+        }
+        .into();
+    }
+    let stopped = Arc::new(AtomicBool::new(false));
+    let reader = f.keyed_reader(
+        vec![(
+            0,
+            Fault::WaitForCancel {
+                started: Arc::new(AtomicBool::new(false)),
+                stopped: stopped.clone(),
+                late_write: false,
+            },
+        )],
+        OperationContext::none(),
+    );
+    let temp = tempfile::tempdir().unwrap();
+    let out = temp.path().join("out");
+    super::hedged::restore(
+        &reader,
+        &f.manifest,
+        f.manifest.coding.as_ref().unwrap(),
+        &out,
+        2,
+        1,
+        hedge_policy(),
+    )
+    .unwrap();
+    assert!(stopped.load(Ordering::Acquire));
+    assert_eq!(fs::read(out).unwrap(), b"ABCDEFGHI");
+}
+
+#[test]
+fn superseded_valid_parity_is_retained_when_its_alternative_fails() {
+    use std::sync::atomic::AtomicBool;
+    let f = Fixture::new(true);
+    let stall = || Fault::WaitForCancel {
+        started: Arc::new(AtomicBool::new(false)),
+        stopped: Arc::new(AtomicBool::new(false)),
+        late_write: false,
+    };
+    let reader = f.keyed_reader(
+        vec![
+            (0, stall()),
+            (3, stall()),
+            (4, Fault::Error(StorageError::not_found("alternative"))),
+        ],
+        OperationContext::none(),
+    );
+    let temp = tempfile::tempdir().unwrap();
+    let out = temp.path().join("out");
+    super::hedged::restore(
+        &reader,
+        &f.manifest,
+        f.manifest.coding.as_ref().unwrap(),
+        &out,
+        4,
+        1,
+        hedge_policy(),
+    )
+    .unwrap();
+    assert_eq!(fs::read(out).unwrap(), b"ABCDEFGHI");
+}
+
+#[test]
+fn parent_deadline_is_preserved_by_child_context() {
+    use std::sync::atomic::AtomicBool;
+    let parent = OperationContext::with_deadline(
+        std::time::Instant::now() - std::time::Duration::from_millis(1),
+    );
+    let child = parent.child(Arc::new(AtomicBool::new(false)));
+    assert!(child.deadline_passed());
+    assert_eq!(
+        crate::storage::reader::check_read_context(&child)
+            .unwrap_err()
+            .downcast_ref::<StorageError>()
+            .unwrap()
+            .kind(),
+        StorageErrorKind::Timeout
+    );
+}
+
+#[test]
+fn recovered_group_is_checkpointed_while_another_group_still_waits() {
+    use crate::storage::memory::faults::Gate;
+    let f = Fixture::new(true);
+    f.delete(0);
+    let gate = Gate::new();
+    let reader = f.keyed_reader(
+        vec![(2, Fault::PauseBefore(gate.clone()))],
+        OperationContext::none(),
+    );
+    let temp = tempfile::tempdir().unwrap();
+    let out = temp.path().join("out");
+    let state_path = append_suffix(&out, ".rpool.resume.json");
+    std::thread::scope(|scope| {
+        let task = scope.spawn(|| {
+            super::hedged::restore(
+                &reader,
+                &f.manifest,
+                f.manifest.coding.as_ref().unwrap(),
+                &out,
+                4,
+                1,
+                super::hedged::Policy::default(),
+            )
+        });
+        gate.reached.wait();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        let mut early = false;
+        while std::time::Instant::now() < until {
+            if let Ok(state) = read_json::<ResumeState>(&state_path) {
+                if state.completed.contains(&0)
+                    && state.completed.contains(&1)
+                    && !state.completed.contains(&2)
+                {
+                    early = true;
+                    break;
+                }
+            }
+            std::thread::yield_now();
+        }
+        gate.release.wait();
+        task.join().unwrap().unwrap();
+        assert!(
+            early,
+            "first group must commit before the second group's response"
+        );
+    });
+    assert_eq!(fs::read(out).unwrap(), b"ABCDEFGHI");
+}
+
+#[test]
+fn replaced_data_is_retried_if_other_inputs_make_it_necessary() {
+    use std::sync::atomic::AtomicBool;
+    let f = Fixture::new(true);
+    f.delete(1);
+    f.delete(4);
+    let reader = f.keyed_reader(
+        vec![(
+            0,
+            Fault::WaitForCancel {
+                started: Arc::new(AtomicBool::new(false)),
+                stopped: Arc::new(AtomicBool::new(false)),
+                late_write: false,
+            },
+        )],
+        OperationContext::none(),
+    );
+    let temp = tempfile::tempdir().unwrap();
+    let out = temp.path().join("out");
+    super::hedged::restore(
+        &reader,
+        &f.manifest,
+        f.manifest.coding.as_ref().unwrap(),
+        &out,
+        2,
+        1,
+        hedge_policy(),
+    )
+    .unwrap();
+    assert_eq!(fs::read(out).unwrap(), b"ABCDEFGHI");
+}
+
+#[test]
+fn all_normal_inputs_stalled_still_leave_capacity_for_hedges() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let f = Fixture::new(true);
+    let stops: Vec<_> = (0..2).map(|_| Arc::new(AtomicBool::new(false))).collect();
+    let reader = f.keyed_reader(
+        (0..2)
+            .map(|i| {
+                (
+                    i,
+                    Fault::WaitForCancel {
+                        started: Arc::new(AtomicBool::new(false)),
+                        stopped: stops[i as usize].clone(),
+                        late_write: true,
+                    },
+                )
+            })
+            .collect(),
+        OperationContext::none(),
+    );
+    let temp = tempfile::tempdir().unwrap();
+    let out = temp.path().join("out");
+    super::hedged::restore(
+        &reader,
+        &f.manifest,
+        f.manifest.coding.as_ref().unwrap(),
+        &out,
+        3,
+        1,
+        hedge_policy(),
+    )
+    .unwrap();
+    assert!(stops.iter().all(|s| s.load(Ordering::Acquire)));
+    assert_eq!(fs::read(out).unwrap(), b"ABCDEFGHI");
+}
+
+#[test]
+fn stalled_required_parity_can_be_replaced_without_exceeding_workers() {
+    use std::sync::atomic::AtomicBool;
+    let f = Fixture::new(true);
+    f.delete(0);
+    let stall = || Fault::WaitForCancel {
+        started: Arc::new(AtomicBool::new(false)),
+        stopped: Arc::new(AtomicBool::new(false)),
+        late_write: false,
+    };
+    let reader = f.keyed_reader(vec![(1, stall()), (3, stall())], OperationContext::none());
+    let temp = tempfile::tempdir().unwrap();
+    let out = temp.path().join("out");
+    super::hedged::restore(
+        &reader,
+        &f.manifest,
+        f.manifest.coding.as_ref().unwrap(),
+        &out,
+        2,
+        1,
+        hedge_policy(),
+    )
+    .unwrap();
+    assert_eq!(fs::read(out).unwrap(), b"ABCDEFGHI");
+}
+
+#[test]
+fn child_cancellation_does_not_mask_fatal_adapter_errors() {
+    use std::sync::atomic::AtomicBool;
+    for error in [
+        StorageError::Other {
+            detail: "local adapter failure".into(),
+        },
+        StorageError::unknown_outcome("read failure"),
+        StorageError::unsupported("read"),
+    ] {
+        let f = Fixture::new(true);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let reader = f.keyed_reader(
+            vec![(
+                0,
+                Fault::CancelThenError {
+                    cancel: cancel.clone(),
+                    error: error.clone(),
+                },
+            )],
+            OperationContext::none(),
+        );
+        let ctx = OperationContext::none().child(cancel);
+        let temp = tempfile::tempdir().unwrap();
+        let found = reader
+            .download_staged(
+                &f.manifest.shards[0],
+                &temp.path().join("stage"),
+                &ctx,
+                &crate::storage::reader::ReadProgress::new(),
+            )
+            .unwrap_err();
+        assert_eq!(
+            found.downcast_ref::<StorageError>().unwrap().kind(),
+            error.kind()
+        );
+    }
 }

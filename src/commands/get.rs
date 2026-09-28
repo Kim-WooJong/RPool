@@ -1,13 +1,11 @@
-use crate::erasure::reconstruct_group;
 use crate::journal::{persist_restore_state, validate_restore_state};
 use crate::manifest::{
-    coding_group_count, data_shards, load_manifest_with_storage, manifest_fingerprint,
-    validate_manifest,
+    data_shards, load_manifest_with_storage, manifest_fingerprint, validate_manifest,
 };
 use crate::prelude::*;
 #[cfg(test)]
 use crate::storage::reader::is_recoverable_loss;
-use crate::storage::reader::{is_restore_unavailable, StorageReader};
+use crate::storage::reader::StorageReader;
 use crate::storage::scheduler;
 use crate::utils::{append_suffix, ensure_positive, now_unix, read_json};
 
@@ -104,90 +102,19 @@ pub(crate) fn get_erasure(
     workers: usize,
     retries: u32,
 ) -> Result<()> {
-    let state_path = prepare_output_and_state(manifest, output)?;
-    let mut state: ResumeState = read_json(&state_path)?;
-    let data = data_shards(manifest);
-    let groups = coding_group_count(data.len(), coding.data_shards);
-    let remaining = data
-        .iter()
-        .filter(|s| !state.completed.contains(&s.index))
-        .map(|s| (*s).clone())
-        .collect();
-    eprintln!(
-        "[get] Reed-Solomon {}+{}, {} groups, {} workers (cross-group scheduling)",
-        coding.data_shards, coding.parity_shards, groups, workers
-    );
-    scheduler::run(
-        remaining,
+    hedged::restore(
+        reader,
+        manifest,
+        coding,
+        output,
         workers,
         retries,
-        |s: &Shard| scheduler::remote_key(&s.remote),
-        |shard| reader.download(shard, output, 1, true),
-        scheduler::read_retry,
-        |shard, result| {
-            match result {
-                Ok(()) => {
-                    state.completed.insert(shard.index);
-                    persist_restore_state(&state_path, &mut state)?;
-                }
-                Err(error) if is_restore_unavailable(&error) => {
-                    eprintln!(
-                        "[degraded] data shard {} unavailable; parity fallback: {error:#}",
-                        shard.index
-                    );
-                }
-                Err(error) => return Err(error),
-            }
-            Ok(vec![])
-        },
-    )?;
-    // No direct writes remain when decoding begins. One group's parity staging
-    // bounds disk/memory independently of archive length; its reads are parallel.
-    for group in 0..groups {
-        let missing: Vec<Shard> = data
-            .iter()
-            .filter(|s| s.group == group as u32 && !state.completed.contains(&s.index))
-            .map(|s| (*s).clone())
-            .collect();
-        if missing.is_empty() {
-            continue;
-        }
-        if missing.len() > coding.parity_shards {
-            bail!(
-                "group {} lost {} data shards but only {} parity shards exist",
-                group,
-                missing.len(),
-                coding.parity_shards
-            );
-        }
-        reconstruct_group(
-            reader,
-            manifest,
-            coding,
-            group as u32,
-            &missing,
-            output,
-            retries,
-            workers,
-        )?;
-        for shard in missing {
-            state.completed.insert(shard.index);
-        }
-        persist_restore_state(&state_path, &mut state)?;
-    }
-
-    if state.completed.len() != data.len() {
-        bail!(
-            "restore finished with {}/{} data shards complete",
-            state.completed.len(),
-            data.len()
-        );
-    }
-
-    fs::remove_file(&state_path).ok();
-    println!("restored={}", output.display());
-    Ok(())
+        hedged::Policy::default(),
+    )
 }
+
+#[path = "get_hedged.rs"]
+mod hedged;
 
 pub(crate) fn prepare_output_and_state(manifest: &Manifest, output: &Path) -> Result<PathBuf> {
     if let Some(parent) = output.parent() {

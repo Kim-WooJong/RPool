@@ -8,6 +8,54 @@ use super::traits::{ObjectMetadata, OperationContext, ReadRange, StorageBackend}
 use crate::prelude::*;
 use crate::utils::write_all_at;
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
+
+pub(crate) struct ReadProgress {
+    started: Instant,
+    bytes: AtomicU64,
+    updated_ms: AtomicU64,
+}
+impl ReadProgress {
+    pub(crate) fn new() -> Self {
+        Self {
+            started: Instant::now(),
+            bytes: AtomicU64::new(0),
+            updated_ms: AtomicU64::new(0),
+        }
+    }
+    pub(crate) fn elapsed(&self) -> Duration {
+        self.started.elapsed()
+    }
+    pub(crate) fn stalled(&self, delay: Duration) -> bool {
+        self.elapsed().saturating_sub(Duration::from_millis(
+            self.updated_ms.load(Ordering::Acquire),
+        )) >= delay
+    }
+    pub(crate) fn slow(&self, size: u64, delay: Duration) -> bool {
+        let elapsed = self.elapsed();
+        let idle = elapsed.saturating_sub(Duration::from_millis(
+            self.updated_ms.load(Ordering::Acquire),
+        ));
+        let bytes = self.bytes.load(Ordering::Acquire);
+        idle >= delay
+            || (elapsed >= delay
+                && bytes > 0
+                && bytes < size
+                && elapsed.as_secs_f64() * (size - bytes) as f64 / bytes as f64
+                    > delay.as_secs_f64())
+    }
+    fn update(&self, bytes: usize) {
+        if bytes != 0 {
+            self.bytes.fetch_add(bytes as u64, Ordering::Release);
+            self.updated_ms.store(
+                self.started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                Ordering::Release,
+            );
+        }
+    }
+}
+
 const METADATA_LIMIT: usize = 64 * 1024 * 1024;
 struct Routes {
     registry: BackendRegistry,
@@ -105,7 +153,7 @@ impl StorageReader {
             reference.key().clone(),
         ))
     }
-    pub(super) fn operation_context(&self) -> &OperationContext {
+    pub(crate) fn operation_context(&self) -> &OperationContext {
         &self.context
     }
     pub(super) fn legacy_context(&self) -> Option<&RcloneContext> {
@@ -162,6 +210,31 @@ impl StorageReader {
         }
     }
     pub(crate) fn verified_read(&self, shard: &Shard, sink: &mut dyn Write) -> Result<()> {
+        self.verified_read_context(shard, sink, &self.context, None)
+    }
+    pub(crate) fn download_staged(
+        &self,
+        shard: &Shard,
+        path: &Path,
+        context: &OperationContext,
+        progress: &ReadProgress,
+    ) -> Result<()> {
+        let mut file = File::create(path)?;
+        let result = self.verified_read_context(shard, &mut file, context, Some(progress));
+        drop(file);
+        if result.is_err() {
+            let _ = fs::remove_file(path);
+        }
+        result
+    }
+    fn verified_read_context(
+        &self,
+        shard: &Shard,
+        sink: &mut dyn Write,
+        context: &OperationContext,
+        progress: Option<&ReadProgress>,
+    ) -> Result<()> {
+        check_read_context(context)?;
         let (backend, key) = self.resolve(&shard.object)?;
         let length = shard
             .size
@@ -174,13 +247,11 @@ impl StorageReader {
             size: shard.size,
             overflow: false,
             local_error: false,
+            sink_cancelled: false,
+            progress,
+            context,
         };
-        let result = backend.read(
-            &self.context,
-            &key,
-            &ReadRange::new(0, length)?,
-            &mut verified,
-        );
+        let result = backend.read(context, &key, &ReadRange::new(0, length)?, &mut verified);
         if verified.overflow {
             return Err(corrupt("oversized object", format!("size:{}", shard.size)).into());
         }
@@ -189,6 +260,20 @@ impl StorageReader {
                 detail: "local restore output write failed".into(),
             }
             .into());
+        }
+        if verified.sink_cancelled
+            && result.as_ref().err().is_some_and(|e| {
+                matches!(
+                    e.kind(),
+                    StorageErrorKind::TransientIo
+                        | StorageErrorKind::Other
+                        | StorageErrorKind::Cancelled
+                )
+            })
+        {
+            // Only a cancellation observed by this sink can explain an adapter's
+            // generic pipe/sink error. Unrelated fatal adapter errors survive.
+            check_read_context(context)?;
         }
         let receipt = result?;
         if verified.count != shard.size || receipt.bytes_read != verified.count {
@@ -202,6 +287,7 @@ impl StorageReader {
         if hash != shard.blake3 {
             return Err(corrupt(hash, shard.blake3.clone()).into());
         }
+        check_read_context(context)?;
         verified.flush()?;
         Ok(())
     }
@@ -264,9 +350,16 @@ struct VerifiedSink<'a> {
     size: u64,
     overflow: bool,
     local_error: bool,
+    sink_cancelled: bool,
+    progress: Option<&'a ReadProgress>,
+    context: &'a OperationContext,
 }
 impl Write for VerifiedSink<'_> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if self.context.is_cancelled() || self.context.deadline_passed() {
+            self.sink_cancelled = true;
+            return Err(std::io::Error::other("read request cancelled"));
+        }
         if bytes.len() as u64 > self.size.saturating_sub(self.count) {
             self.overflow = true;
             return Err(std::io::Error::new(
@@ -277,6 +370,9 @@ impl Write for VerifiedSink<'_> {
         if let Err(error) = self.sink.write_all(bytes) {
             self.local_error = true;
             return Err(error);
+        }
+        if let Some(progress) = self.progress {
+            progress.update(bytes.len());
         }
         self.hash.update(bytes);
         self.count += bytes.len() as u64;
@@ -307,4 +403,20 @@ impl Write for OffsetSink {
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
+}
+
+pub(crate) fn check_read_context(context: &OperationContext) -> Result<()> {
+    if context.is_cancelled() {
+        return Err(StorageError::Cancelled {
+            detail: "read cancelled".into(),
+        }
+        .into());
+    }
+    if context.deadline_passed() {
+        return Err(StorageError::Timeout {
+            detail: "read deadline elapsed".into(),
+        }
+        .into());
+    }
+    Ok(())
 }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Delayed bounded hedged RS downloads: passive stall/progress estimates, verified per-read staging, early per-group recovery and cooperative cancellation of losing requests. Two-group staging window and reserved parity slots remain within the worker cap. Superseded slow candidates are retained for required recovery; parent cancellation/deadlines and fatal adapter errors remain visible. Single-worker reads retain non-speculative recovery. No real-cloud latency claim.
+
 - Fair bounded upload/download dispatcher, cross-group direct restores, worker-free retry backoff, overlapping bounded parity generation/uploads and immediate per-shard checkpoints. Restore-only parity fallback now includes exhausted timeout/transient/rate-limit errors; local-output and auth/cancel failures remain terminal, and acknowledged writes are not replayed after readback failure.
 - Optional Resilient placement resolves known backing aliases and rejects per-group target concentration above the parity budget. Compatibility round-robin balances configured names; free-ratio no longer silently exceeds its balanced group ceiling. Existing Pool policies are unchanged. Live multi-cloud speed/outage validation remains outstanding.
 

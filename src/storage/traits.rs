@@ -120,9 +120,11 @@ pub(crate) struct ListPage {
 /// Per-operation deadline + cancellation, propagated into adapters. A remote
 /// write that may have committed after a cancel/timeout is `UnknownOutcome`,
 /// not a clean cancel (target.md §3.4, ADR-004).
+#[derive(Clone)]
 pub(crate) struct OperationContext {
     deadline: Option<Instant>,
     cancel: Option<Arc<AtomicBool>>,
+    child_cancels: Vec<Arc<AtomicBool>>,
 }
 
 impl OperationContext {
@@ -130,6 +132,7 @@ impl OperationContext {
         Self {
             deadline: None,
             cancel: None,
+            child_cancels: Vec::new(),
         }
     }
 
@@ -137,6 +140,7 @@ impl OperationContext {
         Self {
             deadline: Some(deadline),
             cancel: None,
+            child_cancels: Vec::new(),
         }
     }
 
@@ -151,6 +155,7 @@ impl OperationContext {
         Self {
             deadline: None,
             cancel: Some(cancel),
+            child_cancels: Vec::new(),
         }
     }
 
@@ -165,13 +170,21 @@ impl OperationContext {
         Self {
             deadline: Some(deadline),
             cancel: Some(cancel),
+            child_cancels: Vec::new(),
         }
+    }
+
+    pub(crate) fn child(&self, cancel: Arc<AtomicBool>) -> Self {
+        let mut child = self.clone();
+        child.child_cancels.push(cancel);
+        child
     }
 
     pub(crate) fn is_cancelled(&self) -> bool {
         self.cancel
             .as_ref()
             .map_or(false, |c| c.load(Ordering::Acquire))
+            || self.child_cancels.iter().any(|c| c.load(Ordering::Acquire))
     }
 
     #[cfg_attr(
