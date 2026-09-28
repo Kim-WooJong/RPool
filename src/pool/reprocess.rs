@@ -24,6 +24,8 @@ pub(crate) struct ReprocessPlan {
     pub(crate) upload_bytes: u64,
     pub(crate) estimated_seconds: Option<f64>,
     pub(crate) estimate_note: String,
+    #[serde(default)]
+    pub(crate) change_summary: Vec<String>,
 }
 
 fn random_id() -> Result<String> {
@@ -42,14 +44,20 @@ fn private_dir(path: &Path) -> Result<()> {
         builder
     };
     builder.create(path)?;
+    #[cfg(unix)]
+    if let Some(parent) = path.parent() {
+        File::open(parent)?.sync_all()?;
+    }
     Ok(())
 }
 
 // Create-only, fsynced receipts avoid losing discovery information on interrupted writes.
 fn save_new<T: Serialize>(path: &Path, value: &T) -> Result<()> {
-    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    let parent = path.parent().context("receipt parent missing")?;
+    let mut file = tempfile::NamedTempFile::new_in(parent)?;
     serde_json::to_writer_pretty(&mut file, value)?;
-    file.sync_all()?;
+    file.as_file().sync_all()?;
+    file.persist_noclobber(path).map_err(|e| e.error)?;
     #[cfg(unix)]
     if let Some(parent) = path.parent() {
         File::open(parent)?.sync_all()?;
@@ -135,10 +143,12 @@ pub(crate) fn build_plan(
     let operation_id = random_id()?;
     let dir = root.join(&operation_id);
     private_dir(&dir)?;
+    let change_summary = describe_changes(&entries, &target);
     let plan = ReprocessPlan {
-        version: 1, operation_id, plan_path: dir.join("plan.json"), target, entries,
+        version: 2, operation_id, plan_path: dir.join("plan.json"), target, entries,
+        change_summary,
         input_bytes, new_storage_bytes, download_bytes, upload_bytes, estimated_seconds,
-        estimate_note: "Approximate sequential transfer time using user-supplied aggregate rates. Includes upload readback and final full verification; excludes metadata, encryption overhead, disk/CPU time, retries and degraded-source recovery. Originals remain stored; target capacity is additional. Unknown without both rates.".into(),
+        estimate_note: "Approximate sequential transfer time using user-supplied aggregate rates. Includes upload readback and final full verification; excludes metadata, encryption overhead, disk/CPU time, retries and degraded-source recovery. Originals remain stored; target capacity is additional. Unknown without both rates. This is initial execution time, not remaining time: resume skips copying completed items but fully reads them again to verify readiness.".into(),
     };
     save_new(&plan.plan_path, &plan)?;
     save_new(
@@ -150,8 +160,7 @@ pub(crate) fn build_plan(
     Ok(plan)
 }
 
-pub(crate) fn execute_plan(rclone: &str, plan_path: &Path) -> Result<()> {
-    let started = std::time::Instant::now();
+pub(crate) fn load_plan(plan_path: &Path) -> Result<ReprocessPlan> {
     let plan_path = plan_path.canonicalize()?;
     let dir = plan_path.parent().context("plan directory missing")?;
     let bytes = fs::read(&plan_path)?;
@@ -160,13 +169,32 @@ pub(crate) fn execute_plan(rclone: &str, plan_path: &Path) -> Result<()> {
         bail!("saved plan changed; create a new plan");
     }
     let plan: ReprocessPlan = serde_json::from_slice(&bytes)?;
-    if plan.version != 1 || plan.plan_path.canonicalize()? != plan_path {
+    if plan.version != 1 && plan.version != 2 {
+        bail!("unsupported reprocess plan version");
+    }
+    if plan.plan_path.canonicalize()? != plan_path {
         bail!("invalid saved plan location/version");
     }
     super::validate_pool(&plan.target)?;
+    Ok(plan)
+}
+
+pub(crate) fn execute_plan(rclone: &str, plan_path: &Path) -> Result<()> {
+    let started = std::time::Instant::now();
+    let plan_path = plan_path.canonicalize()?;
+    let dir = plan_path.parent().context("plan directory missing")?;
+    let _execution_lock = lock_plan(dir)?;
+    let plan = load_plan(&plan_path)?;
+    super::validate_pool(&plan.target)?;
     // Check every source before any remote mutation; restore from the frozen snapshot below.
-    for entry in &plan.entries {
+    for (index, entry) in plan.entries.iter().enumerate() {
         validate_manifest(&entry.manifest)?;
+        if manifest_fingerprint(&entry.manifest)? != entry.fingerprint {
+            bail!("frozen source manifest fingerprint mismatch");
+        }
+        if dir.join(format!("completed-{index:08}.json")).exists() {
+            continue;
+        }
         let current = load_manifest(rclone, &entry.source)?;
         validate_manifest(&current)?;
         if manifest_fingerprint(&current)? != entry.fingerprint
@@ -186,6 +214,14 @@ pub(crate) fn execute_plan(rclone: &str, plan_path: &Path) -> Result<()> {
     private_dir(&attempt)?;
     crate::progress::items(0, plan.entries.len());
     for (index, entry) in plan.entries.iter().enumerate() {
+        let completion = dir.join(format!("completed-{index:08}.json"));
+        if completion.exists() {
+            let manifest_path =
+                verify_completion(&writer, &completion, dir, entry, plan.target.workers)?;
+            crate::inventory::add_manifest(rclone, &manifest_path.to_string_lossy())?;
+            crate::progress::items(index + 1, plan.entries.len());
+            continue;
+        }
         let archive_id = format!("reprocess-{}", random_id()?);
         let item = attempt.join(format!("{index:08}"));
         private_dir(&item)?;
@@ -201,6 +237,7 @@ pub(crate) fn execute_plan(rclone: &str, plan_path: &Path) -> Result<()> {
         let result: Result<()> = (|| {
             convert_one(&writer, rclone, entry, &plan.target, &item, &archive_id)?;
             crate::inventory::add_manifest(rclone, &durable_manifest.to_string_lossy())?;
+            record_completion(&completion, entry, &durable_manifest)?;
             Ok(())
         })();
         save_new(
@@ -226,6 +263,100 @@ pub(crate) fn execute_plan(rclone: &str, plan_path: &Path) -> Result<()> {
         attempt.display()
     );
     Ok(())
+}
+
+// File locks are kernel-owned: a crash releases ownership automatically. Never
+// remove execution.lock: unlinking it would allow simultaneous lock owners.
+fn lock_plan(dir: &Path) -> Result<File> {
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(dir.join("execution.lock"))?;
+    file.try_lock()
+        .map_err(|e| anyhow!("plan is already executing or cannot be locked: {e}"))?;
+    Ok(file)
+}
+
+#[derive(Serialize, Deserialize)]
+struct Completion {
+    source_fingerprint: String,
+    manifest_path: PathBuf,
+    manifest_fingerprint: String,
+}
+
+fn record_completion(path: &Path, entry: &ReprocessEntry, manifest_path: &Path) -> Result<()> {
+    let manifest: Manifest = read_json(manifest_path)?;
+    save_new(
+        path,
+        &Completion {
+            source_fingerprint: entry.fingerprint.clone(),
+            manifest_path: manifest_path.canonicalize()?,
+            manifest_fingerprint: manifest_fingerprint(&manifest)?,
+        },
+    )
+}
+
+fn validate_completion(path: &Path, dir: &Path, entry: &ReprocessEntry) -> Result<PathBuf> {
+    let receipt: Completion =
+        read_json(path).context("invalid completion receipt; originals retained")?;
+    let manifest_path = receipt.manifest_path.canonicalize()?;
+    if !manifest_path.starts_with(dir.canonicalize()?)
+        || receipt.source_fingerprint != entry.fingerprint
+    {
+        bail!("completion receipt source/location mismatch; originals retained");
+    }
+    let manifest: Manifest = read_json(&manifest_path)?;
+    validate_manifest(&manifest)?;
+    if manifest_fingerprint(&manifest)? != receipt.manifest_fingerprint
+        || manifest.original_size != entry.manifest.original_size
+        || manifest.archive_id == entry.manifest.archive_id
+    {
+        bail!("completed manifest changed; originals retained");
+    }
+    Ok(manifest_path)
+}
+
+fn verify_completion(
+    writer: &StorageWriter,
+    path: &Path,
+    dir: &Path,
+    entry: &ReprocessEntry,
+    workers: usize,
+) -> Result<PathBuf> {
+    let manifest_path = validate_completion(path, dir, entry)?;
+    crate::commands::verify_with_storage(writer.reader(), &manifest_path.to_string_lossy(), true, workers)
+        .context("completed replacement failed revalidation; originals retained, do not disconnect providers")?;
+    Ok(manifest_path)
+}
+
+fn describe_changes(entries: &[ReprocessEntry], target: &PoolDefinition) -> Vec<String> {
+    let mut notes = Vec::new();
+    for entry in entries {
+        let old: BTreeSet<_> = entry
+            .manifest
+            .shards
+            .iter()
+            .map(|s| s.remote.clone())
+            .collect();
+        let new: BTreeSet<_> = target.remotes.iter().cloned().collect();
+        let added: Vec<_> = new.difference(&old).cloned().collect();
+        let removed: Vec<_> = old.difference(&new).cloned().collect();
+        let coding_changed = match &entry.manifest.coding {
+            Some(c) => {
+                target.parity_shards == 0
+                    || c.data_shards != target.data_shards
+                    || c.parity_shards != target.parity_shards
+            }
+            None => target.parity_shards != 0,
+        };
+        notes.push(format!("{}: added destinations {:?}; removed destinations {:?}; shard size changed: {}; K/M coding changed: {}. Destinations compare actual shard locations, not historical pool membership.",
+            entry.manifest.archive_id, added, removed,
+            entry.manifest.shard_size != target.shard_mib * 1048576, coding_changed));
+    }
+    notes.push("Full-copy replacement of every selected archive (not minimum movement). Workers/retries are execution-only knobs; changing them alone does not require rewriting existing data. Placement history is not recorded. Keep old providers accessible until every selected replacement is verified and indexed; unselected archives may still depend on them.".into());
+    notes
 }
 
 /// Backend-injected conversion boundary: no inventory publication until this succeeds.

@@ -95,7 +95,7 @@ impl PoolPicker {
                     apply = ui.button("Apply selection").clicked();
                     cancel = ui.button("Cancel").clicked();
                 });
-                ui.small("Apply updates this draft. Use Save pool to persist it.");
+                ui.small("Apply updates this draft only; no cloud data is changed.");
             });
         if apply {
             *selected = self.draft.clone();

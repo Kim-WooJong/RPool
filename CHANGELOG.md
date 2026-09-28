@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Reprocess supports provider/policy drafts, changed-layout summaries, verified-copy readiness estimates, persisted plans and safe per-item resume. Original archives remain intact; completed replacements are revalidated before reuse.
+- Reprocess completion receipts and inventory replacement are atomic; OS locks prevent duplicate plan execution and concurrent inventory-add races.
+
 - New crypt remotes now point directly at the provider's configured remote default path: `/data` becomes `provider:/data`, without an encryption parent or unique child directory. Existing crypt paths and keys are unchanged.
 - Removed the redundant encryption parent-folder controls. Historical `root` settings/CLI arguments remain accepted but ignored. Version stays 0.6.0 until the next batched update.
 

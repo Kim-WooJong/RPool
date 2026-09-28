@@ -297,9 +297,12 @@ impl Write for FailingWriter {
 #[test]
 fn callback_failures_cleanup_and_sanitize() {
     let (_dir, context) = normal();
+    // Exercise callback failure after crypt preflight, not startup throughput
+    // under parallel fixture load. Deadline behavior has dedicated tests.
+    let budget = || OperationContext::with_deadline(Instant::now() + Duration::from_secs(30));
     let error = context
         .write_raw(
-            &deadline(),
+            &budget(),
             "crypt:object",
             &mut FailingReader,
             None,
@@ -309,7 +312,7 @@ fn callback_failures_cleanup_and_sanitize() {
     assert_eq!(error.kind(), StorageErrorKind::UnknownOutcome);
     assert!(!error.to_string().contains("secret"));
     assert!(context
-        .read_raw(&deadline(), "crypt:oversized", None, &mut FailingWriter)
+        .read_raw(&budget(), "crypt:oversized", None, &mut FailingWriter)
         .is_err());
     let flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
     assert_eq!(

@@ -252,3 +252,146 @@ fn failed_upload_preserves_original_and_does_not_publish_success_manifest() {
         f.writer(vec![]).reader().verify(shard, true).unwrap();
     }
 }
+
+#[test]
+fn plan_lock_excludes_concurrent_execution_and_recovers_after_owner_release() {
+    let dir = tempfile::tempdir().unwrap();
+    let owner = lock_plan(dir.path()).unwrap();
+    assert!(lock_plan(dir.path()).is_err());
+    drop(owner);
+    // The stale filename is intentionally retained; ownership is kernel-managed.
+    assert!(dir.path().join("execution.lock").exists());
+    assert!(lock_plan(dir.path()).is_ok());
+}
+
+#[test]
+fn partial_completion_revalidates_without_writes_and_failed_item_retries_safely() {
+    let f = ConversionFixture::new();
+    let original = f.snapshot_original();
+    let completed = f.dir.path().join("completed-00000000.json");
+    let first = f.dir.path().join("first");
+    private_dir(&first).unwrap();
+    convert_one(
+        &f.writer(vec![]),
+        "no-rclone",
+        &f.original,
+        &ConversionFixture::target(true),
+        &first,
+        "coded",
+    )
+    .unwrap();
+    record_completion(&completed, &f.original, &first.join("manifest.json")).unwrap();
+    let denied = f.writer(vec![Rule {
+        operation: Operation::Write,
+        call: 1,
+        fault: Fault::Error(StorageError::Authentication {
+            detail: "must not write completed item".into(),
+        }),
+    }]);
+    verify_completion(&denied, &completed, f.dir.path(), &f.original, 1).unwrap();
+    let interrupted = f.dir.path().join("interrupted");
+    private_dir(&interrupted).unwrap();
+    assert!(convert_one(
+        &denied,
+        "no-rclone",
+        &f.original,
+        &ConversionFixture::target(true),
+        &interrupted,
+        "failed"
+    )
+    .is_err());
+    assert!(!interrupted.join("manifest.json").exists());
+    assert!(!f.dir.path().join("completed-00000001.json").exists());
+    let retry = f.dir.path().join("retry");
+    private_dir(&retry).unwrap();
+    convert_one(
+        &f.writer(vec![]),
+        "no-rclone",
+        &f.original,
+        &ConversionFixture::target(false),
+        &retry,
+        "plain",
+    )
+    .unwrap();
+    record_completion(
+        &f.dir.path().join("completed-00000001.json"),
+        &f.original,
+        &retry.join("manifest.json"),
+    )
+    .unwrap();
+    assert_eq!(f.snapshot_original(), original);
+}
+
+#[test]
+fn corrupt_receipt_or_completed_manifest_never_counts_as_ready() {
+    let f = ConversionFixture::new();
+    let first = f.dir.path().join("first");
+    private_dir(&first).unwrap();
+    convert_one(
+        &f.writer(vec![]),
+        "no-rclone",
+        &f.original,
+        &ConversionFixture::target(true),
+        &first,
+        "coded",
+    )
+    .unwrap();
+    let receipt = f.dir.path().join("completed.json");
+    record_completion(&receipt, &f.original, &first.join("manifest.json")).unwrap();
+    let denied = f.writer(vec![Rule {
+        operation: Operation::Read,
+        call: 1,
+        fault: Fault::Error(StorageError::Authentication {
+            detail: "offline replacement".into(),
+        }),
+    }]);
+    assert!(verify_completion(&denied, &receipt, f.dir.path(), &f.original, 1).is_err());
+    fs::write(first.join("manifest.json"), b"truncated").unwrap();
+    assert!(validate_completion(&receipt, f.dir.path(), &f.original).is_err());
+    fs::write(&receipt, b"truncated receipt").unwrap();
+    assert!(validate_completion(&receipt, f.dir.path(), &f.original).is_err());
+}
+
+#[test]
+fn execution_only_policy_is_not_reported_as_layout_change() {
+    let f = ConversionFixture::new();
+    let mut target = ConversionFixture::target(false);
+    target.workers = 12;
+    target.retries = 8;
+    target.data_shards = 10; // K has no coding effect while M=0.
+    let notes = describe_changes(&[f.original], &target).join("\n");
+    assert!(notes.contains("shard size changed: false; K/M coding changed: false"));
+    assert!(notes.contains("execution-only knobs"));
+    assert!(notes.contains("not minimum movement"));
+}
+
+#[test]
+fn saved_plan_load_accepts_legacy_and_rejects_tampering() {
+    let f = ConversionFixture::new();
+    let path = f.dir.path().join("plan.json");
+    let plan = ReprocessPlan {
+        version: 1,
+        operation_id: "legacy".into(),
+        plan_path: path.clone(),
+        target: ConversionFixture::target(false),
+        entries: vec![f.original],
+        input_bytes: 1,
+        new_storage_bytes: 1,
+        download_bytes: 3,
+        upload_bytes: 1,
+        estimated_seconds: None,
+        estimate_note: "legacy estimate".into(),
+        change_summary: vec![],
+    };
+    let mut legacy = serde_json::to_value(plan).unwrap();
+    legacy.as_object_mut().unwrap().remove("change_summary");
+    save_new(&path, &legacy).unwrap();
+    save_new(
+        &f.dir.path().join("plan.fingerprint.json"),
+        &blake3::hash(&fs::read(&path).unwrap()).to_hex().to_string(),
+    )
+    .unwrap();
+    assert!(load_plan(&path).unwrap().change_summary.is_empty());
+    fs::write(&path, b"tampered").unwrap();
+    assert!(load_plan(&path).is_err());
+}
