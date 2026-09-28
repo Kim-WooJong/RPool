@@ -6,6 +6,15 @@ pub(crate) struct MountArgs {
     /// Opt-in metadata-first virtual drive (requires a NEW empty workspace).
     #[arg(long)]
     pub(crate) virtual_drive: bool,
+    /// Bounded shared protocol: latest cloud state wins; requires a NEW virtual workspace.
+    #[arg(long, requires_all = ["virtual_drive", "shared_root"], conflicts_with_all = ["apply_retention", "retention_report"])]
+    pub(crate) bounded_shared: bool,
+    /// Designate this workspace as the ONE shared checkpoint/retention coordinator.
+    #[arg(long, requires = "bounded_shared")]
+    pub(crate) shared_coordinator: bool,
+    /// Previous cloud revisions per path retained by the coordinator; offline PCs never pin them.
+    #[arg(long, default_value_t = 1)]
+    pub(crate) shared_keep_previous: usize,
     /// Verified clean-shard cache budget in GiB. Dirty writes are never evicted.
     #[arg(long, default_value_t = 10)]
     pub(crate) cache_gib: u64,
@@ -79,6 +88,36 @@ pub(crate) struct MountArgs {
 mod tests {
     use clap::Parser;
 
+    #[test]
+    fn bounded_shared_requires_virtual_shared_root_and_exclusive_coordinator_role() {
+        let base = [
+            "rpool",
+            "mount",
+            "--pool=p",
+            "--workspace=/persistent",
+            "--sync-only",
+        ];
+        assert!(
+            crate::cli::Cli::try_parse_from(base.into_iter().chain(["--bounded-shared"])).is_err()
+        );
+        assert!(
+            crate::cli::Cli::try_parse_from(base.into_iter().chain(["--shared-coordinator"]))
+                .is_err()
+        );
+        let shared = [
+            "--virtual-drive",
+            "--bounded-shared",
+            "--shared-root=crypt:s",
+            "--worker-name=pc",
+        ];
+        assert!(crate::cli::Cli::try_parse_from(base.into_iter().chain(shared)).is_ok());
+        assert!(crate::cli::Cli::try_parse_from(
+            base.into_iter()
+                .chain(shared)
+                .chain(["--shared-coordinator", "--shared-keep-previous=0"])
+        )
+        .is_ok());
+    }
     #[test]
     fn retention_requires_exclusive_unshared_virtual_mode() {
         let base = [

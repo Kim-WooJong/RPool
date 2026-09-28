@@ -31,7 +31,7 @@ fn read_checked<T: Serialize + serde::de::DeserializeOwned>(path: &Path) -> Resu
     Ok(envelope.payload)
 }
 
-fn real_tree(path: &Path) -> Result<()> {
+pub(super) fn real_tree(path: &Path) -> Result<()> {
     let meta = fs::symlink_metadata(path)?;
     #[cfg(windows)]
     {
@@ -55,6 +55,9 @@ impl VirtualDrive {
     /// A checkpoint and publication are prerequisites. A revision lease covers
     /// DAV handles, read tasks, pinned views and in-progress rename/hydration.
     pub(crate) fn cleanup_committed_spool(&self) -> Result<u64> {
+        if self.bounded_shared {
+            return self.cleanup_checkpoint_spool();
+        }
         let mut state = self
             .state
             .lock()

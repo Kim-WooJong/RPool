@@ -508,6 +508,17 @@ pub(super) fn upload_eligible_tracked(
     source: &Path,
     id: &str,
 ) -> Result<(Manifest, Vec<String>)> {
+    upload_eligible_registered(rclone, policy, pool, source, id, &mut |_| Ok(()))
+}
+
+pub(super) fn upload_eligible_registered(
+    rclone: &str,
+    policy: &PoolDefinition,
+    pool: &str,
+    source: &Path,
+    id: &str,
+    register: &mut dyn FnMut(&[String]) -> Result<()>,
+) -> Result<(Manifest, Vec<String>)> {
     let status = super::capacity::CapacityStatus::inspect(
         &crate::storage::admin::RcloneAdmin::inherited(rclone),
         policy,
@@ -549,6 +560,13 @@ pub(super) fn upload_eligible_tracked(
         }
         let publication =
             crate::manifest::publication_remotes(&manifest, &status.eligible, policy.placement);
+        let mut objects: Vec<_> = manifest.shards.iter().map(|s| s.object.clone()).collect();
+        objects.extend(
+            publication
+                .iter()
+                .map(|r| crate::utils::remote_join(r, &format!("{id}/manifest.json"))),
+        );
+        register(&objects)?;
         finalize_completed_upload(
             &crate::storage::writer::StorageWriter::rclone(rclone),
             &completed,
@@ -608,7 +626,34 @@ pub(super) fn upload_eligible_tracked(
         crate::placement::validate_resilient_plan(rclone, &plan)?;
     } else {
         status.check_upload(policy, size)?;
+        let coding = (size > 0 && policy.parity_shards > 0).then(|| Coding {
+            algorithm: RS_ALGORITHM.into(),
+            data_shards: policy.data_shards,
+            parity_shards: policy.parity_shards,
+            stripe_size: EC_STRIPE_SIZE,
+        });
+        let plan = crate::planning::build_upload_plan(
+            rclone,
+            size,
+            policy
+                .shard_mib
+                .checked_mul(1048576)
+                .context("shard size overflow")?,
+            id.into(),
+            status.eligible.clone(),
+            policy.placement,
+            coding,
+        )?;
+        super::namespace::durable_json(&plan_path, &plan)?;
     }
+    let plan: UploadPlan = read_json(&plan_path)?;
+    let mut objects: Vec<_> = plan.shards.iter().map(|s| s.object.clone()).collect();
+    objects.extend(
+        plan.remotes
+            .iter()
+            .map(|r| crate::utils::remote_join(r, &format!("{id}/manifest.json"))),
+    );
+    register(&objects)?;
     crate::commands::put_with_storage(
         &crate::storage::writer::StorageWriter::rclone(rclone),
         rclone,

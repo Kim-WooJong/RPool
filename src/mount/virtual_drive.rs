@@ -45,6 +45,9 @@ pub(crate) struct VirtualDrive {
     pub local_leases: Mutex<BTreeMap<String, std::sync::Weak<()>>>,
     pub spool_limit: u64,
     pub spool_writes: Mutex<()>,
+    pub bounded_shared: bool,
+    pub checkpoint_coordinator: bool,
+    pub checkpoint_keep: usize,
     _lock: File,
 }
 impl VirtualDrive {
@@ -55,8 +58,19 @@ impl VirtualDrive {
         worker: &str,
         shared: Option<&str>,
         cache_limit: u64,
+        bounded_shared: bool,
     ) -> Result<Self> {
-        let shared_name = shared.map(|root| format!("{}/virtual-v3", root.trim_end_matches('/')));
+        let shared_name = shared.map(|root| {
+            format!(
+                "{}/{}",
+                root.trim_end_matches('/'),
+                if bounded_shared {
+                    "virtual-v5"
+                } else {
+                    "virtual-v3"
+                }
+            )
+        });
         let shared = shared_name.as_deref();
         if root.join(".rpool/catalog.json").exists() {
             bail!(
@@ -96,7 +110,7 @@ impl VirtualDrive {
                 .cloned()
                 .context("unknown pool")?;
             let b = Binding {
-                version: 1,
+                version: if bounded_shared { 5 } else { 1 },
                 pool: pool.into(),
                 shared: shared.map(str::to_owned),
                 policy,
@@ -104,7 +118,10 @@ impl VirtualDrive {
             durable_json(&config, &b)?;
             b
         };
-        if binding.version != 1 || binding.pool != pool || binding.shared.as_deref() != shared {
+        if binding.version != (if bounded_shared { 5 } else { 1 })
+            || binding.pool != pool
+            || binding.shared.as_deref() != shared
+        {
             bail!("virtual workspace pool/shared-root mismatch");
         }
         for name in ["spool", "clean-cache", "anchor", ".rpool"] {
@@ -117,7 +134,11 @@ impl VirtualDrive {
         if existing && !root.join("namespace.json").exists() {
             bail!("existing virtual workspace lost its primary namespace; preserve spool and use recovery");
         }
-        let state = Namespace::load(&root, worker)?;
+        let mut state = Namespace::load(&root, worker)?;
+        if bounded_shared {
+            state.version = 5;
+            state.save(&root)?;
+        }
         let cache = ShardCache::new(root.join("clean-cache"), cache_limit)?;
         Ok(Self {
             root,
@@ -133,6 +154,9 @@ impl VirtualDrive {
             local_leases: Mutex::new(BTreeMap::new()),
             spool_limit: 64 * 1073741824,
             spool_writes: Mutex::new(()),
+            bounded_shared,
+            checkpoint_coordinator: false,
+            checkpoint_keep: 1,
             _lock: lock,
         })
     }
@@ -223,11 +247,22 @@ impl VirtualDrive {
         let mut s = self.state.lock().unwrap();
         match revision {
             Revision::Cloud { id, .. } => {
-                s.bases
-                    .entry(path.into())
-                    .or_insert_with(|| vec![id.clone()]);
+                if self.bounded_shared {
+                    if !s.events.contains_key(id) {
+                        bail!("expired read revision; reopen the file");
+                    }
+                    s.bases.insert(path.into(), vec![id.clone()]);
+                } else {
+                    s.bases
+                        .entry(path.into())
+                        .or_insert_with(|| vec![id.clone()]);
+                }
             }
-            Revision::Local { .. } => {}
+            Revision::Local { id, .. } => {
+                if self.bounded_shared && !s.pending.iter().any(|i| &i.id == id) {
+                    bail!("local read revision already retired; reopen the file");
+                }
+            }
         }
         s.save(&self.root)?;
         self.pins
@@ -249,6 +284,48 @@ impl VirtualDrive {
             .state
             .lock()
             .map_err(|_| anyhow!("namespace lock poisoned"))?;
+        if self.bounded_shared {
+            // Generic DAV PUT has no trustworthy editor version. Prefer the last
+            // actual read baseline; a remote refresh alone never grants overwrite.
+            let base = match visible {
+                Some(Revision::Local { id, .. }) => Some(id.clone()),
+                Some(Revision::Cloud { id, .. }) => {
+                    if !s.events.contains_key(id) {
+                        bail!("expired cloud revision; reopen the file");
+                    }
+                    s.bases
+                        .get(path)
+                        .and_then(|ids| ids.first())
+                        .and_then(|id| s.checkpoint_ids.get(id))
+                        .cloned()
+                }
+                None => s
+                    .bases
+                    .get(path)
+                    .and_then(|ids| ids.first())
+                    .and_then(|id| s.checkpoint_ids.get(id))
+                    .cloned(),
+            };
+            let serial = s
+                .checkpoint
+                .as_ref()
+                .map(|c| c.serial)
+                .context("shared coordinator checkpoint not loaded")?;
+            let id = random_id()?;
+            fs::create_dir(self.root.join("spool").join(&id))?;
+            return Ok(Intent {
+                id: id.clone(),
+                path: path.into(),
+                event_path: path.into(),
+                parents: vec![],
+                spool: Some(id),
+                size: 0,
+                hash: String::new(),
+                depends_on: None,
+                checkpoint_base: base,
+                checkpoint_serial: Some(serial),
+            });
+        }
         let parents = if let Some(base) = s.bases.get(path) {
             base.clone()
         } else {
@@ -281,6 +358,8 @@ impl VirtualDrive {
             size: 0,
             hash: String::new(),
             depends_on,
+            checkpoint_base: None,
+            checkpoint_serial: None,
         })
     }
     fn prepare_seal(&self, mut intent: Intent) -> Result<Intent> {
@@ -321,6 +400,17 @@ impl VirtualDrive {
     fn deletion_for(&self, path: &str, revision: &Revision) -> Result<Intent> {
         let mut intent = self.begin_observed(path, Some(revision))?;
         intent.spool = None;
+        if self.bounded_shared {
+            if intent.checkpoint_base.is_none() {
+                intent.checkpoint_base = match revision {
+                    Revision::Local { id, .. } => Some(id.clone()),
+                    Revision::Cloud { id, .. } => {
+                        self.state.lock().unwrap().checkpoint_ids.get(id).cloned()
+                    }
+                };
+            }
+            return Ok(intent);
+        }
         match revision {
             Revision::Local { id, .. } => {
                 intent.depends_on = Some(id.clone());
@@ -360,6 +450,11 @@ impl VirtualDrive {
         Ok(())
     }
     pub(crate) fn import(&self, source: &str) -> Result<()> {
+        if self.bounded_shared
+            && (!self.checkpoint_coordinator || self.state.lock().unwrap().checkpoint.is_some())
+        {
+            bail!("bounded shared manifest imports are only allowed when initializing the coordinator; otherwise copy file bytes through the drive");
+        }
         let manifest = crate::manifest::load_manifest(&self.rclone, source)?;
         crate::manifest::validate_manifest(&manifest)?;
         // Import namespace without reading data. A whole-file hash is not in the
@@ -394,6 +489,9 @@ impl VirtualDrive {
         let visible = self.view()?.get(path).cloned();
         let mut intent = self.begin_observed(path, visible.as_ref())?;
         let state = self.state.lock().unwrap();
+        if self.bounded_shared {
+            return Ok(intent);
+        }
         if let Some(previous) = state.pending.iter().rev().find(|i| i.path == path) {
             intent.depends_on = Some(previous.id.clone());
             intent.event_path = previous.event_path.clone();
@@ -422,6 +520,26 @@ impl VirtualDrive {
         }
         Ok(intent)
     }
+    fn copy_revision_to_spool(&self, revision: &Revision, target: &Path) -> Result<()> {
+        if let Revision::Local { path, .. } = revision {
+            return self.copy_to_spool(path, target);
+        }
+        let mut output = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(target)?;
+        let mut offset = 0;
+        while offset < revision.size() {
+            let bytes = self.read(revision, offset, 1024 * 1024)?;
+            if bytes.is_empty() {
+                bail!("short cloud read during MOVE");
+            }
+            self.write_spool_bytes(&mut output, &bytes)?;
+            offset += bytes.len() as u64;
+        }
+        output.sync_all()?;
+        Ok(())
+    }
     pub(crate) fn rename_file(&self, from: &str, to: &str) -> Result<()> {
         valid_path(from)?;
         valid_path(to)?;
@@ -434,9 +552,12 @@ impl VirtualDrive {
             .cloned()
             .context("rename source missing")?;
         let mut destination = self.move_destination(to)?;
-        let deletion = self.deletion_for(from, &revision)?;
+        let mut deletion = self.deletion_for(from, &revision)?;
+        if self.bounded_shared {
+            deletion.depends_on = Some(destination.id.clone());
+        }
         match revision {
-            Revision::Cloud { content, .. } => {
+            Revision::Cloud { content, .. } if !self.bounded_shared => {
                 let mut s = self.state.lock().unwrap();
                 let mut next = s.clone();
                 if destination.depends_on.is_some() {
@@ -455,9 +576,10 @@ impl VirtualDrive {
                 pins.remove(from);
                 pins.insert(to.into(), Revision::Cloud { id, content });
             }
-            Revision::Local { path, size, .. } => {
+            revision => {
+                let size = revision.size();
                 let output = self.spool_path(&destination);
-                self.copy_to_spool(&path, &output)?;
+                self.copy_revision_to_spool(&revision, &output)?;
                 File::open(&output)?.sync_all()?;
                 destination.size = size;
                 destination.hash = crate::utils::hash_file_range(&output, 0, size)?;
@@ -504,11 +626,14 @@ impl VirtualDrive {
         for (name, revision) in view.iter().filter(|(name, _)| name.starts_with(&prefix)) {
             let target = format!("{to}/{}", &name[prefix.len()..]);
             let mut destination = self.move_destination(&target)?;
-            let deletion = self.deletion_for(name, revision)?;
+            let mut deletion = self.deletion_for(name, revision)?;
+            if self.bounded_shared {
+                deletion.depends_on = Some(destination.id.clone());
+            }
             let content = match revision {
-                Revision::Cloud { content, .. } => Some(content.clone()),
-                Revision::Local { path, .. } => {
-                    self.copy_to_spool(path, &self.spool_path(&destination))?;
+                Revision::Cloud { content, .. } if !self.bounded_shared => Some(content.clone()),
+                revision => {
+                    self.copy_revision_to_spool(revision, &self.spool_path(&destination))?;
                     destination = self.prepare_seal(destination)?;
                     None
                 }
@@ -562,6 +687,9 @@ impl VirtualDrive {
     }
     /// Metadata refresh never uploads dirty spool.
     pub(crate) fn pull(&self) -> Result<()> {
+        if self.bounded_shared {
+            return self.pull_checkpoint();
+        }
         if let Some(root) = &self.shared_root {
             let transport = SharedTransport::new(&self.rclone, root)?;
             let known = self.state.lock().unwrap().events.clone();
@@ -581,6 +709,9 @@ impl VirtualDrive {
         Ok(())
     }
     pub(crate) fn sync(&self) -> Result<()> {
+        if self.bounded_shared {
+            return self.sync_checkpoint();
+        }
         if self.root.join("retention-journal.json").exists() {
             bail!("resume interrupted retention before syncing");
         }
@@ -704,7 +835,10 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         args.cache_gib
             .checked_mul(1073741824)
             .context("cache limit overflow")?,
+        args.bounded_shared,
     )?;
+    drive.checkpoint_coordinator = args.shared_coordinator;
+    drive.checkpoint_keep = args.shared_keep_previous;
     drive.spool_limit = args
         .spool_gib
         .checked_mul(1073741824)
@@ -766,6 +900,9 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     report();
     if args.capacity_only || args.sync_only {
         return Ok(());
+    }
+    if drive.bounded_shared {
+        drive.isolate_previous_native_cache()?;
     }
     let server = super::dav::Server::start(drive.clone())?;
     let mut mount = super::adapter::MountProcess::start(super::adapter::MountConfig {
@@ -924,6 +1061,9 @@ pub(crate) fn fixture(root: &Path) -> VirtualDrive {
         local_leases: Mutex::new(BTreeMap::new()),
         spool_limit: 64 * 1073741824,
         spool_writes: Mutex::new(()),
+        bounded_shared: false,
+        checkpoint_coordinator: false,
+        checkpoint_keep: 1,
         _lock: File::create(root.join("virtual.lock")).unwrap(),
     }
 }

@@ -6,7 +6,93 @@ restoring all files, then downloads/verifies only intersecting shards on reads.
 Both modes keep writes on local disk before asynchronous verified cloud publication.
 An application save is **not** a completed-cloud-replication acknowledgment.
 
-## Virtual drive (new workspace only)
+## Bounded shared history — latest cloud wins (opt-in)
+
+For long-running shared drives, select **Virtual cloud drive → Bounded shared
+history** in the GUI. Use a **NEW workspace on every PC**. Designate exactly **one
+coordinator PC/workspace** using the checkbox; leave it off on all other PCs.
+The default policy keeps the latest version plus **1 previous version per live
+file** (`--shared-keep-previous 1`; use 0 for latest-only). Offline PCs **never pin
+cloud history**. Deleting a file retires all its owned versions, including history.
+Unresolved conflict files remain live files until explicitly deleted.
+
+Example coordinator (Windows, paths illustrative):
+
+```text
+rpool mount --virtual-drive --bounded-shared --shared-coordinator --shared-keep-previous 1 --pool mypool --workspace C:\RPool\bounded-coordinator --shared-root crypt:teamspace --worker-name desktop --mountpoint R:
+```
+
+Other PCs use the same flags/root but omit `--shared-coordinator`, and use their
+own new workspace and worker name. CLI `--sync-only` drains the coordinator's
+queue present at entry; workers publish requests and report any writes still
+waiting for coordinator acknowledgement. The coordinator must be running or
+periodically synced to accept writes and reclaim history. There is **no automatic
+coordinator election/failover**. Never clone an active coordinator workspace or
+run two copies; generic rclone storage provides no distributed compare-and-swap.
+
+### Storage and offline-PC policy
+
+- Upload and verify a fresh full-file archive, activate the replacement checkpoint,
+  then journal and delete exact obsolete owned objects. Readback uncertainty and
+  partial GC resume forward; do not delete transition journals manually.
+- Each upload attempt is registered before writing. Old incomplete attempts are
+  reswept so a paused writer's late objects do not become permanently untracked.
+  Their small unfinished ledger records are retained conservatively; they are
+  **not a hard bound on metadata under unlimited failed upload attempts**.
+- Clients load a complete current checkpoint rather than replay every historical
+  event. A retained checkpoint replaces the preceding one, so revision-event
+  growth no longer depends on the number of successful edits. The checkpoint and
+  listings still have safety size limits (64 MiB); an arbitrarily large live tree
+  is not supported. Corrupt/unavailable metadata fails closed.
+- Stale offline edits/deletes are not blindly replayed. If the actual base is still
+  current, pending work can continue. Otherwise sealed edits are exported to
+  `recovered-writes/<intent>.stale.bin` plus a path receipt; stale deletions are
+  recorded without deleting current cloud files. Rejected dependency chains are
+  isolated together. Concurrent current-epoch edits may create conflict files.
+- Publishing a request is **not acknowledgement**. Local spool is released only
+  after a checkpoint acknowledges it (or a durable local recovery export exists),
+  and after local reader leases close. Unsynced data remains local on quota/network
+  failure. Checkpoint acceptance, not local save success, authorizes cleanup.
+- New namespace lookups use the current cloud tree. Already-open read handles may
+  fail when their version expires; the program never substitutes different bytes
+  for that handle. Native application caches do not provide complete revision
+  identity, so transparent cross-PC handle coherence is not promised.
+- On each bounded native mount restart, any prior `vfs-cache` is **moved intact**
+  to `recovered-native-cache/<id>` before mounting a fresh cache. It is not replayed
+  against a potentially newer cloud tree. Inspect/recover those plaintext files
+  manually before deleting the recovery directory; the spool export button does
+  not decode native VFS cache metadata. Recovery directories are not auto-pruned.
+
+**Capacity headroom:** this still writes complete versions, without cross-version
+block deduplication. Latest + one previous uses roughly twice the current physical
+archive size; replacement can temporarily require a **third** version. With 8+2
+coding and full groups, a 10 GiB file uses about 12.5 GiB/version: approximately
+25 GiB retained, up to 37.5 GiB while replacing, excluding metadata/provider trash.
+Latest-only still needs old + new overlap. Quota is not reserved across PCs; retain
+replacement headroom. If the policy cannot fit, writes stay local, not silently
+pruned below the chosen policy. Provider trash/versioning may delay quota recovery.
+
+### Compatibility and migration boundary
+
+This protocol uses **`shared-root/virtual-v5`**, local binding/namespace version 5.
+Old binaries/workspaces cannot join it. Legacy virtual-v3/replica behavior below is
+unchanged and **does not gain automatic cleanup by upgrading the binary**. Existing
+old cloud archives are not scanned, adopted, or deleted automatically. Imports
+before coordinator initialization remain externally owned and are never swept;
+copy current files through the new drive to create owned, bounded versions.
+After initialization, import new data by copying its bytes through the drive.
+Archive references exported elsewhere do not pin bounded-owned data: do not use
+this managed history as permanent archival storage. Preserve any needed backups
+outside this retention domain.
+
+Validation on 2026-09-28: **333 default / 344 optional OpenDAL tests passed**,
+12 external-tool tests ignored in each. Default release build passed with warnings
+denied, and final CLI help options were verified. Development tests use temporary local
+files and synthetic storage. No user cloud
+objects were deleted or migrated. Real multi-PC cloud/WinFsp/FUSE execution remains
+unverified; enable on a test namespace before production use.
+
+## Legacy virtual drive (new workspace only)
 
 Select **Virtual cloud drive** in Mount drive, a NEW empty persistent workspace,
 Pool, mountpoint, and optionally shared root + worker name. All participating PCs
@@ -73,7 +159,8 @@ separate clean-shard cache limit (default 10 GiB). CLI status JSON exposes
 
 ### Explicit cloud retention — unshared virtual workspaces only
 
-Automatic cloud deletion is **not enabled**. Start with a read-only preview:
+For **unshared** virtual workspaces, automatic cloud deletion is not enabled.
+Start with a read-only preview:
 
 ```text
 rpool mount --virtual-drive --pool mypool --workspace /absolute/workspace --retention-report --keep-previous 3
@@ -355,8 +442,9 @@ release build passed with warnings denied; release `mount --help` flags verified
 Synthetic tests cover retention crash-replay boundaries, live-reader protection,
 spool budget enforcement, shared-publication protection and Resilient quota/
 metadata placement. No real cloud deletion or Windows/Linux native mount test
-was executed. Shared automatic retention and oversized cold bootstrap remain
-unimplemented, regardless of these passing tests.
+was executed. These figures describe the earlier unshared hardening batch. The bounded
+virtual-v5 protocol above adds shared checkpoints/retention; legacy oversized
+cold bootstrap remains unchanged.
 
 References: [rclone mount](https://rclone.org/commands/rclone_mount/),
 [local backend](https://rclone.org/local/).

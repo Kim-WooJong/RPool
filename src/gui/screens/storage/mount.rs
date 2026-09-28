@@ -21,6 +21,9 @@ pub(crate) struct MountForm {
     capacity_read: std::time::Instant,
     identity_editor: String,
     virtual_drive: bool,
+    bounded_shared: bool,
+    shared_coordinator: bool,
+    shared_keep_previous: usize,
     cache_gib: u64,
 }
 
@@ -45,6 +48,9 @@ impl Default for MountForm {
             notice: None,
             capacity: None,
             virtual_drive: false,
+            bounded_shared: false,
+            shared_coordinator: false,
+            shared_keep_previous: 1,
             cache_gib: 10,
             capacity_read: std::time::Instant::now(),
             identity_editor: crate::storage::admin::domains::DomainStore::load()
@@ -109,6 +115,11 @@ impl MountForm {
         if self.shared_root.trim().is_empty() != self.worker_name.trim().is_empty() {
             return Err("Enter both a shared root and a worker name, or leave both empty for local-only mode.".into());
         }
+        if self.bounded_shared && (!self.virtual_drive || self.shared_root.trim().is_empty()) {
+            return Err(
+                "Bounded shared history requires virtual mode and a shared encrypted root.".into(),
+            );
+        }
         if !sync_only && self.mountpoint.trim().is_empty() {
             return Err(
                 "Enter an unused Windows drive letter or an existing empty Unix mount directory."
@@ -136,6 +147,13 @@ impl MountForm {
         if self.virtual_drive {
             args.push("--virtual-drive".into());
             args.push(format!("--cache-gib={}", self.cache_gib).into());
+            if self.bounded_shared {
+                args.push("--bounded-shared".into());
+                args.push(format!("--shared-keep-previous={}", self.shared_keep_previous).into());
+                if self.shared_coordinator {
+                    args.push("--shared-coordinator".into());
+                }
+            }
         }
         args.push("--status-file".into());
         args.push(control.path().join("capacity.json").into_os_string());
@@ -211,7 +229,7 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
         ui.label("In local-only mode, deletion affects only this workspace; shared deletions propagate during safe reconciliation. Previous remote archives are retained. Pending edits may remain local or in the VFS cache until the same workspace is restarted.");
     });
     } else {
-        ui.label("Metadata-first virtual mode: verified shards are fetched on demand. Saves retain local spool/cache until cloud verification. Shared changes arrive live; served remote revisions appear as incoming copies.");
+        ui.label("Metadata-first virtual mode: verified shards are fetched on demand. Saves retain local spool/cache until cloud verification. Legacy mode preserves incoming revision copies. Bounded mode uses latest cloud state and expires old versions.");
     }
     let input_identity = (
         form.pool.clone(),
@@ -219,6 +237,9 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
         form.shared_root.clone(),
         form.manifests.clone(),
         form.virtual_drive,
+        form.bounded_shared,
+        form.shared_coordinator,
+        form.shared_keep_previous,
     );
     ui.add_enabled_ui(!form.runner.is_running(), |ui| {
         ui.horizontal(|ui| {
@@ -237,7 +258,15 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
         });
         ui.checkbox(&mut form.virtual_drive,"Virtual cloud drive — experimental (NEW workspace; lazy verified shards)");
         if form.virtual_drive {
-            ui.label("Compatibility-safe virtual namespace uses shared-root/virtual-v3. Served files stay pinned for this mount; incoming changes appear as named revision copies. Dirty writes and history are retained. Empty directories currently remain local.");
+            ui.checkbox(&mut form.bounded_shared, "Bounded shared history — latest cloud wins (NEW workspace)");
+            if form.bounded_shared {
+                ui.checkbox(&mut form.shared_coordinator, "This is the ONE coordinator PC");
+                ui.horizontal(|ui| { ui.label("Previous versions per live file"); ui.add(egui::DragValue::new(&mut form.shared_keep_previous).range(0..=100)); });
+                ui.label("Latest + previous versions only. Deleted files lose their history. Offline PCs do not pin old cloud data. Unsynced stale writes and previous native cache are isolated locally. Keep exactly one coordinator workspace; other PCs wait for its acknowledgement.");
+            }
+            if !form.bounded_shared {
+                ui.label("Legacy virtual namespace uses shared-root/virtual-v3. Served files stay pinned for this mount; incoming changes appear as named revision copies. Dirty writes and history are retained. Empty directories currently remain local.");
+            }
             ui.horizontal(|ui| {ui.label("Clean shard cache budget (GiB)");ui.add(egui::DragValue::new(&mut form.cache_gib).range(1..=1048576));});
         }
         directory_field(ui, "Persistent local workspace", &mut form.workspace);
@@ -330,6 +359,9 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
             form.shared_root.clone(),
             form.manifests.clone(),
             form.virtual_drive,
+            form.bounded_shared,
+            form.shared_coordinator,
+            form.shared_keep_previous,
         )
     {
         form.capacity = None;
