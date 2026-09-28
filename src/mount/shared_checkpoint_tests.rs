@@ -420,3 +420,61 @@ fn acknowledged_local_delete_allows_deliberate_recreation() {
     let c = accept(&d, &c, &recreated);
     assert_eq!(c.files["file"].id, recreated.id);
 }
+
+#[test]
+fn latest_only_repeated_replacements_retire_old_objects_and_refresh_offline_pc() {
+    let local = tempfile::tempdir().unwrap();
+    let remote = tempfile::tempdir().unwrap();
+    let (writer, mut checkpoint) = setup(local.path());
+    let mut reader = fixture(remote.path());
+    reader.bounded_shared = true;
+    for n in 0..30 {
+        let intent = write(&writer, "file", b"");
+        let old_objects: Vec<_> = checkpoint
+            .files
+            .values()
+            .flat_map(|v| v.value.objects.clone())
+            .collect();
+        let (next, removed) = checkpoint
+            .apply_batch(&[proposal(&writer, &checkpoint, &intent)], 0)
+            .unwrap();
+        assert_eq!(removed, old_objects);
+        assert!(next.history.is_empty());
+        assert_eq!(next.files.len(), 1);
+        writer.install_checkpoint(&pointer(&next), &next).unwrap();
+        writer.cleanup_checkpoint_spool().unwrap();
+        if n == 0 {
+            reader.install_checkpoint(&pointer(&next), &next).unwrap();
+            write(&reader, "offline-only", b"recover me");
+        }
+        checkpoint = next;
+    }
+    reader
+        .install_checkpoint(&pointer(&checkpoint), &checkpoint)
+        .unwrap();
+    let state = reader.state.lock().unwrap();
+    assert!(state.pending.is_empty());
+    assert_eq!(state.checkpoint.as_ref().unwrap().serial, checkpoint.serial);
+    drop(state);
+    assert_eq!(reader.view().unwrap().len(), 1);
+    assert!(reader.view().unwrap().contains_key("file"));
+    assert!(remote.path().join("recovered-writes").is_dir());
+}
+
+#[test]
+fn latest_only_compaction_retires_existing_history_without_new_writes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (drive, mut checkpoint) = setup(tmp.path());
+    for _ in 0..3 {
+        let intent = write(&drive, "file", b"");
+        checkpoint = accept(&drive, &checkpoint, &intent);
+        drive.cleanup_checkpoint_spool().unwrap();
+    }
+    assert_eq!(checkpoint.history["file"].len(), 1);
+    let live = checkpoint.files["file"].id.clone();
+    let retired = checkpoint.history["file"][0].value.objects.clone();
+    let (next, removed) = checkpoint.compact(0).unwrap();
+    assert_eq!(next.files["file"].id, live);
+    assert!(next.history.is_empty());
+    assert_eq!(removed, retired);
+}

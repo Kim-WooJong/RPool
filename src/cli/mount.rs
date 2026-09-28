@@ -12,8 +12,8 @@ pub(crate) struct MountArgs {
     /// Designate this workspace as the ONE shared checkpoint/retention coordinator.
     #[arg(long, requires = "bounded_shared")]
     pub(crate) shared_coordinator: bool,
-    /// Previous cloud revisions per path retained by the coordinator; offline PCs never pin them.
-    #[arg(long, default_value_t = 1)]
+    /// Previous cloud revisions per path; default 0 keeps latest only. Offline PCs never pin history.
+    #[arg(long, default_value_t = 0)]
     pub(crate) shared_keep_previous: usize,
     /// Verified clean-shard cache budget in GiB. Dirty writes are never evicted.
     #[arg(long, default_value_t = 10)]
@@ -117,6 +117,31 @@ mod tests {
                 .chain(["--shared-coordinator", "--shared-keep-previous=0"])
         )
         .is_ok());
+    }
+    #[test]
+    fn shared_history_defaults_to_latest_only_but_allows_explicit_history() {
+        for (extra, expected) in [(vec![], 0), (vec!["--shared-keep-previous=2"], 2)] {
+            let cli = crate::cli::Cli::try_parse_from(
+                [
+                    "rpool",
+                    "mount",
+                    "--pool=p",
+                    "--workspace=/persistent",
+                    "--sync-only",
+                    "--virtual-drive",
+                    "--bounded-shared",
+                    "--shared-root=crypt:s",
+                    "--worker-name=pc",
+                ]
+                .into_iter()
+                .chain(extra),
+            )
+            .unwrap();
+            let Some(crate::cli::Commands::Mount(args)) = cli.command else {
+                panic!("mount expected")
+            };
+            assert_eq!(args.shared_keep_previous, expected);
+        }
     }
     #[test]
     fn retention_requires_exclusive_unshared_virtual_mode() {

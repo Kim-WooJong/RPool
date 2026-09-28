@@ -50,7 +50,7 @@ impl Default for MountForm {
             virtual_drive: false,
             bounded_shared: false,
             shared_coordinator: false,
-            shared_keep_previous: 1,
+            shared_keep_previous: 0,
             cache_gib: 10,
             capacity_read: std::time::Instant::now(),
             identity_editor: crate::storage::admin::domains::DomainStore::load()
@@ -258,11 +258,11 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
         });
         ui.checkbox(&mut form.virtual_drive,"Virtual cloud drive — experimental (NEW workspace; lazy verified shards)");
         if form.virtual_drive {
-            ui.checkbox(&mut form.bounded_shared, "Bounded shared history — latest cloud wins (NEW workspace)");
+            ui.checkbox(&mut form.bounded_shared, "Cloud-authoritative shared drive — latest only by default (NEW workspace)");
             if form.bounded_shared {
                 ui.checkbox(&mut form.shared_coordinator, "This is the ONE coordinator PC");
-                ui.horizontal(|ui| { ui.label("Previous versions per live file"); ui.add(egui::DragValue::new(&mut form.shared_keep_previous).range(0..=100)); });
-                ui.label("Latest + previous versions only. Deleted files lose their history. Offline PCs do not pin old cloud data. Unsynced stale writes and previous native cache are isolated locally. Keep exactly one coordinator workspace; other PCs wait for its acknowledgement.");
+                ui.horizontal(|ui| { ui.label("Previous versions (0 = latest only)"); ui.add(egui::DragValue::new(&mut form.shared_keep_previous).range(0..=100)); });
+                ui.label("Cloud is authoritative; connect successfully before mounting. Latest only by default; extra history is optional. Deleted files lose their history. Offline PCs do not pin old cloud data. Unsynced stale writes and previous native cache are isolated locally. Keep exactly one coordinator workspace; other PCs wait for its acknowledgement.");
             }
             if !form.bounded_shared {
                 ui.label("Legacy virtual namespace uses shared-root/virtual-v3. Served files stay pinned for this mount; incoming changes appear as named revision copies. Dirty writes and history are retained. Empty directories currently remain local.");

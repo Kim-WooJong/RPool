@@ -6,29 +6,37 @@ restoring all files, then downloads/verifies only intersecting shards on reads.
 Both modes keep writes on local disk before asynchronous verified cloud publication.
 An application save is **not** a completed-cloud-replication acknowledgment.
 
-## Bounded shared history — latest cloud wins (opt-in)
+## Cloud-authoritative shared drive — latest only by default (opt-in)
 
-For long-running shared drives, select **Virtual cloud drive → Bounded shared
-history** in the GUI. Use a **NEW workspace on every PC**. Designate exactly **one
+For long-running shared drives, select **Virtual cloud drive → Cloud-authoritative shared drive** in the GUI. Use a **NEW workspace on every PC**. Designate exactly **one
 coordinator PC/workspace** using the checkbox; leave it off on all other PCs.
-The default policy keeps the latest version plus **1 previous version per live
-file** (`--shared-keep-previous 1`; use 0 for latest-only). Offline PCs **never pin
+The default policy keeps **only the latest version per live file**
+(`--shared-keep-previous 0`; explicitly select a positive count only for optional history). Offline PCs **never pin
 cloud history**. Deleting a file retires all its owned versions, including history.
 Unresolved conflict files remain live files until explicitly deleted.
 
 Example coordinator (Windows, paths illustrative):
 
 ```text
-rpool mount --virtual-drive --bounded-shared --shared-coordinator --shared-keep-previous 1 --pool mypool --workspace C:\RPool\bounded-coordinator --shared-root crypt:teamspace --worker-name desktop --mountpoint R:
+rpool mount --virtual-drive --bounded-shared --shared-coordinator --shared-keep-previous 0 --pool mypool --workspace C:\RPool\bounded-coordinator --shared-root crypt:teamspace --worker-name desktop --mountpoint R:
 ```
 
 Other PCs use the same flags/root but omit `--shared-coordinator`, and use their
 own new workspace and worker name. CLI `--sync-only` drains the coordinator's
 queue present at entry; workers publish requests and report any writes still
-waiting for coordinator acknowledgement. The coordinator must be running or
+waiting for coordinator acknowledgement. Existing managed virtual-v5 history above this selected count is reclaimed on
+the next coordinator sync, even without new writes. Legacy/imported archives are
+not affected. The coordinator must be running or
 periodically synced to accept writes and reclaim history. There is **no automatic
 coordinator election/failover**. Never clone an active coordinator workspace or
 run two copies; generic rclone storage provides no distributed compare-and-swap.
+
+On connection, the PC must successfully synchronize the authoritative cloud checkpoint
+before the drive opens. A failed startup sync leaves local work intact and does not
+expose a stale mounted namespace; retry when the cloud is reachable. The file list
+is refreshed first, and verified file bytes download on demand, not as a full local
+replica. While mounted, reconciliation runs at the configured scan interval; this
+is eventual synchronization, not a lock or instantaneous cache coherence.
 
 ### Storage and offline-PC policy
 
@@ -64,7 +72,9 @@ run two copies; generic rclone storage provides no distributed compare-and-swap.
   not decode native VFS cache metadata. Recovery directories are not auto-pruned.
 
 **Capacity headroom:** this still writes complete versions, without cross-version
-block deduplication. Latest + one previous uses roughly twice the current physical
+block deduplication. The default latest-only policy retains one current archive,
+with old + new overlap during replacement. If one previous version is explicitly
+selected, latest + one previous uses roughly twice the current physical
 archive size; replacement can temporarily require a **third** version. With 8+2
 coding and full groups, a 10 GiB file uses about 12.5 GiB/version: approximately
 25 GiB retained, up to 37.5 GiB while replacing, excluding metadata/provider trash.
@@ -85,9 +95,9 @@ Archive references exported elsewhere do not pin bounded-owned data: do not use
 this managed history as permanent archival storage. Preserve any needed backups
 outside this retention domain.
 
-Validation on 2026-09-28: **333 default / 344 optional OpenDAL tests passed**,
+Validation on 2026-09-28: **336 default / 347 optional OpenDAL tests passed**,
 12 external-tool tests ignored in each. Default release build passed with warnings
-denied, and final CLI help options were verified. Development tests use temporary local
+denied, and latest-only CLI help/defaults were verified. Development tests use temporary local
 files and synthetic storage. No user cloud
 objects were deleted or migrated. Real multi-PC cloud/WinFsp/FUSE execution remains
 unverified; enable on a test namespace before production use.

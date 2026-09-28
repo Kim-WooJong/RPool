@@ -156,7 +156,7 @@ impl VirtualDrive {
             spool_writes: Mutex::new(()),
             bounded_shared,
             checkpoint_coordinator: false,
-            checkpoint_keep: 1,
+            checkpoint_keep: 0,
             _lock: lock,
         })
     }
@@ -873,6 +873,10 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         drive.pull()?;
     } else if args.sync_only {
         drive.sync()?;
+    } else if drive.bounded_shared {
+        // Never expose a stale bounded namespace when authoritative startup sync fails.
+        // The durable spool/cache remains available for recovery and a later retry.
+        drive.sync().context("Cloud synchronization required before opening this shared drive; local work is retained")?;
     } else if let Err(e) = drive.sync() {
         eprintln!("Virtual sync pending, durable local state retained: {e:#}");
     }
@@ -913,7 +917,11 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         shared: true,
         webdav: Some((format!("http://{}/", server.address), server.token.clone())),
     })?;
-    println!("Virtual drive starting: metadata-only listing, verified shard reads, durable local write spool. Incoming updates to served paths appear as incoming revision copies until remount; no distributed locking guarantee.");
+    if drive.bounded_shared {
+        println!("Shared drive starting: cloud-authoritative namespace synchronized; file bytes download on demand. Local writes await coordinator acceptance; no distributed locking guarantee.");
+    } else {
+        println!("Virtual drive starting: metadata-only listing, verified shard reads, durable local write spool. Incoming updates to served paths appear as incoming revision copies until remount; no distributed locking guarantee.");
+    }
     let start = std::time::Instant::now();
     let mut ready = false;
     let mut last = std::time::Instant::now();
@@ -1063,7 +1071,7 @@ pub(crate) fn fixture(root: &Path) -> VirtualDrive {
         spool_writes: Mutex::new(()),
         bounded_shared: false,
         checkpoint_coordinator: false,
-        checkpoint_keep: 1,
+        checkpoint_keep: 0,
         _lock: File::create(root.join("virtual.lock")).unwrap(),
     }
 }
