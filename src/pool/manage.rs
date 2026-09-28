@@ -1,0 +1,34 @@
+use crate::models::PoolDefinition;
+use crate::pool::{load_pool_store, save_pool_store, validate_pool, validate_pool_name};
+use crate::remote_root::apply_remote_roots;
+use crate::storage::admin::{BackendAdmin, RcloneAdmin};
+use anyhow::{bail, Result};
+use std::path::PathBuf;
+
+pub(crate) fn upsert_pool(rclone: &str, name: &str, pool: PoolDefinition) -> Result<PathBuf> {
+    upsert_pool_with_admin(&RcloneAdmin::inherited(rclone), name, pool)
+}
+pub(crate) fn upsert_pool_with_admin(
+    admin: &dyn BackendAdmin,
+    name: &str,
+    pool: PoolDefinition,
+) -> Result<PathBuf> {
+    validate_pool_name(name)?;
+    validate_pool(&pool)?;
+    let resolved_remotes = apply_remote_roots(pool.remotes.clone())?;
+    for remote in &resolved_remotes {
+        admin.ensure_encrypted(remote)?;
+    }
+    let mut store = load_pool_store()?;
+    store.pools.insert(name.to_string(), pool);
+    save_pool_store(&store)
+}
+
+pub(crate) fn remove_pool(name: &str) -> Result<PathBuf> {
+    validate_pool_name(name)?;
+    let mut store = load_pool_store()?;
+    if store.pools.remove(name).is_none() {
+        bail!("pool not found: {name}");
+    }
+    save_pool_store(&store)
+}

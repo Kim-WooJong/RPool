@@ -1,0 +1,10 @@
+/target/
+*.rpool.upload.json
+*.rpool.resume.json
+
+# Machine-local restore state must not be synchronized with portable settings.
+*.rpool-lock
+*.rpool-restore/
+# Defense in depth only; identity paths are also checked outside the artifact root.
+*.agekey
+*.age-key

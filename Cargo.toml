@@ -1,0 +1,41 @@
+[package]
+name = "rpool"
+version = "0.5.15"
+edition = "2021"
+description = "Parallel sharded storage with Reed-Solomon erasure coding over rclone remotes"
+license = "MIT"
+autolib = false
+autobins = false
+
+[workspace]
+resolver = "2"
+
+[[bin]]
+name = "rpool"
+path = "src/main.rs"
+
+[features]
+default = []
+# Synthetic Memory adapter only; does not enable production native writes.
+opendal-prototype = ["dep:opendal", "dep:tokio"]
+
+[dependencies]
+opendal = { version = "=0.59.3", default-features = false, optional = true }
+tokio = { version = "1.52", default-features = false, features = ["rt-multi-thread"], optional = true }
+anyhow = "1"
+eframe = "0.36.2"
+rfd = "0.17.2"
+blake3 = "1"
+clap = { version = "4", features = ["derive"] }
+rayon = "1"
+reed-solomon-erasure = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Already present in Cargo.lock; promoted for secret generation/atomic ciphertext writes.
+getrandom = "0.3.4"
+tempfile = "3.27.0"
+
+# Isolated synthetic LocalBackend: descriptor-relative, no-follow Unix filesystem I/O.
+[target.'cfg(unix)'.dev-dependencies]
+rustix = { version = "1.1.5", features = ["fs"] }

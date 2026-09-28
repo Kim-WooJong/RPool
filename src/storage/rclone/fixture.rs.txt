@@ -1,0 +1,32 @@
+use std::{env,fs,io::{self,Read,Write},thread,time::Duration};
+fn main() {
+    let mut args:Vec<String>=env::args().skip(1).collect();
+    let config=if args.first().map(String::as_str)==Some("--config") {let path=args.remove(1);args.remove(0);Some(path)} else {None};
+    let verb=args.first().map(String::as_str).unwrap_or("");
+    let address=args.last().map(String::as_str).unwrap_or("");
+    if verb=="config" { print!("{}",config.as_ref().map(|p|fs::read_to_string(p).unwrap()).unwrap_or_else(||r#"{"crypt":{"type":"crypt"}}"#.into()));return }
+    if address.contains("hang") {thread::sleep(Duration::from_secs(30));return}
+    if address.contains("missing") {eprintln!("object not found");std::process::exit(4)}
+    if address.contains("auth") {eprintln!("authentication failed secret-marker not found");std::process::exit(1)}
+    if address.contains("denied") {eprintln!("permission denied secret-marker");std::process::exit(1)}
+    if address.contains("badconfig") {eprintln!("config section not found");std::process::exit(1)}
+    match verb {
+        "version"=>println!("rclone v1.fixture"),
+        "lsf"=>println!("synthetic-object"),
+        "lsjson" => {if address.contains("malformed"){print!("not json")}else{print!("{{\"Size\":6,\"IsDir\":false}}")}},
+        "cat" => {
+            if address.contains("flood") {let data=vec![b'x';128*1024];for _ in 0..20{io::stderr().write_all(&data).unwrap();}print!("abcdef");return}
+            if address.contains("oversized") {let data=vec![42;65536];for _ in 0..200{if io::stdout().write_all(&data).is_err(){return}}return}
+            if address.starts_with("echo:"){print!("{address}");return}
+            let offset=args.iter().position(|a|a=="--offset").map(|i|args[i+1].parse::<usize>().unwrap()).unwrap_or(0).min(6);
+            let count=args.iter().position(|a|a=="--count").map(|i|args[i+1].parse::<usize>().unwrap()).unwrap_or(6).min(6-offset);
+            io::stdout().write_all(&b"abcdef"[offset..offset+count]).unwrap();
+        },
+        "rcat"=>{let mut data=Vec::new();io::stdin().read_to_end(&mut data).unwrap();if let Some(path)=config{fs::write(format!("{path}.written"),&data).unwrap();fs::write(format!("{path}.address"),address).unwrap();}if address.contains("lost"){std::process::exit(5)}},
+        "copyto"=>{if let Some(path)=config{fs::write(format!("{path}.written"),address).unwrap();}},
+        "deletefile"=>(),
+        "listremotes"=>print!("crypt:\n"),
+        "about"=>print!("{{\"total\":100,\"used\":25,\"free\":75}}"),
+        _=>std::process::exit(2),
+    }
+}

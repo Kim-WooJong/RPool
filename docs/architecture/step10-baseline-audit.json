@@ -1,0 +1,121 @@
+{
+  "baseline": "input-rpool---125e9131-730d-4b17-89d4-060a2dc1dfd1.zip",
+  "scope": "crypt portability/config_sync plus manifest schema/root core",
+  "files": [
+    {
+      "path": "src/config_sync/age_vault.rs",
+      "sha256": "ee48c46b438b66d2dc456ebf905531a2bbdb09382084431217c4c5766a5eeea5",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/config_sync/artifact.rs",
+      "sha256": "d3945c7ecb18a31aa88a1c3dac15fdaef755d8be0368aa6dd40a458f801ac56f",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/config_sync/b6_integration_tests.rs",
+      "sha256": "3fbcc8e99b0dc89ca17e666dfd0ed5f9c4092f2726fdd3b190a74935fbe40ac4",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/config_sync/crypt_generate.rs",
+      "sha256": "801a74cc8d457f2de1e2447a1cdf21d48393a3208968e31b04bf76ee43823fb4",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/config_sync/crypt_restore.rs",
+      "sha256": "ade2245445ac1b4346a1220f8606963f315f7c2c0cc72b0899445b8a1dfe4b1d",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/config_sync/crypt_secrets.rs",
+      "sha256": "e8c8d9772f92a9aa267e58de6e340560c6390579db43d12bbbf8ceb175a56afc",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/config_sync/export.rs",
+      "sha256": "936546b6a1d6dc77cf52985df867dedd8e1fa203c33fdee840a0ce24434cb917",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/config_sync/import.rs",
+      "sha256": "083fb4dc322df33bc03cc046dd0ada5842b6eabfcd9227a90cfd775def40e5d2",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/config_sync/mod.rs",
+      "sha256": "b279f7d2def6a0bb4f0d0e3ab18e53e68813928d3128f011ea5bc1f2fb8b0b55",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/config_sync/plaintext_config.rs",
+      "sha256": "237fb8a09e22f8107895ec7192d24ccb796397128d8d5956e3606783d2fe0251",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/config_sync/secret_process.rs",
+      "sha256": "174aec5d846e9028eedb59b597febaca5bb238ffe7facda44da523b3b56b765d",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/config_sync/tooling.rs",
+      "sha256": "f00d68914c4c173ddf9607d51ccf64c0328fab20f67eb8271aa60a8d68a9aaae",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/config_sync/transaction/files.rs",
+      "sha256": "4999025b9192960f358f3057e7abc4be44a09ad40bd8d7b97d24836312c2e92c",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/config_sync/transaction/mod.rs",
+      "sha256": "28a4d594f8672b5309490f403c53d689b8e71df3caad43a224ba947c64a98ea4",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/config_sync/transaction/recovery.rs",
+      "sha256": "3636f8249443b20f5673bb524115a811882b363998539dcd6834120cb8494925",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/config_sync/transaction/run.rs",
+      "sha256": "2c50fe89200c60de23faa6e4935986795fe10924006884500d610a7327f3d175",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/config_sync/transaction/tests.rs",
+      "sha256": "883591c66e73e9ecb1d33763db42c4c18068d9e26f8feeb64ca640ba2b14feed",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/config_sync/validate.rs",
+      "sha256": "aeb03e7ab3fff9f7ccc1d07286e0989d4028b98068de0e1b0983b50f7a54a70c",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/manifest/content_root.rs",
+      "sha256": "58c10ddea3bc8e369e5a7eafddb4a84d1cc72388d8b0bc850afc765b4235114c",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/models/coding.rs",
+      "sha256": "dced7a0d6df8c0937cbb1cfeb3b425735d06de35fb920edaf58b3e9deaa4b717",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/models/manifest.rs",
+      "sha256": "f62d92ba0a587bdfce7644fe0b9e19341da086775d16364a9ec7225f745c12fa",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/models/portable_config.rs",
+      "sha256": "dada866769aaeae8b07848d15a33ae7130ef9a2ebed1154893c963def035b0db",
+      "matches_input_zip": true
+    },
+    {
+      "path": "src/models/secrets.rs",
+      "sha256": "3740209ec3b0091ee9e1ff7b59aea56f2895f05bb87c7022770258365b695a07",
+      "matches_input_zip": true
+    }
+  ]
+}

@@ -1,0 +1,97 @@
+use super::{start, validation};
+use super::state::UploadItemStatus;
+use crate::gui::state::GuiState;
+use crate::gui::task::TaskRunner;
+
+pub(crate) fn start_batch(state: &mut GuiState, task: &mut TaskRunner) -> Result<(), String> {
+    if task.is_running() {
+        return Err("Another rpool operation is already running.".to_string());
+    }
+    if state.upload.batch_active {
+        return Err("This upload batch is already running.".to_string());
+    }
+    if state.upload.items.is_empty() {
+        return Err("Add one or more source files first.".to_string());
+    }
+    if state.upload.pending_count() == 0 {
+        return Err("There are no pending files to upload.".to_string());
+    }
+    validation::validate_configuration(state)?;
+    state.upload.error = None;
+    state.upload.batch_active = true;
+    start_next(state, task)
+}
+
+pub(crate) fn poll_batch(state: &mut GuiState, task: &mut TaskRunner) {
+    if !state.upload.batch_active || task.is_running() {
+        return;
+    }
+
+    let Some(index) = state.upload.active_index else {
+        if let Err(error) = start_next(state, task) {
+            state.upload.batch_active = false;
+            state.upload.error = Some(error);
+        }
+        return;
+    };
+
+    let Some(outcome) = task.last_outcome().cloned() else {
+        return;
+    };
+
+    if let Some(item) = state.upload.items.get_mut(index) {
+        item.status = if outcome.cancelled {
+            UploadItemStatus::Cancelled
+        } else if outcome.success {
+            UploadItemStatus::Completed
+        } else {
+            UploadItemStatus::Failed
+        };
+    }
+    state.upload.active_index = None;
+
+    if outcome.cancelled {
+        state.upload.batch_active = false;
+        state.upload.error = Some("Upload batch cancelled. Pending files were kept in the queue.".to_string());
+        return;
+    }
+    if !outcome.success {
+        state.upload.batch_active = false;
+        state.upload.error = Some(
+            "Upload batch paused after a failed file. Pending files were kept in the queue."
+                .to_string(),
+        );
+        return;
+    }
+
+    if let Err(error) = start_next(state, task) {
+        state.upload.batch_active = false;
+        state.upload.error = Some(error);
+    }
+}
+
+fn start_next(state: &mut GuiState, task: &mut TaskRunner) -> Result<(), String> {
+    let Some(index) = state
+        .upload
+        .items
+        .iter()
+        .position(|item| item.status == UploadItemStatus::Pending)
+    else {
+        state.upload.batch_active = false;
+        state.upload.active_index = None;
+        state.upload.error = None;
+        return Ok(());
+    };
+
+    let path = state.upload.items[index].path.clone();
+    state.upload.items[index].status = UploadItemStatus::Running;
+    state.upload.active_index = Some(index);
+
+    if let Err(error) = start::start_upload_path(state, task, &path) {
+        state.upload.items[index].status = UploadItemStatus::Failed;
+        state.upload.active_index = None;
+        state.upload.batch_active = false;
+        return Err(error);
+    }
+    Ok(())
+}

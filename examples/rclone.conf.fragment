@@ -1,0 +1,36 @@
+# Provider remotes such as gdrive:, mega:, box:, koofr: are assumed
+# to already exist. These crypt remotes are examples only.
+# Run `rclone config` to create crypt passwords; do not copy secrets
+# from another machine unless that is intentional.
+
+[gdrive-crypt]
+type = crypt
+remote = gdrive:rpool-data
+filename_encryption = standard
+directory_name_encryption = true
+
+[mega-crypt]
+type = crypt
+remote = mega:rpool-data
+filename_encryption = standard
+directory_name_encryption = true
+
+[box-crypt]
+type = crypt
+remote = box:rpool-data
+filename_encryption = standard
+directory_name_encryption = true
+
+[koofr-crypt]
+type = crypt
+remote = koofr:rpool-data
+filename_encryption = standard
+directory_name_encryption = true
+
+# Example for a physical backend whose usable filesystem begins below its root.
+# rpool still writes through this crypt remote, never directly to Instance:/data/crypt.
+[instance-crypt]
+type = crypt
+remote = Instance:/data/crypt
+filename_encryption = standard
+directory_name_encryption = true

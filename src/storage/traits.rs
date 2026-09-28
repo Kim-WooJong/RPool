@@ -1,0 +1,282 @@
+//! StorageBackend contract (Step 2).
+//!
+//! Object-safe, synchronous, streaming. No generic methods, no `Self` returns,
+//! no `impl Trait` in signatures — `dyn StorageBackend` must work. No
+//! rclone/OpenDAL/GUI/Manifest types appear here (target.md §3.3).
+//!
+//! Retained storage contract surface; unused future operations remain explicit diagnostics.
+
+use std::io::{Read, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
+
+use crate::storage::capabilities::BackendCapabilities;
+use crate::storage::error::StorageError;
+use crate::storage::reference::{BackendId, ObjectKey};
+
+/// Half-open byte range `[offset, offset + length)` with checked arithmetic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReadRange {
+    offset: u64,
+    length: u64,
+}
+
+impl ReadRange {
+    pub(crate) fn new(offset: u64, length: u64) -> Result<Self, StorageError> {
+        offset
+            .checked_add(length)
+            .map(|_| Self { offset, length })
+            .ok_or_else(|| {
+                StorageError::invalid_input(format!(
+                    "range overflow: offset={offset} + length={length}"
+                ))
+            })
+    }
+
+    pub(crate) fn offset(&self) -> u64 {
+        self.offset
+    }
+
+    pub(crate) fn length(&self) -> u64 {
+        self.length
+    }
+
+    /// `offset + length`. Safe: `new` guarantees no overflow.
+    pub(crate) fn end(&self) -> u64 {
+        self.offset + self.length
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.length == 0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ObjectMetadata {
+    pub(crate) size: u64,
+    pub(crate) is_dir: bool,
+    /// Opaque version/ETag if the backend exposes one. Presence does NOT imply
+    /// conditional-update support (target.md §3.6).
+    pub(crate) version: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReadReceipt {
+    pub(crate) bytes_read: u64,
+    pub(crate) version: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WriteOptions {
+    /// If true, overwrite an existing object. If false and the object exists,
+    /// the write must fail with `AlreadyExists` (conditional create).
+    pub(crate) overwrite: bool,
+    /// Conditional update: only write if the current version matches.
+    pub(crate) expected_version: Option<String>,
+}
+
+impl Default for WriteOptions {
+    fn default() -> Self {
+        Self {
+            overwrite: true,
+            expected_version: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WriteReceipt {
+    pub(crate) size: u64,
+    pub(crate) version: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CopyReceipt {
+    pub(crate) size: u64,
+    pub(crate) version: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ListEntry {
+    pub(crate) key: ObjectKey,
+    pub(crate) size: u64,
+    pub(crate) is_dir: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ListPage {
+    pub(crate) entries: Vec<ListEntry>,
+    pub(crate) next_page: Option<String>,
+}
+
+/// Per-operation deadline + cancellation, propagated into adapters. A remote
+/// write that may have committed after a cancel/timeout is `UnknownOutcome`,
+/// not a clean cancel (target.md §3.4, ADR-004).
+pub(crate) struct OperationContext {
+    deadline: Option<Instant>,
+    cancel: Option<Arc<AtomicBool>>,
+}
+
+impl OperationContext {
+    pub(crate) fn none() -> Self {
+        Self {
+            deadline: None,
+            cancel: None,
+        }
+    }
+
+    pub(crate) fn with_deadline(deadline: Instant) -> Self {
+        Self {
+            deadline: Some(deadline),
+            cancel: None,
+        }
+    }
+
+    pub(crate) fn with_cancel(cancel: Arc<AtomicBool>) -> Self {
+        Self {
+            deadline: None,
+            cancel: Some(cancel),
+        }
+    }
+
+    pub(crate) fn with_deadline_and_cancel(deadline: Instant, cancel: Arc<AtomicBool>) -> Self {
+        Self {
+            deadline: Some(deadline),
+            cancel: Some(cancel),
+        }
+    }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancel
+            .as_ref()
+            .map_or(false, |c| c.load(Ordering::Acquire))
+    }
+
+    pub(crate) fn deadline(&self) -> Option<Instant> {
+        self.deadline
+    }
+
+    /// Whether the deadline has passed. A passed deadline does NOT by itself
+    /// abort an in-flight remote write.
+    pub(crate) fn deadline_passed(&self) -> bool {
+        self.deadline.map_or(false, |d| Instant::now() >= d)
+    }
+}
+
+impl Default for OperationContext {
+    fn default() -> Self {
+        Self::none()
+    }
+}
+
+/// The storage contract. Object-safe: no generic methods, no `Self` returns, no
+/// `impl Trait` in signatures. `Send + Sync` so `Arc<dyn StorageBackend>` can
+/// cross Rayon worker threads.
+pub(crate) trait StorageBackend: Send + Sync {
+    fn id(&self) -> BackendId;
+
+    fn capabilities(&self) -> BackendCapabilities;
+
+    fn stat(&self, ctx: &OperationContext, key: &ObjectKey)
+        -> Result<ObjectMetadata, StorageError>;
+
+    /// Stream `range` bytes of `key` into `sink`. Implementations must not load
+    /// the whole object into memory unless the range is the whole object.
+    fn read(
+        &self,
+        ctx: &OperationContext,
+        key: &ObjectKey,
+        range: &ReadRange,
+        sink: &mut dyn Write,
+    ) -> Result<ReadReceipt, StorageError>;
+
+    /// Convenience: read at most `limit` bytes into a `Vec`. `None` means the
+    /// whole object; callers must pass an explicit limit for metadata reads.
+    fn read_all(
+        &self,
+        ctx: &OperationContext,
+        key: &ObjectKey,
+        limit: Option<usize>,
+    ) -> Result<Vec<u8>, StorageError>;
+
+    fn write(
+        &self,
+        ctx: &OperationContext,
+        key: &ObjectKey,
+        source: &mut dyn Read,
+        options: &WriteOptions,
+    ) -> Result<WriteReceipt, StorageError>;
+
+    fn delete(&self, ctx: &OperationContext, key: &ObjectKey) -> Result<(), StorageError>;
+
+    fn list(
+        &self,
+        ctx: &OperationContext,
+        prefix: &str,
+        page: Option<&str>,
+    ) -> Result<ListPage, StorageError>;
+
+    /// Same-backend native copy. Cross-backend copy is a transfer-service
+    /// concern (read → write → verify), not a backend primitive.
+    fn copy(
+        &self,
+        ctx: &OperationContext,
+        source: &ObjectKey,
+        destination: &ObjectKey,
+    ) -> Result<CopyReceipt, StorageError>;
+
+    /// Optional atomic rename. Implementations that cannot provide atomicity
+    /// must return `Unsupported` rather than emulate with copy+delete.
+    fn rename(
+        &self,
+        ctx: &OperationContext,
+        source: &ObjectKey,
+        destination: &ObjectKey,
+    ) -> Result<(), StorageError>;
+}
+
+// Compile-time proof that `dyn StorageBackend` is object-safe. The registry's
+// `Arc<dyn StorageBackend>` also requires this.
+fn _assert_object_safe(_b: &dyn StorageBackend) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_range_checked_arithmetic() {
+        assert!(ReadRange::new(0, 0).is_ok());
+        assert!(ReadRange::new(u64::MAX, 1).is_err());
+        let r = ReadRange::new(10, 5).unwrap();
+        assert_eq!(r.offset(), 10);
+        assert_eq!(r.length(), 5);
+        assert_eq!(r.end(), 15);
+        assert!(!r.is_empty());
+        assert!(ReadRange::new(0, 0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn operation_context_defaults() {
+        let ctx = OperationContext::none();
+        assert!(!ctx.is_cancelled());
+        assert!(ctx.deadline().is_none());
+        assert!(!ctx.deadline_passed());
+    }
+
+    #[test]
+    fn operation_context_cancel_flag() {
+        let flag = Arc::new(AtomicBool::new(false));
+        let ctx = OperationContext::with_cancel(flag.clone());
+        assert!(!ctx.is_cancelled());
+        flag.store(true, Ordering::Release);
+        assert!(ctx.is_cancelled());
+    }
+
+    #[test]
+    fn write_options_default_overwrites_without_version() {
+        let opts = WriteOptions::default();
+        assert!(opts.overwrite);
+        assert!(opts.expected_version.is_none());
+    }
+}
