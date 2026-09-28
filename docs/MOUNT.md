@@ -69,6 +69,40 @@ revision. On restart, previous native VFS cache is isolated under
 `recovered-native-cache/` without deletion; inspect it for unsaved work. Native
 Windows/WinFsp and Linux/FUSE behavior remains unverified.
 
+### Incremental immutable uploads (Option C)
+
+Automatic pool sync can reuse unchanged remote data from the edit's captured
+parent revision. It does not choose another worker's latest revision as the base
+and does not merge concurrent edits. The original-plus-worker-branches conflict
+policy remains unchanged.
+
+- Plain archives reuse individual unchanged shards; Reed–Solomon archives reuse
+  complete unchanged data/parity groups. A changed group is uploaded under fresh
+  object identities; borrowed objects are never overwritten.
+- Initial optimization requires equal file size, shard size and coding layout.
+  Other edits use the existing full uploader. Resilient placement uses the full
+  uploader in this initial implementation.
+- Reuse initially requires a parent produced by this workspace's durable local
+  upload record, with a matching archive identity. Imported archives, metadata-only
+  renamed versions, and a first edit of another PC's revision use a full upload,
+  because their retained-object lifetime is not established by that upload record.
+- Reused objects are verified. A durable per-edit recipe and final manifest keep
+  retries on the same source/base and publication bytes. Failures retain local
+  pending data rather than acknowledge a broken revision.
+- Reading still follows explicit immutable shard references. This is **not**
+  byte-range automatic merging, a central metadata service, atomic global CAS,
+  or a new remote-durable application `fsync` guarantee.
+
+This reduces repeated payload uploads, not retained revision count. Full integrity
+verification still reads remote objects, so this is not a claim of lower total
+network traffic or end-to-end latency. Changed-group
+archives also have small manifests. Historical objects and metadata remain
+append-only; shared garbage collection remains disabled. Composed manifests are
+not registered as exclusively owned archives, because they reference earlier
+archives. Never manually delete those earlier objects while a revision uses them.
+Provider drain with `--delete-source` is rejected for virtual-drive archives;
+copy-only migration and reprocessing retain the referenced originals.
+
 ### Future history-count configuration — stored, NOT enforced yet
 
 Each workspace has `pool-sync-config.json`:
@@ -96,7 +130,7 @@ solving long-term storage growth. The self-contained snapshot/GC design remains 
 [PEER_SYNC_DESIGN.md](PEER_SYNC_DESIGN.md).
 
 No existing v3/v5/replica workspace or legacy cloud history is silently converted.
-Validation: **351 default / 362 optional OpenDAL tests passed**, 12 external-tool
+Validation: **362 default / 373 optional OpenDAL tests passed**, 12 external-tool
 tests ignored per configuration; warning-denied default release build passed.
 Tests use synthetic storage and local HTTP; no real cloud files were deleted and no
 real multi-PC/native-mount acceptance claim is made.

@@ -38,11 +38,31 @@ No actual cloud/multiple-PC/WinFsp/FUSE acceptance validation performed.
 - Offline edit/edit and edit/delete preservation, causal deletion/recreation.
 - Incoming reconciliation with displaced-byte recovery journal and catalog v2.
 
-## In Progress
+## Latest Completed Batch
 
-Automatic pool metadata stage completed; default/optional tests and warning-denied
-release build passed. No actual cloud data was changed.
-Future self-contained snapshots/GC are not part of this first-stage completion.
+Option C follow-up: keep coordinator-free event sync, add peer-only immutable
+shard/group reuse. Implementation, 362 default / 373 optional tests (12 ignored each), formatting
+and warning-denied release build passed after final provenance hardening.
+Independent bounded review is complete; all identified blockers were fixed. No actual cloud data changed.
+Future self-contained snapshots/GC are not part of this bounded batch.
+
+### Option C implementation
+
+- `src/mount/incremental.rs`: equal-size/layout plain-shard or whole-RS-group reuse;
+  fresh group objects via existing upload pipeline, verified composed v2 manifest.
+- Checksummed durable source/base/policy recipe, subgroup receipts and exact final
+  manifest prevent retry identity drift. Full-upload route receipt prevents
+  switching upload strategies after a partial/ambiguous full publication.
+- Captured sole parent only, with this workspace's matching upload identity and
+  local commit receipt (metadata-only rename receipts do not qualify). Imported
+  and first remote-derived edits, changed layouts and Resilient use full upload.
+- Composed manifests bypass exclusive ownership; shared GC remains blocked.
+  Destructive provider drain rejects virtual archives, including parent archives.
+- Existing original+worker-branches/GUI conflicts remain unchanged. No central CAS,
+  no automatic chunk merge, no remote-durable application fsync claim.
+- History-limit remains stored-only, not enforced. Payload duplication is reduced,
+  but metadata/changed-group history still accumulates; verification reads remain.
+
 
 ## Current bounded batch
 
@@ -151,6 +171,20 @@ Implemented the bounded five-lane integration batch (virtual mode opt-in/experim
 
 ## Validation
 
+2026-09-28 Option C incremental-upload batch, macOS:
+- Default tests: 362 passed, 12 ignored; optional OpenDAL: 373 passed, 12 ignored.
+- Changed RS/plain group upload counts, borrowed object identity preservation,
+  unchanged metadata-only upload, corrupt references, exact-byte publication retry,
+  source/policy/checksum mismatch fail-closed, fallback, captured ancestry and
+  imported→rename→edit provenance rejection tested.
+- Real Reed–Solomon parity with one missing data object in each of a borrowed and
+  a new group restored exact full bytes through production ShardCache/StorageReader.
+- Warning-denied default release, cargo fmt --check and git diff --check passed.
+- Independent review found and fixed exclusive-ownership contamination risk,
+  destructive provider-drain references, externally managed imports, and local
+  metadata-only renames incorrectly qualifying as upload provenance.
+- Tests use local/injected backends; no real cloud/native multi-PC acceptance test.
+
 2026-09-28 automatic pool metadata first stage, macOS:
 - Default tests: 351 passed, 12 ignored; optional OpenDAL: 362 passed, 12 ignored.
 - Includes replica failure/retry/healing, deterministic pool paths, persisted history config, original+both sibling edits, deleted-path directory reuse, mixed maximal-base ambiguity, offline late sibling, resolution race projection, pending-read fences and real loopback HTTP cross-request range fencing.
@@ -186,9 +220,9 @@ Previous unshared hardening batch (macOS):
 
 ## Resume
 
-The user requested automatic existing-pool metadata FIRST, with history count
-configuration stored for future functionality. That stage is implemented and validated; stop this bounded batch. Do not imply history_limit triggers deletion
-or that coordinator-free bounded cloud storage is complete. Future requirements:
+The user selected Option C: coordinator-free metadata sync plus immutable data
+reuse. This bounded incremental-upload batch is complete; stop. Do not imply
+history_limit triggers deletion or that coordinator-free bounded cloud storage is complete. Future requirements:
 self-contained snapshots/private ownership, peer compaction/GC and agreed retention
 policy; see docs/PEER_SYNC_DESIGN.md. Do not ask for a separate metadata provider or
 reintroduce a designated PC. Preserve unrelated config-sync/path changes.

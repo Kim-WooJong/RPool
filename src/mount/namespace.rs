@@ -395,6 +395,38 @@ impl Namespace {
         self.bases.insert(path.into(), base.clone());
         Ok(base)
     }
+    /// Optimization baseline only: use the edit's captured ancestry, never the
+    /// latest projected head (which may be a concurrent writer's revision).
+    pub(crate) fn upload_base(&self, intent: &Intent) -> Result<Option<Content>> {
+        let parents = match &intent.depends_on {
+            Some(id) => vec![self
+                .committed_intents
+                .get(id)
+                .context("previous local write not committed")?
+                .clone()],
+            None => intent.parents.clone(),
+        };
+        if parents.len() != 1 {
+            return Ok(None);
+        }
+        // Imported/other-workspace archives may still be owned by a legacy GC.
+        // Only this workspace's durable commit receipts prove the base was
+        // produced under our no-GC peer policy. A remote base gets a full upload
+        // on its first local edit; subsequent local edits may reuse it.
+        Ok(self
+            .events
+            .get(&parents[0])
+            .filter(|event| event.path == intent.event_path)
+            .and_then(|event| event.content.clone())
+            .filter(|content| {
+                // Metadata-only MOVE also creates a local commit receipt, but
+                // does not establish ownership/lifetime of imported content.
+                self.committed_intents.iter().any(|(receipt, event)| {
+                    event == &parents[0]
+                        && content.manifest.archive_id == format!("virtual-{receipt}")
+                })
+            }))
+    }
     pub(crate) fn commit(&mut self, intent: &Intent, content: Option<Content>) -> Result<String> {
         let event = Event {
             version: 1,

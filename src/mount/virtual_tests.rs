@@ -59,6 +59,91 @@ fn write(d: &super::virtual_drive::VirtualDrive, path: &str, bytes: &[u8]) -> In
     d.state.lock().unwrap().pending.last().unwrap().clone()
 }
 #[test]
+fn incremental_base_is_captured_ancestry_not_new_remote_head() {
+    fn archive(state: &mut Namespace, event_id: String, receipt: &str) -> String {
+        let mut event = state.events.remove(&event_id).unwrap();
+        event.content.as_mut().unwrap().manifest.archive_id = format!("virtual-{receipt}");
+        let id = event.id().unwrap();
+        state.events.insert(id.clone(), event);
+        id
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let d = fixture(temp.path());
+    let mut state = d.state.lock().unwrap();
+    let original = add(&mut state, "file", Some(b"original"), vec![], "a");
+    let original = archive(&mut state, original, "original-local-write");
+    let latest = add(
+        &mut state,
+        "file",
+        Some(b"remote"),
+        vec![original.clone()],
+        "b",
+    );
+    let latest = archive(&mut state, latest, "earlier-local-write");
+    state
+        .committed_intents
+        .insert("original-local-write".into(), original.clone());
+    let mut intent = Intent {
+        id: "pending".into(),
+        path: "file".into(),
+        event_path: "file".into(),
+        parents: vec![original.clone()],
+        spool: None,
+        size: 0,
+        hash: String::new(),
+        depends_on: None,
+        checkpoint_base: None,
+        checkpoint_serial: None,
+    };
+    assert_eq!(
+        state.upload_base(&intent).unwrap().unwrap().hash,
+        content(b"original").hash
+    );
+    intent.parents = vec![latest.clone()];
+    assert!(state.upload_base(&intent).unwrap().is_none()); // no local retention receipt
+    intent.parents = vec![original];
+    intent.parents.push(latest.clone());
+    assert!(state.upload_base(&intent).unwrap().is_none());
+    intent.depends_on = Some("earlier-local-write".into());
+    assert!(state.upload_base(&intent).is_err());
+    state
+        .committed_intents
+        .insert("earlier-local-write".into(), latest);
+    assert_eq!(
+        state.upload_base(&intent).unwrap().unwrap().hash,
+        content(b"remote").hash
+    );
+    intent.event_path = "other".into();
+    assert!(state.upload_base(&intent).unwrap().is_none());
+}
+#[test]
+fn metadata_only_rename_does_not_grant_imported_archive_reuse() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut d = fixture(temp.path());
+    d.pool_sync_roots = vec!["crypt:pool-sync".into()];
+    {
+        let mut state = d.state.lock().unwrap();
+        state.version = 6;
+        add(
+            &mut state,
+            "external",
+            Some(b"imported"),
+            vec![],
+            "other-pc",
+        );
+    }
+    d.rename_file("external", "renamed").unwrap();
+    let revision = d.view().unwrap().remove("renamed").unwrap();
+    d.pin_read("renamed", &revision).unwrap();
+    let intent = write(&d, "renamed", b"modified");
+    let state = d.state.lock().unwrap();
+    assert!(intent
+        .parents
+        .iter()
+        .any(|parent| state.committed_intents.values().any(|id| id == parent)));
+    assert!(state.upload_base(&intent).unwrap().is_none());
+}
+#[test]
 fn durable_pending_survives_restart_and_recovery_does_not_rewrite_metadata() {
     let temp = tempfile::tempdir().unwrap();
     let d = fixture(temp.path());

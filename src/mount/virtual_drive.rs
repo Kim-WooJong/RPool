@@ -822,14 +822,62 @@ impl VirtualDrive {
                 if !staged.exists() {
                     fs::hard_link(&source, &staged)?;
                 }
-                let (manifest, manifest_remotes) = super::workspace::upload_eligible_tracked(
-                    &self.rclone,
-                    &self.policy,
-                    &self.pool,
-                    &staged,
-                    &format!("virtual-{}", intent.id),
-                )?;
-                self.record_owned_archive(&intent, &manifest, &manifest_remotes)?;
+                let archive_id = format!("virtual-{}", intent.id);
+                // Once the fallback uploader starts, a later eligibility change
+                // must not switch this identity to a different composite manifest.
+                let full_route = source.parent().unwrap().join("full-upload.json");
+                let already_full = if full_route.exists() {
+                    let recorded: String = crate::utils::read_json(&full_route)?;
+                    if recorded != archive_id {
+                        bail!("upload route identity mismatch; preserve pending data");
+                    }
+                    true
+                } else {
+                    // Resume a full upload started by an older binary, before
+                    // per-intent route receipts were introduced.
+                    fs::read_dir(&upload_dir)?.try_fold(false, |found, entry| {
+                        let entry = entry?;
+                        Ok::<_, std::io::Error>(
+                            found
+                                || entry.file_type()?.is_dir()
+                                    && entry.file_name().to_string_lossy().starts_with("eligible-"),
+                        )
+                    })?
+                };
+                let base = if self.pool_sync_roots.is_empty() || already_full {
+                    None
+                } else {
+                    self.state.lock().unwrap().upload_base(&intent)?
+                };
+                let incremental = match base {
+                    Some(base) => super::incremental::upload(
+                        &self.rclone,
+                        &self.policy,
+                        &self.pool,
+                        &staged,
+                        &archive_id,
+                        &base.manifest,
+                    )?,
+                    None => None,
+                };
+                let manifest = match incremental {
+                    Some(manifest) => manifest,
+                    None => {
+                        super::namespace::durable_json(&full_route, &archive_id)?;
+                        let (manifest, manifest_remotes) =
+                            super::workspace::upload_eligible_tracked(
+                                &self.rclone,
+                                &self.policy,
+                                &self.pool,
+                                &staged,
+                                &archive_id,
+                            )?;
+                        self.record_owned_archive(&intent, &manifest, &manifest_remotes)?;
+                        manifest
+                    }
+                };
+                // Composite peer manifests borrow immutable objects from older
+                // archives. They must never enter the exclusive ownership ledger.
                 Some(Content {
                     hash: intent.hash.clone(),
                     size: intent.size,

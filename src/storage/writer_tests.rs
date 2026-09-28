@@ -338,6 +338,32 @@ fn migration_replica_failure_retains_all_source_shards() {
 }
 
 #[test]
+fn destructive_drain_rejects_virtual_archives_before_any_copy() {
+    let f = Fixture::new(false);
+    let mut manifest = f.manifest(&f.writer(vec![]));
+    manifest.archive_id = format!("virtual-{}", "a".repeat(64));
+    let output = f.temp.path().join("must-not-publish.json");
+    let error = crate::provider::drain_manifest_with_storage(
+        &f.writer(vec![]),
+        &manifest,
+        "a:",
+        "c:",
+        &output,
+        1,
+        2,
+        false,
+        true,
+        false,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("immutable shared revisions"));
+    assert!(!output.exists());
+    for shard in &manifest.shards {
+        f.writer(vec![]).reader().verify(shard, true).unwrap();
+    }
+}
+
+#[test]
 fn migration_copy_failure_never_publishes_or_deletes_and_dry_run_is_read_only() {
     let f = Fixture::new(false);
     let manifest = f.manifest(&f.writer(vec![]));
