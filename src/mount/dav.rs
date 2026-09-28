@@ -182,7 +182,9 @@ impl DavFileSystem for VirtualFs {
                             let mut offset = 0;
                             while offset < r.size() {
                                 let bytes = drive.read(r, offset, 1024 * 1024).map_err(failure)?;
-                                file.write_all(&bytes).map_err(failure)?;
+                                drive
+                                    .write_spool_bytes(&mut file, &bytes)
+                                    .map_err(failure)?;
                                 offset += bytes.len() as u64;
                             }
                             file.seek(SeekFrom::Start(0)).map_err(failure)?;
@@ -191,7 +193,9 @@ impl DavFileSystem for VirtualFs {
                     if options.append {
                         file.seek(SeekFrom::End(0)).map_err(failure)?;
                     }
+                    let write_lease = drive.local_lease(&intent.id);
                     Ok(Box::new(Handle {
+                        _write_lease: Some(write_lease),
                         drive,
                         revision,
                         intent: Some(intent),
@@ -205,6 +209,7 @@ impl DavFileSystem for VirtualFs {
                     // Persist ancestry when opening, never on a metadata listing.
                     drive.pin_read(&p, &revision).map_err(failure)?;
                     Ok(Box::new(Handle {
+                        _write_lease: None,
                         drive,
                         revision: Some(revision),
                         intent: None,
@@ -298,6 +303,7 @@ impl DavFileSystem for VirtualFs {
     }
 }
 struct Handle {
+    _write_lease: Option<Arc<()>>,
     drive: Arc<VirtualDrive>,
     revision: Option<Revision>,
     intent: Option<Intent>,
@@ -341,7 +347,7 @@ impl DavFile for Handle {
             while buf.has_remaining() {
                 let chunk = buf.chunk();
                 let n = chunk.len();
-                f.write_all(chunk).map_err(failure)?;
+                self.drive.write_spool_bytes(f, chunk).map_err(failure)?;
                 buf.advance(n);
             }
             Ok(())
@@ -352,10 +358,8 @@ impl DavFile for Handle {
             if self.sealed {
                 return Err(FsError::Forbidden);
             }
-            self.file
-                .as_mut()
-                .ok_or(FsError::Forbidden)?
-                .write_all(&bytes)
+            self.drive
+                .write_spool_bytes(self.file.as_mut().ok_or(FsError::Forbidden)?, &bytes)
                 .map_err(failure)
         })
     }

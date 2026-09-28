@@ -19,7 +19,7 @@ pub(crate) use replica_verify::verify_manifest_replicas_with_storage;
 pub(crate) use replicate::{
     replicate_manifest_bytes_with_storage, replicate_manifest_with_storage,
 };
-pub(crate) use targets::manifest_remotes;
+pub(crate) use targets::{manifest_remotes, publication_remotes};
 pub(crate) use validate::validate_manifest;
 
 #[cfg(test)]

@@ -19,14 +19,28 @@ pub(crate) fn assign_remotes(
         Placement::FreeRatio => plan_free_ratio(rclone, remotes, specs, parity_shards.is_some()),
         Placement::Resilient => {
             use crate::storage::admin::{BackendAdmin, RcloneAdmin};
-            let catalog = RcloneAdmin::inherited(rclone).catalog()?;
-            let targets = remotes
-                .iter()
-                .map(|r| declared_failure(&catalog, r))
-                .collect::<Result<Vec<_>>>()?;
-            let assignments = balanced_assign(&targets, specs)?;
-            ensure_parity_bound(&targets, specs, &assignments, parity_shards.unwrap_or(0))?;
-            Ok(assignments)
+            let admin = RcloneAdmin::inherited(rclone);
+            let catalog = admin.catalog()?;
+            let snapshot =
+                crate::storage::admin::budget::BudgetSnapshot::query(&admin, &catalog, remotes);
+            if !snapshot.rejected.is_empty() {
+                bail!(
+                    "Resilient quota planning unavailable: {:?}",
+                    snapshot.rejected
+                );
+            }
+            let assigned = assign_with_budget(&snapshot, specs, placement, parity_shards)?;
+            // Budget query may deduplicate/reorder targets. Never interpret its
+            // indexes against the caller's original remote list.
+            assigned
+                .into_iter()
+                .map(|i| {
+                    remotes
+                        .iter()
+                        .position(|r| r == &snapshot.targets[i].remote)
+                        .context("quota target missing from upload remotes")
+                })
+                .collect()
         }
     }
 }
@@ -58,20 +72,7 @@ pub(crate) fn assign_with_budget(
                 .collect::<Vec<_>>(),
             specs,
         )?,
-        Placement::Resilient => {
-            let domains = snapshot
-                .targets
-                .iter()
-                .map(|t| {
-                    t.failure_domain
-                        .clone()
-                        .context("Declare outage groups before Resilient placement")
-                })
-                .collect::<Result<Vec<_>>>()?;
-            let assigned = balanced_assign(&domains, specs)?;
-            ensure_parity_bound(&domains, specs, &assigned, parity.unwrap_or(0))?;
-            assigned
-        }
+        Placement::Resilient => resilient_allocate(snapshot, specs, parity.unwrap_or(0))?,
     };
     let mut budgets = snapshot.budgets();
     for (spec, index) in specs.iter().zip(&assignments) {
@@ -83,6 +84,65 @@ pub(crate) fn assign_with_budget(
             .context("Selected placement exceeds an account quota; local data retained")?;
     }
     Ok(assignments)
+}
+
+/// Quota-aware deterministic greedy placement, shared by admission and upload.
+/// Largest shards first within each group avoid stranding full-size parity behind
+/// a small final data shard. This is a feasible policy, not a global optimizer.
+fn resilient_allocate(
+    snapshot: &crate::storage::admin::budget::BudgetSnapshot,
+    specs: &[PhysicalSpec],
+    parity: usize,
+) -> Result<Vec<usize>> {
+    let targets = &snapshot.targets;
+    let domains = targets
+        .iter()
+        .map(|t| {
+            t.failure_domain
+                .clone()
+                .context("Declare outage groups before Resilient placement")
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut budgets = snapshot.budgets();
+    let mut counts = BTreeMap::<(u32, &str), usize>::new();
+    let mut order: Vec<_> = (0..specs.len()).collect();
+    order.sort_by_key(|&i| (specs[i].group, std::cmp::Reverse(specs[i].size), i));
+    let mut result = vec![0; specs.len()];
+    let mut cursor = 0;
+    for i in order {
+        let spec = &specs[i];
+        let chosen = (0..targets.len())
+            .map(|n| (cursor + n) % targets.len())
+            .filter(|&j| {
+                budgets[&targets[j].capacity_domain] >= spec.size
+                    && (spec.size == 0 && parity == 0
+                        || counts
+                            .get(&(spec.group, domains[j].as_str()))
+                            .copied()
+                            .unwrap_or(0)
+                            < parity)
+            })
+            .min_by_key(|&j| {
+                (
+                    counts
+                        .get(&(spec.group, domains[j].as_str()))
+                        .copied()
+                        .unwrap_or(0),
+                    std::cmp::Reverse(budgets[&targets[j].capacity_domain]),
+                )
+            })
+            .context(
+                "Resilient placement cannot fit quota and outage bounds; local data retained",
+            )?;
+        *budgets.get_mut(&targets[chosen].capacity_domain).unwrap() -= spec.size;
+        *counts
+            .entry((spec.group, domains[chosen].as_str()))
+            .or_default() += 1;
+        result[i] = chosen;
+        cursor = (chosen + 1) % targets.len();
+    }
+    ensure_parity_bound(&domains, specs, &result, parity)?;
+    Ok(result)
 }
 
 pub(crate) fn balanced_assign(targets: &[String], specs: &[PhysicalSpec]) -> Result<Vec<usize>> {
@@ -142,6 +202,93 @@ fn validate_resilient_catalog(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn snapshot(free: &[u64]) -> crate::storage::admin::budget::BudgetSnapshot {
+        crate::storage::admin::budget::BudgetSnapshot {
+            targets: free
+                .iter()
+                .enumerate()
+                .map(|(i, &free)| crate::storage::admin::budget::TargetBudget {
+                    remote: format!("r{i}:"),
+                    backing: format!("r{i}"),
+                    capacity_domain: format!("q{i}"),
+                    failure_domain: Some(format!("d{i}")),
+                    declared: true,
+                    total: 1000,
+                    free,
+                })
+                .collect(),
+            rejected: vec![],
+        }
+    }
+    #[test]
+    fn resilient_skips_full_targets_without_weakening_outage_bound() {
+        let specs = vec![PhysicalSpec { group: 0, size: 10 }; 3];
+        let assigned = assign_with_budget(
+            &snapshot(&[0, 10, 10, 10]),
+            &specs,
+            Placement::Resilient,
+            Some(1),
+        )
+        .unwrap();
+        assert!(!assigned.contains(&0));
+        assert_eq!(assigned.iter().collect::<BTreeSet<_>>().len(), 3);
+        assert!(assign_with_budget(
+            &snapshot(&[0, 0, 10, 10]),
+            &specs,
+            Placement::Resilient,
+            Some(1)
+        )
+        .is_err());
+    }
+    #[test]
+    fn resilient_shares_account_budget_and_outage_counts_across_aliases() {
+        let specs = vec![PhysicalSpec { group: 0, size: 10 }; 3];
+        let mut s = snapshot(&[10, 10, 10]);
+        s.targets[1].capacity_domain = s.targets[0].capacity_domain.clone();
+        assert!(assign_with_budget(&s, &specs, Placement::Resilient, Some(1)).is_err());
+        let mut s = snapshot(&[20, 20, 20]);
+        s.targets[1].failure_domain = s.targets[0].failure_domain.clone();
+        assert!(assign_with_budget(&s, &specs, Placement::Resilient, Some(1)).is_err());
+    }
+    #[test]
+    fn resilient_budget_is_cumulative_and_partial_group_places_large_shards_first() {
+        let specs: Vec<_> = (0..6)
+            .map(|i| PhysicalSpec {
+                group: i / 3,
+                size: 10,
+            })
+            .collect();
+        assert!(assign_with_budget(
+            &snapshot(&[10, 10, 10]),
+            &specs,
+            Placement::Resilient,
+            Some(1)
+        )
+        .is_err());
+        assert!(assign_with_budget(
+            &snapshot(&[20, 20, 20]),
+            &specs,
+            Placement::Resilient,
+            Some(1)
+        )
+        .is_ok());
+        let partial = [
+            PhysicalSpec { group: 0, size: 1 },
+            PhysicalSpec { group: 0, size: 10 },
+        ];
+        let assigned =
+            assign_with_budget(&snapshot(&[10, 1]), &partial, Placement::Resilient, Some(1))
+                .unwrap();
+        assert_eq!(assigned, vec![1, 0]);
+        assert!(assign_with_budget(
+            &snapshot(&[0]),
+            &[PhysicalSpec { group: 0, size: 0 }],
+            Placement::Resilient,
+            None
+        )
+        .is_ok());
+    }
+
     #[test]
     fn resumed_strict_plan_revalidates_changed_backing_aliases() {
         let mut plan = crate::planning::build_upload_plan(

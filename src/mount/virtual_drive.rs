@@ -15,6 +15,7 @@ pub(crate) enum Revision {
         id: String,
         path: PathBuf,
         size: u64,
+        _lease: Arc<()>,
     },
 }
 impl Revision {
@@ -41,6 +42,9 @@ pub(crate) struct VirtualDrive {
     pub capacity: Mutex<Option<CapacityStatus>>,
     pub sync_gate: Mutex<()>,
     pub pins: Mutex<BTreeMap<String, Revision>>,
+    pub local_leases: Mutex<BTreeMap<String, std::sync::Weak<()>>>,
+    pub spool_limit: u64,
+    pub spool_writes: Mutex<()>,
     _lock: File,
 }
 impl VirtualDrive {
@@ -126,8 +130,20 @@ impl VirtualDrive {
             capacity: Mutex::new(None),
             sync_gate: Mutex::new(()),
             pins: Mutex::new(BTreeMap::new()),
+            local_leases: Mutex::new(BTreeMap::new()),
+            spool_limit: 64 * 1073741824,
+            spool_writes: Mutex::new(()),
             _lock: lock,
         })
+    }
+    pub(crate) fn local_lease(&self, id: &str) -> Arc<()> {
+        let mut leases = self.local_leases.lock().unwrap();
+        if let Some(lease) = leases.get(id).and_then(std::sync::Weak::upgrade) {
+            return lease;
+        }
+        let lease = Arc::new(());
+        leases.insert(id.into(), Arc::downgrade(&lease));
+        lease
     }
     pub(crate) fn view(&self) -> Result<BTreeMap<String, Revision>> {
         let s = self
@@ -169,6 +185,7 @@ impl VirtualDrive {
                         id: intent.id.clone(),
                         path: self.spool_path(intent),
                         size: intent.size,
+                        _lease: self.local_lease(&intent.id),
                     },
                 );
             } else {
@@ -296,6 +313,7 @@ impl VirtualDrive {
                 id: intent.id.clone(),
                 path: self.spool_path(&intent),
                 size: intent.size,
+                _lease: self.local_lease(&intent.id),
             },
         );
         Ok(())
@@ -439,7 +457,7 @@ impl VirtualDrive {
             }
             Revision::Local { path, size, .. } => {
                 let output = self.spool_path(&destination);
-                fs::copy(path, &output)?;
+                self.copy_to_spool(&path, &output)?;
                 File::open(&output)?.sync_all()?;
                 destination.size = size;
                 destination.hash = crate::utils::hash_file_range(&output, 0, size)?;
@@ -458,6 +476,7 @@ impl VirtualDrive {
                         id: destination.id.clone(),
                         path: self.spool_path(&destination),
                         size,
+                        _lease: self.local_lease(&destination.id),
                     },
                 );
             }
@@ -489,7 +508,7 @@ impl VirtualDrive {
             let content = match revision {
                 Revision::Cloud { content, .. } => Some(content.clone()),
                 Revision::Local { path, .. } => {
-                    fs::copy(path, self.spool_path(&destination))?;
+                    self.copy_to_spool(path, &self.spool_path(&destination))?;
                     destination = self.prepare_seal(destination)?;
                     None
                 }
@@ -527,6 +546,7 @@ impl VirtualDrive {
                     id: destination.id.clone(),
                     path: self.spool_path(&destination),
                     size: destination.size,
+                    _lease: self.local_lease(&destination.id),
                 }
             };
             new_pins.push((name, destination.path, revision));
@@ -552,13 +572,18 @@ impl VirtualDrive {
             }
             let mut s = self.state.lock().unwrap();
             let mut next = s.clone();
+            let incoming_ids: Vec<_> = events.keys().cloned().collect();
             next.ingest(events)?;
+            next.published.extend(incoming_ids);
             next.save(&self.root)?;
             *s = next;
         }
         Ok(())
     }
     pub(crate) fn sync(&self) -> Result<()> {
+        if self.root.join("retention-journal.json").exists() {
+            bail!("resume interrupted retention before syncing");
+        }
         let _gate = self
             .sync_gate
             .lock()
@@ -582,13 +607,14 @@ impl VirtualDrive {
                 if !staged.exists() {
                     fs::hard_link(&source, &staged)?;
                 }
-                let manifest = super::workspace::upload_eligible(
+                let (manifest, manifest_remotes) = super::workspace::upload_eligible_tracked(
                     &self.rclone,
                     &self.policy,
                     &self.pool,
                     &staged,
                     &format!("virtual-{}", intent.id),
                 )?;
+                self.record_owned_archive(&intent, &manifest, &manifest_remotes)?;
                 Some(Content {
                     hash: intent.hash.clone(),
                     size: intent.size,
@@ -614,6 +640,7 @@ impl VirtualDrive {
                 *s = next;
             }
         }
+        self.cleanup_committed_spool()?;
         Ok(())
     }
     pub(crate) fn commit_uploaded(&self, intent: &Intent, content: Option<Content>) -> Result<()> {
@@ -639,10 +666,16 @@ impl VirtualDrive {
         status.committed_logical_used = Some(state.logical_used()?);
         status.logical_used = state.visible_logical_used()?;
         status.usage_scope = "shared-namespace".into();
+        status.spool_bytes = self.spool_bytes()?;
+        status.spool_limit_bytes = self.spool_limit;
+        status.pending_writes = state.pending.len();
         drop(state);
         status.logical_ceiling_estimate = status
             .logical_used
             .saturating_add(status.additional_estimate);
+        if status.spool_bytes >= status.spool_limit_bytes {
+            status.note.push_str(" Local spool budget reached: new growth is rejected; sync or recover retained writes.");
+        }
         status.note.push_str(" Virtual mode usage is the known shared namespace plus local pending writes, not the local cache. Other unimported archives are not counted.");
         *self.capacity.lock().unwrap() = Some(status.clone());
         Ok(status)
@@ -662,7 +695,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         bail!("stop file already exists");
     }
     let worker = args.worker_name.as_deref().unwrap_or("local");
-    let drive = Arc::new(VirtualDrive::open(
+    let mut drive = VirtualDrive::open(
         rclone,
         &args.pool,
         &args.workspace,
@@ -671,14 +704,34 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         args.cache_gib
             .checked_mul(1073741824)
             .context("cache limit overflow")?,
-    )?);
+    )?;
+    drive.spool_limit = args
+        .spool_gib
+        .checked_mul(1073741824)
+        .context("spool limit overflow")?;
+    let drive = Arc::new(drive);
+    if args.apply_retention {
+        let report = drive.apply_retention(args.keep_previous, args.exclusive_archive_ownership)?;
+        println!("Retention completed: {} obsolete tracked archives, {} exact objects removed ({} logical data bytes; backend trash/versioning may delay quota recovery).", report.obsolete_archives, report.objects.len(), report.reclaimable_bytes);
+        return Ok(());
+    }
+    if drive.root.join("retention-journal.json").exists() {
+        bail!("Interrupted retention: resume --apply-retention --exclusive-archive-ownership before mounting or syncing. Do not remove the journal.");
+    }
+    if args.retention_report {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&drive.retention_report(args.keep_previous)?)?
+        );
+        return Ok(());
+    }
     for source in &args.manifests {
         drive.import(source)?;
     }
     if args.cleanup_cache {
         println!(
-            "clean_cache_bytes_removed={}; dirty spool and all remote history retained",
-            drive.cache.cleanup()?
+            "clean_cache_bytes_removed={} committed_spool_bytes_removed={}; dirty/unknown spool and remote history retained",
+            drive.cache.cleanup()?, drive.cleanup_committed_spool()?
         );
         return Ok(());
     }
@@ -770,7 +823,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     drive.sync()?;
     report();
     println!(
-        "Virtual mount stopped; forced={} all spool/cache/history retained",
+        "Virtual mount stopped; forced={} pending spool/cache/history retained; verified committed spool may be reclaimed",
         stopped.forced
     );
     drop(server);
@@ -868,6 +921,9 @@ pub(crate) fn fixture(root: &Path) -> VirtualDrive {
         capacity: Mutex::new(None),
         sync_gate: Mutex::new(()),
         pins: Mutex::new(BTreeMap::new()),
+        local_leases: Mutex::new(BTreeMap::new()),
+        spool_limit: 64 * 1073741824,
+        spool_writes: Mutex::new(()),
         _lock: File::create(root.join("virtual.lock")).unwrap(),
     }
 }

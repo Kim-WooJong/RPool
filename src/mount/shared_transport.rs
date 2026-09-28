@@ -6,7 +6,7 @@ use crate::storage::{
     writer::StorageWriter,
 };
 use crate::utils::remote_join;
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
@@ -74,9 +74,6 @@ impl SharedTransport {
         })
     }
 
-    pub(crate) fn list(&self) -> Result<BTreeMap<String, Vec<u8>>> {
-        self.list_missing(&std::collections::BTreeSet::new())
-    }
     pub(crate) fn list_missing(
         &self,
         known: &std::collections::BTreeSet<String>,
@@ -85,48 +82,41 @@ impl SharedTransport {
         let operation = OperationContext::none();
         context.ensure_crypt(&operation, &self.root)?;
         let events = remote_join(&self.root, "events");
-        // capture itself limits listing stdout to 8 MiB. Only typed absence is empty.
-        let listing = match context.capture(&operation, &["lsjson", "--files-only", "--", &events])
-        {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == StorageErrorKind::NotFound => return Ok(BTreeMap::new()),
-            Err(error) => return Err(error.into()),
-        };
-        let entries: Vec<Listed> = serde_json::from_slice(&listing)?;
-        if entries.len() > EVENT_COUNT_LIMIT {
-            bail!("shared event count exceeds limit");
-        }
         let storage = StorageWriter::rclone(&self.rclone);
         let mut result = BTreeMap::new();
         let mut total = 0usize;
-        for entry in entries {
-            if entry.is_dir {
-                continue;
-            }
-            let Some(id) = entry.path.strip_suffix(".json") else {
-                continue;
+        let mut count = 0usize;
+        // Hash-prefix pages bound listing responses independently of the entire
+        // history. Existing v1 event addresses and causal semantics are unchanged.
+        for prefix in b"0123456789abcdef" {
+            let filter = format!("{}*.json", *prefix as char);
+            let listing = match context.capture(
+                &operation,
+                &[
+                    "lsjson",
+                    "--files-only",
+                    "--include",
+                    &filter,
+                    "--",
+                    &events,
+                ],
+            ) {
+                Ok(bytes) => bytes,
+                Err(error) if error.kind() == StorageErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
             };
-            if !valid_id(id) || entry.size < 0 || entry.size as u64 > EVENT_LIMIT as u64 {
-                bail!("invalid shared event listing entry");
-            }
-            total = total
-                .checked_add(entry.size as usize)
-                .ok_or_else(|| anyhow::anyhow!("shared event size overflow"))?;
-            if total > TOTAL_LIMIT {
-                bail!("shared event collection exceeds size limit");
-            }
-            if known.contains(id) {
-                continue;
-            }
-            let address = remote_join(&events, &entry.path);
-            let metadata = storage.reader().stat(&address)?;
-            if metadata.size != entry.size as u64 {
-                bail!("shared event changed during listing");
-            }
-            let bytes = storage.reader().read_metadata(&address)?;
-            validate_event(id, &bytes)?;
-            if result.insert(id.into(), bytes).is_some() {
-                bail!("duplicate shared event listing");
+            let entries: Vec<Listed> = serde_json::from_slice(&listing)?;
+            for (id, entry) in missing_entries(entries, known, *prefix, &mut count, &mut total)? {
+                let address = remote_join(&events, &entry.path);
+                let metadata = storage.reader().stat(&address)?;
+                if metadata.size != entry.size as u64 {
+                    bail!("shared event changed during listing");
+                }
+                let bytes = storage.reader().read_metadata(&address)?;
+                validate_event(&id, &bytes)?;
+                if result.insert(id, bytes).is_some() {
+                    bail!("duplicate shared event listing");
+                }
             }
         }
         Ok(result)
@@ -160,9 +150,97 @@ impl SharedTransport {
     }
 }
 
+fn missing_entries(
+    entries: Vec<Listed>,
+    known: &std::collections::BTreeSet<String>,
+    prefix: u8,
+    count: &mut usize,
+    total: &mut usize,
+) -> Result<Vec<(String, Listed)>> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut missing = vec![];
+    for entry in entries {
+        if entry.is_dir {
+            continue;
+        }
+        let id = entry
+            .path
+            .strip_suffix(".json")
+            .context("unexpected shared event name")?;
+        if !valid_id(id)
+            || id.as_bytes()[0] != prefix
+            || entry.size < 0
+            || entry.size as u64 > EVENT_LIMIT as u64
+            || !seen.insert(id.to_owned())
+        {
+            bail!("invalid, duplicate or cross-prefix shared event listing entry");
+        }
+        if known.contains(id) {
+            continue;
+        }
+        *count = count
+            .checked_add(1)
+            .context("shared event count overflow")?;
+        *total = total
+            .checked_add(entry.size as usize)
+            .context("shared event size overflow")?;
+        if *count > EVENT_COUNT_LIMIT || *total > TOTAL_LIMIT {
+            bail!("unseen shared history exceeds bounded bootstrap budget (10,000 events / 64 MiB). Existing known history is not charged; preserve workspace and use a coordinated new-root checkpoint before further growth");
+        }
+        missing.push((id.to_owned(), entry));
+    }
+    Ok(missing)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn known_history_does_not_consume_download_budget_but_entries_are_validated() {
+        let known: std::collections::BTreeSet<_> =
+            (0..10001).map(|i| format!("a{i:063x}")).collect();
+        let entries = known
+            .iter()
+            .map(|id| Listed {
+                path: format!("{id}.json"),
+                size: 8192,
+                is_dir: false,
+            })
+            .collect();
+        let mut count = 0;
+        let mut total = 0;
+        assert!(
+            missing_entries(entries, &known, b'a', &mut count, &mut total)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!((count, total), (0, 0));
+        let invalid = vec![Listed {
+            path: format!("{}.json", "b".repeat(64)),
+            size: 1,
+            is_dir: false,
+        }];
+        assert!(missing_entries(invalid, &known, b'a', &mut count, &mut total).is_err());
+    }
+    #[test]
+    fn unseen_bootstrap_remains_bounded_and_duplicates_rejected() {
+        let entries = (0..10001)
+            .map(|i| Listed {
+                path: format!("a{i:063x}.json"),
+                size: 1,
+                is_dir: false,
+            })
+            .collect();
+        assert!(missing_entries(entries, &Default::default(), b'a', &mut 0, &mut 0).is_err());
+        let duplicate = (0..2)
+            .map(|_| Listed {
+                path: format!("{}.json", "a".repeat(64)),
+                size: 1,
+                is_dir: false,
+            })
+            .collect();
+        assert!(missing_entries(duplicate, &Default::default(), b'a', &mut 0, &mut 0).is_err());
+    }
     #[test]
     fn root_validation_is_offline() {
         assert!(SharedTransport::new("nonexistent-rclone", "crypt:shared").is_ok());

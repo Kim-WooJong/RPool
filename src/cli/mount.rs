@@ -9,12 +9,27 @@ pub(crate) struct MountArgs {
     /// Verified clean-shard cache budget in GiB. Dirty writes are never evicted.
     #[arg(long, default_value_t = 10)]
     pub(crate) cache_gib: u64,
+    /// Maximum local virtual write spool in GiB (includes partial writes); growth fails safely at the limit.
+    #[arg(long, default_value_t = 64, value_parser = clap::value_parser!(u64).range(1..))]
+    pub(crate) spool_gib: u64,
     /// Trim only verified clean cache; never delete remote history or dirty spool.
     #[arg(long, requires = "virtual_drive", conflicts_with_all = ["capacity_only", "sync_only", "migrate_excluded"])]
     pub(crate) cleanup_cache: bool,
     /// Export recoverable local spool without mounting, uploading or rewriting metadata.
     #[arg(long, requires = "virtual_drive", conflicts_with_all = ["cleanup_cache", "capacity_only", "sync_only", "migrate_excluded"])]
     pub(crate) recover_spool: bool,
+    /// Preview tracked obsolete versions; does not upload or delete remote objects.
+    #[arg(long, requires = "virtual_drive", conflicts_with_all = ["sync_only", "capacity_only", "cleanup_cache", "recover_spool", "migrate_excluded"])]
+    pub(crate) retention_report: bool,
+    /// Apply resumable offline retention (unshared virtual workspaces only).
+    #[arg(long, requires_all = ["virtual_drive", "exclusive_archive_ownership"], conflicts_with_all = ["retention_report", "sync_only", "capacity_only", "cleanup_cache", "recover_spool", "migrate_excluded", "shared_root"])]
+    pub(crate) apply_retention: bool,
+    /// Acknowledge no other workspace, exported manifest or reader uses these archives.
+    #[arg(long, requires = "apply_retention")]
+    pub(crate) exclusive_archive_ownership: bool,
+    /// Previous tracked versions to preserve per original path, besides all live/conflict versions.
+    #[arg(long, default_value_t = 3)]
+    pub(crate) keep_previous: usize,
     /// Pool receiving verified versions of files changed in this workspace.
     #[arg(long)]
     pub(crate) pool: String,
@@ -29,7 +44,7 @@ pub(crate) struct MountArgs {
     #[arg(long, requires = "shared_root")]
     pub(crate) worker_name: Option<String>,
     /// Unused Windows drive letter, or an existing empty Unix mount directory.
-    #[arg(long, required_unless_present_any = ["sync_only", "capacity_only", "migrate_excluded", "cleanup_cache", "recover_spool"])]
+    #[arg(long, required_unless_present_any = ["sync_only", "capacity_only", "migrate_excluded", "cleanup_cache", "recover_spool", "retention_report", "apply_retention"])]
     pub(crate) mountpoint: Option<PathBuf>,
     /// Explicit existing archives to import; pool membership is not inferred.
     #[arg(long = "manifest")]
@@ -64,6 +79,30 @@ pub(crate) struct MountArgs {
 mod tests {
     use clap::Parser;
 
+    #[test]
+    fn retention_requires_exclusive_unshared_virtual_mode() {
+        let base = [
+            "rpool",
+            "mount",
+            "--pool=p",
+            "--workspace=/persistent",
+            "--virtual-drive",
+        ];
+        assert!(
+            crate::cli::Cli::try_parse_from(base.into_iter().chain(["--retention-report"])).is_ok()
+        );
+        assert!(
+            crate::cli::Cli::try_parse_from(base.into_iter().chain(["--apply-retention"])).is_err()
+        );
+        let apply = ["--apply-retention", "--exclusive-archive-ownership"];
+        assert!(crate::cli::Cli::try_parse_from(base.into_iter().chain(apply)).is_ok());
+        assert!(crate::cli::Cli::try_parse_from(
+            base.into_iter()
+                .chain(apply)
+                .chain(["--shared-root=crypt:s", "--worker-name=pc"])
+        )
+        .is_err());
+    }
     #[test]
     fn shared_mount_options_require_each_other() {
         let base = [

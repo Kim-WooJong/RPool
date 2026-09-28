@@ -27,6 +27,12 @@ pub(crate) struct CapacityStatus {
     pub observed_unix: u64,
     pub note: String,
     #[serde(default)]
+    pub spool_bytes: u64,
+    #[serde(default)]
+    pub spool_limit_bytes: u64,
+    #[serde(default)]
+    pub pending_writes: usize,
+    #[serde(default)]
     pub targets: Vec<crate::storage::admin::budget::TargetBudget>,
     #[serde(skip)]
     pub(super) budget: u64,

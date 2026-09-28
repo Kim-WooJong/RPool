@@ -161,7 +161,16 @@ impl Workspace {
             next.shared.as_mut().unwrap().published.insert(id);
             self.checkpoint(next)?;
         }
-        let incoming = transport.list()?;
+        let known = self
+            .catalog
+            .shared
+            .as_ref()
+            .unwrap()
+            .events
+            .keys()
+            .cloned()
+            .collect();
+        let incoming = transport.list_missing(&known)?;
         let mut next = self.catalog.clone();
         let shared = next.shared.as_mut().unwrap();
         for (id, bytes) in incoming {

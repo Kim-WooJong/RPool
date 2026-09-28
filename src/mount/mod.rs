@@ -2,6 +2,7 @@ pub(crate) mod adapter;
 pub(crate) mod capacity;
 mod dav;
 mod namespace;
+mod retention;
 mod shard_cache;
 mod shared_model;
 mod shared_transport;

@@ -13,7 +13,10 @@ GUI platform; current executed tests are macOS.
 
 Version 0.6.0 with batched Unreleased changes. Replica mounts remain the default;
 experimental metadata-first virtual mounts are connected and synthetically tested.
-No real cloud/multiple-PC/WinFsp integration validation has been performed here.
+Long-term hardening adds lease-aware committed spool cleanup, bounded local writes,
+quota-aware Resilient placement and explicit ownership-gated unshared retention.
+Shared automatic retention remains UNSOLVED and disabled. No real cloud/multiple-PC/
+WinFsp integration validation has been performed here.
 
 ## Working
 
@@ -32,6 +35,12 @@ No real cloud/multiple-PC/WinFsp integration validation has been performed here.
 - Offline edit/edit and edit/delete preservation, causal deletion/recreation.
 - Incoming reconciliation with displaced-byte recovery journal and catalog v2.
 
+## In Progress
+
+None in this bounded hardening batch. Shared fenced retention remains a known
+architectural gap, not completed work. No actual cloud objects or user workspaces
+were modified during development/testing.
+
 ## Current bounded batch
 
 Implemented the bounded five-lane integration batch (virtual mode opt-in/experimental):
@@ -46,7 +55,7 @@ Implemented the bounded five-lane integration batch (virtual mode opt-in/experim
 - Validate actual Windows/WinFsp and Linux/FUSE with rclone and two PCs; this environment has no rclone binary available at standard locations.
 - Test actual dirty native VFS cache replay after process crash. Endpoint/cache identity is stable, but synthetic preservation does not prove native replay.
 - True transparent replacement of open native file handles needs a stronger filesystem/client revision protocol.
-- Remote history compaction needs offline-writer fencing/leases and complete reachability; remains disabled.
+- Shared remote history compaction needs offline-writer fencing and complete checkpoint/bootstrap protocol; remains disabled. Unshared virtual CLI maintenance is ownership-gated.
 
 ## Known limits
 
@@ -57,8 +66,10 @@ Implemented the bounded five-lane integration batch (virtual mode opt-in/experim
 - Logical virtual usage is known shared namespace + sealed pending work, not every archive in the cloud. Replica OS space remains local disk; virtual DAV quota is tested over HTTP, not native Explorer.
 - Corrupt primary namespace fails closed. Recovery exports spool without rewriting checkpoint; rclone-only dirty cache requires the original mount.
 - Migration remains replica active-archive copy/switch, not entire shared history or metadata-root migration.
-- All old cloud versions are retained. Cleanup trims only clean shards; no cloud reclamation.
-- Shared exchange limits remain 10k events, 8 MiB/event, 64 MiB total.
+- Shared and legacy/untracked cloud versions remain retained. New tracked unshared virtual versions can be explicitly reclaimed only with exclusive-ownership acknowledgment and drained caches.
+- Shared exchange uses 16 validated hash-prefix pages; 10k/64MiB budget counts unseen events only (8MiB/event). Fresh/long-offline bootstrap exceeding that budget still fails; shared metadata growth remains unbounded.
+- Local spool defaults to 64GiB growth budget; VFS cache, staging and exports are separate disk consumers. Pending/unknown/corrupt bytes are never automatically evicted.
+- Unresolved conflicts stay protected; conservative generic DAV ancestry may therefore limit reclamation.
 - Unrelated config-sync/path edits remain outside this batch.
 
 ## Decisions
@@ -78,13 +89,16 @@ Implemented the bounded five-lane integration batch (virtual mode opt-in/experim
 - Conflict outcome is causal, not timestamp-based last-writer-wins.
 - Preserve both concurrent file versions and retain an edit concurrent with deletion.
 - Each PC owns its own workspace/cache. Never share/copy an active workspace.
-- No remote deletion; explicit clean-shard cache trimming never touches dirty spool or recovery data.
+- No automatic/shared remote deletion. Explicit unshared maintenance only sweeps exact newly owned objects, preserves imports/live/conflict/selected history, verifies retained data, journals deletion, and upgrades local namespace to v4 before deletion to reject old binaries.
+- Interrupted retention blocks mounting/sync until resumed. Ownership registry and journal are checksummed. Partial/unrecognized spool and detached VFS cache block maintenance.
+- Local cleanup advances checkpoint and waits for revision/write leases plus shared publication; dirty spool and recovery data stay protected.
 - Quiescent local files are required while unmounted reconciliation runs.
 
 ## Architecture
 
 - `src/storage/admin/{domains,budget}.rs`: non-secret account/outage declarations and pooled snapshots.
 - `src/mount/{namespace,virtual_drive}.rs`: metadata checkpoints, durable intents, live event sync and recovery export.
+- `src/mount/retention.rs`: local reader leases/spool budget, owned archive registry, explicit exact-object GC journal and unshared checkpoint compaction.
 - `src/mount/{dav,shard_cache}.rs`: authenticated stable bridge, quota, immutable reads and group-specific verified recovery.
 
 - `src/mount/capacity.rs`: runtime quota eligibility, conservative admission and full-group estimates.
@@ -109,21 +123,25 @@ Implemented the bounded five-lane integration batch (virtual mode opt-in/experim
 ## Validation
 
 2026-09-28, macOS:
-- Default tests: 289 passed, 12 ignored.
-- Optional `opendal-prototype`: 300 passed, 12 ignored.
-- `RUSTFLAGS="-D warnings" cargo build --release --locked` default/optional: both passed.
-- Release binary `mount --help`: new virtual/cache/recovery/account/outage flags verified.
+- Default tests: 306 passed, 12 ignored.
+- Optional `opendal-prototype`: 317 passed, 12 ignored.
+- `RUSTFLAGS="-D warnings" cargo build --release --locked`: default passed for this batch; optional feature passed its full test build (optional release not rerun).
+- Release binary `mount --help`: retention/exclusive-ownership/keep-previous/spool-budget flags verified.
 - `git diff --check`: passed.
 - Actual loopback HTTP authentication, PUT durability, range GET, metadata listing and quota exercised without rclone.
 - Range cache tests: only intersecting shards fetched; corrupted cache rejected; last nonzero/short RS group recovers without unrelated groups; clean eviction retains unknown/dirty files.
 - New regressions cover pinned local save/delete, temp-file MOVE causality, directory MOVE/back after restart, pending directory-case collisions, checksum fail-closed, spool export, stable/occupied endpoint, alias/mixed quota accounting, skewed placement and outage grouping.
 - Read-only expert review identified/fixed resume destination quota accounting, mixed undeclared-account overcount, local pin reversion, pending-source deletion causality, MOVE durability and rename-back tombstone ancestry.
+- Retention regressions cover active read/write leases, publication failure, pending/corrupt/partial spool, metadata-only directories, quota rejection before write, budgeted local MOVE, interrupted exact-object delete, final persistence boundary replay, v4 checkpoint fencing, imported aliases, corrupt registry and detached VFS cache refusal.
+- Resilient regressions cover full-target skipping, alias quota/outage accounting, cumulative groups, short groups and metadata publication excluding unused full targets.
+- Shared known-history >10k/64MiB no longer consumes download budget; unknown bootstrap and malformed/duplicate/cross-prefix entries still fail closed.
 - No real cloud, native Windows/Linux/FUSE/WinFsp or process-crash dirty VFS replay claim.
 
 ## Resume
 
-This batch follows 34e36b5. Do not restart the five-lane implementation from scratch.
-See docs/MOUNT.md for activation and intentionally conservative boundaries.
-Keep unrelated config-sync/path edits out of this commit. Future native runtime
-validation and fenced remote history reclamation are separate work; neither is
-silently claimed complete by the synthetic tests.
+This hardening batch is validated. Preserve unrelated config-sync/path working-tree
+changes. Do not rerun completed work. Shared automatic retention and scalable
+cold-client bootstrap need a separate fenced epoch protocol; do not enable TTL
+or head-only deletion over the legacy causal event graph. Actual cloud/native
+runtime validation remains unavailable. See docs/MOUNT.md for exact CLI ownership,
+cache, downgrade and provider-trash boundaries.

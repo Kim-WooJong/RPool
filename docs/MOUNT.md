@@ -57,11 +57,65 @@ original paths. It does not repair/replace a corrupt checkpoint or upload anythi
 Partial files are explicitly labelled and need inspection. Recovery cannot export
 writes that exist only in rclone's cache; recover those through the original mount.
 
-**Trim clean cache** / `--virtual-drive --cleanup-cache` enforces `--cache-gib`
-(default 10) on verified clean shard entries only. All dirty writes and remote
-versions are retained. Remote history pruning is deliberately NOT enabled: offline
-clients may still reference old versions, and there is no fencing/retention protocol
-that proves deletion safe. This is safe local cleanup, not cloud space reclamation.
+**Trim clean cache** / `--virtual-drive --cleanup-cache` trims verified clean
+shards and reclaims verified, committed local spool that has no readers. Pending,
+partial, corrupt and unrecognized writes remain available for recovery. Normal
+successful sync also reclaims committed spool, but shared writes wait for verified
+metadata publication. Read handles and in-progress writers hold leases; cleanup
+advances the recovery checkpoint before removing any file.
+
+Virtual DAV write growth (including local moves) is bounded by `--spool-gib`
+(default **64 GiB**). Existing bytes are preserved when the limit rejects a write.
+This is not a reservation of free disk: VFS cache, staging snapshots, recovery
+exports and other applications need additional space. `--cache-gib` remains the
+separate clean-shard cache limit (default 10 GiB). CLI status JSON exposes
+`spool_bytes`, `spool_limit_bytes` and `pending_writes`.
+
+### Explicit cloud retention — unshared virtual workspaces only
+
+Automatic cloud deletion is **not enabled**. Start with a read-only preview:
+
+```text
+rpool mount --virtual-drive --pool mypool --workspace /absolute/workspace --retention-report --keep-previous 3
+```
+
+For an **unmounted, drained, exclusively owned** virtual workspace, an operator
+can explicitly apply that policy:
+
+```text
+rpool mount --virtual-drive --pool mypool --workspace /absolute/workspace --apply-retention --keep-previous 3 --exclusive-archive-ownership
+```
+
+The ownership acknowledgment means **no other workspace, PC, exported manifest or
+external reader depends on these archives**. Never use it merely because a drive
+is currently disconnected. Shared roots are rejected. Pending writes, active
+readers, detached VFS cache and unknown/partial spool block the operation; replay
+or recover them rather than deleting cache to force maintenance.
+
+- All live versions and unresolved conflict versions are protected, plus the
+  requested number of previous tracked versions per original path, in durable
+  local upload order. `0` keeps live/conflict versions only.
+- Ownership is recorded for successful uploads made by this version. Imported,
+  legacy/untracked archives and failed-upload leftovers are **not** automatically
+  adopted or deleted. An imported alias of an archive protects its entire identity.
+  Thus the first preview may show no reclaimable data despite old cloud usage.
+- Retained versions are verified before deletion. Only exact recorded shard and
+  manifest objects are removed—never a remote prefix/directory purge.
+- A checksummed journal makes interruptions resumable. Ordinary mounting/sync is
+  blocked until the same apply command completes; changed `--keep-previous` values
+  do not replace an in-progress plan. Do not remove the journal.
+- Before deletion, local namespace version **4** fences older binaries. Do not
+  downgrade this workspace. A completed sole-writer checkpoint removes obsolete
+  local ancestry while keeping every visible/conflict file. Kept historical
+  manifests remain in `owned-archives.json`.
+- Provider trash, provider-native versions and encryption overhead mean estimated
+  logical object bytes are **not proof of immediately recovered provider quota**.
+  RPool does not empty provider trash.
+
+**Remaining shared-mode limit:** bounded automatic cloud retention needs an
+explicit epoch/checkpoint and offline-writer fencing protocol. Existing shared
+roots retain cloud history; this update does not make their storage growth bounded.
+Do not manually delete causal events or old archive objects to work around quota.
 
 ## Replica GUI
 
@@ -107,7 +161,12 @@ CLI equivalents: `--capacity-domain backing-a=account-a` and
 
 Capacity uses the SAME round-robin/free-ratio/resilient allocation logic as fresh
 uploads, debiting actual account budgets. Resilient now requires declared outage
-groups and limits each group's shard concentration to M. Saved uploads validate
+groups and limits each group's shard concentration to M. It skips targets without
+enough account quota, charges shared account budgets once and places larger shards
+first within each group. Both upload and estimation use the same allocator;
+Resilient metadata replicas go only to targets actually used by that archive.
+This is a deterministic feasible greedy policy, not an optimal packing solver.
+Saved uploads validate
 remaining shards against their saved destinations, crediting only reverified data;
 parity remains fully charged. Existing Pool policies are not silently changed.
 
@@ -239,8 +298,13 @@ empty directories are local-only. Renames are a new path plus deletion of the ol
 path. Revision history, tombstones and recovery backups are not garbage-collected.
 The shared metadata directory is a required availability dependency (not sharded
 across Pool providers). Existing archive data remains independently restorable.
-Exchange currently fails closed above 10,000 listed events, 8 MiB per event or
-64 MiB per listing's event contents. There is no automatic history compaction yet.
+Exchange lists validated hash-prefix pages and charges only **unseen** events
+against its per-sync download budget (10,000 events / 64 MiB; 8 MiB per event).
+Already-known history no longer triggers the old aggregate hard stop, and replica
+sync also uses incremental fetching. Each prefix listing remains bounded by the
+transport output limit. A new/long-offline client exceeding the unseen budget
+still fails closed; this is **not** a scalable checkpoint/bootstrap protocol or
+semantic history compaction. Local shared metadata still grows with history.
 Shared workspaces upgrade their local catalog to v2; older RPool binaries refuse
 them instead of silently dropping synchronization ancestry. Local-only catalogs
 remain v1.
@@ -285,18 +349,14 @@ change the deferred incoming-apply rule or turn the mount into cloud read-throug
 Validation uses isolated temporary files and fake upload failures. Actual Windows
 Explorer/WinFsp, macOS/Linux FUSE and live cloud mounting remain unverified here.
 
-2026-09-28 validation: default suite 211 passed / 12 ignored; optional OpenDAL suite
-222 passed / 12 ignored; macOS release build passed with warnings denied. Release
-`mount --help` routing was exercised. Synthetic child stop/reaping is not a real
-filesystem-driver test.
-
-Shared-mode validation (2026-09-28): default suite 226 passed / 12 ignored;
-optional OpenDAL suite 237 passed / 12 ignored; default and optional macOS release
-builds passed with crate warnings denied. Synthetic two-workspace tests cover
-offline divergent edits, edit/delete conflicts, causal recreation, long Unicode
-conflict names, directory-to-file changes, failed downloads, dirty-file refusal,
-cache/lease gating and interrupted reconciliation. Real cloud exchange and
-multiple-machine Explorer/WinFsp/FUSE execution remain unverified.
+2026-09-28 hardening validation (macOS): **306 default tests / 317 optional
+OpenDAL tests passed**, 12 external-tool tests ignored in each suite. Default
+release build passed with warnings denied; release `mount --help` flags verified.
+Synthetic tests cover retention crash-replay boundaries, live-reader protection,
+spool budget enforcement, shared-publication protection and Resilient quota/
+metadata placement. No real cloud deletion or Windows/Linux native mount test
+was executed. Shared automatic retention and oversized cold bootstrap remain
+unimplemented, regardless of these passing tests.
 
 References: [rclone mount](https://rclone.org/commands/rclone_mount/),
 [local backend](https://rclone.org/local/).

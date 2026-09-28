@@ -80,7 +80,7 @@ impl Namespace {
         })
     }
     pub(crate) fn validate(&self) -> Result<()> {
-        if self.version != 3 {
+        if !matches!(self.version, 3 | 4) {
             bail!("unsupported virtual namespace version");
         }
         valid_path(&self.worker)?;

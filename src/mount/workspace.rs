@@ -498,6 +498,16 @@ pub(super) fn upload_eligible(
     source: &Path,
     id: &str,
 ) -> Result<Manifest> {
+    upload_eligible_tracked(rclone, policy, pool, source, id).map(|(manifest, _)| manifest)
+}
+
+pub(super) fn upload_eligible_tracked(
+    rclone: &str,
+    policy: &PoolDefinition,
+    pool: &str,
+    source: &Path,
+    id: &str,
+) -> Result<(Manifest, Vec<String>)> {
     let status = super::capacity::CapacityStatus::inspect(
         &crate::storage::admin::RcloneAdmin::inherited(rclone),
         policy,
@@ -537,15 +547,17 @@ pub(super) fn upload_eligible(
         {
             bail!("completed upload does not match eligible transaction");
         }
+        let publication =
+            crate::manifest::publication_remotes(&manifest, &status.eligible, policy.placement);
         finalize_completed_upload(
             &crate::storage::writer::StorageWriter::rclone(rclone),
             &completed,
             &manifest,
-            &status.eligible,
+            &publication,
             policy.workers,
             policy.retries,
         )?;
-        return Ok(manifest);
+        return Ok((manifest, publication));
     }
     let plan_path = append_suffix(&staged, ".rpool.upload.json");
     if plan_path.exists() {
@@ -601,7 +613,7 @@ pub(super) fn upload_eligible(
         &crate::storage::writer::StorageWriter::rclone(rclone),
         rclone,
         &staged,
-        status.eligible,
+        status.eligible.clone(),
         policy.shard_mib,
         policy.workers,
         policy.placement,
@@ -613,7 +625,10 @@ pub(super) fn upload_eligible(
     )?;
     let path = append_suffix(&staged, ".rpool.json");
     crate::commands::verify(rclone, &path.to_string_lossy(), true, policy.workers)?;
-    read_json(&path)
+    let manifest: Manifest = read_json(&path)?;
+    let publication =
+        crate::manifest::publication_remotes(&manifest, &status.eligible, policy.placement);
+    Ok((manifest, publication))
 }
 
 fn finalize_completed_upload(

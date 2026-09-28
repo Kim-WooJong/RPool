@@ -291,7 +291,8 @@ pub(crate) fn put_with_storage(
 
     let local_manifest = append_suffix(&source, ".rpool.json");
     save_json_atomic(&local_manifest, &manifest)?;
-    for dst in replicate_manifest_with_storage(storage, &manifest, &remotes, retries)? {
+    let publication = crate::manifest::publication_remotes(&manifest, &remotes, placement);
+    for dst in replicate_manifest_with_storage(storage, &manifest, &publication, retries)? {
         eprintln!("[manifest] {dst}");
     }
 
