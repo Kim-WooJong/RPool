@@ -227,34 +227,7 @@ impl Workspace {
         let policy = self.catalog.policy.clone();
         let pool = self.catalog.pool.clone();
         self.sync_with(
-            |source, id| {
-                crate::commands::put_with_storage(
-                    &crate::storage::writer::StorageWriter::rclone(&rclone),
-                    &rclone,
-                    source,
-                    policy.remotes.clone(),
-                    policy.shard_mib,
-                    policy.workers,
-                    policy.placement,
-                    policy.retries,
-                    policy.data_shards,
-                    if fs::metadata(source)?.len() == 0 {
-                        0
-                    } else {
-                        policy.parity_shards
-                    },
-                    Some(id.into()),
-                    Some(pool.clone()),
-                )?;
-                let manifest_path = append_suffix(source, ".rpool.json");
-                crate::commands::verify(
-                    &rclone,
-                    &manifest_path.to_string_lossy(),
-                    true,
-                    policy.workers,
-                )?;
-                read_json(&manifest_path)
-            },
+            |source, id| upload_eligible(&rclone, &policy, &pool, source, id),
             true,
         )
     }
@@ -514,3 +487,128 @@ mod tests;
 
 #[path = "workspace_shared.rs"]
 mod shared;
+
+#[path = "workspace_capacity.rs"]
+mod capacity;
+
+fn upload_eligible(
+    rclone: &str,
+    policy: &PoolDefinition,
+    pool: &str,
+    source: &Path,
+    id: &str,
+) -> Result<Manifest> {
+    let mut status = super::capacity::CapacityStatus::inspect(
+        &crate::storage::admin::RcloneAdmin::inherited(rclone),
+        policy,
+    )?;
+    let size = fs::metadata(source)?.len();
+    // Different eligible target sets use separate immutable upload journals.
+    // Never resume a saved plan containing a now-excluded target.
+    let key = blake3::hash(&serde_json::to_vec(&status.eligible)?)
+        .to_hex()
+        .to_string();
+    let dir = source
+        .parent()
+        .context("staging parent missing")?
+        .join(format!("eligible-{key}"));
+    fs::create_dir_all(&dir)?;
+    require_directory(&dir)?;
+    let staged = dir.join(source.file_name().context("source filename missing")?);
+    if !staged.exists() {
+        fs::hard_link(source, &staged)?;
+    }
+    require_regular(&staged)?;
+    if fs::metadata(&staged)?.len() != size
+        || hash_file_range(&staged, 0, size)? != hash_file_range(source, 0, size)?
+    {
+        bail!("eligible upload staging identity mismatch");
+    }
+    let completed = append_suffix(&staged, ".rpool.json");
+    if completed.exists() {
+        let manifest: Manifest = read_json(&completed)?;
+        crate::manifest::validate_manifest(&manifest)?;
+        if manifest.archive_id != id
+            || manifest.original_size != size
+            || manifest
+                .shards
+                .iter()
+                .any(|s| !status.eligible.contains(&s.remote))
+        {
+            bail!("completed upload does not match eligible transaction");
+        }
+        finalize_completed_upload(
+            &crate::storage::writer::StorageWriter::rclone(rclone),
+            &completed,
+            &manifest,
+            &status.eligible,
+            policy.workers,
+            policy.retries,
+        )?;
+        return Ok(manifest);
+    }
+    let plan_path = append_suffix(&staged, ".rpool.upload.json");
+    if plan_path.exists() {
+        let plan: UploadPlan = read_json(&plan_path)?;
+        if plan.archive_id != id
+            || plan.source_size != size
+            || plan.remotes != status.eligible
+            || plan.shard_size
+                != policy
+                    .shard_mib
+                    .checked_mul(1048576)
+                    .context("shard overflow")?
+            || plan.placement != policy.placement
+        {
+            bail!("resume plan differs from eligible upload");
+        }
+        let journal_path = append_suffix(&staged, ".rpool.upload.state.json");
+        let mut journal = crate::journal::load_or_create_upload_journal(&journal_path, &plan)?;
+        // Only fully re-read, source-matching data earns admission credit.
+        // Parity remains charged in full because put regenerates it.
+        crate::journal::validate_upload_journal(
+            &crate::storage::writer::StorageWriter::rclone(rclone),
+            &staged,
+            &plan,
+            &mut journal,
+        )?;
+        let credit = journal.completed.values().try_fold(0u64, |sum, shard| {
+            sum.checked_add(shard.size)
+                .context("resume credit overflow")
+        })?;
+        status.budget = status.budget.saturating_add(credit.min(size));
+    }
+    status.check_upload(policy, size)?;
+    crate::commands::put_with_storage(
+        &crate::storage::writer::StorageWriter::rclone(rclone),
+        rclone,
+        &staged,
+        status.eligible,
+        policy.shard_mib,
+        policy.workers,
+        policy.placement,
+        policy.retries,
+        policy.data_shards,
+        if size == 0 { 0 } else { policy.parity_shards },
+        Some(id.into()),
+        Some(pool.into()),
+    )?;
+    let path = append_suffix(&staged, ".rpool.json");
+    crate::commands::verify(rclone, &path.to_string_lossy(), true, policy.workers)?;
+    read_json(&path)
+}
+
+fn finalize_completed_upload(
+    storage: &crate::storage::writer::StorageWriter,
+    path: &Path,
+    manifest: &Manifest,
+    remotes: &[String],
+    workers: usize,
+    retries: u32,
+) -> Result<()> {
+    crate::commands::verify_with_storage(storage.reader(), &path.to_string_lossy(), true, workers)?;
+    // put persists the local manifest BEFORE remote metadata replication. A
+    // local completed manifest is not proof that publication finished.
+    crate::manifest::replicate_manifest_with_storage(storage, manifest, remotes, retries)?;
+    Ok(())
+}

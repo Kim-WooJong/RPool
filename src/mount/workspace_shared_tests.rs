@@ -228,3 +228,39 @@ fn remote_directory_to_file_transition_preserves_local_backup() {
     apply(&mut b, &objects);
     assert_eq!(fs::read(b.files.join("folder")).unwrap(), b"now a file");
 }
+
+#[test]
+fn same_content_relocated_manifest_publishes_successor_and_keeps_history() {
+    let (_root, mut a) = shared("Alice");
+    let (_other, mut b) = shared("Bob");
+    let mut objects = BTreeMap::new();
+    fs::write(a.files.join("report.txt"), b"abc").unwrap();
+    archive(&mut a, &mut objects);
+    let before = a.catalog.shared.as_ref().unwrap().events.clone();
+    let old = a.catalog.entries["report.txt"].manifest.clone();
+    let mut relocated: Manifest = read_json(&a.metadata.join("archives").join(&old)).unwrap();
+    relocated.archive_id = "relocated".into();
+    objects.insert("relocated".into(), b"abc".to_vec());
+    let name = format!(
+        "{}.json",
+        crate::manifest::manifest_fingerprint(&relocated).unwrap()
+    );
+    atomic_json(&a.metadata.join("archives").join(&name), &relocated).unwrap();
+    a.catalog.entries.get_mut("report.txt").unwrap().manifest = name.clone();
+    a.record_shared_changes().unwrap();
+    assert_eq!(
+        a.catalog.shared.as_ref().unwrap().events.len(),
+        before.len() + 1
+    );
+    for (id, event) in before {
+        assert_eq!(
+            a.catalog.shared.as_ref().unwrap().events[&id].id().unwrap(),
+            event.id().unwrap()
+        );
+    }
+    exchange(&mut a, &mut b);
+    apply(&mut b, &objects);
+    assert_eq!(b.catalog.entries["report.txt"].manifest, name);
+    assert_eq!(fs::read(b.files.join("report.txt")).unwrap(), b"abc");
+    assert!(a.metadata.join("archives").join(old).exists());
+}

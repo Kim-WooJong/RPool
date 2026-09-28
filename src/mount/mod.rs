@@ -1,4 +1,5 @@
 pub(crate) mod adapter;
+pub(crate) mod capacity;
 mod shared_model;
 mod shared_transport;
 mod workspace;
@@ -19,9 +20,20 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         workspace.pool_name(),
         workspace.policy().remotes.len()
     );
+    report_capacity(&workspace, args.status_file.as_deref());
+    if args.capacity_only {
+        return Ok(());
+    }
+    if args.migrate_excluded {
+        let moved = workspace.migrate_excluded()?;
+        report_capacity(&workspace, args.status_file.as_deref());
+        println!("Migration completed: {moved} active archive references switched; original remote data retained.");
+        return Ok(());
+    }
     if args.sync_only {
         let report = workspace.sync_once()?;
         workspace.sync_shared(true)?;
+        report_capacity(&workspace, args.status_file.as_deref());
         println!(
             "writeback uploaded={} logically_deleted={} unchanged={} pending={}",
             report.uploaded, report.deleted, report.unchanged, report.pending
@@ -39,8 +51,10 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     // Before mounting there can be no new VFS writes. Existing cache is checked
     // independently; pending recovery never grants permission to replace files.
     if workspace.is_shared() {
-        workspace.sync_once()?;
-        workspace.sync_shared(true)?;
+        match workspace.sync_once() {
+            Ok(_) => workspace.sync_shared(true)?,
+            Err(error) => eprintln!("Pre-mount writeback deferred; retaining local edits and skipping incoming replacement: {error:#}"),
+        }
     }
     let cache_dir = workspace
         .files_dir()
@@ -90,6 +104,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
                     "Writeback incomplete; local edits retained, next scan will retry: {error:#}"
                 ),
             }
+            report_capacity(&workspace, args.status_file.as_deref());
             last_scan = Instant::now();
         }
         std::thread::sleep(Duration::from_millis(250));
@@ -115,4 +130,44 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     }
     println!("Workspace and VFS cache retained. Cached/open writes may require restarting this same mount; final scan is not proof that every cached write reached the pool.");
     Ok(())
+}
+
+fn report_capacity(workspace: &workspace::Workspace, path: Option<&std::path::Path>) {
+    match workspace.capacity_status() {
+        Ok(status) => {
+            println!("Pool capacity: logical_used={} additional_estimate={} logical_ceiling_estimate={} eligible={} excluded={} affected_active={} retained_archives={}",
+                status.logical_used, status.additional_estimate, status.logical_ceiling_estimate,
+                status.eligible.len(), status.excluded.len(), status.affected_active, status.retained_archives);
+            for excluded in &status.excluded {
+                eprintln!(
+                    "Excluded from new data placement: {} — {}",
+                    excluded.remote, excluded.reason
+                );
+            }
+            if let Some(path) = path {
+                let result: anyhow::Result<()> = (|| {
+                    let mut file = tempfile::NamedTempFile::new_in(
+                        path.parent().context("status parent missing")?,
+                    )?;
+                    serde_json::to_writer(&mut file, &status)?;
+                    file.as_file().sync_all()?;
+                    file.persist(path).map_err(|e| e.error)?;
+                    Ok(())
+                })();
+                if let Err(e) = result {
+                    let _ = std::fs::remove_file(path);
+                    eprintln!("Capacity status write failed: {e:#}");
+                }
+            }
+        }
+        Err(e) => {
+            // Remove stale success rather than display a previous capacity as current.
+            if let Some(path) = path {
+                let _ = std::fs::remove_file(path);
+            }
+            eprintln!(
+                "Capacity unavailable: {e:#}; new uploads still require successful quota checks"
+            );
+        }
+    }
 }

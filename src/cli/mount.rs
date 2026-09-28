@@ -17,7 +17,7 @@ pub(crate) struct MountArgs {
     #[arg(long, requires = "shared_root")]
     pub(crate) worker_name: Option<String>,
     /// Unused Windows drive letter, or an existing empty Unix mount directory.
-    #[arg(long, required_unless_present = "sync_only")]
+    #[arg(long, required_unless_present_any = ["sync_only", "capacity_only", "migrate_excluded"])]
     pub(crate) mountpoint: Option<PathBuf>,
     /// Explicit existing archives to import; pool membership is not inferred.
     #[arg(long = "manifest")]
@@ -25,6 +25,15 @@ pub(crate) struct MountArgs {
     /// Archive pending local changes once without mounting.
     #[arg(long)]
     pub(crate) sync_only: bool,
+    /// Refresh capacity and exclusion warnings without mounting or uploading.
+    #[arg(long, conflicts_with_all = ["sync_only", "migrate_excluded"])]
+    pub(crate) capacity_only: bool,
+    /// Move active archive references to quota-known targets; originals remain stored.
+    #[arg(long, conflicts_with = "sync_only")]
+    pub(crate) migrate_excluded: bool,
+    /// Machine-readable capacity status for the GUI, atomically replaced each scan.
+    #[arg(long)]
+    pub(crate) status_file: Option<PathBuf>,
     /// Delay between writeback scans; open VFS handles may remain locally cached.
     #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(2..=86400))]
     pub(crate) interval_seconds: u64,
@@ -61,5 +70,35 @@ mod tests {
                 clap::error::ErrorKind::MissingRequiredArgument
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod capacity_tests {
+    use clap::Parser;
+    #[test]
+    fn maintenance_modes_need_no_mountpoint_and_conflict_with_sync() {
+        for mode in ["--capacity-only", "--migrate-excluded"] {
+            let base = [
+                "rpool",
+                "mount",
+                "--pool=p",
+                "--workspace=/persistent",
+                mode,
+            ];
+            assert!(crate::cli::Cli::try_parse_from(base).is_ok());
+            assert!(
+                crate::cli::Cli::try_parse_from(base.into_iter().chain(["--sync-only"])).is_err()
+            );
+        }
+        assert!(crate::cli::Cli::try_parse_from([
+            "rpool",
+            "mount",
+            "--pool=p",
+            "--workspace=/persistent",
+            "--capacity-only",
+            "--migrate-excluded"
+        ])
+        .is_err());
     }
 }

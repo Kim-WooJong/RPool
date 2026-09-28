@@ -216,3 +216,63 @@ fn links_and_case_collisions_are_refused() {
         assert!(scan(&workspace.files).is_err());
     }
 }
+
+#[test]
+fn completed_upload_recovery_republishes_missing_remote_manifest() {
+    use crate::storage::{
+        memory::MemoryBackend,
+        reader::StorageReader,
+        reference::{BackendId, ObjectKey, ObjectRef},
+        registry::BackendRegistry,
+        traits::*,
+        writer::StorageWriter,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("report.txt");
+    fs::write(&source, b"abc").unwrap();
+    let manifest = fake_upload(&source, "done").unwrap();
+    let path = root.path().join("manifest.json");
+    atomic_json(&path, &manifest).unwrap();
+    let backend = Arc::new(MemoryBackend::new(BackendId::new("recovery").unwrap()));
+    backend
+        .write(
+            &OperationContext::none(),
+            &ObjectKey::new("data").unwrap(),
+            &mut &b"abc"[..],
+            &WriteOptions::default(),
+        )
+        .unwrap();
+    let mut registry = BackendRegistry::new();
+    registry.register(backend.clone()).unwrap();
+    let bindings = BTreeMap::from([
+        (
+            "synthetic:object".into(),
+            ObjectRef::new(backend.id(), ObjectKey::new("data").unwrap()),
+        ),
+        (
+            "synthetic:done/manifest.json".into(),
+            ObjectRef::new(backend.id(), ObjectKey::new("metadata").unwrap()),
+        ),
+    ]);
+    let writer = StorageWriter::synthetic(StorageReader::from_registry(
+        registry,
+        bindings,
+        OperationContext::none(),
+    ));
+    assert!(backend
+        .stat(
+            &OperationContext::none(),
+            &ObjectKey::new("metadata").unwrap()
+        )
+        .is_err());
+    finalize_completed_upload(&writer, &path, &manifest, &["synthetic:".into()], 1, 1).unwrap();
+    let remote = crate::manifest::load_manifest_with_storage(
+        writer.reader(),
+        "synthetic:done/manifest.json",
+    )
+    .unwrap();
+    assert_eq!(
+        crate::manifest::manifest_fingerprint(&remote).unwrap(),
+        crate::manifest::manifest_fingerprint(&manifest).unwrap()
+    );
+}

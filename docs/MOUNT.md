@@ -23,6 +23,75 @@ Install rclone plus **WinFsp** on Windows, or a compatible FUSE/mount-capable rc
 installation on macOS/Linux. RPool does not install system drivers. A running child
 process alone is not considered a ready filesystem. Startup times out after 30 seconds.
 
+## Quota-aware placement and capacity
+
+Mount writeback automatically excludes destinations without a trustworthy reported
+free quota **and a resolved capacity accounting scope**. It does not remove them
+from the saved Pool, alter old manifests, or block reads from existing archives.
+Known wrapper aliases share one quota. Unresolved/aggregate scopes are excluded even
+if a backend happens to return a number. Current scope resolution recognizes
+Drive, OneDrive, Dropbox, Box and pCloud account quotas through known wrappers.
+Temporary query failures are labeled separately and eligibility is refreshed before
+each new archive upload. Known zero-free targets are full, not unknown.
+
+Use **Refresh capacity / check exclusions** before mounting. During a mount the
+capacity panel refreshes after writeback scans and shows snapshot age, current local
+file bytes, additional full-group logical capacity and their sum (estimated usable
+ceiling). Local usage includes pending plaintext edits but may not include open VFS
+cache writes. Retained old versions still consume cloud quota. This is not a pool-wide
+inventory and not a cloud-committed-byte counter.
+
+The estimate deliberately uses the smallest known free quota, rather than summing
+configuration sections whose account independence cannot be proven. It charges full
+parity groups and checks Resilient placement feasibility. Small files/partial groups
+have greater overhead: a nonempty file of size L needs
+`L + ceil(ceil(L / shard_size) / K) * M * shard_size` physical bytes. Upload admission
+checks this cost independently. Metadata/encryption overhead, concurrent external
+writers and local staging space are not reserved. These are conservative estimates,
+**not a guarantee or the provider's nominal maximum capacity**.
+
+**Explorer/Finder/df still report the local staging disk.** The cloud figures are in
+the RPool Mount drive panel and CLI log; RPool does not override OS filesystem statfs.
+If no eligible targets remain, existing local files remain usable and failed new
+writeback retains local edits. Insufficient Resilient targets never silently downgrade
+parity protection. Shared pre-mount writeback failure skips incoming replacement but
+allows local mount recovery.
+
+### Move active data away from excluded storage
+
+The panel warns when locally known manifests reference excluded storage. After
+unmounting and draining the original VFS cache, **Migrate active archives — retain
+originals** restores each affected active archive, uploads it to currently eligible
+targets, fully verifies it and atomically switches the workspace reference. Pending
+local edits are not substituted for the archived revision and are not overwritten.
+The operation holds the workspace lock. Restart reuses a durable verified-copy
+receipt only after checking identity, eligibility and remote content again.
+
+Original shards, old manifests and immutable shared history are **not deleted**;
+other PCs and historical revisions can still reference them. This action does not
+free old storage and does not migrate every historical/cloud object. Warnings count
+locally known history as well as active files; unrelated archives elsewhere cannot
+be discovered from a Pool name. Manifest-only changes publish shared successor events
+so peers receive the new location without losing older history. Shared namespace-root
+metadata is separate from shard eligibility and is not relocated by this action.
+Partial batch failure preserves completed reference switches; the next shared sync
+publishes any pending revisions.
+
+Interrupted uploads reuse verified completed manifests and finish remote metadata
+publication. Partially uploaded source-matching data earns quota credit only after
+full remote verification; parity is conservatively charged again. Changed eligible
+sets use separate upload journals and may leave additional retained copies.
+
+CLI maintenance (no mountpoint required):
+
+```text
+rpool mount --pool mypool --workspace /absolute/workspace --capacity-only
+rpool mount --pool mypool --workspace /absolute/workspace --migrate-excluded
+```
+
+Shared workspaces still require the same `--shared-root` and `--worker-name`.
+`--status-file PATH` writes a GUI-readable snapshot atomically; its parent must exist.
+
 ## CLI (PowerShell example)
 
 ```powershell

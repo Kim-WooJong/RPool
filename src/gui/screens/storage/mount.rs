@@ -17,6 +17,8 @@ pub(crate) struct MountForm {
     control: Option<tempfile::TempDir>,
     stopping: bool,
     notice: Option<String>,
+    capacity: Option<crate::mount::capacity::CapacityStatus>,
+    capacity_read: std::time::Instant,
 }
 
 impl Default for MountForm {
@@ -38,6 +40,8 @@ impl Default for MountForm {
             control: None,
             stopping: false,
             notice: None,
+            capacity: None,
+            capacity_read: std::time::Instant::now(),
         }
     }
 }
@@ -48,7 +52,16 @@ impl MountForm {
     }
 
     pub(crate) fn poll(&mut self) {
-        if let Some(status) = self.runner.poll() {
+        let terminal = self.runner.poll();
+        if terminal.is_some() || self.capacity_read.elapsed() >= std::time::Duration::from_secs(1) {
+            if let Some(control) = &self.control {
+                self.capacity = std::fs::read(control.path().join("capacity.json"))
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+            }
+            self.capacity_read = std::time::Instant::now();
+        }
+        if let Some(status) = terminal {
             self.notice = Some(match status {
                 JobStatus::Completed => "Mount/sync process finished. Check the log for writeback results; local workspace and VFS cache are retained.".into(),
                 JobStatus::Cancelled => "Process force-stopped. Local files and VFS cache are retained; restart the same workspace to recover pending changes.".into(),
@@ -71,6 +84,11 @@ impl MountForm {
     }
 
     fn start(&mut self, rclone: &str, sync_only: bool) -> Result<(), String> {
+        self.start_action(rclone, if sync_only { 1 } else { 0 })
+    }
+
+    fn start_action(&mut self, rclone: &str, action: u8) -> Result<(), String> {
+        let sync_only = action != 0;
         if self.pool.trim().is_empty() || self.workspace.trim().is_empty() {
             return Err("Select an upload pool and a persistent local workspace.".into());
         }
@@ -90,7 +108,7 @@ impl MountForm {
             .prefix("rpool-mount-control-")
             .tempdir()
             .map_err(|error| format!("Cannot create mount control directory: {error}"))?;
-        let args = build_args(
+        let mut args = build_args(
             self.pool.trim(),
             Path::new(self.workspace.trim()),
             self.mountpoint.trim(),
@@ -101,8 +119,26 @@ impl MountForm {
             &control.path().join("stop"),
             sync_only,
         );
+        args.push("--status-file".into());
+        args.push(control.path().join("capacity.json").into_os_string());
+        if action >= 2 {
+            args.retain(|arg| arg != "--sync-only");
+            args.push(
+                if action == 2 {
+                    "--capacity-only"
+                } else {
+                    "--migrate-excluded"
+                }
+                .into(),
+            );
+        }
+        self.capacity = None;
         self.runner.start_rpool(
-            if sync_only {
+            if action == 2 {
+                "Check pool capacity"
+            } else if action == 3 {
+                "Migrate active archives (retain originals)"
+            } else if sync_only {
                 "Sync local workspace"
             } else {
                 "Mount workspace"
@@ -150,6 +186,12 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
         ui.label("If cached writes remain, recover them through the original mount before synchronizing. The local copy and persistent cache are retained.");
         ui.label("In local-only mode, deletion affects only this workspace; shared deletions propagate during safe reconciliation. Previous remote archives are retained. Pending edits may remain local or in the VFS cache until the same workspace is restarted.");
     });
+    let input_identity = (
+        form.pool.clone(),
+        form.workspace.clone(),
+        form.shared_root.clone(),
+        form.manifests.clone(),
+    );
     ui.add_enabled_ui(!form.runner.is_running(), |ui| {
         ui.horizontal(|ui| {
             ui.label("Upload pool");
@@ -230,6 +272,11 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
                     form.notice = Some(error);
                 }
             }
+            if ui.button("Refresh capacity / check exclusions").clicked() {
+                if let Err(error) = form.start_action(&state.settings.rclone, 2) {
+                    form.notice = Some(error);
+                }
+            }
             if ui.button("Sync without mounting").clicked() {
                 if let Err(error) = form.start(&state.settings.rclone, true) {
                     form.notice = Some(error);
@@ -237,6 +284,46 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
             }
         });
     });
+    if input_identity
+        != (
+            form.pool.clone(),
+            form.workspace.clone(),
+            form.shared_root.clone(),
+            form.manifests.clone(),
+        )
+    {
+        form.capacity = None;
+    }
+    if let Some(capacity) = &form.capacity {
+        let mut migrate = false;
+        ui.group(|ui| {
+            ui.heading("Cloud pool capacity (estimate)");
+            ui.label(format!("Current local files: {:.2} GiB / estimated usable ceiling: {:.2} GiB",
+                capacity.logical_used as f64 / 1073741824.0, capacity.logical_ceiling_estimate as f64 / 1073741824.0));
+            let age = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs().saturating_sub(capacity.observed_unix)).unwrap_or(0);
+            ui.label(format!("Additional full-group capacity: {:.2} GiB · eligible targets: {} · snapshot: {} seconds ago",
+                capacity.additional_estimate as f64 / 1073741824.0, capacity.eligible.len(), age));
+            ui.small(&capacity.note);
+            ui.small("Local file usage includes pending edits, but may exclude writes still in VFS cache. Cloud history is retained and consumes quota. Explorer/Finder disk space describes the local staging disk.");
+            for excluded in &capacity.excluded {
+                ui.colored_label(egui::Color32::YELLOW, format!("{}: {}", excluded.remote, excluded.reason));
+            }
+            if capacity.retained_archives > 0 {
+                ui.colored_label(egui::Color32::YELLOW, format!("{} active archives and {} locally known archive manifests reference excluded targets.", capacity.affected_active, capacity.retained_archives));
+                ui.label("Migration switches active references only after verified copying. Originals and historical/shared references are retained; this does not free space on the old storage. Unmount and drain VFS cache first.");
+                migrate = ui.add_enabled(!form.runner.is_running() && capacity.affected_active > 0 && !capacity.eligible.is_empty(),
+                    egui::Button::new("Migrate active archives — retain originals")).clicked();
+            }
+        });
+        if migrate {
+            if let Err(error) = form.start_action(&state.settings.rclone, 3) {
+                form.notice = Some(error);
+            }
+        }
+    } else {
+        ui.label("Cloud capacity is not available yet. Refresh capacity to inspect eligible storage; local disk capacity is separate.");
+    }
     if form.runner.is_running() {
         ui.horizontal(|ui| {
             ui.spinner();

@@ -91,7 +91,14 @@ impl Workspace {
             let same = match previous {
                 Some(event) => match &event.content {
                     Some(content) => {
-                        !entry.deleted && content.hash == entry.hash && content.size == entry.size
+                        !entry.deleted
+                            && content.hash == entry.hash
+                            && content.size == entry.size
+                            && entry.manifest
+                                == format!(
+                                    "{}.json",
+                                    crate::manifest::manifest_fingerprint(&content.manifest)?
+                                )
                     }
                     None => entry.deleted,
                 },
@@ -196,7 +203,7 @@ impl Workspace {
         })
     }
 
-    fn shared_materialization_safe(&self) -> Result<bool> {
+    pub(super) fn shared_materialization_safe(&self) -> Result<bool> {
         if self.metadata.join("mount-process.json").exists() {
             return Ok(false);
         }

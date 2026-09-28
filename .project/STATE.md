@@ -17,6 +17,10 @@ No real cloud/multiple-PC/WinFsp integration validation has been performed here.
 
 ## Working
 
+- Quota-aware mount writes: runtime exclusions, alias accounting and conservative parity-aware capacity status in GUI/CLI.
+- Explicit unmounted active-archive migration: verified copies, durable receipt resume, atomic reference switch, source/history retention.
+- Manifest-only shared successors and completed-upload metadata publication recovery.
+
 - Two-group delayed hedged RS downloads, per-read verified staging and early recovery.
 - Bounded configured-remote fairness, reserved hedge capacity and cooperative loser cancellation.
 - Slot-free exponential retry backoff; restore-only fallback for exhausted network failures.
@@ -30,7 +34,7 @@ No real cloud/multiple-PC/WinFsp integration validation has been performed here.
 
 ## In Progress
 
-No unfinished implementation in the bounded delayed-hedge restore task.
+No unfinished implementation in the bounded mount quota/capacity/migration task.
 Unrelated config-sync/path changes may be present in the working tree; preserve them.
 
 ## Next
@@ -42,6 +46,11 @@ Unrelated config-sync/path changes may be present in the working tree; preserve 
 4. Plan shared-history compaction before deployments exceed exchange limits.
 
 ## Known Issues
+
+- Cloud capacity is a conservative full-group estimate using minimum known quota; small-file parity/encryption/metadata/external changes differ. OS statfs remains LOCAL disk capacity.
+- Unknown accounting scopes (not only missing numbers) are excluded; known account quota scopes currently cover Drive/OneDrive/Dropbox/Box/pCloud and wrappers.
+- Migration switches active workspace archives only, retains original/history bytes and does not relocate shared-root metadata. History warnings remain; no remote GC.
+- Partial upload admission credits fully reverified data only; parity is charged again. Eligibility changes may leave additional retained copies.
 
 - Delayed hedging uses passive estimates, not active speed benchmarks or live-cloud measured thresholds.
 - Two-group RS staging window; one decoder; single-worker mode has no speculative racing.
@@ -79,6 +88,10 @@ Unrelated config-sync/path changes may be present in the working tree; preserve 
 
 ## Architecture
 
+- `src/mount/capacity.rs`: runtime quota eligibility, conservative admission and full-group estimates.
+- `src/mount/workspace_capacity.rs`: scoped archive warnings, usage, migration and durable receipt recovery.
+- Mount GUI reads atomically refreshed per-run status; identity edits clear stale snapshots.
+
 - `src/commands/get_hedged.rs`: RS-only timer/coordinator, early group completion and candidate retirement.
 - `src/storage/reader.rs`, `traits.rs`: progress observation, private staging and composed child context.
 
@@ -97,16 +110,16 @@ Unrelated config-sync/path changes may be present in the working tree; preserve 
 ## Validation
 
 2026-09-28, macOS:
-- `cargo test --locked --bin rpool`: 255 passed, 12 ignored.
-- `cargo test --locked --features opendal-prototype --bin rpool`: 266 passed, 12 ignored.
+- `cargo test --locked --bin rpool`: 267 passed, 12 ignored.
+- `cargo test --locked --features opendal-prototype --bin rpool`: 278 passed, 12 ignored.
 - Default and optional `cargo rustc --locked --release --bin rpool -- -D warnings`: passed.
-- 13 new regressions: delayed/required parity replacement, late writes, parent cancel/deadline, retained candidates, remote-slot contention, early checkpoints, final virtual zeros and fatal-error preservation.
-- Synthetic behavior is not real cloud/WinFsp/FUSE proof.
+- 12 new regressions cover quota filtering/recovery/aliases/parity estimates, migration failures/lease/cache/receipt restart, manifest-only shared successors, missing remote metadata completion and CLI maintenance modes.
+- `git diff --check`: passed. Synthetic tests do not prove actual clouds or Windows/Linux/FUSE/WinFsp runtime.
 
 ## Resume
 
-Delayed hedged RS restore is implemented, tested and built on macOS. Read README
-"Delayed hedged RS downloads" for automatic activation, worker/staging limits and
-passive timing. Existing archives and Pool policies remain unchanged. Preserve
-unrelated config-sync/path worktree edits. Real clouds/Windows/Linux runtime remain
-unverified; a speed benchmark is not required for the completed implementation.
+Quota-aware mount capacity and active-archive migration are implemented, tested and
+built on macOS. `docs/MOUNT.md` describes exclusion scope, conservative estimates,
+retained originals/history, maintenance CLI and the local OS filesystem limit.
+Preserve unrelated config-sync/path worktree edits. No actual user cloud data was
+migrated during implementation. Real cloud and Windows/Linux runtime remain unverified.
