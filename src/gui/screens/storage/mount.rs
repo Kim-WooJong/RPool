@@ -23,6 +23,7 @@ pub(crate) struct MountForm {
     virtual_drive: bool,
     bounded_shared: bool,
     pool_sync: bool,
+    pool_retention: bool,
     pool_history_limit: u32,
     pool_history_override: bool,
     pool_status: Option<crate::mount::pool_sync::Status>,
@@ -54,6 +55,7 @@ impl Default for MountForm {
             virtual_drive: false,
             bounded_shared: false,
             pool_sync: true,
+            pool_retention: false,
             pool_history_limit: 0,
             pool_history_override: false,
             pool_status: None,
@@ -172,10 +174,13 @@ impl MountForm {
             args.push(format!("--cache-gib={}", self.cache_gib).into());
             if automatic {
                 args.push("--pool-sync".into());
+                if self.pool_retention {
+                    args.push("--pool-retention".into());
+                }
                 if !self.worker_name.trim().is_empty() {
                     args.push(format!("--pool-worker={}", self.worker_name.trim()).into());
                 }
-                if self.pool_history_override {
+                if self.pool_history_override || self.pool_retention {
                     args.push(format!("--pool-history-limit={}", self.pool_history_limit).into());
                 }
             } else if self.bounded_shared {
@@ -270,6 +275,7 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
         form.manifests.clone(),
         form.virtual_drive,
         form.pool_sync,
+        form.pool_retention,
         form.bounded_shared,
         form.shared_coordinator,
         form.shared_keep_previous,
@@ -294,11 +300,12 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
             ui.checkbox(&mut form.pool_sync, "Automatic pool sync — no coordinator (NEW workspace)");
             if form.pool_sync {
                 ui.label("RPool stores immutable sync metadata in every encrypted pool destination. No shared-root entry or dedicated PC. Use the same named pool and remote mapping on each PC.");
-                ui.checkbox(&mut form.pool_history_override, "Save future history limit in workspace config");
-                if form.pool_history_override {
+                ui.checkbox(&mut form.pool_retention, "Automatic history deletion — v7 (NEW workspace)");
+                if !form.pool_retention { ui.checkbox(&mut form.pool_history_override, "Save future history limit in workspace config"); }
+                if form.pool_history_override || form.pool_retention {
                     ui.horizontal(|ui| { ui.label("Previous versions per file"); ui.add(egui::DragValue::new(&mut form.pool_history_limit).range(0..=10000)); });
                 }
-                ui.colored_label(egui::Color32::YELLOW, "History limit is config-only in this release: old cloud data is NOT automatically deleted. All metadata replicas must be reachable.");
+                ui.colored_label(egui::Color32::YELLOW, if form.pool_retention { "V7 keeps current + selected history and unresolved conflicts. Collection copies retained data first and needs temporary space. All PCs must use the same limit. Legacy data is untouched; use a new workspace." } else { "V6 history limit is config-only: no automatic deletion. All metadata replicas must be reachable." });
             } else {
                 ui.checkbox(&mut form.bounded_shared, "Legacy bounded shared mode — designated coordinator");
             }
@@ -405,6 +412,7 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
             form.manifests.clone(),
             form.virtual_drive,
             form.pool_sync,
+            form.pool_retention,
             form.bounded_shared,
             form.shared_coordinator,
             form.shared_keep_previous,
@@ -417,7 +425,7 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
         ui.group(|ui| {
             ui.heading(format!("Pool sync · {} conflict groups", status.conflicts.len()));
             if !form.runner.is_running() { ui.small("Last sync snapshot (not a live cloud view)"); }
-            ui.small(format!("{} automatic metadata destinations · future previous-version limit: {} · deletion enabled: {}", status.roots.len(), status.desired_history_limit, status.history_deletion_enabled));
+            ui.small(format!("{} automatic metadata destinations · previous-version limit: {} · deletion enabled: {}", status.roots.len(), status.desired_history_limit, status.history_deletion_enabled));
             for root in &status.roots { ui.small(root); }
             if status.conflicts.is_empty() { ui.label("No conflicts in the last synchronized metadata."); }
             for conflict in &status.conflicts {

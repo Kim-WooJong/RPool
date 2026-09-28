@@ -42,6 +42,9 @@ pub(crate) struct Namespace {
     pub checkpoint_ids: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub accepted_spool: BTreeMap<String, Intent>,
+    /// V7 materialized namespace only; authoritative file identities live in snapshots.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub snapshot_view: BTreeMap<String, String>,
 }
 #[derive(Serialize, Deserialize)]
 struct Envelope {
@@ -96,10 +99,11 @@ impl Namespace {
             checkpoint: None,
             checkpoint_ids: BTreeMap::new(),
             accepted_spool: BTreeMap::new(),
+            snapshot_view: BTreeMap::new(),
         })
     }
     pub(crate) fn validate(&self) -> Result<()> {
-        if !matches!(self.version, 3 | 4 | 5 | 6) {
+        if !matches!(self.version, 3 | 4 | 5 | 6 | 7) {
             bail!("unsupported virtual namespace version");
         }
         let valid_id = |id: &str| id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit());
@@ -128,7 +132,22 @@ impl Namespace {
             valid_path(&intent.event_path)?;
         }
         valid_path(&self.worker)?;
-        shared_model::reduce(&self.events)?;
+        if self.version == 7 {
+            for (id, event) in &self.events {
+                event.validate()?;
+                if event.id()? != *id {
+                    bail!("invalid snapshot cache identity");
+                }
+            }
+            for (path, id) in &self.snapshot_view {
+                valid_path(path)?;
+                if self.events.get(id).is_none_or(|e| e.path != *path) {
+                    bail!("invalid snapshot namespace view");
+                }
+            }
+        } else {
+            shared_model::reduce(&self.events)?;
+        }
         if self
             .published
             .iter()
@@ -302,7 +321,24 @@ impl Namespace {
         durable_json(&path, &envelope)
     }
     pub(crate) fn resolved(&self) -> Result<BTreeMap<String, Resolved>> {
-        if self.version == 6 {
+        if self.version == 7 {
+            self.snapshot_view
+                .iter()
+                .map(|(path, id)| {
+                    Ok((
+                        path.clone(),
+                        Resolved {
+                            event_id: id.clone(),
+                            event: self
+                                .events
+                                .get(id)
+                                .context("snapshot view entry missing")?
+                                .clone(),
+                        },
+                    ))
+                })
+                .collect()
+        } else if self.version == 6 {
             Ok(super::peer_projection::project(&self.events)?.files)
         } else {
             shared_model::reduce(&self.events)
@@ -413,19 +449,29 @@ impl Namespace {
         // Only this workspace's durable commit receipts prove the base was
         // produced under our no-GC peer policy. A remote base gets a full upload
         // on its first local edit; subsequent local edits may reuse it.
-        Ok(self
+        let candidate = self
             .events
             .get(&parents[0])
             .filter(|event| event.path == intent.event_path)
-            .and_then(|event| event.content.clone())
-            .filter(|content| {
-                // Metadata-only MOVE also creates a local commit receipt, but
-                // does not establish ownership/lifetime of imported content.
-                self.committed_intents.iter().any(|(receipt, event)| {
-                    event == &parents[0]
-                        && content.manifest.archive_id == format!("virtual-{receipt}")
-                })
-            }))
+            .and_then(|event| event.content.as_ref());
+        let Some(content) = candidate else {
+            return Ok(None);
+        };
+        let fingerprint = crate::manifest::manifest_fingerprint(&content.manifest)?;
+        // MOVE preserves content but creates a new namespace event. Follow the
+        // original upload receipt, not the move receipt, and require the exact
+        // recorded manifest so an archive name alone never grants provenance.
+        for (receipt, event_id) in &self.committed_intents {
+            if content.manifest.archive_id != format!("virtual-{receipt}") {
+                continue;
+            }
+            if let Some(uploaded) = self.events.get(event_id).and_then(|e| e.content.as_ref()) {
+                if crate::manifest::manifest_fingerprint(&uploaded.manifest)? == fingerprint {
+                    return Ok(Some(content.clone()));
+                }
+            }
+        }
+        Ok(None)
     }
     pub(crate) fn commit(&mut self, intent: &Intent, content: Option<Content>) -> Result<String> {
         let event = Event {

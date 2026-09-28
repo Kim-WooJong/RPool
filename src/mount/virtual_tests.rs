@@ -144,6 +144,91 @@ fn metadata_only_rename_does_not_grant_imported_archive_reuse() {
     assert!(state.upload_base(&intent).unwrap().is_none());
 }
 #[test]
+fn repeated_committed_moves_preserve_payload_and_upload_provenance() {
+    for directory in [false, true] {
+        for local_upload in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let mut d = fixture(temp.path());
+            // Any accidental hydration or payload upload fails immediately.
+            d.rclone = temp
+                .path()
+                .join("no-rclone-here")
+                .to_string_lossy()
+                .into_owned();
+            d.pool_sync_roots = vec!["crypt:pool-sync".into()];
+            d.state.lock().unwrap().version = 6;
+            let names = if directory { vec!["a", "b"] } else { vec![""] };
+            let mut expected = BTreeMap::new();
+            for name in &names {
+                let path = if directory {
+                    format!("start/{name}")
+                } else {
+                    "start".into()
+                };
+                let value = if local_upload {
+                    let intent = write(&d, &path, b"committed payload");
+                    let mut value = content(b"committed payload");
+                    value.manifest.archive_id = format!("virtual-{}", intent.id);
+                    d.commit_uploaded(&intent, Some(value.clone())).unwrap();
+                    value
+                } else {
+                    let mut state = d.state.lock().unwrap();
+                    let id = add(
+                        &mut state,
+                        &path,
+                        Some(b"imported payload"),
+                        vec![],
+                        "other-pc",
+                    );
+                    state.events[&id].content.clone().unwrap()
+                };
+                expected.insert(*name, serde_json::to_vec(&value.manifest).unwrap());
+            }
+            for (from, to) in [("start", "middle"), ("middle", "finish")] {
+                if directory {
+                    d.rename_directory(from, to).unwrap();
+                } else {
+                    d.rename_file(from, to).unwrap();
+                }
+                assert!(d.state.lock().unwrap().pending.is_empty());
+                assert!(d.view().unwrap().keys().all(|p| !p.starts_with(from)));
+            }
+            for name in &names {
+                let path = if directory {
+                    format!("finish/{name}")
+                } else {
+                    "finish".into()
+                };
+                let revision = d.view().unwrap().remove(&path).unwrap();
+                let Revision::Cloud { content: value, .. } = &revision else {
+                    panic!("move hydrated content")
+                };
+                assert_eq!(serde_json::to_vec(&value.manifest).unwrap(), expected[name]);
+                d.pin_read(&path, &revision).unwrap();
+                let mut intent = d.begin_observed(&path, Some(&revision)).unwrap();
+                let mut state = d.state.lock().unwrap();
+                let base = state.upload_base(&intent).unwrap();
+                assert_eq!(base.is_some(), local_upload);
+                if local_upload {
+                    assert_eq!(
+                        serde_json::to_vec(&base.unwrap().manifest).unwrap(),
+                        expected[name]
+                    );
+                    // Even a matching trusted archive name cannot substitute a
+                    // different manifest for the original upload receipt.
+                    let mut forged = state.events[&intent.parents[0]].clone();
+                    forged.content.as_mut().unwrap().manifest.original_name = "different".into();
+                    let id = forged.id().unwrap();
+                    state.events.insert(id.clone(), forged);
+                    intent.parents = vec![id];
+                    assert!(state.upload_base(&intent).unwrap().is_none());
+                    state.events.remove(&intent.parents[0]);
+                }
+            }
+        }
+    }
+}
+#[test]
 fn durable_pending_survives_restart_and_recovery_does_not_rewrite_metadata() {
     let temp = tempfile::tempdir().unwrap();
     let d = fixture(temp.path());

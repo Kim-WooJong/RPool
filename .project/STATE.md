@@ -11,15 +11,18 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
-Version 0.6.0 with batched Unreleased changes. Replica remains default; virtual GUI
-now offers Automatic pool sync, selected by default within virtual mode.
-Automatic events-v6 replicates immutable metadata into all existing encrypted pool
-roots with no extra shared-root/provider setup and no coordinator PC. Original +
-all concurrent worker-labelled branches and structured GUI conflict groups work in
-local/synthetic tests. This is the user's requested FIRST stage: history_limit is
-saved config only, NOT active peer deletion/compaction. Old payload/metadata growth
-is unresolved. Legacy single-coordinator v5 remains separate and unchanged.
-No actual cloud/multiple-PC/WinFsp/FUSE acceptance validation performed.
+Version 0.6.0. New opt-in private-snapshot v7 (`--pool-retention` with
+`--pool-sync`) enforces current + configured previous content revisions without a
+coordinator PC. Positive causal successors own independent verified payloads
+before old exact objects are collected. Stable file identity and atomic name
+metadata keep committed file/directory MOVE payload-free. Conflict originals and
+branches are protected in addition to ordinary history. Direct input originals
+are captured locally before write admission, with file/Unix-directory durability.
+
+Requires a NEW workspace and identical fixed policy across PCs. Legacy v6/v5
+objects are untouched. Copies need temporary capacity/transfers; causal metadata
+and unfinished unpublished uploads remain (no general orphan sweep). Actual cloud,
+multiple-PC OS mounts, Windows and power-loss behavior remain unverified.
 
 ## Working
 
@@ -38,13 +41,22 @@ No actual cloud/multiple-PC/WinFsp/FUSE acceptance validation performed.
 - Offline edit/edit and edit/delete preservation, causal deletion/recreation.
 - Incoming reconciliation with displaced-byte recovery journal and catalog v2.
 
+## Latest Validation — v7 follow-up
+
+Complete. Default 382 / optional 393 tests passed (12 ignored each).
+Formatting, diff checks and warning-denied release build passed. No actual cloud
+data changed. Test-only journal constructor is excluded from release builds.
+Independent review findings fixed: frozen GC proof replay, semantic read/source
+resolution, publication acknowledgment recovery, conflicted MOVE rejection,
+ready-plan policy validation, and captured-original directory durability.
+
 ## Latest Completed Batch
 
 Option C follow-up: keep coordinator-free event sync, add peer-only immutable
 shard/group reuse. Implementation, 362 default / 373 optional tests (12 ignored each), formatting
 and warning-denied release build passed after final provenance hardening.
 Independent bounded review is complete; all identified blockers were fixed. No actual cloud data changed.
-Future self-contained snapshots/GC are not part of this bounded batch.
+That earlier batch is superseded by the opt-in v7 follow-up above.
 
 ### Option C implementation
 
@@ -220,9 +232,10 @@ Previous unshared hardening batch (macOS):
 
 ## Resume
 
-The user selected Option C: coordinator-free metadata sync plus immutable data
-reuse. This bounded incremental-upload batch is complete; stop. Do not imply
-history_limit triggers deletion or that coordinator-free bounded cloud storage is complete. Future requirements:
-self-contained snapshots/private ownership, peer compaction/GC and agreed retention
-policy; see docs/PEER_SYNC_DESIGN.md. Do not ask for a separate metadata provider or
-reintroduce a designated PC. Preserve unrelated config-sync/path changes.
+Continue the current retention + metadata-only MOVE task. Obtain the user's
+architecture preference already requested in chat; do not repeat it. Await bounded
+move/provenance implementation from expert_conflict_review (namespace.rs and
+virtual_tests.rs only); main owns integration, tests and docs. GC architecture
+review: expert_peer_snapshot_design. Do not enable naive v6 reference-scan GC.
+Existing v6 objects must stay protected from new-protocol cleanup and old binaries.
+Preserve unrelated config-sync/path changes. Last completed C batch: 8632ff0.

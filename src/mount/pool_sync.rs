@@ -155,6 +155,14 @@ pub(crate) struct Status {
 }
 impl super::virtual_drive::VirtualDrive {
     pub(crate) fn pool_status(&self) -> Result<Status> {
+        if self.peer_retention {
+            return Ok(Status {
+                roots: self.pool_sync_roots.clone(),
+                desired_history_limit: self.pool_history_limit,
+                history_deletion_enabled: true,
+                conflicts: self.snapshot_conflicts()?,
+            });
+        }
         let state = self.state.lock().unwrap();
         Ok(Status {
             roots: self.pool_sync_roots.clone(),

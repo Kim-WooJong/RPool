@@ -1,9 +1,27 @@
 # Coordinator-free shared drive — implementation design
 
-Status: automatic pool metadata/event stage implemented; self-contained snapshots
-and safe peer GC remain future work. 2026-09-28.
+Status: v6 append-only mode remains supported. New opt-in v7 private snapshots,
+stable file identity, atomic MOVE envelopes and causal-domination payload GC are
+implemented and covered by local/synthetic tests. 2026-09-28.
 
-## Implemented first stage
+## Implemented v7 contract
+
+`--pool-retention` requires a NEW workspace and uses disjoint snapshot/name records.
+Semantic revision IDs exclude physical manifests and paths. Successors privately
+own current/history/conflict bytes, so no late publisher can borrow an ancestor's
+collectible payloads. Exact immutable metadata remains available as causal proof.
+MOVE changes stable file-ID directory entries as one operation, without payload I/O.
+
+Direct edit originals are captured and hash-verified locally before admission;
+expired uncaptured originals fail explicitly. Policy is fixed and must match across
+clients. Legacy objects and unfinished/unpublished uploads are not swept. Retained
+bytes are recopied at collection boundaries; metadata itself remains unbounded.
+
+The older sections below explain the rationale and future extensions; they are not
+claims of implemented dynamic policy, bounded metadata bootstrap, full orphan GC,
+or real-provider/native-filesystem validation. See MOUNT.md for executable usage.
+
+## Legacy v6 first stage
 
 The user requested existing-pool automatic metadata management first, with a saved
 per-file history count for future retention. `--pool-sync` now uses immutable
@@ -11,7 +29,7 @@ append-only events replicated to all encrypted pool destinations. Structured
 original-preserving projection and GUI conflict lists are connected. History-limit
 config is explicitly stored-only; no peer GC or bounded-storage claim is made.
 See MOUNT.md for availability, read-fencing and bootstrap limits. The protocol
-namespace `events-v6` is intentionally distinct from any future snapshot protocol.
+namespace `events-v6` is intentionally distinct from the v7 snapshot protocol.
 
 
 ## Required behavior
@@ -49,7 +67,7 @@ NOT a blocker.
 
 ## Candidate protocol: immutable per-path self-contained snapshots
 
-Architecture/safety review completed. The following self-contained snapshot/GC extension is not implemented yet.
+Architecture/safety review completed. The bounded v7 implementation follows this private-ownership design; advanced migration/policy/metadata compaction remain future work.
 
 - A PC publishes a unique immutable snapshot for a logical path, not a shared
   global `current.json`. Different files never contend on one namespace pointer.

@@ -6,8 +6,78 @@ restoring all files, then downloads/verifies only intersecting shards on reads.
 Both modes keep writes on local disk before asynchronous verified cloud publication.
 An application save is **not** a completed-cloud-replication acknowledgment.
 
-## Automatic pool sync — no coordinator (new workspace)
+## Automatic history collection — private snapshots v7 (NEW workspace)
 
+In the GUI choose **Virtual cloud drive → Automatic pool sync → Automatic history
+deletion — v7**, then set **Previous versions per file**. CLI equivalent:
+
+```sh
+rpool mount --virtual-drive --pool-sync --pool-retention \
+  --pool=my-pool --workspace=/new/persistent/workspace \
+  --pool-worker=PC-A --pool-history-limit=10 --mountpoint=/empty/mountpoint
+```
+
+Every PC uses its own new workspace, the same pool/remotes/keys, and the **same
+history limit**. No designated PC, separate metadata service, or online-PC quorum
+is required. All configured metadata storage destinations must be reachable.
+
+- `0`: retain current content; `10`: current + up to 10 previous content revisions
+  per resolved file. Conflict originals/candidates and temporary publication
+  overlap are additional protections, not counted against ordinary history.
+- The limit is fixed for this initial v7 protocol scope. Mismatched policies fail
+  closed; changing one PC's config is not a coordinated policy update. Increasing
+  the number cannot restore already deleted versions.
+- Before retiring a snapshot, RPool copies and verifies its retained closure into
+  a **new private ownership domain**. Positive causal successor evidence, not a
+  missing directory listing or device timeout, authorizes exact-object deletion.
+- Multiple PCs may publish and collect in parallel. Interrupted deletion resumes
+  from a checksummed local journal; repeated deletion of missing objects is safe.
+- This is eventual payload reclamation, not an instantaneous storage ceiling.
+  Copying current/history/conflict bytes needs temporary cloud/local space and
+  adds transfers. Backend trash/versioning may delay actual quota recovery.
+- Causal metadata, namespace tombstones and nested archive metadata remain; fresh
+  bootstrap still has metadata size/count bounds. Interrupted unpublished uploads
+  remain conservatively retained and are **not** automatically orphan-swept.
+
+### Moves, concurrent edits, and reads
+
+File identity is separate from both pathname and content identity. A committed
+file/folder MOVE publishes one immutable metadata envelope and does **not** upload
+or download payloads. History follows that file identity across moves. Pending
+writes must finish syncing before moving. Conflicted content/name groups currently
+refuse MOVE; moving one conflict alias must not silently move every sibling.
+
+Before admitting an edit, v7 captures/verifies the exact input original locally.
+Concurrent ordinary edits preserve the original plus both worker-labelled candidates.
+Very stale edits whose original has already expired fail explicitly; recover local
+work as a new file rather than silently overwriting current data. Native VFS cache
+and rejected/partial spool require the documented recovery procedures below.
+
+Reads resolve the **same semantic revision** through current private copies;
+compaction never substitutes a newer file version into an old handle. If that
+semantic revision has itself expired, reopen the file. Application `fsync` still
+is not an immediate remote-durable commit guarantee. Empty directories remain local.
+
+### Transition from existing data
+
+V7 uses a disjoint `snapshots-v7` metadata namespace and new payload owner IDs.
+Existing v6/v5/replica workspaces and objects are **not** adopted or deleted.
+Old binaries cannot mutate the v7 namespace through their v6 synchronization path.
+
+To populate v7, copy files from the old drive to the new drive, or explicitly import
+selected manifests with `--manifest`. Import restores/verifies bytes and creates
+new owned payloads; it never grants ownership of old object references. Remove the
+one-time manifest arguments after importing. There is no automatic in-place
+migration or legacy-history cleanup. Keep the old workspace intact until you have
+verified the copied files.
+
+Synthetic tests exercise actual runtime upload/copy/delete paths, multiple local
+workspaces, conflicts, retry, and zero-payload moves. Real cloud/eventual-consistency
+and Windows/WinFsp or Linux/FUSE multi-PC acceptance remain unverified.
+
+## Legacy automatic pool sync v6 — no coordinator (new workspace)
+
+Leave **Automatic history deletion — v7** unchecked for this legacy mode.
 Select **Virtual cloud drive → Automatic pool sync** (selected by default for the
 virtual GUI workflow). Select the existing pool and a **new persistent workspace
 on each PC**. No shared-root field, extra metadata provider, server or designated

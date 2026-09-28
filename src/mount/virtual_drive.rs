@@ -46,6 +46,7 @@ pub(crate) struct VirtualDrive {
     pub spool_limit: u64,
     pub spool_writes: Mutex<()>,
     pub bounded_shared: bool,
+    pub peer_retention: bool,
     pub pool_sync_roots: Vec<String>,
     pub pool_history_limit: usize,
     pub peer_read_pins: Mutex<BTreeMap<String, String>>,
@@ -63,6 +64,7 @@ impl VirtualDrive {
         cache_limit: u64,
         bounded_shared: bool,
         pool_sync: bool,
+        peer_retention: bool,
     ) -> Result<Self> {
         if pool_sync {
             Event {
@@ -81,7 +83,15 @@ impl VirtualDrive {
                 .get(pool)
                 .cloned()
                 .context("unknown pool")?;
-            super::pool_sync::roots(pool, &policy.remotes)?
+            let roots = super::pool_sync::roots(pool, &policy.remotes)?;
+            if peer_retention {
+                roots
+                    .into_iter()
+                    .map(|r| r.replace("/events-v6/", "/snapshots-v7/"))
+                    .collect()
+            } else {
+                roots
+            }
         } else {
             vec![]
         };
@@ -141,7 +151,9 @@ impl VirtualDrive {
                 .cloned()
                 .context("unknown pool")?;
             let b = Binding {
-                version: if pool_sync {
+                version: if peer_retention {
+                    7
+                } else if pool_sync {
                     6
                 } else if bounded_shared {
                     5
@@ -157,7 +169,9 @@ impl VirtualDrive {
             b
         };
         if binding.version
-            != (if pool_sync {
+            != (if peer_retention {
+                7
+            } else if pool_sync {
                 6
             } else if bounded_shared {
                 5
@@ -182,7 +196,13 @@ impl VirtualDrive {
         }
         let mut state = Namespace::load(&root, worker)?;
         if bounded_shared || pool_sync {
-            state.version = if pool_sync { 6 } else { 5 };
+            state.version = if peer_retention {
+                7
+            } else if pool_sync {
+                6
+            } else {
+                5
+            };
             state.save(&root)?;
         }
         let cache = ShardCache::new(root.join("clean-cache"), cache_limit)?;
@@ -201,6 +221,7 @@ impl VirtualDrive {
             spool_limit: 64 * 1073741824,
             spool_writes: Mutex::new(()),
             bounded_shared,
+            peer_retention,
             pool_sync_roots: auto_roots,
             pool_history_limit: 0,
             peer_read_pins: Mutex::new(BTreeMap::new()),
@@ -277,6 +298,11 @@ impl VirtualDrive {
         self.root.join("spool").join(&intent.id).join("content")
     }
     pub(crate) fn read(&self, revision: &Revision, offset: u64, count: usize) -> Result<Vec<u8>> {
+        if self.peer_retention {
+            if let Revision::Cloud { id, .. } = revision {
+                return self.read_snapshot(id, offset, count);
+            }
+        }
         match revision {
             Revision::Cloud { content, .. } => self.cache.read(
                 &crate::storage::reader::StorageReader::rclone(&self.rclone),
@@ -299,6 +325,11 @@ impl VirtualDrive {
         }
     }
     pub(crate) fn pin_read(&self, path: &str, revision: &Revision) -> Result<()> {
+        if self.peer_retention {
+            if let Revision::Cloud { id, .. } = revision {
+                return self.pin_snapshot_read(path, id);
+            }
+        }
         let mut s = self.state.lock().unwrap();
         if !self.pool_sync_roots.is_empty() {
             // Native DAV clients may make independent unconditioned range requests.
@@ -360,6 +391,12 @@ impl VirtualDrive {
         self.begin_observed(path, visible.as_ref())
     }
     pub(crate) fn begin_observed(&self, path: &str, visible: Option<&Revision>) -> Result<Intent> {
+        if self.peer_retention {
+            return self.begin_snapshot(path, visible);
+        }
+        self.begin_intent(path, visible)
+    }
+    pub(crate) fn begin_intent(&self, path: &str, visible: Option<&Revision>) -> Result<Intent> {
         valid_path(path)?;
         let mut s = self
             .state
@@ -531,6 +568,9 @@ impl VirtualDrive {
         Ok(())
     }
     pub(crate) fn import(&self, source: &str) -> Result<()> {
+        if self.peer_retention {
+            return self.import_snapshot(source);
+        }
         if self.bounded_shared
             && (!self.checkpoint_coordinator || self.state.lock().unwrap().checkpoint.is_some())
         {
@@ -622,6 +662,9 @@ impl VirtualDrive {
         Ok(())
     }
     pub(crate) fn rename_file(&self, from: &str, to: &str) -> Result<()> {
+        if self.peer_retention {
+            return self.rename_snapshot(from, to, false);
+        }
         valid_path(from)?;
         valid_path(to)?;
         if from == to {
@@ -687,6 +730,9 @@ impl VirtualDrive {
         Ok(())
     }
     pub(crate) fn rename_directory(&self, from: &str, to: &str) -> Result<()> {
+        if self.peer_retention {
+            return self.rename_snapshot(from, to, true);
+        }
         valid_path(from)?;
         valid_path(to)?;
         if from == to {
@@ -768,6 +814,9 @@ impl VirtualDrive {
     }
     /// Metadata refresh never uploads dirty spool.
     pub(crate) fn pull(&self) -> Result<()> {
+        if self.peer_retention {
+            return self.pull_snapshots();
+        }
         if !self.pool_sync_roots.is_empty() {
             return self.pull_pool();
         }
@@ -793,6 +842,9 @@ impl VirtualDrive {
         Ok(())
     }
     pub(crate) fn sync(&self) -> Result<()> {
+        if self.peer_retention {
+            return self.sync_snapshots();
+        }
         if self.bounded_shared {
             return self.sync_checkpoint();
         }
@@ -937,10 +989,16 @@ impl VirtualDrive {
         if !self.pool_sync_roots.is_empty() {
             status.pool_sync_roots = self.pool_sync_roots.clone();
             status.desired_history_limit = self.pool_history_limit;
-            status.conflicts = super::peer_projection::project(&state.events)?.conflicts;
-            status.note.push_str(" Pool-sync metadata is replicated automatically. History limit is saved for future retention; remote history deletion is NOT enabled.");
+            if !self.peer_retention {
+                status.conflicts = super::peer_projection::project(&state.events)?.conflicts;
+                status.note.push_str(" Pool-sync metadata is replicated automatically. History limit is saved for future retention; remote history deletion is NOT enabled.");
+            }
         }
         drop(state);
+        if self.peer_retention {
+            status.conflicts = self.snapshot_conflicts()?;
+            status.note.push_str(" V7 private snapshots: automatic history deletion enabled; current/conflict bytes protected, legacy data untouched. Copying needs temporary space.");
+        }
         status.logical_ceiling_estimate = status
             .logical_used
             .saturating_add(status.additional_estimate);
@@ -992,6 +1050,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
             .context("cache limit overflow")?,
         args.bounded_shared,
         args.pool_sync,
+        args.pool_retention,
     )?;
     if args.pool_sync {
         drive.pool_history_limit = super::pool_sync::Config::load(
@@ -1096,7 +1155,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         webdav: Some((format!("http://{}/", server.address), server.token.clone())),
     })?;
     if !drive.pool_sync_roots.is_empty() {
-        println!("Pool sync ready: immutable metadata replicated inside {} pool roots; no coordinator. Desired previous versions={} (config only; peer history deletion not enabled).", drive.pool_sync_roots.len(), drive.pool_history_limit);
+        println!("Pool sync ready: metadata inside {} pool roots; no coordinator. Previous versions={}, automatic private-snapshot collection={}. Legacy v6 data is untouched.", drive.pool_sync_roots.len(), drive.pool_history_limit, drive.peer_retention);
     } else if drive.bounded_shared {
         println!("Shared drive starting: cloud-authoritative namespace synchronized; file bytes download on demand. Local writes await coordinator acceptance; no distributed locking guarantee.");
     } else {
@@ -1250,6 +1309,7 @@ pub(crate) fn fixture(root: &Path) -> VirtualDrive {
         spool_limit: 64 * 1073741824,
         spool_writes: Mutex::new(()),
         bounded_shared: false,
+        peer_retention: false,
         pool_sync_roots: vec![],
         pool_history_limit: 0,
         peer_read_pins: Mutex::new(BTreeMap::new()),
