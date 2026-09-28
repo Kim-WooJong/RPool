@@ -14,7 +14,6 @@ pub(crate) struct ProviderForm {
     pub(crate) setup_open: bool,
     pub(crate) crypt_name: String,
     pub(crate) backing_provider: String,
-    pub(crate) crypt_root: String,
     pub(crate) entropy_index: usize,
     pub(crate) filename_index: usize,
     pub(crate) disable_directory_encryption: bool,
@@ -33,7 +32,6 @@ pub(crate) struct ProviderForm {
 
 impl ProviderForm {
     fn apply_defaults(&mut self, defaults: &crate::config_sync::provision::EncryptionDefaults) {
-        self.crypt_root = defaults.root.clone();
         self.entropy_index = [256, 128, 512, 1024]
             .iter()
             .position(|v| *v == defaults.entropy_bits)
@@ -309,9 +307,11 @@ fn encryption_dialog(ctx: &egui::Context, state: &mut GuiState, task: &mut TaskR
                 ui.add(egui::TextEdit::singleline(&mut state.providers.backing_provider).hint_text("e.g. google_1 (no colon)"));
                 ui.label("New encrypted provider name");
                 ui.add(egui::TextEdit::singleline(&mut state.providers.crypt_name).hint_text("e.g. google_1_crypt"));
-                ui.label("Parent folder (optional)");
-                ui.add(egui::TextEdit::singleline(&mut state.providers.crypt_root).hint_text("rpool"));
-                ui.small("Relative to the backing provider's remote default path in Settings. A fresh unique child folder is added; existing crypt folders and files are not moved.");
+                ui.small("Uses the backing provider's remote default path exactly, without an extra folder. Existing crypt folders and files are not moved.");
+                if !state.providers.backing_provider.is_empty() {
+                    let root = state.remote_roots.get(&state.providers.backing_provider).map(String::as_str).unwrap_or("");
+                    ui.monospace(format!("Backing location: {}:{}", state.providers.backing_provider, root));
+                }
                 let strengths = ["256 bits", "128 bits", "512 bits", "1024 bits"];
                 egui::ComboBox::from_label("Generated password entropy")
                     .selected_text(strengths[state.providers.entropy_index.min(3)])
@@ -352,7 +352,6 @@ fn start_encryption(state: &GuiState, task: &mut TaskRunner) -> Result<(), Strin
         "encrypt".into(),
         format!("--name={}", form.crypt_name.trim()).into(),
         format!("--provider={}", form.backing_provider.trim()).into(),
-        format!("--root={}", form.crypt_root.trim()).into(),
         format!("--entropy-bits={bits}").into(),
         format!("--filename-encryption={mode}").into(),
         format!(
@@ -378,7 +377,6 @@ mod tests {
         let defaults = crate::config_sync::provision::EncryptionDefaults::default();
         form.apply_defaults(&defaults);
         assert_eq!([256, 128, 512, 1024][form.entropy_index], 1024);
-        assert_eq!(form.crypt_root, "rpool");
         assert_eq!(form.crypt_name, "existing-draft");
         assert!(!form.backup_acknowledged);
         let changed = crate::config_sync::provision::EncryptionDefaults {
@@ -391,7 +389,6 @@ mod tests {
         assert_eq!([256, 128, 512, 1024][form.entropy_index], 128);
         assert_eq!(form.filename_index, 2);
         assert!(form.disable_directory_encryption);
-        assert_eq!(form.crypt_root, "custom folder");
     }
 
     #[test]

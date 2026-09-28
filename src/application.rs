@@ -253,7 +253,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             ProviderCommands::Encrypt {
                 name,
                 provider,
-                root,
+                root: _,
                 entropy_bits,
                 filename_encryption,
                 directory_encryption,
@@ -263,13 +263,12 @@ fn dispatch(cli: Cli) -> Result<()> {
                     &crate::config_sync::provision::CryptSetup {
                         name,
                         provider,
-                        root,
                         entropy_bits,
                         filename_encryption,
                         directory_encryption,
                     },
                 )?;
-                println!("Encrypted provider created. Fresh backing folder: {backing}");
+                println!("Encrypted provider created. Backing location: {backing}");
                 println!("Back up the rclone configuration / encrypted secret vault before storing data. Losing these keys loses access to the data.");
                 Ok(())
             }

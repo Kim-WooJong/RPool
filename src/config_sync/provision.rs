@@ -20,6 +20,7 @@ pub(crate) struct EncryptionDefaults {
     pub(crate) entropy_bits: usize,
     pub(crate) filename_encryption: String,
     pub(crate) directory_encryption: bool,
+    /// Legacy compatibility field; ignored when selecting the backing path.
     pub(crate) root: String,
 }
 impl Default for EncryptionDefaults {
@@ -28,7 +29,7 @@ impl Default for EncryptionDefaults {
             entropy_bits: 1024,
             filename_encryption: "standard".into(),
             directory_encryption: true,
-            root: "rpool".into(),
+            root: String::new(),
         }
     }
 }
@@ -41,7 +42,6 @@ impl EncryptionDefaults {
             format!("--entropy-bits={}", self.entropy_bits),
             format!("--filename-encryption={}", self.filename_encryption),
             format!("--directory-encryption={}", self.directory_encryption),
-            format!("--root={}", self.root),
         ]
         .into_iter()
         .map(Into::into)
@@ -51,7 +51,6 @@ impl EncryptionDefaults {
         CryptSetup {
             name,
             provider,
-            root: self.root.clone(),
             entropy_bits: self.entropy_bits,
             filename_encryption: self.filename_encryption.clone(),
             directory_encryption: self.directory_encryption,
@@ -62,7 +61,6 @@ impl EncryptionDefaults {
 pub(crate) struct CryptSetup {
     pub(crate) name: String,
     pub(crate) provider: String,
-    pub(crate) root: String,
     pub(crate) entropy_bits: usize,
     pub(crate) filename_encryption: String,
     pub(crate) directory_encryption: bool,
@@ -82,16 +80,6 @@ impl CryptSetup {
             "standard" | "obfuscate" | "off"
         ) {
             bail!("unsupported filename encryption mode");
-        }
-        if self.root.starts_with('/')
-            || self.root.contains(['\\', ':'])
-            || self.root.chars().any(char::is_control)
-            || self.root.split('/').any(|s| s == ".." || s == ".")
-            || self.root.trim() != self.root
-        {
-            bail!(
-                "root must be a relative provider folder without traversal or control characters"
-            );
         }
         Ok(())
     }
@@ -194,24 +182,11 @@ impl Drop for Lock {
     }
 }
 
-/// Resolve the provider default before appending any explicit crypt path.
-fn crypt_backing(setup: &CryptSetup, roots: &RemoteRootStore, unique: &str) -> Result<String> {
-    let provider = format!("{}:", setup.provider);
-    let mut backing = apply_remote_root_with_store(&provider, roots)?;
+/// Use the provider's configured default exactly; never append crypt-only folders.
+fn crypt_backing(setup: &CryptSetup, roots: &RemoteRootStore) -> Result<String> {
+    let backing = apply_remote_root_with_store(&format!("{}:", setup.provider), roots)?;
     if backing.chars().any(char::is_control) {
         bail!("provider default path must not contain control characters");
-    }
-    for child in [
-        setup.root.trim_end_matches('/'),
-        &format!("rpool-crypt-{unique}"),
-    ] {
-        if child.is_empty() {
-            continue;
-        }
-        if backing != provider && !backing.ends_with('/') {
-            backing.push('/');
-        }
-        backing.push_str(child);
     }
     Ok(backing)
 }
@@ -268,8 +243,7 @@ fn create_crypt_locked(
     if provider.kind == "crypt" || provider.kind.is_empty() {
         bail!("choose a non-crypt backing provider");
     }
-    let unique = random_hex(128)?;
-    let backing = crypt_backing(setup, roots, unique.as_str())?;
+    let backing = crypt_backing(setup, roots)?;
     let password = obscure(executable, &random_hex(setup.entropy_bits)?)?;
     let salt = obscure(executable, &random_hex(256)?)?;
     let bytes = candidate(&original.0, setup, &backing, &password, &salt)?;
@@ -433,7 +407,7 @@ fn main() {
             sections.get_mut(&name).unwrap().insert(key.trim().into(), value.trim().into());
         }
     }
-    // All fixture values are ASCII, so Rust string escaping is valid JSON here.
+    // Fixture values contain no Rust-only escapes; Unicode is emitted verbatim.
     let json = sections.iter().map(|(name, fields)| {
         let fields = fields.iter().map(|(k,v)| format!("{k:?}:{v:?}")).collect::<Vec<_>>().join(",");
         format!("{name:?}:{{{fields}}}")
@@ -450,78 +424,98 @@ fn main() {
     }
 
     #[test]
-    fn backing_resolves_default_before_relative_parent_and_preserves_absolute_paths() {
-        for (default, parent, expected) in [
-            ("", "rpool", "cloud:rpool/rpool-crypt-id"),
-            ("base", "rpool", "cloud:base/rpool/rpool-crypt-id"),
-            ("/", "", "cloud:/rpool-crypt-id"),
-            (
-                "/absolute/base/",
-                "nested/",
-                "cloud:/absolute/base/nested/rpool-crypt-id",
-            ),
-            (
-                "팀 공간/자료",
-                "암호화 폴더",
-                "cloud:팀 공간/자료/암호화 폴더/rpool-crypt-id",
-            ),
-            ("folder:", "", "cloud:folder:/rpool-crypt-id"),
+    fn backing_uses_exact_provider_default_and_ignores_legacy_parent() {
+        for (default, expected) in [
+            (None, "cloud:"),
+            (Some(""), "cloud:"),
+            (Some("/data"), "cloud:/data"),
+            (Some("base"), "cloud:base"),
+            (Some("/"), "cloud:/"),
+            (Some("/absolute/base/"), "cloud:/absolute/base/"),
+            (Some("팀 공간/자료"), "cloud:팀 공간/자료"),
+            (Some("folder:"), "cloud:folder:"),
         ] {
             let mut roots = RemoteRootStore::default();
-            roots.roots.insert("cloud".into(), default.into());
+            if let Some(default) = default {
+                roots.roots.insert("cloud".into(), default.into());
+            }
             roots.roots.insert("other".into(), "wrong".into());
-            let mut setup = setup();
-            setup.root = parent.into();
-            setup.validate().unwrap();
-            assert_eq!(crypt_backing(&setup, &roots, "id").unwrap(), expected);
-            assert_eq!(
-                apply_remote_root_with_store(expected, &roots).unwrap(),
-                expected
-            );
+            for legacy_parent in ["", "rpool", "nested/", "/ignored legacy path"] {
+                let defaults = EncryptionDefaults {
+                    root: legacy_parent.into(),
+                    ..EncryptionDefaults::default()
+                };
+                let setup = defaults.setup("cloud_crypt".into(), "cloud".into());
+                setup.validate().unwrap();
+                assert_eq!(crypt_backing(&setup, &roots).unwrap(), expected);
+            }
         }
         let mut roots = RemoteRootStore::default();
         roots
             .roots
             .insert("cloud".into(), "base\npassword = injected".into());
-        assert!(crypt_backing(&setup(), &roots, "id").is_err());
+        assert!(crypt_backing(&setup(), &roots).is_err());
     }
 
     #[test]
     fn manual_and_automatic_use_provider_roots_without_relocating_existing_crypt() {
         let tool = fixture_executable();
-        let mut roots = RemoteRootStore::default();
-        roots.roots.insert("cloud".into(), "/기본 폴더".into());
-        roots.roots.insert("other".into(), "separate root".into());
-        for automatic in [false, true] {
-            let dir = tempfile::tempdir().unwrap();
-            let config = dir.path().join("rclone.conf");
-            let original = "[cloud]\ntype = drive\n[other]\ntype = dropbox\n[other_crypt]\ntype = crypt\nremote = other:legacy\npassword = old-key\n";
-            fs::write(&config, original).unwrap();
-            if automatic {
+        for (default, expected) in [
+            (None, "cloud:"),
+            (Some("/data"), "cloud:/data"),
+            (Some("/"), "cloud:/"),
+            (Some("relative folder"), "cloud:relative folder"),
+            (Some("/기본 폴더"), "cloud:/기본 폴더"),
+        ] {
+            for automatic in [false, true] {
+                let mut roots = RemoteRootStore::default();
+                if let Some(default) = default {
+                    roots.roots.insert("cloud".into(), default.into());
+                }
+                roots.roots.insert("other".into(), "separate root".into());
+                let dir = tempfile::tempdir().unwrap();
+                let config = dir.path().join("rclone.conf");
+                let original = "[cloud]\ntype = drive\n[other]\ntype = dropbox\n[other_crypt]\ntype = crypt\nremote = other:legacy\npassword = old-key\npassword2 = old-salt\n";
+                fs::write(&config, original).unwrap();
+                if automatic {
+                    let defaults = EncryptionDefaults {
+                        root: "ignored/legacy-parent".into(),
+                        ..EncryptionDefaults::default()
+                    };
+                    let report = ensure_encryption_at(&tool, &config, &defaults, &roots).unwrap();
+                    assert_eq!(report.created, ["cloud_crypt"]);
+                    assert_eq!(report.existing, ["other"]);
+                    assert!(report.failed.is_empty());
+                } else {
+                    let setup = setup();
+                    assert_eq!(
+                        create_crypt_at(&tool, &setup, &config, &roots).unwrap(),
+                        expected
+                    );
+                }
+                let dump = read_dump(&tool, &config).unwrap();
+                assert_eq!(dump["cloud_crypt"].remote, expected);
+                assert_eq!(dump["other_crypt"].remote, "other:legacy");
+                assert_eq!(
+                    dump["other_crypt"].password.as_ref().unwrap().as_str(),
+                    "old-key"
+                );
+                assert_eq!(
+                    dump["other_crypt"].password2.as_ref().unwrap().as_str(),
+                    "old-salt"
+                );
+                let created = fs::read(&config).unwrap();
+                assert!(created.starts_with(original.as_bytes()));
+                roots
+                    .roots
+                    .insert("cloud".into(), "/changed default".into());
                 let report =
                     ensure_encryption_at(&tool, &config, &EncryptionDefaults::default(), &roots)
                         .unwrap();
-                assert_eq!(report.created, ["cloud_crypt"]);
-                assert_eq!(report.existing, ["other"]);
-            } else {
-                create_crypt_at(&tool, &setup(), &config, &roots).unwrap();
+                assert!(report.created.is_empty());
+                assert!(report.failed.is_empty());
+                assert_eq!(fs::read(&config).unwrap(), created);
             }
-            let dump = read_dump(&tool, &config).unwrap();
-            assert!(dump["cloud_crypt"]
-                .remote
-                .starts_with("cloud:/기본 폴더/rpool/rpool-crypt-"));
-            assert_eq!(dump["other_crypt"].remote, "other:legacy");
-            let created = fs::read(&config).unwrap();
-            assert!(created.starts_with(original.as_bytes()));
-            roots
-                .roots
-                .insert("cloud".into(), "/changed default".into());
-            let report =
-                ensure_encryption_at(&tool, &config, &EncryptionDefaults::default(), &roots)
-                    .unwrap();
-            assert!(report.created.is_empty());
-            assert_eq!(fs::read(&config).unwrap(), created);
-            roots.roots.insert("cloud".into(), "/기본 폴더".into());
         }
     }
 
@@ -541,7 +535,7 @@ fn main() {
                     create_crypt_at(&tool, &s, &config, &RemoteRootStore::default()).unwrap();
                 let created = fs::read(&config).unwrap();
                 assert!(created.starts_with(original));
-                assert!(backing.starts_with("cloud:rpool/rpool-crypt-"));
+                assert_eq!(backing, "cloud:");
                 let dump = read_dump(&tool, &config).unwrap();
                 assert_eq!(dump[&s.name].filename_encryption, mode);
                 assert_eq!(
@@ -705,8 +699,7 @@ fn main() {
             [
                 "--entropy-bits=1024",
                 "--filename-encryption=standard",
-                "--directory-encryption=true",
-                "--root=rpool"
+                "--directory-encryption=true"
             ]
             .map(std::ffi::OsString::from)
         );
@@ -739,6 +732,8 @@ fn main() {
                     .map(Into::into)
                     .to_vec();
             argv.extend(defaults.ensure_args());
+            // Legacy CLI values remain accepted, but are not emitted by defaults.
+            argv.push(format!("--root={root}").into());
             let parsed = Cli::try_parse_from(argv).unwrap();
             match parsed.command.unwrap() {
                 Commands::Provider(args) => match args.command {
@@ -783,9 +778,7 @@ fn main() {
             ensure_encryption_at(&tool, &config, &defaults, &RemoteRootStore::default()).unwrap();
         assert_eq!(report.created, ["cloud_crypt"]);
         let dump = read_dump(&tool, &config).unwrap();
-        assert!(dump["cloud_crypt"]
-            .remote
-            .starts_with("cloud:private/nested/rpool-crypt-"));
+        assert_eq!(dump["cloud_crypt"].remote, "cloud:");
         assert_eq!(dump["cloud_crypt"].filename_encryption, "off");
         assert_eq!(dump["cloud_crypt"].directory_name_encryption, "false");
         let created = fs::read(&config).unwrap();
@@ -810,7 +803,6 @@ fn main() {
         CryptSetup {
             name: "cloud_crypt".into(),
             provider: "cloud".into(),
-            root: "rpool".into(),
             entropy_bits: 256,
             filename_encryption: "standard".into(),
             directory_encryption: true,
@@ -834,19 +826,7 @@ fn main() {
         assert!(candidate(b"RCLONE_ENCRYPT_V0:\n", &s, "cloud:new", &secret, &secret).is_err());
     }
     #[test]
-    fn rejects_config_injection_and_unsafe_root() {
-        for root in [
-            "../old",
-            "/absolute",
-            "a\nb",
-            "a\\b",
-            "remote:path",
-            "a/./b",
-        ] {
-            let mut s = setup();
-            s.root = root.into();
-            assert!(s.validate().is_err());
-        }
+    fn rejects_config_injection_and_invalid_encryption_options() {
         let mut s = setup();
         s.name = "x]\npassword = injected".into();
         assert!(s.validate().is_err());

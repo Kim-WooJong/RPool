@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- New crypt remotes now point directly at the provider's configured remote default path: `/data` becomes `provider:/data`, without an encryption parent or unique child directory. Existing crypt paths and keys are unchanged.
+- Removed the redundant encryption parent-folder controls. Historical `root` settings/CLI arguments remain accepted but ignored. Version stays 0.6.0 until the next batched update.
+
 ## 0.6.0 — 2026-09-28
 
 - Bundled provider connection and automatic missing-crypt provisioning, with existing keys preserved.

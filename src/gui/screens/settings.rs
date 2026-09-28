@@ -244,15 +244,8 @@ fn show_encryption(ui: &mut egui::Ui, state: &mut GuiState) {
             ui.label("Directory name encryption");
             ui.checkbox(&mut defaults.directory_encryption, "Enabled");
             ui.end_row();
-            ui.label("Parent root");
-            ui.add(
-                egui::TextEdit::singleline(&mut defaults.root)
-                    .hint_text("rpool")
-                    .desired_width(320.0),
-            );
-            ui.end_row();
         });
-    ui.small("Parent root is relative to that provider's configured remote default path (Operation defaults → Per-remote default paths). Empty starts directly at that default. Each new crypt receives a fresh unique child folder; existing crypt paths never move.");
+    ui.small("New crypt uses the provider's remote default path exactly (Operation defaults → Per-remote default paths). No extra folder is added; existing crypt paths never move.");
     let validation = defaults.validate();
     if let Err(error) = &validation {
         ui.colored_label(egui::Color32::LIGHT_RED, error.to_string());

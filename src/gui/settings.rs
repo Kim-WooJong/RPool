@@ -92,9 +92,7 @@ mod tests {
     #[test]
     fn invalid_encryption_settings_are_rejected_before_saving() {
         let mut settings = GuiSettings::default();
-        settings.encryption.root = "../escape".into();
-        assert!(save(&settings)
-            .unwrap_err()
-            .contains("relative provider folder"));
+        settings.encryption.entropy_bits = 12;
+        assert!(save(&settings).unwrap_err().contains("entropy"));
     }
 }

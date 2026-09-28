@@ -8,11 +8,11 @@ Storage → Providers → **+ Connect cloud provider** opens the official `rclon
 
 After provider discovery, the GUI automatically provisions encryption for base providers that do not already have a data-encrypting crypt remote. Setup waits until the external connection wizard closes. Existing crypt remotes and keys are retained; existing cloud files are not encrypted in place.
 
-Automatic setup defaults to **1024-bit random password entropy**, Standard filename encryption and encrypted directory names. It creates a separate crypt destination in a fresh child folder. Provider lists show base storage rather than crypt wrappers; pool selection still uses encrypted destinations. Each base provider shows configuration status: encryption configured, setup pending, setting up, incomplete/retry, or unknown. This is not a live cloud-health or recoverability check.
+Automatic setup defaults to **1024-bit random password entropy**, Standard filename encryption and encrypted directory names. The new crypt points directly at the provider's remote default path, without adding a folder. Provider lists show base storage rather than crypt wrappers; pool selection still uses encrypted destinations. Each base provider shows configuration status: encryption configured, setup pending, setting up, incomplete/retry, or unknown. This is not a live cloud-health or recoverability check.
 
 ## Encryption defaults
 
-**Settings → Encryption defaults** controls password entropy (128/256/512/1024 bits), filename protection, directory-name protection and parent folder. Click **Save encryption defaults** to persist across restarts. As with other GUI defaults, edits apply in the current session before saving. Automatic setup and newly opened custom-encryption dialogs use these defaults. Defaults apply only to new crypt remotes; existing keys, cipher settings and stored data are never changed. The entropy setting does not change rclone's cipher key size. Filename Off also exposes directory names; Obfuscate is not strong filename secrecy.
+**Settings → Encryption defaults** controls password entropy (128/256/512/1024 bits), filename protection and directory-name protection. Click **Save encryption defaults** to persist across restarts. As with other GUI defaults, edits apply in the current session before saving. Automatic setup and newly opened custom-encryption dialogs use these defaults. Defaults apply only to new crypt remotes; existing keys, cipher settings and stored data are never changed. The entropy setting does not change rclone's cipher key size. Filename Off also exposes directory names; Obfuscate is not strong filename secrecy.
 
 The equivalent CLI operation is `rpool provider ensure-encryption`. Keys remain in the local rclone configuration: back it up securely before uploading data. Automatic provisioning does not automatically add destinations to existing pools.
 
@@ -22,15 +22,15 @@ Automatic attempts wait for the current job to finish and do not loop on an unch
 
 ### Physical folder location
 
-New crypt backing locations are composed as:
+New crypt backing locations use the configured path exactly:
 
-`provider:<per-remote default path>/<encryption parent>/<unique child>`
+`provider:<per-remote default path>`
 
-For example, provider `server` with remote default `/data` and encryption parent `rpool` creates `server:/data/rpool/rpool-crypt-…`. An empty encryption parent places the unique child directly under `/data`. Without a per-provider default, creation starts at the provider root. Leading `/` is preserved for filesystem-backed remotes.
+For example, provider `server` with remote default `/data` creates a crypt pointing at `server:/data`. No `rpool` or unique child folder is added. Without a per-provider default, the backing is `server:`; `/` produces `server:/`. Leading `/`, spaces and Unicode are preserved. Historical encryption `root` settings and the hidden legacy `--root` option are accepted but ignored.
 
 The separate **Global crypt folder fallback** is a plaintext path inside an already-created crypt remote; it is not the physical backing base. Changing a remote default does not relocate previously created crypts or rotate their keys. Existing crypts created at an unwanted location need a separate, explicit migration; this fix only changes new creation.
 
-Select **Set up encryption**, choose a connected non-crypt provider and a unique encrypted-provider name. Optionally choose a parent folder. RPool allocates a fresh child folder and creates a new crypt remote; it does not convert existing files or rotate existing keys.
+Select **Set up encryption**, choose a connected base provider and a unique encrypted-provider name. The dialog displays its backing location. RPool creates a new crypt remote pointing at that location; it does not convert existing files or rotate existing keys.
 
 - Random password entropy: 128, 256, 512 or 1024 (default) bits. This changes generated password entropy, not rclone's cipher strength.
 - Filename protection: Standard (recommended), Obfuscate (reversible, not strong filename secrecy), or Off.
