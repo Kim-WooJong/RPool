@@ -2973,7 +2973,7 @@ dependencies = [
 
 [[package]]
 name = "rpool"
-version = "0.5.15"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "blake3",

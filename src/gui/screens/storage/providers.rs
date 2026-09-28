@@ -311,7 +311,7 @@ fn encryption_dialog(ctx: &egui::Context, state: &mut GuiState, task: &mut TaskR
                 ui.add(egui::TextEdit::singleline(&mut state.providers.crypt_name).hint_text("e.g. google_1_crypt"));
                 ui.label("Parent folder (optional)");
                 ui.add(egui::TextEdit::singleline(&mut state.providers.crypt_root).hint_text("rpool"));
-                ui.small("A fresh uniquely named child folder is used. This does not encrypt existing files in place.");
+                ui.small("Relative to the backing provider's remote default path in Settings. A fresh unique child folder is added; existing crypt folders and files are not moved.");
                 let strengths = ["256 bits", "128 bits", "512 bits", "1024 bits"];
                 egui::ComboBox::from_label("Generated password entropy")
                     .selected_text(strengths[state.providers.entropy_index.min(3)])

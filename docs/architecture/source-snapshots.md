@@ -1,5 +1,7 @@
 # Source snapshots and workspace layout
 
+> Superseded workflow (2026-09-28): edit source directly in `artifacts/rpool` and commit with Git. Do not run the snapshot exporter below or overwrite this repository with the older `projects/rpool` source tree. Build with `CARGO_TARGET_DIR=../../projects/rpool/target` from this repository. Current version policy is [VERSIONING.md](../VERSIONING.md); 0.6.0 supersedes the old version reservation. The text below documents historical delivery only. No automatic remote push.
+
 - Work/build/test: `projects/rpool` (target stays here).
 - Source-only Git repository: `artifacts/rpool` (Cargo.toml at repository root).
 - Other reviewed project: `projects/initial-setup-review/Initial-setup`.

@@ -252,7 +252,7 @@ fn show_encryption(ui: &mut egui::Ui, state: &mut GuiState) {
             );
             ui.end_row();
         });
-    ui.small("Parent root is a relative provider folder (empty uses provider root). Each new crypt receives a fresh unique child folder.");
+    ui.small("Parent root is relative to that provider's configured remote default path (Operation defaults → Per-remote default paths). Empty starts directly at that default. Each new crypt receives a fresh unique child folder; existing crypt paths never move.");
     let validation = defaults.validate();
     if let Err(error) = &validation {
         ui.colored_label(egui::Color32::LIGHT_RED, error.to_string());

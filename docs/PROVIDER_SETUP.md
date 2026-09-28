@@ -20,6 +20,16 @@ Automatic attempts wait for the current job to finish and do not loop on an unch
 
 ## Custom encryption
 
+### Physical folder location
+
+New crypt backing locations are composed as:
+
+`provider:<per-remote default path>/<encryption parent>/<unique child>`
+
+For example, provider `server` with remote default `/data` and encryption parent `rpool` creates `server:/data/rpool/rpool-crypt-…`. An empty encryption parent places the unique child directly under `/data`. Without a per-provider default, creation starts at the provider root. Leading `/` is preserved for filesystem-backed remotes.
+
+The separate **Global crypt folder fallback** is a plaintext path inside an already-created crypt remote; it is not the physical backing base. Changing a remote default does not relocate previously created crypts or rotate their keys. Existing crypts created at an unwanted location need a separate, explicit migration; this fix only changes new creation.
+
 Select **Set up encryption**, choose a connected non-crypt provider and a unique encrypted-provider name. Optionally choose a parent folder. RPool allocates a fresh child folder and creates a new crypt remote; it does not convert existing files or rotate existing keys.
 
 - Random password entropy: 128, 256, 512 or 1024 (default) bits. This changes generated password entropy, not rclone's cipher strength.

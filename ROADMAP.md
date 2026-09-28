@@ -9,7 +9,8 @@ This file is the working development plan for rpool. It should be updated when s
 3. Related features are grouped into domain folders.
 4. Storage metadata remains recoverable and portable; caches must be rebuildable from manifests.
 5. Backward compatibility is preferred for manifests and command behavior unless an incompatible change is explicitly documented.
-6. Cargo check/build is not part of the requested development workflow. Static structure, syntax-oriented inspection, module wiring, and data-format consistency are checked instead.
+6. Validate in-scope changes with Cargo checks/tests/builds; distinguish local results from unverified platforms and real-cloud operation.
+7. Batch version changes according to [version policy](docs/VERSIONING.md); old reservations in historical documents no longer apply.
 
 ## v0.4 — manageability and metadata safety
 
@@ -172,15 +173,15 @@ Metadata migrations must be added before format changes that require them.
 - [x] B6 — real-tool verification harness written (runtime execution pending)
 - [x] B7 — top-level `rpool export` / `rpool import` orchestration
 
-This checkpoint does not consume the planned v0.5.16 GUI version number.
+The original version reservation at this checkpoint is historical; it is superseded by docs/VERSIONING.md.
 
-## v0.5.16 — Settings / UI Persistence
+## Future work — remaining Settings / UI Persistence
 
-**Status: next planned GUI block.**
+**Status: remaining GUI scope; no version reserved.** Encryption defaults and their persistence are included in 0.6.0; the broader items below are not all completed.
 
 - D1 — Settings categories: General / Storage / Defaults / Advanced
 - D2 — Storage settings including rclone executable and remote-root/provider settings
 - D3 — Default pool/workers/retries/start-page defaults
 - D4 — machine-local UI state persistence separated from portable configuration
 
-After v0.5.16, proceed to v0.5.17 GUI Stabilization before returning to v0.6 backend work.
+Choose the next bounded GUI or backend task from user priorities; assign its version only when a validated batch is ready.

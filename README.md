@@ -1,8 +1,10 @@
-# rpool v0.5.15
+# rpool v0.6.0
 
-## Next / unreleased: storage pivot
+## 0.6.0: provider setup and encryption defaults
 
-Storage I/O now uses verified Reader/Writer services behind the synchronous StorageBackend contract. Default production access remains rclone crypt; OpenDAL is an optional test-only Memory prototype. Windows is the primary target, but current executed validation is macOS only. See [verification](docs/architecture/verification.md) and [limitations](docs/architecture/limitations.md). Version 0.5.16 remains reserved for Settings/UI Persistence.
+This batch adds provider connection, automatic crypt setup, configurable encryption defaults, pool selection and copy-only reprocessing. New crypt folders start under the provider's configured remote default path. Existing crypt paths and keys are never automatically moved or rotated. See [provider setup](docs/PROVIDER_SETUP.md) and [version policy](docs/VERSIONING.md).
+
+Storage I/O uses verified Reader/Writer services behind the synchronous StorageBackend contract. Default production access remains rclone crypt; OpenDAL is an optional test-only Memory prototype. Windows is the primary target; this batch is tested on macOS, not Windows/Linux GUI or live cloud accounts. Historical validation records remain in [verification](docs/architecture/verification.md) and [limitations](docs/architecture/limitations.md).
 
 `rpool` is a small Rust storage layer that stripes large files across multiple **explicitly supplied rclone `crypt` remotes** and can optionally add **Reed-Solomon erasure coding**.
 

@@ -1,3 +1,11 @@
+rpool v0.6.0 — provider setup and encryption defaults batch
+Current version policy: docs/VERSIONING.md
+Current changes: CHANGELOG.md, docs/PROVIDER_SETUP.md
+Managed directly in Git; no separate source snapshot/ZIP workflow.
+Existing crypt paths and keys remain unchanged. New crypt creation honors provider remote default paths.
+This version number is not a claim of Windows/Linux GUI or live-cloud qualification.
+
+Historical v0.5.15 checkpoint below (old version reservations and validation policy are superseded):
 rpool v0.5.15 Crypt Secret Portability full-project checkpoint
 Base version: v0.5.15
 Cargo package version: v0.5.15 (no feature-version bump; v0.5.16 remains reserved for Settings / UI Persistence)

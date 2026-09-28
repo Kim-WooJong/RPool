@@ -5,6 +5,8 @@ use super::crypt_secrets::read_dump;
 use super::secret_process::{execute, Output};
 use crate::models::secrets::{validate_obscured, validate_remote_name};
 use crate::models::sensitive::{SensitiveBytes, SensitiveText};
+use crate::models::RemoteRootStore;
+use crate::remote_root::{apply_remote_root_with_store, load_remote_root_store};
 use anyhow::{anyhow, bail, Context, Result};
 use std::fs;
 use std::io::Write;
@@ -192,13 +194,41 @@ impl Drop for Lock {
     }
 }
 
+/// Resolve the provider default before appending any explicit crypt path.
+fn crypt_backing(setup: &CryptSetup, roots: &RemoteRootStore, unique: &str) -> Result<String> {
+    let provider = format!("{}:", setup.provider);
+    let mut backing = apply_remote_root_with_store(&provider, roots)?;
+    if backing.chars().any(char::is_control) {
+        bail!("provider default path must not contain control characters");
+    }
+    for child in [
+        setup.root.trim_end_matches('/'),
+        &format!("rpool-crypt-{unique}"),
+    ] {
+        if child.is_empty() {
+            continue;
+        }
+        if backing != provider && !backing.ends_with('/') {
+            backing.push('/');
+        }
+        backing.push_str(child);
+    }
+    Ok(backing)
+}
+
 pub(crate) fn create_crypt(executable: &Path, setup: &CryptSetup) -> Result<String> {
     setup.validate()?;
     let config = config_path(executable)?;
-    create_crypt_at(executable, setup, &config)
+    let roots = load_remote_root_store()?;
+    create_crypt_at(executable, setup, &config, &roots)
 }
 
-fn create_crypt_at(executable: &Path, setup: &CryptSetup, config: &Path) -> Result<String> {
+fn create_crypt_at(
+    executable: &Path,
+    setup: &CryptSetup,
+    config: &Path,
+    roots: &RemoteRootStore,
+) -> Result<String> {
     setup.validate()?;
     if fs::symlink_metadata(&config)?.file_type().is_symlink() {
         bail!("symlink config files are not supported for automatic setup");
@@ -208,10 +238,15 @@ fn create_crypt_at(executable: &Path, setup: &CryptSetup, config: &Path) -> Resu
         .context("Another setup may be running. Close config editors; inspect any stale rpool-provision.lock before retrying")?;
     drop(file); // Close before the RAII cleanup removes it (required on Windows).
     let _lock = Lock(lock_path);
-    create_crypt_locked(executable, setup, config)
+    create_crypt_locked(executable, setup, config, roots)
 }
 
-fn create_crypt_locked(executable: &Path, setup: &CryptSetup, config: &Path) -> Result<String> {
+fn create_crypt_locked(
+    executable: &Path,
+    setup: &CryptSetup,
+    config: &Path,
+    roots: &RemoteRootStore,
+) -> Result<String> {
     let original = SensitiveBytes(fs::read(&config)?);
     if original
         .0
@@ -234,13 +269,7 @@ fn create_crypt_locked(executable: &Path, setup: &CryptSetup, config: &Path) -> 
         bail!("choose a non-crypt backing provider");
     }
     let unique = random_hex(128)?;
-    let backing = format!(
-        "{}:{}{}rpool-crypt-{}",
-        setup.provider,
-        setup.root.trim_end_matches('/'),
-        if setup.root.is_empty() { "" } else { "/" },
-        unique.as_str()
-    );
+    let backing = crypt_backing(setup, roots, unique.as_str())?;
     let password = obscure(executable, &random_hex(setup.entropy_bits)?)?;
     let salt = obscure(executable, &random_hex(256)?)?;
     let bytes = candidate(&original.0, setup, &backing, &password, &salt)?;
@@ -288,13 +317,15 @@ pub(crate) fn ensure_encryption(
 ) -> Result<EncryptionReport> {
     defaults.validate()?;
     let config = config_path(executable)?;
-    ensure_encryption_at(executable, &config, defaults)
+    let roots = load_remote_root_store()?;
+    ensure_encryption_at(executable, &config, defaults, &roots)
 }
 
 fn ensure_encryption_at(
     executable: &Path,
     config: &Path,
     defaults: &EncryptionDefaults,
+    roots: &RemoteRootStore,
 ) -> Result<EncryptionReport> {
     defaults.validate()?;
     if fs::symlink_metadata(config)?.file_type().is_symlink() {
@@ -344,7 +375,7 @@ fn ensure_encryption_at(
         // failure; the next reconciliation recognizes them and never rotates.
         if setup
             .validate()
-            .and_then(|()| create_crypt_locked(executable, &setup, config))
+            .and_then(|()| create_crypt_locked(executable, &setup, config, roots))
             .is_ok()
         {
             report.created.push(name);
@@ -419,6 +450,82 @@ fn main() {
     }
 
     #[test]
+    fn backing_resolves_default_before_relative_parent_and_preserves_absolute_paths() {
+        for (default, parent, expected) in [
+            ("", "rpool", "cloud:rpool/rpool-crypt-id"),
+            ("base", "rpool", "cloud:base/rpool/rpool-crypt-id"),
+            ("/", "", "cloud:/rpool-crypt-id"),
+            (
+                "/absolute/base/",
+                "nested/",
+                "cloud:/absolute/base/nested/rpool-crypt-id",
+            ),
+            (
+                "팀 공간/자료",
+                "암호화 폴더",
+                "cloud:팀 공간/자료/암호화 폴더/rpool-crypt-id",
+            ),
+            ("folder:", "", "cloud:folder:/rpool-crypt-id"),
+        ] {
+            let mut roots = RemoteRootStore::default();
+            roots.roots.insert("cloud".into(), default.into());
+            roots.roots.insert("other".into(), "wrong".into());
+            let mut setup = setup();
+            setup.root = parent.into();
+            setup.validate().unwrap();
+            assert_eq!(crypt_backing(&setup, &roots, "id").unwrap(), expected);
+            assert_eq!(
+                apply_remote_root_with_store(expected, &roots).unwrap(),
+                expected
+            );
+        }
+        let mut roots = RemoteRootStore::default();
+        roots
+            .roots
+            .insert("cloud".into(), "base\npassword = injected".into());
+        assert!(crypt_backing(&setup(), &roots, "id").is_err());
+    }
+
+    #[test]
+    fn manual_and_automatic_use_provider_roots_without_relocating_existing_crypt() {
+        let tool = fixture_executable();
+        let mut roots = RemoteRootStore::default();
+        roots.roots.insert("cloud".into(), "/기본 폴더".into());
+        roots.roots.insert("other".into(), "separate root".into());
+        for automatic in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let config = dir.path().join("rclone.conf");
+            let original = "[cloud]\ntype = drive\n[other]\ntype = dropbox\n[other_crypt]\ntype = crypt\nremote = other:legacy\npassword = old-key\n";
+            fs::write(&config, original).unwrap();
+            if automatic {
+                let report =
+                    ensure_encryption_at(&tool, &config, &EncryptionDefaults::default(), &roots)
+                        .unwrap();
+                assert_eq!(report.created, ["cloud_crypt"]);
+                assert_eq!(report.existing, ["other"]);
+            } else {
+                create_crypt_at(&tool, &setup(), &config, &roots).unwrap();
+            }
+            let dump = read_dump(&tool, &config).unwrap();
+            assert!(dump["cloud_crypt"]
+                .remote
+                .starts_with("cloud:/기본 폴더/rpool/rpool-crypt-"));
+            assert_eq!(dump["other_crypt"].remote, "other:legacy");
+            let created = fs::read(&config).unwrap();
+            assert!(created.starts_with(original.as_bytes()));
+            roots
+                .roots
+                .insert("cloud".into(), "/changed default".into());
+            let report =
+                ensure_encryption_at(&tool, &config, &EncryptionDefaults::default(), &roots)
+                    .unwrap();
+            assert!(report.created.is_empty());
+            assert_eq!(fs::read(&config).unwrap(), created);
+            roots.roots.insert("cloud".into(), "/기본 폴더".into());
+        }
+    }
+
+    #[test]
     fn subprocess_provision_preserves_keys_modes_and_private_permissions() {
         let tool = fixture_executable();
         for mode in ["standard", "obfuscate", "off"] {
@@ -430,7 +537,8 @@ fn main() {
                 let mut s = setup();
                 s.filename_encryption = mode.into();
                 s.directory_encryption = directory;
-                let backing = create_crypt_at(&tool, &s, &config).unwrap();
+                let backing =
+                    create_crypt_at(&tool, &s, &config, &RemoteRootStore::default()).unwrap();
                 let created = fs::read(&config).unwrap();
                 assert!(created.starts_with(original));
                 assert!(backing.starts_with("cloud:rpool/rpool-crypt-"));
@@ -458,10 +566,12 @@ fn main() {
                     );
                 }
                 s.name = s.name.to_ascii_uppercase();
-                assert!(create_crypt_at(&tool, &s, &config)
-                    .unwrap_err()
-                    .to_string()
-                    .contains("already exists"));
+                assert!(
+                    create_crypt_at(&tool, &s, &config, &RemoteRootStore::default())
+                        .unwrap_err()
+                        .to_string()
+                        .contains("already exists")
+                );
                 assert_eq!(fs::read(&config).unwrap(), created);
                 assert!(!config.with_extension("rpool-provision.lock").exists());
             }
@@ -476,7 +586,7 @@ fn main() {
             let config = dir.path().join("rclone.conf");
             let original = format!("# {marker}\n[cloud]\ntype = drive\ntoken = fictional-token\n");
             fs::write(&config, &original).unwrap();
-            let error = create_crypt_at(&tool, &setup(), &config)
+            let error = create_crypt_at(&tool, &setup(), &config, &RemoteRootStore::default())
                 .unwrap_err()
                 .to_string();
             let expected = if marker == "concurrent-edit" {
@@ -503,7 +613,13 @@ fn main() {
         let config = dir.path().join("rclone.conf");
         let original = "[cloud]\ntype = drive\n[other]\ntype = dropbox\n[alias]\ntype = alias\nremote = other:nested/folder\n[existing]\ntype = crypt\nremote = alias:encrypted\npassword = old-key\n[CLOUD_CRYPT]\ntype = alias\nremote = cloud:unrelated\n";
         fs::write(&config, original).unwrap();
-        let report = ensure_encryption_at(&tool, &config, &EncryptionDefaults::default()).unwrap();
+        let report = ensure_encryption_at(
+            &tool,
+            &config,
+            &EncryptionDefaults::default(),
+            &RemoteRootStore::default(),
+        )
+        .unwrap();
         assert_eq!(report.created, ["cloud_crypt_2"]);
         assert_eq!(report.existing, ["other"]);
         assert!(report.failed.is_empty());
@@ -516,7 +632,13 @@ fn main() {
             dump["existing"].password.as_ref().unwrap().as_str(),
             "old-key"
         );
-        let again = ensure_encryption_at(&tool, &config, &EncryptionDefaults::default()).unwrap();
+        let again = ensure_encryption_at(
+            &tool,
+            &config,
+            &EncryptionDefaults::default(),
+            &RemoteRootStore::default(),
+        )
+        .unwrap();
         assert!(again.created.is_empty());
         assert_eq!(again.existing, ["cloud", "other"]);
         assert_eq!(fs::read(&config).unwrap(), created);
@@ -528,11 +650,23 @@ fn main() {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join("rclone.conf");
         fs::write(&config, "[cloud]\ntype = drive\n[zfail]\ntype = drive\n").unwrap();
-        let report = ensure_encryption_at(&tool, &config, &EncryptionDefaults::default()).unwrap();
+        let report = ensure_encryption_at(
+            &tool,
+            &config,
+            &EncryptionDefaults::default(),
+            &RemoteRootStore::default(),
+        )
+        .unwrap();
         assert_eq!(report.created, ["cloud_crypt"]);
         assert_eq!(report.failed, ["zfail"]);
         let first = fs::read(&config).unwrap();
-        let again = ensure_encryption_at(&tool, &config, &EncryptionDefaults::default()).unwrap();
+        let again = ensure_encryption_at(
+            &tool,
+            &config,
+            &EncryptionDefaults::default(),
+            &RemoteRootStore::default(),
+        )
+        .unwrap();
         assert!(again.created.is_empty());
         assert_eq!(again.existing, ["cloud"]);
         assert_eq!(again.failed, ["zfail"]);
@@ -546,7 +680,13 @@ fn main() {
         let config = dir.path().join("rclone.conf");
         let original = "# fail-stage\n[cloud]\ntype = drive\ntoken = fictional-secret\n";
         fs::write(&config, original).unwrap();
-        let report = ensure_encryption_at(&tool, &config, &EncryptionDefaults::default()).unwrap();
+        let report = ensure_encryption_at(
+            &tool,
+            &config,
+            &EncryptionDefaults::default(),
+            &RemoteRootStore::default(),
+        )
+        .unwrap();
         assert_eq!(report.failed, ["cloud"]);
         assert!(report.created.is_empty());
         assert!(!format!("{report:?}").contains("fictional-secret"));
@@ -639,7 +779,8 @@ fn main() {
             filename_encryption: "off".into(),
             directory_encryption: false,
         };
-        let report = ensure_encryption_at(&tool, &config, &defaults).unwrap();
+        let report =
+            ensure_encryption_at(&tool, &config, &defaults, &RemoteRootStore::default()).unwrap();
         assert_eq!(report.created, ["cloud_crypt"]);
         let dump = read_dump(&tool, &config).unwrap();
         assert!(dump["cloud_crypt"]
@@ -648,12 +789,20 @@ fn main() {
         assert_eq!(dump["cloud_crypt"].filename_encryption, "off");
         assert_eq!(dump["cloud_crypt"].directory_name_encryption, "false");
         let created = fs::read(&config).unwrap();
-        let again = ensure_encryption_at(&tool, &config, &EncryptionDefaults::default()).unwrap();
+        let again = ensure_encryption_at(
+            &tool,
+            &config,
+            &EncryptionDefaults::default(),
+            &RemoteRootStore::default(),
+        )
+        .unwrap();
         assert!(again.created.is_empty());
         assert_eq!(fs::read(&config).unwrap(), created);
         let mut invalid = defaults;
         invalid.entropy_bits = 12;
-        assert!(ensure_encryption_at(&tool, &config, &invalid).is_err());
+        assert!(
+            ensure_encryption_at(&tool, &config, &invalid, &RemoteRootStore::default()).is_err()
+        );
         assert_eq!(fs::read(&config).unwrap(), created);
     }
 
@@ -731,10 +880,10 @@ fn main() {
         );
         fs::write(&config, &original).unwrap();
         let s = setup();
-        create_crypt_at(&tool, &s, &config).unwrap();
+        create_crypt_at(&tool, &s, &config, &RemoteRootStore::default()).unwrap();
         let created = SensitiveBytes(fs::read(&config).unwrap());
         assert!(created.0.starts_with(original.as_bytes()));
-        assert!(create_crypt_at(&tool, &s, &config).is_err());
+        assert!(create_crypt_at(&tool, &s, &config, &RemoteRootStore::default()).is_err());
         assert!(created.0 == fs::read(&config).unwrap());
         assert!(!config.with_extension("rpool-provision.lock").exists());
         let input = dir.path().join("input.txt");
@@ -752,7 +901,7 @@ fn main() {
         let mut invalid = setup();
         invalid.name = "rejected".into();
         invalid.provider = "missing".into();
-        assert!(create_crypt_at(&tool, &invalid, &config).is_err());
+        assert!(create_crypt_at(&tool, &invalid, &config, &RemoteRootStore::default()).is_err());
         assert!(created.0 == fs::read(&config).unwrap());
     }
 }

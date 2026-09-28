@@ -1,13 +1,23 @@
 # Changelog
 
-## Next / unreleased: storage pivot
+## 0.6.0 — 2026-09-28
+
+- Bundled provider connection and automatic missing-crypt provisioning, with existing keys preserved.
+- Added Settings encryption defaults (1024-bit password entropy by default), configuration status indicators and automatic refresh after the connection wizard exits.
+- Added encrypted-provider pool picker and explicit-source, copy-only reprocessing.
+- Fixed crypt provisioning to resolve the provider's remote default path before adding the relative encryption parent and unique child folder.
+- Fixed Windows-only unused-mut warning in reprocessing directory creation.
+- Source changes are managed directly in Git; versions are batched according to docs/VERSIONING.md. No archive-format migration or existing crypt relocation.
+- Validation: macOS default 189 passed and optional OpenDAL 200 passed (12 ignored in each), release build passed with warnings denied. Windows/Linux GUI and live-cloud execution were not validated for this batch.
+
+### Storage implementation carried into this batch
 
 - Introduced storage contracts, synthetic Memory/Unix Local adapters and optional test-only OpenDAL Memory.
 - Unified rclone execution, verified read/write/repair/migration and admin/diagnostic boundaries.
 - Preserved crypt portability and legacy root domains; explicit manifest replication/recovery now retains source bytes.
 - Removed retired bridges and unused historical files using an explicit cleanup list.
 - Validation and limitations: docs/architecture/verification.md. No release readiness or Windows/Linux execution claim.
-- Version unchanged; 0.5.16 reserved for Settings/UI Persistence.
+- The former 0.5.16 reservation is superseded by the batched semantic-version policy.
 
 ## 0.5.15
 

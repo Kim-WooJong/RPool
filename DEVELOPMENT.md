@@ -1,5 +1,7 @@
 # rpool development rules
 
+Current delivery/version policy: [VERSIONING.md](docs/VERSIONING.md). Edit source directly in the Git repository; keep build products outside it using CARGO_TARGET_DIR. Historical ZIP delivery and reserved-version instructions below are superseded, not current requirements.
+
 ## Storage pivot validation checkpoint
 
 Run cargo test --locked --bin rpool and cargo test --locked --features opendal-prototype --bin rpool, plus both cargo build variants. The 3-OS workflow includes these configurations but has not been executed here. Retired paths are listed explicitly in scripts/update-cleanup.nu; review with --dry-run before applying to an older tree. No blanket dead-code/unused suppression: preserve justified contract/crypto surfaces and record remaining diagnostics. See docs/architecture/verification.md for executed vs pending checks.
