@@ -40,12 +40,33 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         if ui.add_enabled(!task.is_running(), egui::Button::new("Set up encryption")).clicked() {
             state.providers.setup_open = true;
         }
+        if ui.add_enabled(!task.is_running(), egui::Button::new("Retry automatic encryption")).clicked() {
+            state.providers.setup_notice = Some(match task.start_rpool(
+                crate::gui::app::AUTO_ENCRYPTION_TASK,
+                &state.settings.rclone,
+                ["provider", "ensure-encryption"],
+            ) {
+                Ok(()) => "Checking encryption for connected providers. See Jobs for progress.".into(),
+                Err(error) => error,
+            });
+        }
         if ui.add_enabled(!task.is_running(), egui::Button::new("Refresh providers")).clicked() {
             state.providers.refresh_requested = true;
         }
     });
     if let Some(notice) = &state.providers.setup_notice {
         ui.label(notice);
+    }
+    ui.small("Encryption is set up automatically for connected base providers. Back up your rclone configuration to preserve generated keys.");
+    if !state.backing_remotes.is_empty() {
+        egui::ScrollArea::vertical()
+            .id_salt("base-provider-list")
+            .max_height(120.0)
+            .show(ui, |ui| {
+                for provider in &state.backing_remotes {
+                    ui.label(provider);
+                }
+            });
     }
     encryption_dialog(ui.ctx(), state, task);
     ui.separator();

@@ -219,6 +219,25 @@ fn dispatch(cli: Cli) -> Result<()> {
             args.groups,
         ),
         Commands::Provider(args) => match args.command {
+            ProviderCommands::EnsureEncryption { json } => {
+                let report = crate::config_sync::provision::ensure_encryption(
+                    std::path::Path::new(&cli.rclone),
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string(&report)?);
+                } else {
+                    println!(
+                        "Encryption ready: {} created, {} already covered, {} failed.",
+                        report.created.len(),
+                        report.existing.len(),
+                        report.failed.len()
+                    );
+                }
+                if !report.failed.is_empty() {
+                    anyhow::bail!("Some providers could not be encrypted. Successful additions were preserved; retry or use rclone config.");
+                }
+                Ok(())
+            }
             ProviderCommands::Encrypt {
                 name,
                 provider,

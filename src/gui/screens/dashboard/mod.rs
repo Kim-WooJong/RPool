@@ -28,7 +28,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, usage: &mut UsageRef
         {
             state.dashboard.refresh();
             state.usage_error = None;
-            usage.start(state.settings.rclone.clone(), state.settings.workers);
+            state.providers.refresh_requested = true;
         }
         if usage.is_running() {
             ui.spinner();

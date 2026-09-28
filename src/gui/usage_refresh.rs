@@ -5,6 +5,8 @@ use std::sync::Arc;
 use std::thread;
 
 pub(crate) struct UsageSnapshot {
+    pub(crate) catalog_signature: String,
+    pub(crate) needs_encryption: bool,
     pub(crate) reports: Vec<QuotaReport>,
     pub(crate) crypt_remotes: Vec<String>,
     pub(crate) backing_remotes: Vec<String>,
@@ -39,6 +41,8 @@ impl UsageRefresh {
                 let catalog = admin
                     .catalog()
                     .map_err(|error| format!("remote discovery failed: {error:#}"))?;
+                let needs_encryption = !catalog.missing_encryption_remotes().is_empty();
+                let catalog_signature = format!("{catalog:?}");
                 let crypt_remotes = catalog.crypt_remotes();
                 let backing_remotes = catalog.backing_remotes();
                 // Discovery is useful even when a provider cannot report capacity.
@@ -52,6 +56,8 @@ impl UsageRefresh {
                     Err(error) => (Vec::new(), Some(format!("Capacity unavailable: {error:#}"))),
                 };
                 Ok(UsageSnapshot {
+                    catalog_signature,
+                    needs_encryption,
                     reports,
                     crypt_remotes,
                     backing_remotes,
@@ -122,6 +128,62 @@ mod tests {
         assert_eq!(snapshot.crypt_remotes, vec!["encrypted:"]);
         assert!(snapshot.reports.is_empty());
     }
+    struct MixedProviders;
+    impl BackendAdmin for MixedProviders {
+        fn catalog(&self) -> anyhow::Result<RemoteCatalog> {
+            RemoteCatalog::parse(&serde_json::json!({
+                "base": {"type": "drive"},
+                "base_crypt": {"type": "crypt", "remote": "base:encrypted"},
+                "new": {"type": "dropbox"}
+            }))
+        }
+        fn discover(&self) -> anyhow::Result<Vec<String>> {
+            unreachable!()
+        }
+        fn probe(&self, _: &str) -> anyhow::Result<()> {
+            unreachable!()
+        }
+        fn quota(&self, remote: &str) -> QuotaReport {
+            QuotaReport {
+                remote: remote.into(),
+                total: Some(100),
+                used: Some(10),
+                free: Some(90),
+                trashed: None,
+                other: None,
+                used_percent: Some(10.0),
+                error: None,
+            }
+        }
+        fn ensure_encrypted(&self, _: &str) -> anyhow::Result<()> {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn discovery_preserves_crypt_picker_but_reports_only_base_capacity() {
+        let mut refresh = UsageRefresh::default();
+        refresh.start_with_admin(Arc::new(MixedProviders), 1);
+        let snapshot = refresh
+            .receiver
+            .as_ref()
+            .unwrap()
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap()
+            .unwrap();
+        assert!(snapshot.needs_encryption);
+        assert_eq!(snapshot.backing_remotes, vec!["base", "new"]);
+        assert_eq!(snapshot.crypt_remotes, vec!["base_crypt:"]);
+        assert_eq!(
+            snapshot
+                .reports
+                .iter()
+                .map(|r| r.remote.as_str())
+                .collect::<Vec<_>>(),
+            vec!["base:", "new:"]
+        );
+    }
+
     struct Blocked {
         entered: mpsc::Sender<()>,
         release: Arc<Barrier>,

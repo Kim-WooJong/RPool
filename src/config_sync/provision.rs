@@ -162,6 +162,10 @@ fn create_crypt_at(executable: &Path, setup: &CryptSetup, config: &Path) -> Resu
         .context("Another setup may be running. Close config editors; inspect any stale rpool-provision.lock before retrying")?;
     drop(file); // Close before the RAII cleanup removes it (required on Windows).
     let _lock = Lock(lock_path);
+    create_crypt_locked(executable, setup, config)
+}
+
+fn create_crypt_locked(executable: &Path, setup: &CryptSetup, config: &Path) -> Result<String> {
     let original = SensitiveBytes(fs::read(&config)?);
     if original
         .0
@@ -223,11 +227,93 @@ fn create_crypt_at(executable: &Path, setup: &CryptSetup, config: &Path) -> Resu
     Ok(backing)
 }
 
+/// An add-only reconciliation result. No keys, tokens or backing folders leave
+/// the provisioning boundary.
+#[derive(Debug, Default, serde::Serialize)]
+pub(crate) struct EncryptionReport {
+    pub(crate) created: Vec<String>,
+    pub(crate) existing: Vec<String>,
+    pub(crate) failed: Vec<String>,
+}
+
+pub(crate) fn ensure_encryption(executable: &Path) -> Result<EncryptionReport> {
+    let config = config_path(executable)?;
+    ensure_encryption_at(executable, &config)
+}
+
+fn ensure_encryption_at(executable: &Path, config: &Path) -> Result<EncryptionReport> {
+    if fs::symlink_metadata(config)?.file_type().is_symlink() {
+        bail!("symlink config files are not supported for automatic setup");
+    }
+    let lock_path = config.with_extension("rpool-provision.lock");
+    let lock = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&lock_path)
+        .context("Another setup may be running; retry after it finishes")?;
+    drop(lock);
+    let _lock = Lock(lock_path);
+    let current = read_dump(executable, config)?;
+    let mut report = EncryptionReport::default();
+    let mut reserved: std::collections::BTreeSet<String> =
+        current.keys().map(|n| n.to_ascii_lowercase()).collect();
+    let facts: serde_json::Map<String, serde_json::Value> = current.iter().map(|(name, entry)| {
+        (name.clone(), serde_json::json!({"type": entry.kind, "remote": entry.remote,
+            "no_data_encryption": if entry.no_data_encryption.is_empty() { "false" } else { &entry.no_data_encryption }}))
+    }).collect();
+    let catalog = crate::storage::admin::RemoteCatalog::parse(&serde_json::Value::Object(facts))?;
+    let missing = catalog.missing_encryption_remotes();
+    for (provider, entry) in &current {
+        if entry.kind.is_empty()
+            || matches!(
+                entry.kind.to_ascii_lowercase().as_str(),
+                "crypt" | "alias" | "chunk" | "chunker" | "union" | "combine"
+            )
+        {
+            continue;
+        }
+        if !missing.contains(provider) {
+            report.existing.push(provider.clone());
+            continue;
+        }
+        let stem = format!("{provider}_crypt");
+        let mut name = stem.clone();
+        let mut suffix = 2usize;
+        while reserved.contains(&name.to_ascii_lowercase()) {
+            name = format!("{stem}_{suffix}");
+            suffix += 1;
+        }
+        reserved.insert(name.to_ascii_lowercase());
+        let setup = CryptSetup {
+            name: name.clone(),
+            provider: provider.clone(),
+            root: "rpool".into(),
+            entropy_bits: 256,
+            filename_encryption: "standard".into(),
+            directory_encryption: true,
+        };
+        // Each addition is atomic. Retain successful additions on a later
+        // failure; the next reconciliation recognizes them and never rotates.
+        if setup
+            .validate()
+            .and_then(|()| create_crypt_locked(executable, &setup, config))
+            .is_ok()
+        {
+            report.created.push(name);
+        } else {
+            // Never forward subprocess/config contents into task diagnostics.
+            report.failed.push(provider.clone());
+        }
+    }
+    Ok(report)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     fn fixture_executable() -> PathBuf {
-        static FIXTURE: std::sync::OnceLock<(tempfile::TempDir, PathBuf)> = std::sync::OnceLock::new();
+        static FIXTURE: std::sync::OnceLock<(tempfile::TempDir, PathBuf)> =
+            std::sync::OnceLock::new();
         FIXTURE.get_or_init(|| {
             let dir = tempfile::Builder::new().prefix("rpool provision fixture ").tempdir().unwrap();
             let source = dir.path().join("fixture.rs");
@@ -254,7 +340,7 @@ fn main() {
     let path = Path::new(&args[1]);
     let text = fs::read_to_string(path).unwrap();
     let staged = path.file_name().unwrap() != "rclone.conf";
-    if staged && text.contains("# fail-stage") { std::process::exit(9); }
+    if staged && (text.contains("# fail-stage") || text.contains("[zfail_crypt]")) { std::process::exit(9); }
     if staged && text.contains("# concurrent-edit") {
         fs::write(path.parent().unwrap().join("rclone.conf"), "# changed by another editor\n[cloud]\ntype = drive\n").unwrap();
     }
@@ -302,16 +388,32 @@ fn main() {
                 assert!(backing.starts_with("cloud:rpool/rpool-crypt-"));
                 let dump = read_dump(&tool, &config).unwrap();
                 assert_eq!(dump[&s.name].filename_encryption, mode);
-                assert_eq!(dump[&s.name].directory_name_encryption, directory.to_string());
+                assert_eq!(
+                    dump[&s.name].directory_name_encryption,
+                    directory.to_string()
+                );
                 assert_eq!(dump[&s.name].remote, backing);
-                assert_eq!(dump["old_crypt"].password.as_ref().unwrap().as_str(), "existing-key");
-                assert_eq!(dump["old_crypt"].password2.as_ref().unwrap().as_str(), "existing-salt");
-                #[cfg(unix)] {
+                assert_eq!(
+                    dump["old_crypt"].password.as_ref().unwrap().as_str(),
+                    "existing-key"
+                );
+                assert_eq!(
+                    dump["old_crypt"].password2.as_ref().unwrap().as_str(),
+                    "existing-salt"
+                );
+                #[cfg(unix)]
+                {
                     use std::os::unix::fs::PermissionsExt;
-                    assert_eq!(fs::metadata(&config).unwrap().permissions().mode() & 0o777, 0o600);
+                    assert_eq!(
+                        fs::metadata(&config).unwrap().permissions().mode() & 0o777,
+                        0o600
+                    );
                 }
                 s.name = s.name.to_ascii_uppercase();
-                assert!(create_crypt_at(&tool, &s, &config).unwrap_err().to_string().contains("already exists"));
+                assert!(create_crypt_at(&tool, &s, &config)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("already exists"));
                 assert_eq!(fs::read(&config).unwrap(), created);
                 assert!(!config.with_extension("rpool-provision.lock").exists());
             }
@@ -326,16 +428,81 @@ fn main() {
             let config = dir.path().join("rclone.conf");
             let original = format!("# {marker}\n[cloud]\ntype = drive\ntoken = fictional-token\n");
             fs::write(&config, &original).unwrap();
-            let error = create_crypt_at(&tool, &setup(), &config).unwrap_err().to_string();
+            let error = create_crypt_at(&tool, &setup(), &config)
+                .unwrap_err()
+                .to_string();
             let expected = if marker == "concurrent-edit" {
                 assert!(error.contains("changed during setup"));
                 "# changed by another editor\n[cloud]\ntype = drive\n"
-            } else { original.as_str() };
+            } else {
+                original.as_str()
+            };
             assert_eq!(fs::read_to_string(&config).unwrap(), expected);
             assert!(!error.contains("fictional-token"));
             assert!(!config.with_extension("rpool-provision.lock").exists());
-            assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1, "staging files must be cleaned");
+            assert_eq!(
+                fs::read_dir(dir.path()).unwrap().count(),
+                1,
+                "staging files must be cleaned"
+            );
         }
+    }
+
+    #[test]
+    fn ensure_is_add_only_collision_safe_and_idempotent() {
+        let tool = fixture_executable();
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("rclone.conf");
+        let original = "[cloud]\ntype = drive\n[other]\ntype = dropbox\n[alias]\ntype = alias\nremote = other:nested/folder\n[existing]\ntype = crypt\nremote = alias:encrypted\npassword = old-key\n[CLOUD_CRYPT]\ntype = alias\nremote = cloud:unrelated\n";
+        fs::write(&config, original).unwrap();
+        let report = ensure_encryption_at(&tool, &config).unwrap();
+        assert_eq!(report.created, ["cloud_crypt_2"]);
+        assert_eq!(report.existing, ["other"]);
+        assert!(report.failed.is_empty());
+        let created = fs::read(&config).unwrap();
+        assert!(created.starts_with(original.as_bytes()));
+        let dump = read_dump(&tool, &config).unwrap();
+        assert_eq!(dump["cloud_crypt_2"].filename_encryption, "standard");
+        assert_eq!(dump["cloud_crypt_2"].directory_name_encryption, "true");
+        assert_eq!(
+            dump["existing"].password.as_ref().unwrap().as_str(),
+            "old-key"
+        );
+        let again = ensure_encryption_at(&tool, &config).unwrap();
+        assert!(again.created.is_empty());
+        assert_eq!(again.existing, ["cloud", "other"]);
+        assert_eq!(fs::read(&config).unwrap(), created);
+    }
+
+    #[test]
+    fn ensure_partial_failure_keeps_success_and_retry_never_rotates() {
+        let tool = fixture_executable();
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("rclone.conf");
+        fs::write(&config, "[cloud]\ntype = drive\n[zfail]\ntype = drive\n").unwrap();
+        let report = ensure_encryption_at(&tool, &config).unwrap();
+        assert_eq!(report.created, ["cloud_crypt"]);
+        assert_eq!(report.failed, ["zfail"]);
+        let first = fs::read(&config).unwrap();
+        let again = ensure_encryption_at(&tool, &config).unwrap();
+        assert!(again.created.is_empty());
+        assert_eq!(again.existing, ["cloud"]);
+        assert_eq!(again.failed, ["zfail"]);
+        assert_eq!(fs::read(&config).unwrap(), first);
+    }
+
+    #[test]
+    fn ensure_reports_failure_without_secret_or_config_damage() {
+        let tool = fixture_executable();
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("rclone.conf");
+        let original = "# fail-stage\n[cloud]\ntype = drive\ntoken = fictional-secret\n";
+        fs::write(&config, original).unwrap();
+        let report = ensure_encryption_at(&tool, &config).unwrap();
+        assert_eq!(report.failed, ["cloud"]);
+        assert!(report.created.is_empty());
+        assert!(!format!("{report:?}").contains("fictional-secret"));
+        assert_eq!(fs::read_to_string(&config).unwrap(), original);
     }
 
     fn setup() -> CryptSetup {

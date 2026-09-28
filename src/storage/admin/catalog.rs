@@ -53,6 +53,51 @@ impl RemoteCatalog {
         }
         Ok(Self { entries })
     }
+    /// Physical/base providers not covered by an encrypted crypt remote.
+    /// Wrapper chains are followed without treating folder suffixes as names.
+    pub(crate) fn missing_encryption_remotes(&self) -> Vec<String> {
+        self.entries
+            .iter()
+            .filter(|(provider, entry)| {
+                !entry.kind.is_empty()
+                    && !matches!(
+                        entry.kind.as_str(),
+                        "crypt" | "alias" | "chunk" | "chunker" | "union" | "combine"
+                    )
+                    && !self.entries.values().any(|crypt| {
+                        if crypt.kind != "crypt" || !crypt.encrypted {
+                            return false;
+                        }
+                        let mut address = crypt.backing.as_deref();
+                        let mut visited = BTreeSet::new();
+                        while let Some(raw) = address {
+                            let Some((name, _)) = raw.split_once(':') else {
+                                return false;
+                            };
+                            if name == provider.as_str() {
+                                return true;
+                            }
+                            if !visited.insert(name) {
+                                return false;
+                            }
+                            let Some(next) = self.entries.get(name) else {
+                                return false;
+                            };
+                            if !matches!(
+                                next.kind.as_str(),
+                                "alias" | "chunk" | "chunker" | "crypt"
+                            ) {
+                                return false;
+                            }
+                            address = next.backing.as_deref();
+                        }
+                        false
+                    })
+            })
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
     pub(crate) fn backing_remotes(&self) -> Vec<String> {
         self.entries
             .iter()

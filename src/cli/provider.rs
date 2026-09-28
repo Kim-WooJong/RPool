@@ -10,6 +10,11 @@ pub(crate) struct ProviderArgs {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum ProviderCommands {
+    /// Add missing crypt remotes for base providers without replacing existing keys.
+    EnsureEncryption {
+        #[arg(long)]
+        json: bool,
+    },
     /// Create a new crypt remote with OS-generated keys, never rotate existing keys.
     Encrypt {
         #[arg(long)]

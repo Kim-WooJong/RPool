@@ -7,7 +7,33 @@ use crate::gui::usage_refresh::UsageRefresh;
 use crate::gui::widgets::task_console;
 use anyhow::{anyhow, Result};
 use eframe::egui;
+use std::collections::BTreeSet;
 use std::time::Duration;
+
+pub(crate) const AUTO_ENCRYPTION_TASK: &str = "Ensure provider encryption";
+
+#[derive(Default)]
+struct EncryptionSetup {
+    attempted: BTreeSet<(String, String)>,
+    pending: Option<(String, String)>,
+}
+
+impl EncryptionSetup {
+    fn discover(&mut self, rclone: String, signature: String, has_providers: bool) {
+        let key = (rclone, signature);
+        self.pending = (has_providers && !self.attempted.contains(&key)).then_some(key);
+    }
+
+    fn take_ready(&mut self, busy: bool) -> Option<String> {
+        if busy {
+            return None;
+        }
+        let key = self.pending.take()?;
+        let rclone = key.0.clone();
+        self.attempted.insert(key);
+        Some(rclone)
+    }
+}
 
 pub(crate) fn launch(startup_rclone: &str) -> Result<()> {
     let startup_rclone = startup_rclone.to_string();
@@ -35,6 +61,8 @@ struct RpoolGui {
     task: TaskRunner,
     usage: UsageRefresh,
     refresh_pending: bool,
+    encryption: EncryptionSetup,
+    discovery_rclone: String,
 }
 
 impl RpoolGui {
@@ -43,6 +71,8 @@ impl RpoolGui {
         let mut usage = UsageRefresh::default();
         usage.start(state.settings.rclone.clone(), state.settings.workers);
         Self {
+            discovery_rclone: state.settings.rclone.clone(),
+            encryption: EncryptionSetup::default(),
             state,
             task: TaskRunner::default(),
             usage,
@@ -51,11 +81,23 @@ impl RpoolGui {
     }
 
     fn poll_background(&mut self) {
+        let automatic = self.task.task_name() == Some(AUTO_ENCRYPTION_TASK);
         let provisioning = self.task.task_name() == Some("Create encrypted provider");
         let task_finished = self.task.poll();
         if provisioning && task_finished == Some(JobStatus::Completed) {
             self.refresh_pending = true;
             self.state.providers.setup_notice = Some("Encrypted provider created. Provider list refreshed automatically; back up your rclone configuration before uploading.".into());
+        }
+        if automatic && task_finished.is_some() {
+            // Even a failed/cancelled run may have provisioned some providers.
+            self.refresh_pending = true;
+            self.state.providers.setup_notice = Some(
+                if task_finished == Some(JobStatus::Completed) {
+                    "Provider encryption checked automatically. Back up your rclone configuration to preserve the encryption keys.".into()
+                } else {
+                    "Automatic encryption setup did not complete. See Jobs for details, then use Retry automatic encryption in Providers after resolving the error.".into()
+                },
+            );
         }
         if let Some(status) = task_finished {
             storage::pools::handle_task_completion(&mut self.state, &self.task, status);
@@ -69,12 +111,33 @@ impl RpoolGui {
         if let Some(result) = self.usage.poll() {
             match result {
                 Ok(snapshot) => {
+                    self.encryption.discover(
+                        self.discovery_rclone.clone(),
+                        snapshot.catalog_signature,
+                        snapshot.needs_encryption,
+                    );
                     self.state.usage_reports = snapshot.reports;
                     self.state.crypt_remotes = snapshot.crypt_remotes;
                     self.state.backing_remotes = snapshot.backing_remotes;
                     self.state.usage_error = snapshot.warning;
                 }
                 Err(error) => self.state.usage_error = Some(error),
+            }
+        }
+        if self.discovery_rclone != self.state.settings.rclone {
+            self.encryption.pending = None;
+            self.refresh_pending = true;
+        }
+        if let Some(rclone) = self
+            .encryption
+            .take_ready(self.task.is_running() || self.usage.is_running() || self.refresh_pending)
+        {
+            if let Err(error) = self.task.start_rpool(
+                AUTO_ENCRYPTION_TASK,
+                &rclone,
+                ["provider", "ensure-encryption"],
+            ) {
+                self.state.providers.setup_notice = Some(error);
             }
         }
     }
@@ -123,11 +186,41 @@ impl eframe::App for RpoolGui {
         self.refresh_pending |= std::mem::take(&mut self.state.pools.refresh_requested);
         if self.refresh_pending && !self.usage.is_running() {
             self.refresh_pending = false;
+            self.discovery_rclone = self.state.settings.rclone.clone();
             self.usage.start(
                 self.state.settings.rclone.clone(),
                 self.state.settings.workers,
             );
             ui.ctx().request_repaint();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EncryptionSetup;
+
+    #[test]
+    fn automatic_setup_waits_for_idle_and_does_not_repeat_failed_catalog() {
+        let mut setup = EncryptionSetup::default();
+        setup.discover("rclone".into(), "catalog-a".into(), true);
+        assert!(setup.take_ready(true).is_none());
+        assert_eq!(setup.take_ready(false).as_deref(), Some("rclone"));
+        setup.discover("rclone".into(), "catalog-a".into(), true);
+        assert!(setup.take_ready(false).is_none());
+        setup.discover("rclone".into(), "catalog-b".into(), true);
+        assert_eq!(setup.take_ready(false).as_deref(), Some("rclone"));
+    }
+
+    #[test]
+    fn fully_covered_discovery_clears_pending_and_rclone_change_rechecks() {
+        let mut setup = EncryptionSetup::default();
+        setup.discover("rclone".into(), "catalog".into(), true);
+        setup.discover("rclone".into(), "catalog".into(), false);
+        assert!(setup.take_ready(false).is_none());
+        setup.discover("rclone".into(), "catalog".into(), true);
+        assert!(setup.take_ready(false).is_some());
+        setup.discover("other-rclone".into(), "catalog".into(), true);
+        assert_eq!(setup.take_ready(false).as_deref(), Some("other-rclone"));
     }
 }

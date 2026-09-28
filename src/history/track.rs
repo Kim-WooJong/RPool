@@ -99,6 +99,9 @@ pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> 
         Commands::Scrub(args) => ("scrub".to_string(), Some(args.manifest.clone())),
         Commands::Repair(args) => ("repair".to_string(), Some(args.manifest.clone())),
         Commands::Provider(args) => match &args.command {
+            ProviderCommands::EnsureEncryption { .. } => {
+                ("provider-ensure-encryption".to_string(), None)
+            }
             ProviderCommands::Encrypt { name, .. } => {
                 ("provider-encrypt".to_string(), Some(name.clone()))
             }

@@ -1,10 +1,20 @@
-# Provider connection and encryption (r6)
+# Provider connection and encryption
 
 ## Connect a cloud
 
 Storage → Providers → **+ Connect cloud provider** opens the official `rclone config` wizard in a terminal. Choose New remote, select the service, finish its login, quit the wizard, then click **Refresh providers**. RPool does not collect cloud passwords or OAuth tokens. This is a terminal/browser flow, not an embedded cloud-login form.
 
-## Add encryption
+## Automatic encryption
+
+After provider discovery, the GUI automatically provisions encryption for base providers that do not already have a data-encrypting crypt remote. After completing the external connection wizard, click **Refresh providers** to discover the newly connected providers. Existing crypt remotes and keys are retained; existing cloud files are not encrypted in place.
+
+Automatic setup uses 256-bit random password entropy, Standard filename encryption and encrypted directory names. It creates a separate crypt destination in a fresh child folder. Provider lists show base storage rather than crypt wrappers; pool selection still uses encrypted destinations.
+
+The equivalent CLI operation is `rpool provider ensure-encryption`. Keys remain in the local rclone configuration: back it up securely before uploading data. Automatic provisioning does not automatically add destinations to existing pools.
+
+Automatic attempts wait for the current job to finish and do not loop on an unchanged failing catalog. Successful additions survive partial failures. Use **Retry automatic encryption** after resolving a failure; already-covered providers are skipped. Encrypted configuration files still require the official rclone configuration wizard.
+
+## Custom encryption
 
 Select **Set up encryption**, choose a connected non-crypt provider and a unique encrypted-provider name. Optionally choose a parent folder. RPool allocates a fresh child folder and creates a new crypt remote; it does not convert existing files or rotate existing keys.
 

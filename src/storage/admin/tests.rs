@@ -122,3 +122,22 @@ fn health_queries_shared_capacity_once_for_aliases() {
     assert_eq!(fake.probes.load(Ordering::SeqCst), 2);
     assert_eq!(fake.quotas.load(Ordering::SeqCst), 1);
 }
+
+#[test]
+fn missing_encryption_follows_backing_paths_and_rejects_disabled_and_cycles() {
+    let catalog = RemoteCatalog::parse(&serde_json::json!({
+        "covered": {"type":"drive"}, "missing": {"type":"s3"},
+        "disabled": {"type":"dropbox"},
+        "nested": {"type":"alias", "remote":"covered:folder/deeper"},
+        "crypt": {"type":"crypt", "remote":"nested:path"},
+        "off": {"type":"crypt", "remote":"disabled:path", "no_data_encryption":"true"},
+        "cycle": {"type":"alias", "remote":"loop:folder"},
+        "loop": {"type":"crypt", "remote":"cycle:folder"},
+        "union": {"type":"union"}
+    }))
+    .unwrap();
+    assert_eq!(
+        catalog.missing_encryption_remotes(),
+        ["disabled", "missing"]
+    );
+}
