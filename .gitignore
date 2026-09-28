@@ -8,3 +8,15 @@
 # Defense in depth only; identity paths are also checked outside the artifact root.
 *.agekey
 *.age-key
+
+# Source-only delivery: local build products and machine-local credentials.
+*.exe
+*.dll
+*.dylib
+*.so
+*.zip
+*.log
+.DS_Store
+__pycache__/
+.env
+.env.*
