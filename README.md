@@ -1,5 +1,11 @@
 # rpool v0.6.0
 
+## Read/write Pool drive
+
+Storage → **Mount drive** provides a persistent local working copy with verified
+background Pool uploads. It needs full local disk space and WinFsp/FUSE; deletion
+retains earlier cloud versions. See [mount setup and recovery](docs/MOUNT.md).
+
 ## 0.6.0: provider setup and encryption defaults
 
 This batch adds provider connection, automatic crypt setup, configurable encryption defaults, pool selection and copy-only reprocessing. New crypt folders start under the provider's configured remote default path. Existing crypt paths and keys are never automatically moved or rotated. See [provider setup](docs/PROVIDER_SETUP.md) and [version policy](docs/VERSIONING.md).

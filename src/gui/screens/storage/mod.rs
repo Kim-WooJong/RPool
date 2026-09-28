@@ -1,3 +1,4 @@
+pub(crate) mod mount;
 mod pool_picker;
 pub(crate) mod pools;
 pub(crate) mod providers;
@@ -18,6 +19,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         StorageSection::Providers => providers::show(ui, state, task),
         StorageSection::Pools => pools::show(ui, state, task),
         StorageSection::Reprocess => reprocess::show(ui, state, task),
+        StorageSection::Mount => mount::show(ui, state),
     }
 }
 
@@ -26,6 +28,7 @@ fn section_tabs(ui: &mut egui::Ui, section: &mut StorageSection) {
         tab(ui, section, StorageSection::Providers, "Providers");
         tab(ui, section, StorageSection::Pools, "Pools");
         tab(ui, section, StorageSection::Reprocess, "Reprocess data");
+        tab(ui, section, StorageSection::Mount, "Mount drive");
     });
 }
 

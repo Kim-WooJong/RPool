@@ -81,6 +81,7 @@ impl RpoolGui {
     }
 
     fn poll_background(&mut self) {
+        self.state.mount.poll();
         let connection_result = self
             .state
             .providers
@@ -171,6 +172,7 @@ impl eframe::App for RpoolGui {
         self.poll_background();
 
         if self.task.is_running()
+            || self.state.mount.is_running()
             || self.usage.is_running()
             || self.state.providers.connection.is_some()
         {

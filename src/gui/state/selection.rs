@@ -34,6 +34,7 @@ pub(crate) enum StorageSection {
     Providers,
     Pools,
     Reprocess,
+    Mount,
 }
 
 impl Default for StorageSection {

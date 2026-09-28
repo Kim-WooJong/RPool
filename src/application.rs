@@ -32,6 +32,7 @@ fn dispatch(cli: Cli) -> Result<()> {
         .expect("CLI command must be present after default-GUI handling")
     {
         Commands::Gui => gui::launch(&cli.rclone),
+        Commands::Mount(args) => crate::mount::run(&cli.rclone, args),
         Commands::Put {
             source,
             remotes,

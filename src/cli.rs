@@ -3,6 +3,7 @@ mod doctor;
 mod history;
 mod inventory;
 mod manifest;
+mod mount;
 mod pool;
 mod provider;
 mod remote_root;
@@ -17,6 +18,7 @@ pub(crate) use doctor::DoctorArgs;
 pub(crate) use history::{HistoryArgs, HistoryCommands};
 pub(crate) use inventory::{InventoryArgs, InventoryCommands};
 pub(crate) use manifest::{ManifestArgs, ManifestCommands};
+pub(crate) use mount::MountArgs;
 pub(crate) use pool::{PoolArgs, PoolCommands};
 pub(crate) use provider::{ProviderArgs, ProviderCommands};
 pub(crate) use remote_root::{RemoteRootArgs, RemoteRootCommands};
@@ -43,6 +45,9 @@ pub(crate) struct Cli {
 pub(crate) enum Commands {
     /// Launch the native rpool storage console.
     Gui,
+
+    /// Mount a persistent local-first read/write workspace backed by a pool.
+    Mount(MountArgs),
 
     /// Split a local file into logical shards and upload them in parallel.
     Put {

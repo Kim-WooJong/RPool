@@ -12,6 +12,7 @@ mod journal;
 mod maintenance;
 mod manifest;
 mod models;
+mod mount;
 mod placement;
 mod planning;
 mod pool;

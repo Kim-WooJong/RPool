@@ -17,6 +17,7 @@ pub(crate) struct PendingTaskRecord {
 pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> {
     let (operation, target) = match command {
         Commands::Gui | Commands::History(_) => return None,
+        Commands::Mount(args) => ("mount-workspace".into(), Some(args.pool.clone())),
         Commands::Put { source, pool, .. } => (
             "put".to_string(),
             Some(match pool {

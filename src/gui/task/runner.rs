@@ -2,10 +2,10 @@ use super::progress::ProgressTracker;
 use super::{JobStatus, LogKind, LogLine, TaskInfo, TaskInvocation};
 use crate::progress::{parse_line as parse_progress_line, ProgressEvent, PROGRESS_ENV};
 use std::ffi::OsString;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -84,7 +84,7 @@ impl TaskRunner {
         self.current_task = Some(TaskInfo::running(task_name, command_preview, invocation));
         self.progress.reset();
 
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = mpsc::sync_channel(1024);
         let cancel_flag = Arc::new(AtomicBool::new(false));
         let worker_cancel = Arc::clone(&cancel_flag);
 
@@ -127,7 +127,13 @@ impl TaskRunner {
             };
 
             match event {
-                TaskEvent::Log(line) => self.logs.push(line),
+                TaskEvent::Log(line) => {
+                    // Mount services can run for days; retained UI output must be bounded.
+                    if self.logs.len() >= 2000 {
+                        self.logs.drain(..500);
+                    }
+                    self.logs.push(line);
+                }
                 TaskEvent::Progress(event) => {
                     if let Some(task) = self.current_task.as_mut() {
                         self.progress.apply(&mut task.progress, event);
@@ -231,7 +237,7 @@ impl TaskRunner {
 fn run_process(
     executable: std::path::PathBuf,
     args: Vec<OsString>,
-    sender: Sender<TaskEvent>,
+    sender: SyncSender<TaskEvent>,
     cancel_flag: Arc<AtomicBool>,
 ) {
     let mut command = Command::new(&executable);
@@ -349,11 +355,42 @@ fn stream_lines<R: std::io::Read>(
     reader: R,
     kind: LogKind,
     parse_progress: bool,
-    sender: Sender<TaskEvent>,
+    sender: SyncSender<TaskEvent>,
 ) {
-    for line in BufReader::new(reader).lines() {
-        match line {
-            Ok(text) => {
+    let mut reader = BufReader::new(reader);
+    loop {
+        let mut bytes = Vec::new();
+        let read = std::io::Read::by_ref(&mut reader)
+            .take(16384)
+            .read_until(b'\n', &mut bytes);
+        match read {
+            Ok(0) => break,
+            Ok(count) => {
+                let oversized = count == 16384 && bytes.last() != Some(&b'\n');
+                if oversized {
+                    loop {
+                        let available = match reader.fill_buf() {
+                            Ok(bytes) => bytes,
+                            Err(_) => return,
+                        };
+                        if available.is_empty() {
+                            break;
+                        }
+                        let end = available.iter().position(|b| *b == b'\n');
+                        let count = end.map_or(available.len(), |i| i + 1);
+                        reader.consume(count);
+                        if end.is_some() {
+                            break;
+                        }
+                    }
+                }
+                let text = if oversized {
+                    "[oversized output line omitted]".into()
+                } else {
+                    String::from_utf8_lossy(&bytes)
+                        .trim_end_matches(['\r', '\n'])
+                        .to_string()
+                };
                 if parse_progress {
                     if let Some(event) = parse_progress_line(&text) {
                         if sender.send(TaskEvent::Progress(event)).is_err() {
@@ -391,5 +428,29 @@ fn quote(value: &str) -> String {
         value.to_string()
     } else {
         format!("\"{}\"", value.replace('"', "\\\""))
+    }
+}
+
+#[cfg(test)]
+mod bounded_output_tests {
+    use super::*;
+
+    #[test]
+    fn oversized_line_does_not_swallow_following_status() {
+        let mut input = vec![b'x'; 40_000];
+        input.extend_from_slice(b"\nwriteback completed\r\n");
+        let (sender, receiver) = mpsc::sync_channel(4);
+        stream_lines(input.as_slice(), LogKind::System, false, sender);
+        let lines: Vec<_> = receiver
+            .into_iter()
+            .filter_map(|event| match event {
+                TaskEvent::Log(line) => Some(line.text),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            lines,
+            ["[oversized output line omitted]", "writeback completed"]
+        );
     }
 }

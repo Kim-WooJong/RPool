@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Read/write Pool drive via a persistent local workspace and rclone/WinFsp/FUSE. Independent GUI mount task, explicit verified imports, atomic local catalog, verified background archive versions, retained deletion history and restart-safe cache handling. Full local disk space is required; no on-demand/distributed namespace claim.
+
 - Reprocess supports provider/policy drafts, changed-layout summaries, verified-copy readiness estimates, persisted plans and safe per-item resume. Original archives remain intact; completed replacements are revalidated before reuse.
 - Reprocess completion receipts and inventory replacement are atomic; OS locks prevent duplicate plan execution and concurrent inventory-add races.
 
