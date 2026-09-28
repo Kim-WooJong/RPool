@@ -37,6 +37,9 @@ pub(crate) fn validate_pool(pool: &PoolDefinition) -> Result<()> {
         }
     }
 
+    if pool.placement == crate::models::Placement::Resilient && pool.parity_shards == 0 {
+        bail!("resilient placement requires parity shards");
+    }
     if pool.parity_shards > 0 {
         validate_rs_counts(pool.data_shards, pool.parity_shards)?;
     }

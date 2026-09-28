@@ -7,6 +7,24 @@ struct Entry {
     backing: Option<String>,
     encrypted: bool,
 }
+
+#[cfg(test)]
+mod placement_tests {
+    use super::*;
+    #[test]
+    fn wrappers_collapse_and_unknown_or_aggregate_targets_fail_closed() {
+        let catalog = RemoteCatalog::parse(&serde_json::json!({
+            "base": {"type": "s3"}, "alias": {"type": "alias", "remote": "base:bucket"},
+            "crypt": {"type": "crypt", "remote": "alias:folder"},
+            "aggregate": {"type": "union"}, "cycle": {"type": "alias", "remote": "cycle:"}
+        }))
+        .unwrap();
+        assert_eq!(catalog.placement_target("crypt:files").unwrap(), "base");
+        for raw in ["aggregate:", "cycle:", "missing:"] {
+            assert!(catalog.placement_target(raw).is_err());
+        }
+    }
+}
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RemoteCatalog {
     entries: BTreeMap<String, Entry>,
@@ -26,6 +44,36 @@ pub(crate) struct CapacityBinding {
     pub(crate) failure_domain: Option<FailureDomainId>,
 }
 impl RemoteCatalog {
+    /// Resolve known wrappers to one configured backing section. This collapses
+    /// known aliases, but is NOT proof of independent accounts/providers.
+    pub(crate) fn placement_target(&self, raw: &str) -> Result<String> {
+        let mut address = raw;
+        let mut seen = BTreeSet::new();
+        loop {
+            let (name, _) = address
+                .split_once(':')
+                .ok_or_else(|| anyhow!("invalid placement address"))?;
+            if !seen.insert(name) {
+                bail!("placement alias cycle");
+            }
+            let entry = self
+                .entries
+                .get(name)
+                .ok_or_else(|| anyhow!("unresolved placement target"))?;
+            match entry.kind.as_str() {
+                "crypt" | "alias" | "chunk" | "chunker" => {
+                    address = entry
+                        .backing
+                        .as_deref()
+                        .ok_or_else(|| anyhow!("missing placement backing"))?;
+                }
+                "union" | "combine" => {
+                    bail!("aggregate placement target cannot establish shard isolation")
+                }
+                _ => return Ok(name.to_owned()),
+            }
+        }
+    }
     pub(crate) fn parse(value: &Value) -> Result<Self> {
         let object = value
             .as_object()

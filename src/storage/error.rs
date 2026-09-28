@@ -119,13 +119,6 @@ impl StorageError {
         )
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Preserve provider retry hints without enabling automatic retries"
-        )
-    )]
     pub(crate) fn retry_after(&self) -> Option<Duration> {
         match self {
             Self::RateLimited { retry_after, .. } => *retry_after,

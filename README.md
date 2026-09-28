@@ -504,9 +504,9 @@ The GF(256) backend requires `K + M <= 255`.
 
 ### Placement and provider failure
 
-With round-robin placement, the physical shards of each coding group are emitted group-by-group and distributed evenly across the configured remotes.
+With round-robin placement, each coding group is balanced across configured remote names; multiple paths under the same name do not receive extra weight. This compatibility mode does not resolve separate wrapper aliases or enforce outage tolerance.
 
-With `--placement free-ratio`, rpool queries `rclone about --json`, accounts for both data and parity bytes, and first minimizes the number of same-group shards already assigned to each provider before using remaining-free-space ratio as the tie-breaker.
+With `--placement free-ratio`, rpool queries `rclone about --json`, accounts for both data and parity bytes, and first minimizes the number of same-group shards already assigned to each provider before using remaining-free-space ratio as the tie-breaker. Coded groups have a fixed balanced concentration ceiling: quota pressure fails planning rather than silently concentrating their shards.
 
 ```text
 rpool put large.iso \
@@ -519,7 +519,51 @@ rpool put large.iso \
   --placement free-ratio
 ```
 
-A coding layout cannot protect against a provider outage if too many shards from the same group are stored on that provider. During `put`, rpool prints a warning when the actual plan places more than `M` shards from any coding group on one provider. `status` also reports `single_provider_failure_safe=true/false`, the maximum same-group shard count on one provider, and the parity budget.
+A coding layout cannot protect against a provider outage if too many shards from the same group are stored on that provider. During `put`, rpool prints a warning when the actual plan places more than `M` shards from any coding group on one provider. `status` also reports `single_provider_failure_safe=false/unknown`, the maximum same-group shard count on one provider, and the parity budget.
+
+### Strict placement and fair transfers
+
+Choose **Resilient (parity-bound)** in Upload/Pool/Reprocess/Settings, or
+`--placement resilient`, with `--parity-shards 2` for a two-parity layout.
+Known crypt/alias/chunker chains are resolved to backing configuration sections.
+A planned coding group may place **at most M physical shards on one resolved
+backing section**. If impossible, planning fails before shard writes. An 8+2
+layout therefore requires at least five distinct resolved targets for this bound.
+This protects against one target's loss within the coding budget; it does NOT
+promise tolerance of two entire cloud outages, and distinct account/config names
+are not proof of independent providers. Unknown/aggregate mappings fail closed.
+Existing Pool settings and archives are not automatically converted; select the
+new policy for new workspaces/uploads or explicitly reprocess existing archives.
+Older binaries do not understand the new placement enum; manifests remain v2.
+
+Uploads and downloads share a bounded, fair transfer dispatcher per operation:
+
+- `--workers` caps concurrently executing tasks. With multiple queue domains,
+  each configured remote name gets at most `ceil(workers/2)` active tasks;
+  one-domain transfers may use all workers. This is not a global limit across
+  separate RPool processes, nor an inferred provider/account rate limit.
+- Download data jobs span all groups, eliminating the old per-group barrier.
+  Completed verified shards are checkpointed immediately.
+- Read retries release their worker slots and rejoin the queue after exponential
+  backoff (100 ms to 6.4 s), respecting a longer provider retry hint.
+- Data uploads overlap parity generation/transfers; ready data and generated
+  parity take alternating turns within a remote. One encoder and at most two
+  live parity groups bound staging to `2 * M * shard_size`, plus existing active
+  upload spools and the immutable source snapshot.
+- Each verified parity upload is journaled immediately. Resume still regenerates
+  parity from the current snapshot, reusing remote bytes only after hash equality.
+- Timed-out, transient-I/O or rate-limited reads, after exhausting retries, can
+  use parity just like missing/corrupt shards. Auth, permission, cancellation,
+  configuration and local-output failures remain terminal. An acknowledged write
+  with failed readback and unknown mutation outcomes are never blindly retried.
+- Recovery starts after direct data jobs drain. Damaged groups decode one at a
+  time to bound memory/disk; needed parity is fetched concurrently, replacing
+  unavailable candidates. There is no speculative fastest-K racing or automatic
+  slow-provider cancellation yet. A slow in-flight request can still delay a phase.
+
+These changes improve scheduling, not measured Internet bandwidth. Tests use
+synthetic storage/faults; real multi-cloud throughput and provider-outage behavior
+still require live validation. Mounted files remain full local replicas.
 
 ## Restore
 

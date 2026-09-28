@@ -95,7 +95,13 @@ pub(crate) fn build_upload_plan(
         }
     }
 
-    let remote_indexes = assign_remotes(rclone, &remotes, &specs, placement, coding.is_some())?;
+    let remote_indexes = assign_remotes(
+        rclone,
+        &remotes,
+        &specs,
+        placement,
+        coding.as_ref().map(|c| c.parity_shards),
+    )?;
 
     for (shard, remote_index) in plan_shards.iter_mut().zip(remote_indexes) {
         let remote = remotes[remote_index].clone();

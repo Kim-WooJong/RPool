@@ -1,6 +1,6 @@
 use crate::manifest::data_shards;
 use crate::prelude::*;
-use crate::storage::reader::{is_recoverable_loss, StorageReader};
+use crate::storage::reader::{is_restore_unavailable, StorageReader};
 use crate::utils::{hash_file_range, read_exact_at, write_all_at};
 
 pub(crate) fn reconstruct_group(
@@ -11,6 +11,7 @@ pub(crate) fn reconstruct_group(
     missing_data: &[Shard],
     output: &Path,
     retries: u32,
+    workers: usize,
 ) -> Result<()> {
     let needed = missing_data.len();
     let parity: Vec<Shard> = manifest
@@ -28,27 +29,36 @@ pub(crate) fn reconstruct_group(
     let temp_root = temporary.path();
 
     let mut local_parity: Vec<(usize, PathBuf)> = Vec::new();
-    for shard in parity {
-        if local_parity.len() >= needed {
-            break;
-        }
-        let parity_slot = shard.slot as usize;
-        if parity_slot < coding.data_shards {
-            continue;
-        }
-        let path = temp_root.join(format!("p{:03}.bin", parity_slot - coding.data_shards));
-        match reader.download(&shard, &path, retries, false) {
-            Ok(()) => local_parity.push((parity_slot, path)),
-            Err(error) => {
-                if !is_recoverable_loss(&error) {
-                    return Err(error);
+    // Start up to the number needed. Failed candidates are replaced without
+    // waiting for another healthy candidate; all in-flight work is joined.
+    let mut candidates = parity.into_iter();
+    let initial: Vec<_> = candidates.by_ref().take(needed).collect();
+    crate::storage::scheduler::run(
+        initial,
+        workers,
+        retries,
+        |s| crate::storage::scheduler::remote_key(&s.remote),
+        |shard| {
+            let path = temp_root.join(format!("p{:03}.bin", shard.slot));
+            reader.download(shard, &path, 1, false)?;
+            Ok(path)
+        },
+        crate::storage::scheduler::read_retry,
+        |shard, result| {
+            match result {
+                Ok(path) => local_parity.push((shard.slot as usize, path)),
+                Err(error) if is_restore_unavailable(&error) => {
+                    eprintln!(
+                        "[degraded] parity shard g{group:08}/s{:03} unavailable: {error:#}",
+                        shard.slot
+                    );
+                    return Ok(candidates.next().into_iter().collect());
                 }
-                eprintln!(
-                    "[degraded] parity shard g{group:08}/s{parity_slot:03} unavailable: {error:#}"
-                );
+                Err(error) => return Err(error),
             }
-        }
-    }
+            Ok(vec![])
+        },
+    )?;
 
     if local_parity.len() < needed {
         bail!(

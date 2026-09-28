@@ -110,6 +110,16 @@ Shared workspaces upgrade their local catalog to v2; older RPool binaries refuse
 them instead of silently dropping synchronization ancestry. Local-only catalogs
 remain v1.
 
+## Transfer scheduling and resilient placement
+
+Mount writeback and shared-file downloads use the same bounded transfer scheduler
+as put/get. To enable strict shard distribution for a **new** workspace, select a
+Pool configured with `Resilient (parity-bound)` and nonzero parity. Existing
+workspaces freeze their original Pool policy; editing the Pool alone does not
+change them. Empty files retain the existing no-parity handling. See README's
+"Strict placement and fair transfers" for bounds and compatibility. This does not
+change the deferred incoming-apply rule or turn the mount into cloud read-through.
+
 ## Local workspace durability and limits
 
 - Keep **the entire workspace**, including `.rpool`, `files` and `vfs-cache`, on reliable

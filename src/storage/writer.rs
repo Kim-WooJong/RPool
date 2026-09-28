@@ -5,6 +5,22 @@ use super::reader::{is_recoverable_loss, StorageReader};
 use super::traits::WriteOptions;
 use crate::prelude::*;
 
+#[derive(Debug)]
+struct ReadbackFailed;
+impl std::fmt::Display for ReadbackFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "upload acknowledged but readback failed")
+    }
+}
+
+pub(crate) fn upload_retry(error: &anyhow::Error, attempt: u32) -> Option<std::time::Duration> {
+    // A readback failure must NEVER replay the acknowledged write transaction.
+    if error.downcast_ref::<ReadbackFailed>().is_some() {
+        return None;
+    }
+    super::scheduler::read_retry(error, attempt)
+}
+
 pub(crate) struct StorageWriter {
     reader: StorageReader,
 }
@@ -88,7 +104,10 @@ impl StorageWriter {
                         .into());
                     }
                     // Readback failure never restarts the mutation in this call.
-                    return self.reader.verify(shard, true);
+                    return self
+                        .reader
+                        .verify(shard, true)
+                        .map_err(|e| e.context(ReadbackFailed));
                 }
                 Err(error) if error.is_retriable() && attempt < retries.max(1) => {}
                 Err(error) => return Err(error.into()),

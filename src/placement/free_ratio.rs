@@ -72,6 +72,10 @@ pub(crate) fn plan_free_ratio_with_admin(
     let mut shared_assigned = 0u64;
     let mut result = Vec::with_capacity(specs.len());
     let mut group_counts: BTreeMap<u32, BTreeMap<String, usize>> = BTreeMap::new();
+    let mut group_sizes = BTreeMap::<u32, usize>::new();
+    for spec in specs {
+        *group_sizes.entry(spec.group).or_default() += 1;
+    }
 
     for spec in specs {
         if spec.size > shared_budget.saturating_sub(shared_assigned) {
@@ -83,6 +87,7 @@ pub(crate) fn plan_free_ratio_with_admin(
             .checked_add(spec.size)
             .ok_or_else(|| anyhow!("allocation overflow"))?;
         let counts = group_counts.entry(spec.group).or_default();
+        let ceiling = group_sizes[&spec.group].div_ceil(quotas.len().max(1));
 
         let min_count = if prefer_group_diversity {
             remotes
@@ -109,6 +114,9 @@ pub(crate) fn plan_free_ratio_with_admin(
                 .ok_or_else(|| anyhow!("missing quota state for backing remote {backing}"))?;
             let available = quota.free.saturating_sub(quota.assigned);
             if available < spec.size {
+                continue;
+            }
+            if prefer_group_diversity && counts.get(backing).copied().unwrap_or(0) >= ceiling {
                 continue;
             }
             if let Some(min_count) = min_count {
@@ -170,6 +178,36 @@ mod tests {
             panic!("unused")
         }
     }
+    struct Uneven;
+    impl BackendAdmin for Uneven {
+        fn catalog(&self) -> Result<RemoteCatalog> {
+            Admin.catalog()
+        }
+        fn quota(&self, remote: &str) -> QuotaReport {
+            let mut q = Admin.quota(remote);
+            q.free = Some(if remote == "a:" { 30 } else { 300 });
+            q.total = Some(300);
+            q
+        }
+        fn discover(&self) -> Result<Vec<String>> {
+            panic!("unused")
+        }
+        fn probe(&self, _: &str) -> Result<()> {
+            panic!("unused")
+        }
+        fn ensure_encrypted(&self, _: &str) -> Result<()> {
+            panic!("unused")
+        }
+    }
+    #[test]
+    fn free_ratio_balances_even_with_unequal_capacity() {
+        let specs = vec![PhysicalSpec { group: 0, size: 1 }; 6];
+        let assigned =
+            plan_free_ratio_with_admin(&Uneven, &["a:".into(), "b:".into()], &specs, true).unwrap();
+        assert_eq!(assigned.iter().filter(|i| **i == 0).count(), 3);
+        assert_eq!(assigned.iter().filter(|i| **i == 1).count(), 3);
+    }
+
     #[test]
     fn overlapping_or_unproven_accounts_never_double_available_budget() {
         for remotes in [

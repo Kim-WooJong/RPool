@@ -87,6 +87,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                     egui::ComboBox::from_id_salt("reprocess-placement").selected_text(draft.placement.label()).show_ui(ui, |ui| {
                         ui.selectable_value(&mut draft.placement, Placement::RoundRobin, Placement::RoundRobin.label());
                         ui.selectable_value(&mut draft.placement, Placement::FreeRatio, Placement::FreeRatio.label());
+                        ui.selectable_value(&mut draft.placement, Placement::Resilient, Placement::Resilient.label());
                     }); ui.end_row();
                 });
             }

@@ -99,17 +99,22 @@ impl Fixture {
             .map(|p| crate::storage::upload_one_data_shard(writer, &self.source, p, 2).unwrap())
             .collect();
         if let Some(coding) = &self.plan.coding {
-            shards.extend(
-                crate::erasure::upload_parity_groups(
-                    writer,
+            let temp = tempfile::tempdir().unwrap();
+            for group in 0..crate::manifest::coding_group_count(3, coding.data_shards) {
+                for item in crate::erasure::generate_parity_group(
                     &self.source,
                     &self.plan,
                     coding,
-                    1,
-                    2,
+                    group as u32,
+                    temp.path(),
                 )
-                .unwrap(),
-            );
+                .unwrap()
+                {
+                    let shard = crate::planning::shard_from_plan(&item.plan, item.blake3);
+                    writer.write_file(&item.path, 0, &shard, 2).unwrap();
+                    shards.push(shard);
+                }
+            }
         }
         shards.sort_by_key(|s| s.index);
         Manifest {
@@ -630,4 +635,87 @@ fn copy_between_distinct_backends_moves_verified_logical_bytes() {
         b"ABCD"
     );
     assert_eq!(f.bytes(&p.object), b"ABCD");
+}
+
+#[test]
+fn multi_group_scheduled_upload_and_two_shard_recovery_roundtrip() {
+    let mut f = Fixture::new(false);
+    let bytes: Vec<u8> = (0..5 * 1024 * 1024 + 19).map(|i| (i % 251) as u8).collect();
+    fs::write(&f.source, &bytes).unwrap();
+    let remotes = vec!["a:".into(), "b:".into(), "c:".into()];
+    f.plan = build_upload_plan(
+        "no-rclone",
+        bytes.len() as u64,
+        1024 * 1024,
+        "archive".into(),
+        remotes.clone(),
+        Placement::RoundRobin,
+        Some(Coding {
+            algorithm: RS_ALGORITHM.into(),
+            data_shards: 2,
+            parity_shards: 2,
+            stripe_size: EC_STRIPE_SIZE,
+        }),
+    )
+    .unwrap();
+    for shard in f.plan.shards.clone() {
+        f.bind(&shard.object);
+    }
+    let writer = f.writer(vec![]);
+    crate::commands::put_with_storage(
+        &writer,
+        "no-rclone",
+        &f.source,
+        remotes,
+        1,
+        4,
+        Placement::RoundRobin,
+        2,
+        2,
+        2,
+        Some("archive".into()),
+        None,
+    )
+    .unwrap();
+    let manifest_path = crate::utils::append_suffix(&f.source, ".rpool.json");
+    let manifest: Manifest = crate::utils::read_json(&manifest_path).unwrap();
+    assert_eq!(manifest.shards.len(), 12);
+    for shard in manifest
+        .shards
+        .iter()
+        .filter(|s| s.kind == ShardKind::Data && s.group == 0)
+    {
+        f.memory
+            .delete(&OperationContext::none(), f.bindings[&shard.object].key())
+            .unwrap();
+    }
+    let restored = f.temp.path().join("restored");
+    crate::commands::get_with_storage(
+        writer.reader(),
+        manifest_path.to_str().unwrap(),
+        &restored,
+        4,
+        2,
+    )
+    .unwrap();
+    assert_eq!(fs::read(restored).unwrap(), bytes);
+}
+
+#[test]
+fn scheduler_never_retries_acknowledged_upload_after_readback_timeout() {
+    let f = Fixture::new(false);
+    let writer = f.writer(vec![Rule {
+        operation: Operation::Read,
+        call: 1,
+        fault: Fault::Error(StorageError::Timeout {
+            detail: "readback".into(),
+        }),
+    }]);
+    let error = crate::storage::upload_one_data_shard(&writer, &f.source, &f.plan.shards[0], 1)
+        .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<StorageError>().unwrap().kind(),
+        StorageErrorKind::Timeout
+    );
+    assert!(super::writer::upload_retry(&error, 1).is_none());
 }

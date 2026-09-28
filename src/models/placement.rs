@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 pub(crate) enum Placement {
     RoundRobin,
     FreeRatio,
+    /// Require each resolved backing target to hold at most M shards per group.
+    Resilient,
 }
 
 impl Placement {
@@ -13,6 +15,7 @@ impl Placement {
         match self {
             Self::RoundRobin => "round-robin",
             Self::FreeRatio => "free-ratio",
+            Self::Resilient => "resilient",
         }
     }
 
@@ -20,6 +23,7 @@ impl Placement {
         match self {
             Self::RoundRobin => "Round robin",
             Self::FreeRatio => "Free-space ratio",
+            Self::Resilient => "Resilient (parity-bound)",
         }
     }
 }

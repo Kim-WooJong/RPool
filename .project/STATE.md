@@ -17,6 +17,10 @@ No real cloud/multiple-PC/WinFsp integration validation has been performed here.
 
 ## Working
 
+- Cross-group data download scheduling, per-configured-remote fairness and bounded global tasks.
+- Slot-free exponential retry backoff; restore-only fallback for exhausted network failures.
+- Overlapping data/parity uploads, immediate verified-shard checkpoints, <=2 staged parity groups.
+- Optional Resilient placement with backing-alias resolution and parity concentration bounds.
 - Persistent local workspace, verified archive writeback, retained old versions.
 - Optional encrypted shared-root + worker-name GUI/CLI inputs.
 - Immutable causal file revisions; deterministic worker-labelled conflict copies.
@@ -25,17 +29,24 @@ No real cloud/multiple-PC/WinFsp integration validation has been performed here.
 
 ## In Progress
 
-No unfinished implementation for this bounded shared-namespace task.
+No unfinished implementation in this bounded transfer scheduling/placement update.
 Unrelated config-sync/path changes may be present in the working tree; preserve them.
 
 ## Next
 
-1. Validate on actual Windows/WinFsp with two PCs and test cloud accounts.
-2. If live incoming replacement while mounted is required, design a filesystem
+1. Measure 1-vs-N-worker large-file transfers and provider outages on actual test clouds.
+2. Validate on actual Windows/WinFsp with two PCs and test cloud accounts.
+3. If live incoming replacement while mounted is required, design a filesystem
    write barrier/open-handle-aware integration before removing the current gate.
-3. Plan shared-history compaction before deployments exceed exchange limits.
+4. Plan shared-history compaction before deployments exceed exchange limits.
 
 ## Known Issues
+
+- No live-cloud speed/outage validation; no speculative fastest-K/cancellation of slow reads.
+- Direct reads finish before recovery; damaged groups decode sequentially with parallel parity fetch.
+- Scheduler limits are per operation and configured remote name, not across processes or proven accounts.
+- Resilient guards one resolved backing target within M; independent provider failure domains remain unknown.
+- Existing Pool/workspace policies stay unchanged. Older binaries cannot load the new Resilient enum.
 
 - Mounted mode publishes/fetches revisions only. Incoming files/deletions require
   unmounted reconciliation with no remaining VFS cache files or mount lease.
@@ -47,6 +58,12 @@ Unrelated config-sync/path changes may be present in the working tree; preserve 
 
 ## Decisions
 
+- Missing/corrupt classification for mutation reuse and upload journals remains unchanged.
+- Only restore accepts exhausted timeout/transient/rate-limit failures as parity candidates.
+- Local-output/auth/cancel errors are terminal; failed readback cannot replay acknowledged writes.
+- Resumed Resilient plans revalidate current backing mappings without changing stored assignments.
+- Parity is regenerated on resume because source bytes may change; reuse needs exact generated hash.
+
 - Conflict outcome is causal, not timestamp-based last-writer-wins.
 - Preserve both concurrent file versions and retain an edit concurrent with deletion.
 - Each PC owns its own workspace/cache. Never share/copy an active workspace.
@@ -54,6 +71,11 @@ Unrelated config-sync/path changes may be present in the working tree; preserve 
 - Quiescent local files are required while unmounted reconciliation runs.
 
 ## Architecture
+
+- `src/storage/scheduler.rs`: bounded round-robin dispatch, delayed retries, dynamic parity jobs.
+- `src/commands/put.rs`, `get.rs`: verified scheduler/journal integration.
+- `src/placement/assign.rs`: balanced assignment and strict resolved-target concentration.
+- README "Strict placement and fair transfers": operating limits and activation.
 
 - `src/mount/shared_model.rs`: validated immutable events and deterministic reducer.
 - `src/mount/shared_transport.rs`: encrypted content-addressed event exchange.
@@ -65,13 +87,17 @@ Unrelated config-sync/path changes may be present in the working tree; preserve 
 ## Validation
 
 2026-09-28, macOS:
-- `cargo test --locked --bin rpool`: 226 passed, 12 ignored.
-- `cargo test --locked --features opendal-prototype --bin rpool`: 237 passed, 12 ignored.
+- `cargo test --locked --bin rpool`: 242 passed, 12 ignored.
+- `cargo test --locked --features opendal-prototype --bin rpool`: 253 passed, 12 ignored.
 - Default and optional `cargo rustc --locked --release --bin rpool -- -D warnings`: passed.
+- 16 added regressions: dispatch limits/fairness/dynamic tails, cross-group progress, network parity fallback, output failure refusal, multi-group roundtrip, alias collapse/resume and readback replay refusal.
 - Synthetic behavior is not real cloud/WinFsp/FUSE proof.
 
 ## Resume
 
-Requested shared namespace/conflict-copy implementation is complete to the stated
-deferred-apply scope. Start with `docs/MOUNT.md` and Git status. Do not infer live
-multi-machine mount validation from unit tests. Preserve other worktree changes.
+Transfer scheduling and optional Resilient placement are implemented and validated
+on macOS with synthetic backends. Read README "Strict placement and fair transfers"
+for bounds. Next useful validation is controlled live-cloud throughput/outage tests.
+Preserve unrelated config-sync/path edits; do not automatically change live Pool
+policies. Existing workspaces freeze their policy and need explicit new-workspace
+selection/reprocessing to adopt a different layout.

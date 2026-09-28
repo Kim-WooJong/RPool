@@ -161,6 +161,11 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                                     Placement::FreeRatio,
                                     Placement::FreeRatio.label(),
                                 );
+                                ui.selectable_value(
+                                    &mut state.pools.placement,
+                                    Placement::Resilient,
+                                    Placement::Resilient.label(),
+                                );
                             });
                         ui.end_row();
 
@@ -298,6 +303,7 @@ fn pool_save_args(name: &str, pool: &PoolDefinition) -> Vec<OsString> {
         match pool.placement {
             Placement::RoundRobin => "round-robin",
             Placement::FreeRatio => "free-ratio",
+            Placement::Resilient => "resilient",
         }
         .into(),
     ]);

@@ -1,8 +1,10 @@
-use crate::erasure::{upload_parity_groups, validate_rs_counts};
+use crate::erasure::{generate_parity_group, validate_rs_counts};
 use crate::journal::{load_or_create_upload_journal, record_upload_shard, validate_upload_journal};
 use crate::manifest::{content_root_v2, replicate_manifest_with_storage, validate_manifest};
+use crate::planning::shard_from_plan;
 use crate::planning::{build_upload_plan, warn_plan_failure_domains};
 use crate::prelude::*;
+use crate::storage::scheduler;
 use crate::storage::{source::UploadSource, upload_one_data_shard, writer::StorageWriter};
 use crate::utils::{
     append_suffix, ensure_positive, make_archive_id, now_unix, read_json, save_json_atomic,
@@ -121,6 +123,9 @@ pub(crate) fn put_with_storage(
             );
         }
         eprintln!("[resume] using upload plan: {}", plan_path.display());
+        // Config wrappers may have changed since the plan was saved. Never
+        // silently weaken a resumed strict layout or redistribute uploaded data.
+        crate::placement::validate_resilient_plan(rclone, &plan)?;
         plan
     } else {
         let plan = build_upload_plan(
@@ -168,43 +173,102 @@ pub(crate) fn put_with_storage(
         workers
     );
 
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(workers)
-        .build()?;
-
     let shared_journal = Arc::new(Mutex::new(upload_journal));
-    let data_results: Vec<Result<Shard>> = pool.install(|| {
-        data_plan
-            .par_iter()
-            .map(|p| {
-                let shard = upload_one_data_shard(storage, &snapshot_path, p, retries)?;
-                record_upload_shard(&journal_path, &shared_journal, shard.clone())?;
-                Ok(shard)
-            })
-            .collect()
-    });
-
-    for result in data_results {
-        result?;
+    let mut jobs: Vec<UploadJob> = data_plan.into_iter().map(UploadJob::Data).collect();
+    let group_count = plan
+        .shards
+        .iter()
+        .filter(|s| s.kind == ShardKind::Parity)
+        .map(|s| s.group + 1)
+        .max()
+        .unwrap_or(0);
+    let mut next_group = 0;
+    let mut live_groups = 0;
+    let mut outstanding = BTreeMap::<u32, usize>::new();
+    if group_count > 0 {
+        jobs.push(UploadJob::Encode(next_group));
+        next_group += 1;
+        live_groups += 1;
     }
-
+    scheduler::run(
+        jobs,
+        workers,
+        retries,
+        |job| match job {
+            UploadJob::Data(s) => scheduler::remote_key(&s.remote),
+            UploadJob::Parity { item, .. } => scheduler::remote_key(&item.plan.remote),
+            UploadJob::Encode(_) => "\0parity-encoder".into(),
+        },
+        |job| match job {
+            UploadJob::Data(p) => Ok(UploadResult::Stored(upload_one_data_shard(
+                storage,
+                &snapshot_path,
+                p,
+                1,
+            )?)),
+            UploadJob::Parity { item, .. } => {
+                let shard = shard_from_plan(&item.plan, item.blake3.clone());
+                storage.write_file(&item.path, 0, &shard, 1)?;
+                Ok(UploadResult::Stored(shard))
+            }
+            UploadJob::Encode(group) => {
+                let owner = Arc::new(tempfile::tempdir()?);
+                let items = generate_parity_group(
+                    &snapshot_path,
+                    &plan,
+                    coding.as_ref().expect("parity coding"),
+                    *group,
+                    owner.path(),
+                )?;
+                Ok(UploadResult::Encoded(owner, items))
+            }
+        },
+        crate::storage::writer::upload_retry,
+        |job, result| {
+            let result = result?;
+            let mut more = Vec::new();
+            match result {
+                UploadResult::Stored(shard) => {
+                    record_upload_shard(&journal_path, &shared_journal, shard)?;
+                    if let UploadJob::Parity { item, .. } = &job {
+                        let left = outstanding
+                            .get_mut(&item.plan.group)
+                            .expect("encoded group");
+                        *left -= 1;
+                        if *left == 0 {
+                            live_groups -= 1;
+                        }
+                    }
+                }
+                UploadResult::Encoded(owner, items) => {
+                    let group = match job {
+                        UploadJob::Encode(g) => g,
+                        _ => unreachable!(),
+                    };
+                    outstanding.insert(group, items.len());
+                    more.extend(items.into_iter().map(|item| UploadJob::Parity {
+                        item,
+                        _owner: owner.clone(),
+                    }));
+                }
+            }
+            // At most two parity groups occupy staging space, independent of
+            // archive length; encoding and verified transfers share one budget.
+            if live_groups < 2 && next_group < group_count {
+                more.push(UploadJob::Encode(next_group));
+                next_group += 1;
+                live_groups += 1;
+            }
+            Ok(more)
+        },
+    )?;
     let mut shards: Vec<Shard> = shared_journal
         .lock()
         .expect("upload journal poisoned")
         .completed
         .values()
-        .filter(|shard| shard.kind == ShardKind::Data)
         .cloned()
         .collect();
-
-    if let Some(coding) = &plan.coding {
-        let mut parity =
-            upload_parity_groups(storage, &snapshot_path, &plan, coding, workers, retries)?;
-        for shard in &parity {
-            record_upload_shard(&journal_path, &shared_journal, shard.clone())?;
-        }
-        shards.append(&mut parity);
-    }
 
     shards.sort_by_key(|s| s.index);
 
@@ -252,4 +316,18 @@ pub(crate) fn put_with_storage(
         println!("erasure_coding=disabled");
     }
     Ok(())
+}
+
+// TempDir ownership follows queued/in-flight parity jobs, including error paths.
+enum UploadJob {
+    Data(PlanShard),
+    Encode(u32),
+    Parity {
+        item: GeneratedParity,
+        _owner: Arc<tempfile::TempDir>,
+    },
+}
+enum UploadResult {
+    Stored(Shard),
+    Encoded(Arc<tempfile::TempDir>, Vec<GeneratedParity>),
 }

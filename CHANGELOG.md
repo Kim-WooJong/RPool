@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fair bounded upload/download dispatcher, cross-group direct restores, worker-free retry backoff, overlapping bounded parity generation/uploads and immediate per-shard checkpoints. Restore-only parity fallback now includes exhausted timeout/transient/rate-limit errors; local-output and auth/cancel failures remain terminal, and acknowledged writes are not replayed after readback failure.
+- Optional Resilient placement resolves known backing aliases and rejects per-group target concentration above the parity budget. Compatibility round-robin balances configured names; free-ratio no longer silently exceeds its balanced group ceiling. Existing Pool policies are unchanged. Live multi-cloud speed/outage validation remains outstanding.
+
 - Optional shared workspace namespace with encrypted immutable revision exchange, causal offline-edit detection, worker-named conflict copies, shared logical deletion and edit/delete preservation. GUI/CLI accept a shared root and worker name. Incoming filesystem changes are applied only during cache-empty unmounted reconciliation; mounted mode exchanges revisions without replacing files. Catalog v2 protects shared ancestry from older binaries; interrupted applies retain recovery copies.
 
 - Read/write Pool drive via a persistent local workspace and rclone/WinFsp/FUSE. Independent GUI mount task, explicit verified imports, atomic local catalog, verified background archive versions, retained deletion history and restart-safe cache handling. Full local disk space is required; no on-demand/distributed namespace claim.

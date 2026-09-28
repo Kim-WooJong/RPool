@@ -5,7 +5,10 @@ use crate::manifest::{
     validate_manifest,
 };
 use crate::prelude::*;
-use crate::storage::reader::{is_recoverable_loss, StorageReader};
+#[cfg(test)]
+use crate::storage::reader::is_recoverable_loss;
+use crate::storage::reader::{is_restore_unavailable, StorageReader};
+use crate::storage::scheduler;
 use crate::utils::{append_suffix, ensure_positive, now_unix, read_json};
 
 #[cfg(test)]
@@ -69,29 +72,21 @@ pub(crate) fn get_plain(
         workers
     );
 
-    let shared_state = Arc::new(Mutex::new(state));
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(workers)
-        .build()?;
+    scheduler::run(
+        remaining,
+        workers,
+        retries,
+        |s| scheduler::remote_key(&s.remote),
+        |shard| reader.download(shard, output, 1, true),
+        scheduler::read_retry,
+        |shard, result| {
+            result?;
+            state.completed.insert(shard.index);
+            persist_restore_state(&state_path, &mut state)?;
+            Ok(vec![])
+        },
+    )?;
 
-    let results: Vec<Result<()>> = pool.install(|| {
-        remaining
-            .par_iter()
-            .map(|shard| {
-                reader.download(shard, output, retries, true)?;
-                let mut state = shared_state.lock().expect("resume state poisoned");
-                state.completed.insert(shard.index);
-                persist_restore_state(&state_path, &mut state)?;
-                Ok(())
-            })
-            .collect()
-    });
-
-    for result in results {
-        result?;
-    }
-
-    state = shared_state.lock().expect("resume state poisoned").clone();
     if state.completed.len() != data_shards(manifest).len() {
         bail!("restore finished without all data shards being marked complete");
     }
@@ -113,66 +108,47 @@ pub(crate) fn get_erasure(
     let mut state: ResumeState = read_json(&state_path)?;
     let data = data_shards(manifest);
     let groups = coding_group_count(data.len(), coding.data_shards);
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(workers)
-        .build()?;
-
+    let remaining = data
+        .iter()
+        .filter(|s| !state.completed.contains(&s.index))
+        .map(|s| (*s).clone())
+        .collect();
     eprintln!(
-        "[get] Reed-Solomon {}+{}, {} groups, {} workers",
+        "[get] Reed-Solomon {}+{}, {} groups, {} workers (cross-group scheduling)",
         coding.data_shards, coding.parity_shards, groups, workers
     );
-
-    for group in 0..groups {
-        let group_u32 = group as u32;
-        let group_data: Vec<Shard> = data
-            .iter()
-            .filter(|s| s.group == group_u32)
-            .map(|s| Shard::clone(*s))
-            .collect();
-
-        if group_data
-            .iter()
-            .all(|s| state.completed.contains(&s.index))
-        {
-            continue;
-        }
-
-        let direct: Vec<Shard> = group_data
-            .iter()
-            .filter(|s| !state.completed.contains(&s.index))
-            .cloned()
-            .collect();
-
-        let results: Vec<(u32, Result<()>)> = pool.install(|| {
-            direct
-                .par_iter()
-                .map(|shard| (shard.index, reader.download(shard, output, retries, true)))
-                .collect()
-        });
-
-        for (index, result) in results {
+    scheduler::run(
+        remaining,
+        workers,
+        retries,
+        |s: &Shard| scheduler::remote_key(&s.remote),
+        |shard| reader.download(shard, output, 1, true),
+        scheduler::read_retry,
+        |shard, result| {
             match result {
                 Ok(()) => {
-                    state.completed.insert(index);
+                    state.completed.insert(shard.index);
+                    persist_restore_state(&state_path, &mut state)?;
                 }
-                Err(error) => {
-                    if !is_recoverable_loss(&error) {
-                        return Err(error);
-                    }
+                Err(error) if is_restore_unavailable(&error) => {
                     eprintln!(
-                        "[degraded] data shard {index:08} unavailable or invalid; parity fallback: {error:#}"
+                        "[degraded] data shard {} unavailable; parity fallback: {error:#}",
+                        shard.index
                     );
                 }
+                Err(error) => return Err(error),
             }
-        }
-        persist_restore_state(&state_path, &mut state)?;
-
-        let missing: Vec<Shard> = group_data
+            Ok(vec![])
+        },
+    )?;
+    // No direct writes remain when decoding begins. One group's parity staging
+    // bounds disk/memory independently of archive length; its reads are parallel.
+    for group in 0..groups {
+        let missing: Vec<Shard> = data
             .iter()
-            .filter(|s| !state.completed.contains(&s.index))
-            .cloned()
+            .filter(|s| s.group == group as u32 && !state.completed.contains(&s.index))
+            .map(|s| (*s).clone())
             .collect();
-
         if missing.is_empty() {
             continue;
         }
@@ -184,12 +160,17 @@ pub(crate) fn get_erasure(
                 coding.parity_shards
             );
         }
-
         reconstruct_group(
-            reader, manifest, coding, group_u32, &missing, output, retries,
+            reader,
+            manifest,
+            coding,
+            group as u32,
+            &missing,
+            output,
+            retries,
+            workers,
         )?;
-
-        for shard in &group_data {
+        for shard in missing {
             state.completed.insert(shard.index);
         }
         persist_restore_state(&state_path, &mut state)?;

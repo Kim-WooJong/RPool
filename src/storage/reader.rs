@@ -27,6 +27,20 @@ pub(crate) fn is_recoverable_loss(error: &anyhow::Error) -> bool {
     )
 }
 
+/// Read-only availability policy. Never use this to authorize a mutation or
+/// invalidate an upload journal: a network outage is not evidence of data loss.
+pub(crate) fn is_restore_unavailable(error: &anyhow::Error) -> bool {
+    is_recoverable_loss(error)
+        || matches!(
+            error.downcast_ref::<StorageError>().map(StorageError::kind),
+            Some(
+                StorageErrorKind::Timeout
+                    | StorageErrorKind::TransientIo
+                    | StorageErrorKind::RateLimited
+            )
+        )
+}
+
 fn corrupt(found: impl Into<String>, expected: impl Into<String>) -> StorageError {
     StorageError::CorruptData {
         found: found.into(),
@@ -159,6 +173,7 @@ impl StorageReader {
             count: 0,
             size: shard.size,
             overflow: false,
+            local_error: false,
         };
         let result = backend.read(
             &self.context,
@@ -168,6 +183,12 @@ impl StorageReader {
         );
         if verified.overflow {
             return Err(corrupt("oversized object", format!("size:{}", shard.size)).into());
+        }
+        if verified.local_error {
+            return Err(StorageError::Other {
+                detail: "local restore output write failed".into(),
+            }
+            .into());
         }
         let receipt = result?;
         if verified.count != shard.size || receipt.bytes_read != verified.count {
@@ -242,6 +263,7 @@ struct VerifiedSink<'a> {
     count: u64,
     size: u64,
     overflow: bool,
+    local_error: bool,
 }
 impl Write for VerifiedSink<'_> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -252,7 +274,10 @@ impl Write for VerifiedSink<'_> {
                 "oversized shard",
             ));
         }
-        self.sink.write_all(bytes)?;
+        if let Err(error) = self.sink.write_all(bytes) {
+            self.local_error = true;
+            return Err(error);
+        }
         self.hash.update(bytes);
         self.count += bytes.len() as u64;
         Ok(bytes.len())

@@ -178,7 +178,7 @@ fn insufficient_parity_does_not_mark_lost_data_complete() {
 }
 
 #[test]
-fn operational_failures_never_turn_into_successful_parity_fallback() {
+fn auth_permission_cancel_and_configuration_never_trigger_parity_fallback() {
     for parity in [false, true] {
         for error in [
             StorageError::Authentication {
@@ -190,12 +190,8 @@ fn operational_failures_never_turn_into_successful_parity_fallback() {
             StorageError::Cancelled {
                 detail: "synthetic".into(),
             },
-            StorageError::Timeout {
-                detail: "synthetic".into(),
-            },
-            StorageError::TransientIo {
-                detail: "synthetic".into(),
-            },
+            StorageError::invalid_input("synthetic"),
+            StorageError::unknown_outcome("synthetic"),
         ] {
             let kind = error.kind();
             let f = Fixture::new(true);
@@ -400,4 +396,119 @@ fn status_and_verify_command_cores_need_no_rclone_executable() {
     )
     .unwrap();
     crate::commands::verify::verify_with_storage(&reader, "meta:manifest", true, 2).unwrap();
+}
+
+#[test]
+fn exhausted_communication_failures_use_parity_and_skip_unavailable_parity() {
+    for error in [
+        StorageError::Timeout {
+            detail: "synthetic".into(),
+        },
+        StorageError::TransientIo {
+            detail: "synthetic".into(),
+        },
+        StorageError::RateLimited {
+            detail: "synthetic".into(),
+            retry_after: None,
+        },
+    ] {
+        for fail_parity in [false, true] {
+            let f = Fixture::new(true);
+            if fail_parity {
+                f.delete(0);
+            }
+            let reader = f.reader(vec![Rule {
+                operation: Operation::Read,
+                call: if fail_parity { 4 } else { 1 },
+                fault: Fault::Error(error.clone()),
+            }]);
+            let temp = tempfile::tempdir().unwrap();
+            let out = temp.path().join("out");
+            get_with_storage(&reader, "meta:manifest", &out, 1, 1).unwrap();
+            assert_eq!(fs::read(out).unwrap(), b"ABCDEFGHI");
+        }
+    }
+}
+
+#[test]
+fn local_sink_failure_is_not_a_network_outage_or_retry() {
+    struct Broken;
+    impl std::io::Write for Broken {
+        fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("disk full"))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let f = Fixture::new(true);
+    let error = f
+        .reader(vec![])
+        .verified_read(&f.manifest.shards[0], &mut Broken)
+        .unwrap_err();
+    assert!(!crate::storage::reader::is_restore_unavailable(&error));
+    assert!(crate::storage::scheduler::read_retry(&error, 1).is_none());
+}
+
+#[test]
+fn two_missing_data_shards_restore_with_parallel_parity() {
+    let f = Fixture::new(true);
+    f.delete(0);
+    f.delete(1);
+    let temp = tempfile::tempdir().unwrap();
+    let out = temp.path().join("out");
+    get_with_storage(&f.reader(vec![]), "meta:manifest", &out, 4, 1).unwrap();
+    assert_eq!(fs::read(out).unwrap(), b"ABCDEFGHI");
+}
+
+#[test]
+fn later_group_starts_while_first_group_is_blocked() {
+    use crate::storage::memory::faults::Gate;
+    let f = Fixture::new(true);
+    let first = Gate::new();
+    let later = Gate::new();
+    let reader = f.reader(vec![
+        Rule {
+            operation: Operation::Read,
+            call: 1,
+            fault: Fault::PauseBefore(first.clone()),
+        },
+        Rule {
+            operation: Operation::Read,
+            call: 3,
+            fault: Fault::PauseBefore(later.clone()),
+        },
+    ]);
+    let temp = tempfile::tempdir().unwrap();
+    let out = temp.path().join("out");
+    std::thread::scope(|scope| {
+        let handle = scope.spawn(|| get_with_storage(&reader, "meta:manifest", &out, 3, 1));
+        first.reached.wait();
+        later.reached.wait(); // third shard may start without first group finishing
+        later.release.wait();
+        first.release.wait();
+        handle.join().unwrap().unwrap();
+    });
+    assert_eq!(fs::read(out).unwrap(), b"ABCDEFGHI");
+}
+
+#[test]
+fn exhausted_retries_then_parity_preserves_resume_and_content() {
+    let f = Fixture::new(true);
+    let reader = f.reader(
+        [1, 4]
+            .into_iter()
+            .map(|call| Rule {
+                operation: Operation::Read,
+                call,
+                fault: Fault::Error(StorageError::Timeout {
+                    detail: "synthetic outage".into(),
+                }),
+            })
+            .collect(),
+    );
+    let temp = tempfile::tempdir().unwrap();
+    let out = temp.path().join("out");
+    get_with_storage(&reader, "meta:manifest", &out, 1, 2).unwrap();
+    assert_eq!(fs::read(out).unwrap(), b"ABCDEFGHI");
 }

@@ -13,6 +13,7 @@ pub(crate) mod reader;
 pub(crate) mod reference;
 pub(crate) mod registry;
 mod remote_config;
+pub(crate) mod scheduler;
 pub(crate) mod source;
 pub(crate) mod traits;
 pub(crate) mod writer;

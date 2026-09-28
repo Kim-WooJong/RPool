@@ -35,6 +35,11 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
                         Placement::FreeRatio,
                         Placement::FreeRatio.label(),
                     );
+                    ui.selectable_value(
+                        &mut state.settings.placement,
+                        Placement::Resilient,
+                        Placement::Resilient.label(),
+                    );
                 });
             ui.end_row();
 
