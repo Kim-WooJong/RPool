@@ -12,6 +12,16 @@ pub(crate) struct ProviderArgs {
 pub(crate) enum ProviderCommands {
     /// Add missing crypt remotes for base providers without replacing existing keys.
     EnsureEncryption {
+        /// Parent folder for fresh encrypted children.
+        #[arg(long, default_value = "rpool")]
+        root: String,
+        /// Generated password entropy, not cipher key size.
+        #[arg(long, default_value_t = 1024)]
+        entropy_bits: usize,
+        #[arg(long, default_value = "standard")]
+        filename_encryption: String,
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        directory_encryption: bool,
         #[arg(long)]
         json: bool,
     },
@@ -26,7 +36,7 @@ pub(crate) enum ProviderCommands {
         #[arg(long, default_value = "rpool")]
         root: String,
         /// Random password entropy; does not change rclone's encryption algorithm.
-        #[arg(long, default_value_t = 256)]
+        #[arg(long, default_value_t = 1024)]
         entropy_bits: usize,
         #[arg(long, default_value = "standard")]
         filename_encryption: String,

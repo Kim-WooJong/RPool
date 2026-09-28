@@ -6,6 +6,10 @@ use std::ffi::OsString;
 
 #[derive(Debug, Default)]
 pub(crate) struct ProviderForm {
+    pub(crate) connection: Option<crate::provider::onboarding::ConnectionSetup>,
+    pub(crate) missing_encryption: Vec<String>,
+    pub(crate) discovery_known: bool,
+    pub(crate) encryption_failed: bool,
     pub(crate) refresh_requested: bool,
     pub(crate) setup_open: bool,
     pub(crate) crypt_name: String,
@@ -27,25 +31,77 @@ pub(crate) struct ProviderForm {
     pub(crate) error: Option<String>,
 }
 
+impl ProviderForm {
+    fn apply_defaults(&mut self, defaults: &crate::config_sync::provision::EncryptionDefaults) {
+        self.crypt_root = defaults.root.clone();
+        self.entropy_index = [256, 128, 512, 1024]
+            .iter()
+            .position(|v| *v == defaults.entropy_bits)
+            .unwrap_or(3);
+        self.filename_index = ["standard", "obfuscate", "off"]
+            .iter()
+            .position(|v| *v == defaults.filename_encryption)
+            .unwrap_or(0);
+        self.disable_directory_encryption = !defaults.directory_encryption;
+        self.backup_acknowledged = false;
+    }
+}
+
+fn encryption_status(known: bool, missing: bool, running: bool, failed: bool) -> &'static str {
+    if !known {
+        "Encryption status unknown"
+    } else if !missing {
+        "Encryption configured"
+    } else if running {
+        "Setting up encryption…"
+    } else if failed {
+        "Setup incomplete — retry"
+    } else {
+        "Encryption setup pending"
+    }
+}
+
+pub(crate) fn start_automatic_encryption(
+    state: &GuiState,
+    task: &mut TaskRunner,
+) -> Result<(), String> {
+    state
+        .settings
+        .encryption
+        .validate()
+        .map_err(|e| e.to_string())?;
+    let mut args = vec![
+        OsString::from("provider"),
+        OsString::from("ensure-encryption"),
+    ];
+    args.extend(state.settings.encryption.ensure_args());
+    task.start_rpool(
+        crate::gui::app::AUTO_ENCRYPTION_TASK,
+        &state.settings.rclone,
+        args,
+    )
+}
+
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     ui.heading("Providers");
     ui.label("Check provider health and migrate shards away from a provider without changing archive data.");
     ui.horizontal(|ui| {
-        if ui.add_enabled(!task.is_running(), egui::Button::new("+ Connect cloud provider")).clicked() {
+        if ui.add_enabled(!task.is_running() && state.providers.connection.is_none(), egui::Button::new("+ Connect cloud provider")).clicked() {
             state.providers.setup_notice = Some(match crate::provider::onboarding::open_setup(&state.settings.rclone) {
-                Ok(()) => "rclone setup opened in your terminal. Choose n (New remote), select your cloud service and complete its browser login. Quit the wizard, then click Refresh providers.".into(),
+                Ok(connection) => {
+                    state.providers.connection = Some(connection);
+                    "rclone setup opened in your terminal. Complete the login, then quit the wizard. Providers will refresh automatically when the wizard closes.".into()
+                },
                 Err(error) => error.to_string(),
             });
         }
-        if ui.add_enabled(!task.is_running(), egui::Button::new("Set up encryption")).clicked() {
+        if ui.add_enabled(!task.is_running() && state.providers.connection.is_none(), egui::Button::new("Set up encryption")).clicked() {
+            state.providers.apply_defaults(&state.settings.encryption);
             state.providers.setup_open = true;
         }
-        if ui.add_enabled(!task.is_running(), egui::Button::new("Retry automatic encryption")).clicked() {
-            state.providers.setup_notice = Some(match task.start_rpool(
-                crate::gui::app::AUTO_ENCRYPTION_TASK,
-                &state.settings.rclone,
-                ["provider", "ensure-encryption"],
-            ) {
+        if ui.add_enabled(!task.is_running() && state.providers.connection.is_none(), egui::Button::new("Retry automatic encryption")).clicked() {
+            state.providers.encryption_failed = false;
+            state.providers.setup_notice = Some(match start_automatic_encryption(state, task) {
                 Ok(()) => "Checking encryption for connected providers. See Jobs for progress.".into(),
                 Err(error) => error,
             });
@@ -54,6 +110,16 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             state.providers.refresh_requested = true;
         }
     });
+    if state.providers.connection.is_some() {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label("Waiting for the connection wizard to close…");
+            if ui.small_button("Wizard already closed — refresh").on_hover_text("Use only after closing the external rclone wizard if completion was not detected.").clicked() {
+                state.providers.connection = None;
+                state.providers.refresh_requested = true;
+            }
+        });
+    }
     if let Some(notice) = &state.providers.setup_notice {
         ui.label(notice);
     }
@@ -64,7 +130,15 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             .max_height(120.0)
             .show(ui, |ui| {
                 for provider in &state.backing_remotes {
-                    ui.label(provider);
+                    ui.horizontal(|ui| {
+                        ui.strong(provider);
+                        let missing = state.providers.missing_encryption.contains(provider);
+                        ui.label(encryption_status(
+                            state.providers.discovery_known, missing,
+                            task.is_running() && task.task_name() == Some(crate::gui::app::AUTO_ENCRYPTION_TASK),
+                            state.providers.encryption_failed,
+                        )).on_hover_text("Configuration status only; cloud access and key recovery are not verified by this indicator.");
+                    });
                 }
             });
     }
@@ -223,7 +297,7 @@ fn encryption_dialog(ctx: &egui::Context, state: &mut GuiState, task: &mut TaskR
         .open(&mut open).resizable(true).default_width(530.0).show(ctx, |ui| {
         egui::ScrollArea::vertical().max_height(520.0).show(ui, |ui| {
             ui.label("Create a new crypt provider around a connected cloud. Existing keys and files are never changed.");
-            ui.add_enabled_ui(!task.is_running(), |ui| {
+            ui.add_enabled_ui(!task.is_running() && state.providers.connection.is_none(), |ui| {
                 ui.label("Backing provider (non-crypt remote name)");
                 egui::ComboBox::from_id_salt("crypt-backing-choice")
                     .selected_text(if state.providers.backing_provider.is_empty() { "Choose provider" } else { &state.providers.backing_provider })
@@ -238,7 +312,7 @@ fn encryption_dialog(ctx: &egui::Context, state: &mut GuiState, task: &mut TaskR
                 ui.label("Parent folder (optional)");
                 ui.add(egui::TextEdit::singleline(&mut state.providers.crypt_root).hint_text("rpool"));
                 ui.small("A fresh uniquely named child folder is used. This does not encrypt existing files in place.");
-                let strengths = ["256 bits — recommended", "128 bits", "512 bits", "1024 bits"];
+                let strengths = ["256 bits", "128 bits", "512 bits", "1024 bits"];
                 egui::ComboBox::from_label("Generated password entropy")
                     .selected_text(strengths[state.providers.entropy_index.min(3)])
                     .show_ui(ui, |ui| { for (i, label) in strengths.iter().enumerate() { ui.selectable_value(&mut state.providers.entropy_index, i, *label); } });
@@ -288,4 +362,55 @@ fn start_encryption(state: &GuiState, task: &mut TaskRunner) -> Result<(), Strin
         .into(),
     ];
     task.start_rpool("Create encrypted provider", &state.settings.rclone, args)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_manual_setup_inherits_defaults_without_touching_identity() {
+        let mut form = ProviderForm {
+            crypt_name: "existing-draft".into(),
+            backup_acknowledged: true,
+            ..Default::default()
+        };
+        let defaults = crate::config_sync::provision::EncryptionDefaults::default();
+        form.apply_defaults(&defaults);
+        assert_eq!([256, 128, 512, 1024][form.entropy_index], 1024);
+        assert_eq!(form.crypt_root, "rpool");
+        assert_eq!(form.crypt_name, "existing-draft");
+        assert!(!form.backup_acknowledged);
+        let changed = crate::config_sync::provision::EncryptionDefaults {
+            entropy_bits: 128,
+            filename_encryption: "off".into(),
+            directory_encryption: false,
+            root: "custom folder".into(),
+        };
+        form.apply_defaults(&changed);
+        assert_eq!([256, 128, 512, 1024][form.entropy_index], 128);
+        assert_eq!(form.filename_index, 2);
+        assert!(form.disable_directory_encryption);
+        assert_eq!(form.crypt_root, "custom folder");
+    }
+
+    #[test]
+    fn readiness_does_not_claim_success_on_unknown_or_missing_provider() {
+        assert_eq!(
+            encryption_status(false, false, false, false),
+            "Encryption status unknown"
+        );
+        assert_eq!(
+            encryption_status(true, false, false, true),
+            "Encryption configured"
+        );
+        assert_eq!(
+            encryption_status(true, true, false, true),
+            "Setup incomplete — retry"
+        );
+        assert_eq!(
+            encryption_status(true, true, true, true),
+            "Setting up encryption…"
+        );
+    }
 }

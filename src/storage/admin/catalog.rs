@@ -101,7 +101,12 @@ impl RemoteCatalog {
     pub(crate) fn backing_remotes(&self) -> Vec<String> {
         self.entries
             .iter()
-            .filter(|(_, e)| e.kind != "crypt")
+            .filter(|(_, e)| {
+                !matches!(
+                    e.kind.as_str(),
+                    "crypt" | "alias" | "chunk" | "chunker" | "union" | "combine"
+                )
+            })
             .map(|(n, _)| n.clone())
             .collect()
     }

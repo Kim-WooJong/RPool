@@ -5,6 +5,21 @@ use crate::remote_root::{load_remote_root_store, remove_remote_root, set_remote_
 use eframe::egui;
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
+    ui.heading("Settings");
+    let tab_id = egui::Id::new("settings-encryption-tab");
+    let mut encryption_tab = ui
+        .ctx()
+        .data_mut(|data| data.get_temp::<bool>(tab_id).unwrap_or(false));
+    ui.horizontal(|ui| {
+        ui.selectable_value(&mut encryption_tab, false, "Operation defaults");
+        ui.selectable_value(&mut encryption_tab, true, "Encryption defaults");
+    });
+    ui.ctx()
+        .data_mut(|data| data.insert_temp(tab_id, encryption_tab));
+    if encryption_tab {
+        show_encryption(ui, state);
+        return;
+    }
     ui.heading("GUI / operation defaults");
     ui.label("These values are shared by the GUI screens. Saving is explicit so temporary changes remain temporary until requested.");
     ui.separator();
@@ -190,5 +205,71 @@ fn reload_remote_roots(state: &mut GuiState) {
             state.settings_notice =
                 Some(format!("Failed to reload remote default paths: {error:#}"))
         }
+    }
+}
+
+fn show_encryption(ui: &mut egui::Ui, state: &mut GuiState) {
+    ui.label("Defaults for newly created encrypted providers. Existing keys and encrypted folders are never changed or rotated.");
+    ui.small(
+        "Password entropy controls generated password randomness, not rclone’s cipher key size.",
+    );
+    ui.separator();
+    let defaults = &mut state.settings.encryption;
+    egui::Grid::new("encryption-defaults")
+        .num_columns(2)
+        .spacing([18.0, 10.0])
+        .show(ui, |ui| {
+            ui.label("Password entropy");
+            egui::ComboBox::from_id_salt("encryption-default-entropy")
+                .selected_text(format!("{} bits", defaults.entropy_bits))
+                .show_ui(ui, |ui| {
+                    for bits in [128, 256, 512, 1024] {
+                        ui.selectable_value(
+                            &mut defaults.entropy_bits,
+                            bits,
+                            format!("{bits} bits"),
+                        );
+                    }
+                });
+            ui.end_row();
+            ui.label("Filename encryption");
+            egui::ComboBox::from_id_salt("encryption-default-filenames")
+                .selected_text(&defaults.filename_encryption)
+                .show_ui(ui, |ui| {
+                    for mode in ["standard", "obfuscate", "off"] {
+                        ui.selectable_value(&mut defaults.filename_encryption, mode.into(), mode);
+                    }
+                });
+            ui.end_row();
+            ui.label("Directory name encryption");
+            ui.checkbox(&mut defaults.directory_encryption, "Enabled");
+            ui.end_row();
+            ui.label("Parent root");
+            ui.add(
+                egui::TextEdit::singleline(&mut defaults.root)
+                    .hint_text("rpool")
+                    .desired_width(320.0),
+            );
+            ui.end_row();
+        });
+    ui.small("Parent root is a relative provider folder (empty uses provider root). Each new crypt receives a fresh unique child folder.");
+    let validation = defaults.validate();
+    if let Err(error) = &validation {
+        ui.colored_label(egui::Color32::LIGHT_RED, error.to_string());
+    }
+    if ui
+        .add_enabled(
+            validation.is_ok(),
+            egui::Button::new("Save encryption defaults"),
+        )
+        .clicked()
+    {
+        state.settings_notice = Some(match settings::save(&state.settings) {
+            Ok(path) => format!("Saved to {}", path.display()),
+            Err(error) => error,
+        });
+    }
+    if let Some(notice) = &state.settings_notice {
+        ui.label(notice);
     }
 }

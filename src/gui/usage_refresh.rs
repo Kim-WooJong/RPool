@@ -7,6 +7,7 @@ use std::thread;
 pub(crate) struct UsageSnapshot {
     pub(crate) catalog_signature: String,
     pub(crate) needs_encryption: bool,
+    pub(crate) missing_encryption: Vec<String>,
     pub(crate) reports: Vec<QuotaReport>,
     pub(crate) crypt_remotes: Vec<String>,
     pub(crate) backing_remotes: Vec<String>,
@@ -41,7 +42,8 @@ impl UsageRefresh {
                 let catalog = admin
                     .catalog()
                     .map_err(|error| format!("remote discovery failed: {error:#}"))?;
-                let needs_encryption = !catalog.missing_encryption_remotes().is_empty();
+                let missing_encryption = catalog.missing_encryption_remotes();
+                let needs_encryption = !missing_encryption.is_empty();
                 let catalog_signature = format!("{catalog:?}");
                 let crypt_remotes = catalog.crypt_remotes();
                 let backing_remotes = catalog.backing_remotes();
@@ -58,6 +60,7 @@ impl UsageRefresh {
                 Ok(UsageSnapshot {
                     catalog_signature,
                     needs_encryption,
+                    missing_encryption,
                     reports,
                     crypt_remotes,
                     backing_remotes,

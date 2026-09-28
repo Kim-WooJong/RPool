@@ -81,6 +81,20 @@ impl RpoolGui {
     }
 
     fn poll_background(&mut self) {
+        let connection_result = self
+            .state
+            .providers
+            .connection
+            .as_mut()
+            .and_then(|connection| connection.poll());
+        if let Some(result) = connection_result {
+            self.state.providers.connection = None;
+            self.refresh_pending = true;
+            self.state.providers.setup_notice = Some(match result {
+                Ok(()) => "Connection wizard closed. Refreshing providers and checking encryption automatically.".into(),
+                Err(error) => format!("Connection watcher stopped: {error}. Refreshing provider discovery."),
+            });
+        }
         let automatic = self.task.task_name() == Some(AUTO_ENCRYPTION_TASK);
         let provisioning = self.task.task_name() == Some("Create encrypted provider");
         let task_finished = self.task.poll();
@@ -89,6 +103,7 @@ impl RpoolGui {
             self.state.providers.setup_notice = Some("Encrypted provider created. Provider list refreshed automatically; back up your rclone configuration before uploading.".into());
         }
         if automatic && task_finished.is_some() {
+            self.state.providers.encryption_failed = task_finished != Some(JobStatus::Completed);
             // Even a failed/cancelled run may have provisioned some providers.
             self.refresh_pending = true;
             self.state.providers.setup_notice = Some(
@@ -119,24 +134,32 @@ impl RpoolGui {
                     self.state.usage_reports = snapshot.reports;
                     self.state.crypt_remotes = snapshot.crypt_remotes;
                     self.state.backing_remotes = snapshot.backing_remotes;
+                    self.state.providers.missing_encryption = snapshot.missing_encryption;
+                    self.state.providers.discovery_known = true;
                     self.state.usage_error = snapshot.warning;
                 }
-                Err(error) => self.state.usage_error = Some(error),
+                Err(error) => {
+                    self.state.providers.discovery_known = false;
+                    self.state.usage_error = Some(error);
+                }
             }
         }
         if self.discovery_rclone != self.state.settings.rclone {
             self.encryption.pending = None;
             self.refresh_pending = true;
         }
-        if let Some(rclone) = self
-            .encryption
-            .take_ready(self.task.is_running() || self.usage.is_running() || self.refresh_pending)
-        {
-            if let Err(error) = self.task.start_rpool(
-                AUTO_ENCRYPTION_TASK,
-                &rclone,
-                ["provider", "ensure-encryption"],
-            ) {
+        if let Some(rclone) = self.encryption.take_ready(
+            self.task.is_running()
+                || self.usage.is_running()
+                || self.refresh_pending
+                || self.state.providers.connection.is_some(),
+        ) {
+            debug_assert_eq!(rclone, self.state.settings.rclone);
+            self.state.providers.encryption_failed = false;
+            if let Err(error) =
+                storage::providers::start_automatic_encryption(&self.state, &mut self.task)
+            {
+                self.state.providers.encryption_failed = true;
                 self.state.providers.setup_notice = Some(error);
             }
         }
@@ -147,7 +170,10 @@ impl eframe::App for RpoolGui {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_background();
 
-        if self.task.is_running() || self.usage.is_running() {
+        if self.task.is_running()
+            || self.usage.is_running()
+            || self.state.providers.connection.is_some()
+        {
             ui.ctx().request_repaint_after(Duration::from_millis(100));
         }
 

@@ -2,13 +2,17 @@
 
 ## Connect a cloud
 
-Storage → Providers → **+ Connect cloud provider** opens the official `rclone config` wizard in a terminal. Choose New remote, select the service, finish its login, quit the wizard, then click **Refresh providers**. RPool does not collect cloud passwords or OAuth tokens. This is a terminal/browser flow, not an embedded cloud-login form.
+Storage → Providers → **+ Connect cloud provider** opens the official `rclone config` wizard in a terminal. Choose New remote, select the service, finish its login, then quit the wizard. RPool detects wizard completion and refreshes providers automatically, including when a cancelled wizard may have saved partial changes. RPool does not collect cloud passwords or OAuth tokens. This is a terminal/browser flow, not an embedded cloud-login form. If completion is not detected after closing the wizard, use **Wizard already closed — refresh**.
 
 ## Automatic encryption
 
-After provider discovery, the GUI automatically provisions encryption for base providers that do not already have a data-encrypting crypt remote. After completing the external connection wizard, click **Refresh providers** to discover the newly connected providers. Existing crypt remotes and keys are retained; existing cloud files are not encrypted in place.
+After provider discovery, the GUI automatically provisions encryption for base providers that do not already have a data-encrypting crypt remote. Setup waits until the external connection wizard closes. Existing crypt remotes and keys are retained; existing cloud files are not encrypted in place.
 
-Automatic setup uses 256-bit random password entropy, Standard filename encryption and encrypted directory names. It creates a separate crypt destination in a fresh child folder. Provider lists show base storage rather than crypt wrappers; pool selection still uses encrypted destinations.
+Automatic setup defaults to **1024-bit random password entropy**, Standard filename encryption and encrypted directory names. It creates a separate crypt destination in a fresh child folder. Provider lists show base storage rather than crypt wrappers; pool selection still uses encrypted destinations. Each base provider shows configuration status: encryption configured, setup pending, setting up, incomplete/retry, or unknown. This is not a live cloud-health or recoverability check.
+
+## Encryption defaults
+
+**Settings → Encryption defaults** controls password entropy (128/256/512/1024 bits), filename protection, directory-name protection and parent folder. Click **Save encryption defaults** to persist across restarts. As with other GUI defaults, edits apply in the current session before saving. Automatic setup and newly opened custom-encryption dialogs use these defaults. Defaults apply only to new crypt remotes; existing keys, cipher settings and stored data are never changed. The entropy setting does not change rclone's cipher key size. Filename Off also exposes directory names; Obfuscate is not strong filename secrecy.
 
 The equivalent CLI operation is `rpool provider ensure-encryption`. Keys remain in the local rclone configuration: back it up securely before uploading data. Automatic provisioning does not automatically add destinations to existing pools.
 
@@ -18,7 +22,7 @@ Automatic attempts wait for the current job to finish and do not loop on an unch
 
 Select **Set up encryption**, choose a connected non-crypt provider and a unique encrypted-provider name. Optionally choose a parent folder. RPool allocates a fresh child folder and creates a new crypt remote; it does not convert existing files or rotate existing keys.
 
-- Random password entropy: 128, 256 (default), 512 or 1024 bits. This changes generated password entropy, not rclone's cipher strength.
+- Random password entropy: 128, 256, 512 or 1024 (default) bits. This changes generated password entropy, not rclone's cipher strength.
 - Filename protection: Standard (recommended), Obfuscate (reversible, not strong filename secrecy), or Off.
 - Directory-name protection can be disabled; filename Off also exposes directory names.
 - Keys are generated with OS randomness and stored in the local rclone configuration, never in command arguments or job logs. Back up that configuration securely before storing data. rclone password obscuring is not encryption-at-rest of the config itself.

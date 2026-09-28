@@ -219,9 +219,21 @@ fn dispatch(cli: Cli) -> Result<()> {
             args.groups,
         ),
         Commands::Provider(args) => match args.command {
-            ProviderCommands::EnsureEncryption { json } => {
+            ProviderCommands::EnsureEncryption {
+                json,
+                root,
+                entropy_bits,
+                filename_encryption,
+                directory_encryption,
+            } => {
                 let report = crate::config_sync::provision::ensure_encryption(
                     std::path::Path::new(&cli.rclone),
+                    &crate::config_sync::provision::EncryptionDefaults {
+                        root,
+                        entropy_bits,
+                        filename_encryption,
+                        directory_encryption,
+                    },
                 )?;
                 if json {
                     println!("{}", serde_json::to_string(&report)?);

@@ -11,6 +11,52 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Defaults apply only to newly created crypt remotes, never existing keys.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub(crate) struct EncryptionDefaults {
+    pub(crate) entropy_bits: usize,
+    pub(crate) filename_encryption: String,
+    pub(crate) directory_encryption: bool,
+    pub(crate) root: String,
+}
+impl Default for EncryptionDefaults {
+    fn default() -> Self {
+        Self {
+            entropy_bits: 1024,
+            filename_encryption: "standard".into(),
+            directory_encryption: true,
+            root: "rpool".into(),
+        }
+    }
+}
+impl EncryptionDefaults {
+    pub(crate) fn validate(&self) -> Result<()> {
+        self.setup("new_crypt".into(), "provider".into()).validate()
+    }
+    pub(crate) fn ensure_args(&self) -> Vec<std::ffi::OsString> {
+        [
+            format!("--entropy-bits={}", self.entropy_bits),
+            format!("--filename-encryption={}", self.filename_encryption),
+            format!("--directory-encryption={}", self.directory_encryption),
+            format!("--root={}", self.root),
+        ]
+        .into_iter()
+        .map(Into::into)
+        .collect()
+    }
+    fn setup(&self, name: String, provider: String) -> CryptSetup {
+        CryptSetup {
+            name,
+            provider,
+            root: self.root.clone(),
+            entropy_bits: self.entropy_bits,
+            filename_encryption: self.filename_encryption.clone(),
+            directory_encryption: self.directory_encryption,
+        }
+    }
+}
+
 pub(crate) struct CryptSetup {
     pub(crate) name: String,
     pub(crate) provider: String,
@@ -236,12 +282,21 @@ pub(crate) struct EncryptionReport {
     pub(crate) failed: Vec<String>,
 }
 
-pub(crate) fn ensure_encryption(executable: &Path) -> Result<EncryptionReport> {
+pub(crate) fn ensure_encryption(
+    executable: &Path,
+    defaults: &EncryptionDefaults,
+) -> Result<EncryptionReport> {
+    defaults.validate()?;
     let config = config_path(executable)?;
-    ensure_encryption_at(executable, &config)
+    ensure_encryption_at(executable, &config, defaults)
 }
 
-fn ensure_encryption_at(executable: &Path, config: &Path) -> Result<EncryptionReport> {
+fn ensure_encryption_at(
+    executable: &Path,
+    config: &Path,
+    defaults: &EncryptionDefaults,
+) -> Result<EncryptionReport> {
+    defaults.validate()?;
     if fs::symlink_metadata(config)?.file_type().is_symlink() {
         bail!("symlink config files are not supported for automatic setup");
     }
@@ -284,14 +339,7 @@ fn ensure_encryption_at(executable: &Path, config: &Path) -> Result<EncryptionRe
             suffix += 1;
         }
         reserved.insert(name.to_ascii_lowercase());
-        let setup = CryptSetup {
-            name: name.clone(),
-            provider: provider.clone(),
-            root: "rpool".into(),
-            entropy_bits: 256,
-            filename_encryption: "standard".into(),
-            directory_encryption: true,
-        };
+        let setup = defaults.setup(name.clone(), provider.clone());
         // Each addition is atomic. Retain successful additions on a later
         // failure; the next reconciliation recognizes them and never rotates.
         if setup
@@ -455,7 +503,7 @@ fn main() {
         let config = dir.path().join("rclone.conf");
         let original = "[cloud]\ntype = drive\n[other]\ntype = dropbox\n[alias]\ntype = alias\nremote = other:nested/folder\n[existing]\ntype = crypt\nremote = alias:encrypted\npassword = old-key\n[CLOUD_CRYPT]\ntype = alias\nremote = cloud:unrelated\n";
         fs::write(&config, original).unwrap();
-        let report = ensure_encryption_at(&tool, &config).unwrap();
+        let report = ensure_encryption_at(&tool, &config, &EncryptionDefaults::default()).unwrap();
         assert_eq!(report.created, ["cloud_crypt_2"]);
         assert_eq!(report.existing, ["other"]);
         assert!(report.failed.is_empty());
@@ -468,7 +516,7 @@ fn main() {
             dump["existing"].password.as_ref().unwrap().as_str(),
             "old-key"
         );
-        let again = ensure_encryption_at(&tool, &config).unwrap();
+        let again = ensure_encryption_at(&tool, &config, &EncryptionDefaults::default()).unwrap();
         assert!(again.created.is_empty());
         assert_eq!(again.existing, ["cloud", "other"]);
         assert_eq!(fs::read(&config).unwrap(), created);
@@ -480,11 +528,11 @@ fn main() {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join("rclone.conf");
         fs::write(&config, "[cloud]\ntype = drive\n[zfail]\ntype = drive\n").unwrap();
-        let report = ensure_encryption_at(&tool, &config).unwrap();
+        let report = ensure_encryption_at(&tool, &config, &EncryptionDefaults::default()).unwrap();
         assert_eq!(report.created, ["cloud_crypt"]);
         assert_eq!(report.failed, ["zfail"]);
         let first = fs::read(&config).unwrap();
-        let again = ensure_encryption_at(&tool, &config).unwrap();
+        let again = ensure_encryption_at(&tool, &config, &EncryptionDefaults::default()).unwrap();
         assert!(again.created.is_empty());
         assert_eq!(again.existing, ["cloud"]);
         assert_eq!(again.failed, ["zfail"]);
@@ -498,11 +546,115 @@ fn main() {
         let config = dir.path().join("rclone.conf");
         let original = "# fail-stage\n[cloud]\ntype = drive\ntoken = fictional-secret\n";
         fs::write(&config, original).unwrap();
-        let report = ensure_encryption_at(&tool, &config).unwrap();
+        let report = ensure_encryption_at(&tool, &config, &EncryptionDefaults::default()).unwrap();
         assert_eq!(report.failed, ["cloud"]);
         assert!(report.created.is_empty());
         assert!(!format!("{report:?}").contains("fictional-secret"));
         assert_eq!(fs::read_to_string(&config).unwrap(), original);
+    }
+
+    #[test]
+    fn defaults_drive_entropy_and_cli_options() {
+        let defaults = EncryptionDefaults::default();
+        assert_eq!(
+            defaults.setup("crypt".into(), "cloud".into()).entropy_bits,
+            1024
+        );
+        assert_eq!(
+            defaults.ensure_args(),
+            [
+                "--entropy-bits=1024",
+                "--filename-encryption=standard",
+                "--directory-encryption=true",
+                "--root=rpool"
+            ]
+            .map(std::ffi::OsString::from)
+        );
+        let mut custom = defaults;
+        custom.entropy_bits = 128;
+        custom.root = String::new();
+        assert!(custom.validate().is_ok());
+        assert_eq!(
+            custom.setup("crypt".into(), "cloud".into()).entropy_bits,
+            128
+        );
+        custom.filename_encryption = "unknown".into();
+        assert!(custom.validate().is_err());
+    }
+
+    #[test]
+    fn ensure_arguments_round_trip_through_cli() {
+        use crate::cli::{Cli, Commands, ProviderCommands};
+        use clap::Parser;
+        for root in ["", "with spaces/암호화", "-leading/폴더 space"] {
+            let defaults = EncryptionDefaults {
+                root: root.into(),
+                entropy_bits: 512,
+                filename_encryption: "obfuscate".into(),
+                directory_encryption: false,
+            };
+            defaults.validate().unwrap();
+            let mut argv: Vec<std::ffi::OsString> =
+                ["rpool", "provider", "ensure-encryption", "--json"]
+                    .map(Into::into)
+                    .to_vec();
+            argv.extend(defaults.ensure_args());
+            let parsed = Cli::try_parse_from(argv).unwrap();
+            match parsed.command.unwrap() {
+                Commands::Provider(args) => match args.command {
+                    ProviderCommands::EnsureEncryption {
+                        root,
+                        entropy_bits,
+                        filename_encryption,
+                        directory_encryption,
+                        json,
+                    } => {
+                        assert!(json);
+                        assert_eq!(
+                            EncryptionDefaults {
+                                root,
+                                entropy_bits,
+                                filename_encryption,
+                                directory_encryption
+                            },
+                            defaults
+                        );
+                    }
+                    _ => panic!("expected ensure-encryption"),
+                },
+                _ => panic!("expected provider"),
+            }
+        }
+    }
+
+    #[test]
+    fn ensure_applies_custom_defaults_without_rotating_existing_keys() {
+        let tool = fixture_executable();
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("rclone.conf");
+        fs::write(&config, "[cloud]\ntype = drive\n").unwrap();
+        let defaults = EncryptionDefaults {
+            root: "private/nested".into(),
+            entropy_bits: 1024,
+            filename_encryption: "off".into(),
+            directory_encryption: false,
+        };
+        let report = ensure_encryption_at(&tool, &config, &defaults).unwrap();
+        assert_eq!(report.created, ["cloud_crypt"]);
+        let dump = read_dump(&tool, &config).unwrap();
+        assert!(dump["cloud_crypt"]
+            .remote
+            .starts_with("cloud:private/nested/rpool-crypt-"));
+        assert_eq!(dump["cloud_crypt"].filename_encryption, "off");
+        assert_eq!(dump["cloud_crypt"].directory_name_encryption, "false");
+        let created = fs::read(&config).unwrap();
+        let again = ensure_encryption_at(&tool, &config, &EncryptionDefaults::default()).unwrap();
+        assert!(again.created.is_empty());
+        assert_eq!(fs::read(&config).unwrap(), created);
+        let mut invalid = defaults;
+        invalid.entropy_bits = 12;
+        assert!(ensure_encryption_at(&tool, &config, &invalid).is_err());
+        assert_eq!(fs::read(&config).unwrap(), created);
     }
 
     fn setup() -> CryptSetup {
