@@ -9,83 +9,104 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     ui.label("These values are shared by the GUI screens. Saving is explicit so temporary changes remain temporary until requested.");
     ui.separator();
 
-    egui::Grid::new("gui-settings")
-        .num_columns(2)
-        .spacing([18.0, 10.0])
+    let section_height =
+        ((ui.available_height() - ui.spacing().item_spacing.y * 2.0) / 3.0).max(0.0);
+    egui::ScrollArea::both()
+        .id_salt("settings-defaults-section")
+        .auto_shrink([false, false])
+        .min_scrolled_height(0.0)
+        .max_height(section_height)
         .show(ui, |ui| {
-            ui.label("rclone executable");
-            ui.add(egui::TextEdit::singleline(&mut state.settings.rclone).desired_width(360.0));
-            ui.end_row();
-
-            ui.label("Global crypt folder fallback");
-            ui.add(
-                egui::TextEdit::singleline(&mut state.settings.default_remote_path)
-                    .hint_text("rpool")
-                    .desired_width(360.0),
-            );
-            ui.end_row();
-
-            ui.label("Workers");
-            ui.add(egui::DragValue::new(&mut state.settings.workers).range(1..=256));
-            ui.end_row();
-
-            ui.label("Retries");
-            ui.add(egui::DragValue::new(&mut state.settings.retries).range(0..=100));
-            ui.end_row();
-
-            ui.label("Shard size (MiB)");
-            ui.add(egui::DragValue::new(&mut state.settings.shard_mib).range(1..=1024 * 1024));
-            ui.end_row();
-
-            ui.label("Data shards (K)");
-            ui.add(egui::DragValue::new(&mut state.settings.data_shards).range(1..=255));
-            ui.end_row();
-
-            ui.label("Parity shards (M)");
-            ui.add(egui::DragValue::new(&mut state.settings.parity_shards).range(0..=254));
-            ui.end_row();
-
-            ui.label("Placement");
-            egui::ComboBox::from_id_salt("settings-placement")
-                .selected_text(state.settings.placement.label())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut state.settings.placement,
-                        Placement::RoundRobin,
-                        Placement::RoundRobin.label(),
+            egui::Grid::new("gui-settings")
+                .num_columns(2)
+                .spacing([18.0, 10.0])
+                .show(ui, |ui| {
+                    ui.label("rclone executable");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut state.settings.rclone).desired_width(360.0),
                     );
-                    ui.selectable_value(
-                        &mut state.settings.placement,
-                        Placement::FreeRatio,
-                        Placement::FreeRatio.label(),
+                    ui.end_row();
+
+                    ui.label("Global crypt folder fallback");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut state.settings.default_remote_path)
+                            .hint_text("rpool")
+                            .desired_width(360.0),
                     );
+                    ui.end_row();
+
+                    ui.label("Workers");
+                    ui.add(egui::DragValue::new(&mut state.settings.workers).range(1..=256));
+                    ui.end_row();
+
+                    ui.label("Retries");
+                    ui.add(egui::DragValue::new(&mut state.settings.retries).range(0..=100));
+                    ui.end_row();
+
+                    ui.label("Shard size (MiB)");
+                    ui.add(
+                        egui::DragValue::new(&mut state.settings.shard_mib).range(1..=1024 * 1024),
+                    );
+                    ui.end_row();
+
+                    ui.label("Data shards (K)");
+                    ui.add(egui::DragValue::new(&mut state.settings.data_shards).range(1..=255));
+                    ui.end_row();
+
+                    ui.label("Parity shards (M)");
+                    ui.add(egui::DragValue::new(&mut state.settings.parity_shards).range(0..=254));
+                    ui.end_row();
+
+                    ui.label("Placement");
+                    egui::ComboBox::from_id_salt("settings-placement")
+                        .selected_text(state.settings.placement.label())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut state.settings.placement,
+                                Placement::RoundRobin,
+                                Placement::RoundRobin.label(),
+                            );
+                            ui.selectable_value(
+                                &mut state.settings.placement,
+                                Placement::FreeRatio,
+                                Placement::FreeRatio.label(),
+                            );
+                        });
+                    ui.end_row();
                 });
-            ui.end_row();
+
+            ui.add_space(12.0);
+            if ui.button("Save GUI defaults").clicked() {
+                state.settings_notice = Some(match settings::save(&state.settings) {
+                    Ok(path) => format!("Saved to {}", path.display()),
+                    Err(error) => error,
+                });
+            }
+            if let Some(notice) = &state.settings_notice {
+                ui.label(notice);
+            }
         });
-
-    ui.add_space(12.0);
-    if ui.button("Save GUI defaults").clicked() {
-        state.settings_notice = Some(match settings::save(&state.settings) {
-            Ok(path) => format!("Saved to {}", path.display()),
-            Err(error) => error,
+    egui::ScrollArea::both()
+        .id_salt("settings-remote-roots-section")
+        .auto_shrink([false, false])
+        .min_scrolled_height(0.0)
+        .max_height(section_height)
+        .show(ui, |ui| show_remote_roots(ui, state));
+    egui::ScrollArea::both()
+        .id_salt("settings-destinations-section")
+        .auto_shrink([false, false])
+        .min_scrolled_height(0.0)
+        .max_height(section_height)
+        .show(ui, |ui| {
+            ui.heading("Selected upload destinations");
+            if state.settings.remotes.is_empty() {
+                ui.label("No saved upload destinations.");
+            } else {
+                for remote in &state.settings.remotes {
+                    ui.monospace(remote);
+                }
+            }
         });
-    }
-    if let Some(notice) = &state.settings_notice {
-        ui.label(notice);
-    }
-
-    ui.separator();
-    show_remote_roots(ui, state);
-
-    ui.separator();
-    ui.label("Selected upload destinations");
-    if state.settings.remotes.is_empty() {
-        ui.label("No saved upload destinations.");
-    } else {
-        for remote in &state.settings.remotes {
-            ui.monospace(remote);
-        }
-    }
 }
 
 fn show_remote_roots(ui: &mut egui::Ui, state: &mut GuiState) {
@@ -144,7 +165,8 @@ fn show_remote_roots(ui: &mut egui::Ui, state: &mut GuiState) {
             let name = state.remote_root_name.trim().to_string();
             let path = state.remote_root_path.trim().to_string();
             if name.is_empty() || path.is_empty() {
-                state.settings_notice = Some("Enter both a remote name and default path.".to_string());
+                state.settings_notice =
+                    Some("Enter both a remote name and default path.".to_string());
             } else {
                 let notice = match set_remote_root(&name, &path) {
                     Ok(config) => {
@@ -164,6 +186,9 @@ fn show_remote_roots(ui: &mut egui::Ui, state: &mut GuiState) {
 fn reload_remote_roots(state: &mut GuiState) {
     match load_remote_root_store() {
         Ok(store) => state.remote_roots = store.roots,
-        Err(error) => state.settings_notice = Some(format!("Failed to reload remote default paths: {error:#}")),
+        Err(error) => {
+            state.settings_notice =
+                Some(format!("Failed to reload remote default paths: {error:#}"))
+        }
     }
 }

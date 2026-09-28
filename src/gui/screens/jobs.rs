@@ -25,70 +25,85 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     ui.label("Current operation and recorded task history.");
     ui.separator();
 
-    ui.heading("Current operation");
-    if task.is_running() {
-        ui.horizontal(|ui| {
-            ui.spinner();
-            ui.strong(task.task_name().unwrap_or("Operation"));
+    let section_height = ((ui.available_height() - ui.spacing().item_spacing.y) / 2.0).max(0.0);
+    egui::ScrollArea::both()
+        .id_salt("jobs-current-operation-section")
+        .auto_shrink([false, false])
+        .min_scrolled_height(0.0)
+        .max_height(section_height)
+        .show(ui, |ui| {
+            ui.heading("Current operation");
+            if task.is_running() {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.strong(task.task_name().unwrap_or("Operation"));
+                });
+                if let Some(command) = task.command_preview() {
+                    ui.monospace(command);
+                }
+            } else if let Some(outcome) = task.last_outcome() {
+                let status = if outcome.cancelled {
+                    "Cancelled"
+                } else if outcome.success {
+                    "Completed"
+                } else {
+                    "Failed"
+                };
+                ui.label(format!("Last operation: {status}"));
+                if let Some(code) = outcome.code {
+                    ui.small(format!("Exit code: {code}"));
+                }
+            } else {
+                ui.label("No operation is currently running.");
+            }
+            ui.small("Raw operation output remains available in the task console below.");
         });
-        if let Some(command) = task.command_preview() {
-            ui.monospace(command);
-        }
-    } else if let Some(outcome) = task.last_outcome() {
-        let status = if outcome.cancelled {
-            "Cancelled"
-        } else if outcome.success {
-            "Completed"
-        } else {
-            "Failed"
-        };
-        ui.label(format!("Last operation: {status}"));
-        if let Some(code) = outcome.code {
-            ui.small(format!("Exit code: {code}"));
-        }
-    } else {
-        ui.label("No operation is currently running.");
-    }
-    ui.small("Raw operation output remains available in the task console below.");
+    egui::ScrollArea::both()
+        .id_salt("jobs-history-section")
+        .auto_shrink([false, false])
+        .min_scrolled_height(0.0)
+        .max_height(section_height)
+        .show(ui, |ui| {
+            ui.heading("Task history");
+            ui.horizontal(|ui| {
+                ui.label("Show latest");
+                ui.add(egui::DragValue::new(&mut state.jobs.history_limit).range(1..=100_000));
+                if ui
+                    .add_enabled(!task.is_running(), egui::Button::new("Show history"))
+                    .clicked()
+                {
+                    let args = [
+                        OsString::from("history"),
+                        OsString::from("list"),
+                        OsString::from("--limit"),
+                        OsString::from(state.jobs.history_limit.to_string()),
+                    ];
+                    state.jobs.error = task
+                        .start_rpool("History", &state.settings.rclone, args)
+                        .err();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Keep newest");
+                ui.add(egui::DragValue::new(&mut state.jobs.history_keep).range(0..=1_000_000));
+                if ui
+                    .add_enabled(!task.is_running(), egui::Button::new("Prune history"))
+                    .clicked()
+                {
+                    let args = [
+                        OsString::from("history"),
+                        OsString::from("prune"),
+                        OsString::from("--keep"),
+                        OsString::from(state.jobs.history_keep.to_string()),
+                    ];
+                    state.jobs.error = task
+                        .start_rpool("History prune", &state.settings.rclone, args)
+                        .err();
+                }
+            });
 
-    ui.separator();
-    ui.heading("Task history");
-    ui.horizontal(|ui| {
-        ui.label("Show latest");
-        ui.add(egui::DragValue::new(&mut state.jobs.history_limit).range(1..=100_000));
-        if ui
-            .add_enabled(!task.is_running(), egui::Button::new("Show history"))
-            .clicked()
-        {
-            let args = [
-                OsString::from("history"),
-                OsString::from("list"),
-                OsString::from("--limit"),
-                OsString::from(state.jobs.history_limit.to_string()),
-            ];
-            state.jobs.error = task.start_rpool("History", &state.settings.rclone, args).err();
-        }
-    });
-    ui.horizontal(|ui| {
-        ui.label("Keep newest");
-        ui.add(egui::DragValue::new(&mut state.jobs.history_keep).range(0..=1_000_000));
-        if ui
-            .add_enabled(!task.is_running(), egui::Button::new("Prune history"))
-            .clicked()
-        {
-            let args = [
-                OsString::from("history"),
-                OsString::from("prune"),
-                OsString::from("--keep"),
-                OsString::from(state.jobs.history_keep.to_string()),
-            ];
-            state.jobs.error = task
-                .start_rpool("History prune", &state.settings.rclone, args)
-                .err();
-        }
-    });
-
-    if let Some(error) = &state.jobs.error {
-        ui.label(error);
-    }
+            if let Some(error) = &state.jobs.error {
+                ui.label(error);
+            }
+        });
 }

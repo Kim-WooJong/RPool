@@ -52,49 +52,40 @@ pub(crate) fn show(ui: &mut egui::Ui, form: &mut UploadForm) {
     }
 
     let mut remove_index = None;
-    egui::ScrollArea::vertical()
-        .id_salt("upload-file-queue")
-        .max_height(240.0)
+    egui::Grid::new("upload-file-queue-grid")
+        .num_columns(4)
+        .striped(true)
+        .spacing([12.0, 6.0])
         .show(ui, |ui| {
-            egui::Grid::new("upload-file-queue-grid")
-                .num_columns(4)
-                .striped(true)
-                .spacing([12.0, 6.0])
-                .show(ui, |ui| {
-                    ui.strong("File");
-                    ui.strong("Size");
-                    ui.strong("Status");
-                    ui.label("");
-                    ui.end_row();
+            ui.strong("File");
+            ui.strong("Size");
+            ui.strong("Status");
+            ui.label("");
+            ui.end_row();
 
-                    for (index, item) in form.items.iter().enumerate() {
-                        ui.label(item.file_name()).on_hover_text(item.path.display().to_string());
-                        ui.monospace(
-                            item.size
-                                .map(format_bytes)
-                                .unwrap_or_else(|| "n/a".to_string()),
-                        );
-                        let tone = match item.status {
-                            UploadItemStatus::Pending => StatusTone::Neutral,
-                            UploadItemStatus::Running => StatusTone::Warning,
-                            UploadItemStatus::Completed => StatusTone::Success,
-                            UploadItemStatus::Failed | UploadItemStatus::Cancelled => {
-                                StatusTone::Error
-                            }
-                        };
-                        status_badge(ui, item.status.label(), tone);
-                        if ui
-                            .add_enabled(
-                                !form.batch_active,
-                                egui::Button::new("Remove"),
-                            )
-                            .clicked()
-                        {
-                            remove_index = Some(index);
-                        }
-                        ui.end_row();
-                    }
-                });
+            for (index, item) in form.items.iter().enumerate() {
+                ui.label(item.file_name())
+                    .on_hover_text(item.path.display().to_string());
+                ui.monospace(
+                    item.size
+                        .map(format_bytes)
+                        .unwrap_or_else(|| "n/a".to_string()),
+                );
+                let tone = match item.status {
+                    UploadItemStatus::Pending => StatusTone::Neutral,
+                    UploadItemStatus::Running => StatusTone::Warning,
+                    UploadItemStatus::Completed => StatusTone::Success,
+                    UploadItemStatus::Failed | UploadItemStatus::Cancelled => StatusTone::Error,
+                };
+                status_badge(ui, item.status.label(), tone);
+                if ui
+                    .add_enabled(!form.batch_active, egui::Button::new("Remove"))
+                    .clicked()
+                {
+                    remove_index = Some(index);
+                }
+                ui.end_row();
+            }
         });
 
     if let Some(index) = remove_index {
