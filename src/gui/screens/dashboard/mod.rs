@@ -37,6 +37,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, usage: &mut UsageRef
     });
 
     ui.add_space(theme::SUBSECTION_GAP);
+    egui::ScrollArea::vertical().show(ui, |ui| {
     summary::show(
         ui,
         &state.dashboard,
@@ -54,7 +55,6 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, usage: &mut UsageRef
         &state.crypt_remotes,
     );
 
-    egui::ScrollArea::vertical().show(ui, |ui| {
         providers::show(ui, state);
         ui.add_space(theme::SECTION_GAP);
         ui.separator();

@@ -1,6 +1,6 @@
 use crate::gui::task::TaskProgress;
 use crate::gui::theme;
-use crate::presentation::{format_bytes, format_duration};
+use crate::presentation::format_bytes;
 use eframe::egui;
 
 pub(crate) fn progress_view(ui: &mut egui::Ui, progress: &TaskProgress) {
@@ -9,7 +9,7 @@ pub(crate) fn progress_view(ui: &mut egui::Ui, progress: &TaskProgress) {
     };
 
     let percent = ratio * 100.0;
-    let width = ui.available_width().clamp(160.0, 720.0);
+    let width = ui.available_width().min(720.0);
     let (rect, _) = ui.allocate_exact_size(
         egui::vec2(width, theme::PROGRESS_BAR_HEIGHT),
         egui::Sense::hover(),
@@ -43,7 +43,7 @@ pub(crate) fn progress_view(ui: &mut egui::Ui, progress: &TaskProgress) {
         return;
     };
     let completed = progress.completed_bytes.unwrap_or(0).min(total_bytes);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.small(format!(
             "Progress {} / {}",
             format_bytes(completed),
@@ -64,7 +64,7 @@ pub(crate) fn progress_view(ui: &mut egui::Ui, progress: &TaskProgress) {
 
         if let Some(eta) = progress.eta_seconds {
             ui.separator();
-            ui.small(format!("ETA {}", format_duration(eta)));
+            ui.small(format!("ETA {}m {:02}s", eta / 60, eta % 60));
         }
     });
 }

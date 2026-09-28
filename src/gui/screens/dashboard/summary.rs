@@ -18,10 +18,20 @@ pub(crate) fn show(
     let unavailable = reports.iter().filter(|report| report.error.is_some()).count();
     let pool_attention = pools_needing_attention(&data.pools, crypt_remotes);
 
+    if ui.available_width() < 650.0 {
+        metric(ui, "Reported capacity", if known_total > 0 {
+            format!("{} / {}", format_bytes(known_used), format_bytes(known_total))
+        } else { "Unavailable".into() }, None);
+        metric(ui, "Files", data.file_count.to_string(),
+            Some(format!("{} logical data", format_bytes(data.logical_bytes))));
+        health_card(ui, reports, refreshing, usage_error, unavailable, pool_attention, data);
+        return;
+    }
+
     ui.columns(3, |columns| {
         metric(
             &mut columns[0],
-            "Storage",
+            "Reported capacity",
             if known_total > 0 {
                 format!("{} / {}", format_bytes(known_used), format_bytes(known_total))
             } else {
@@ -41,40 +51,51 @@ pub(crate) fn show(
             Some(format!("{} logical data", format_bytes(data.logical_bytes))),
         );
 
-        columns[2].label(egui::RichText::new("Health").weak());
-        columns[2].add_space(4.0);
-        if refreshing && reports.is_empty() {
-            status_badge(&mut columns[2], "Refreshing", StatusTone::Neutral);
-        } else if usage_error.is_some()
-            || unavailable > 0
-            || pool_attention > 0
-            || !data.warnings.is_empty()
-        {
-            status_badge(&mut columns[2], "Attention", StatusTone::Warning);
-        } else if reports.is_empty() {
-            status_badge(&mut columns[2], "Unknown", StatusTone::Neutral);
-        } else {
-            status_badge(&mut columns[2], "Healthy", StatusTone::Success);
-        }
-        columns[2].add_space(4.0);
-        columns[2].small(format!(
-            "{} provider{} reporting",
-            reports.len().saturating_sub(unavailable),
-            if reports.len().saturating_sub(unavailable) == 1 { "" } else { "s" }
-        ));
+        health_card(&mut columns[2], reports, refreshing, usage_error, unavailable, pool_attention, data);
     });
 
     ui.add_space(theme::SECTION_GAP);
     ui.separator();
 }
 
+fn health_card(ui: &mut egui::Ui, reports: &[QuotaReport], refreshing: bool,
+    usage_error: Option<&str>, unavailable: usize, pool_attention: usize, data: &DashboardData) {
+    theme::card(ui).show(ui, |ui| {
+            ui.set_min_height(92.0);
+        ui.label(egui::RichText::new("Health").weak());
+        ui.add_space(4.0);
+        if refreshing && reports.is_empty() {
+            status_badge(ui, "Refreshing", StatusTone::Neutral);
+        } else if usage_error.is_some()
+            || unavailable > 0
+            || pool_attention > 0
+            || !data.warnings.is_empty()
+        {
+            status_badge(ui, "Attention", StatusTone::Warning);
+        } else if reports.is_empty() {
+            status_badge(ui, "Unknown", StatusTone::Neutral);
+        } else {
+            status_badge(ui, "Healthy", StatusTone::Success);
+        }
+        ui.add_space(4.0);
+        ui.small(format!(
+            "{} provider{} reporting",
+            reports.len().saturating_sub(unavailable),
+            if reports.len().saturating_sub(unavailable) == 1 { "" } else { "s" }
+        ));
+    });
+}
+
 fn metric(ui: &mut egui::Ui, label: &str, value: String, detail: Option<String>) {
+    theme::card(ui).show(ui, |ui| {
+        ui.set_min_height(92.0);
     ui.label(egui::RichText::new(label).weak());
     ui.add_space(2.0);
     ui.label(egui::RichText::new(value).size(20.0).strong());
     if let Some(detail) = detail {
         ui.small(detail);
     }
+    });
 }
 
 fn aggregate_capacity(reports: &[QuotaReport]) -> (u64, u64) {

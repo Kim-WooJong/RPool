@@ -11,7 +11,12 @@ use std::time::Duration;
 
 pub(crate) fn launch(startup_rclone: &str) -> Result<()> {
     let startup_rclone = startup_rclone.to_string();
-    let native_options = eframe::NativeOptions::default();
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1180.0, 800.0])
+            .with_min_inner_size([800.0, 600.0]),
+        ..Default::default()
+    };
     eframe::run_native(
         "rpool storage console",
         native_options,
@@ -74,8 +79,8 @@ impl eframe::App for RpoolGui {
 
         egui::Panel::top("top-bar").show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.heading("rpool");
-                ui.label("cloud erasure-storage console");
+                ui.label(egui::RichText::new("RPool").strong());
+                ui.label(egui::RichText::new("Storage console").weak());
                 if self.task.is_running() {
                     ui.separator();
                     ui.spinner();
@@ -92,6 +97,7 @@ impl eframe::App for RpoolGui {
         egui::Panel::bottom("task-console")
             .resizable(true)
             .default_size(theme::TASK_CONSOLE_HEIGHT)
+            .min_size(110.0)
             .show(ui, |ui| task_console(ui, &mut self.task));
 
         egui::CentralPanel::default().show(ui, |ui| match self.state.page {

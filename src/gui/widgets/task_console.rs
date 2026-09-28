@@ -4,8 +4,8 @@ use eframe::egui;
 
 pub(crate) fn task_console(ui: &mut egui::Ui, task: &mut TaskRunner) {
     ui.separator();
-    ui.horizontal(|ui| {
-        ui.heading("Operation console");
+    ui.horizontal_wrapped(|ui| {
+        ui.label(egui::RichText::new("Operation console").size(16.0).strong());
         if task.is_running() {
             status_badge(ui, "Running", StatusTone::Warning);
             ui.label(task.task_name().unwrap_or("operation"));
@@ -31,6 +31,10 @@ pub(crate) fn task_console(ui: &mut egui::Ui, task: &mut TaskRunner) {
         }
     });
 
+    if let Some(info) = task.current_task().or(task.last_task()) {
+        crate::gui::widgets::progress_view(ui, &info.progress);
+    }
+
     if let Some(command) = task.command_preview() {
         ui.collapsing("Command", |ui| {
             ui.monospace(command);
@@ -39,10 +43,12 @@ pub(crate) fn task_console(ui: &mut egui::Ui, task: &mut TaskRunner) {
 
     egui::ScrollArea::vertical()
         .stick_to_bottom(true)
-        .max_height(260.0)
+        .max_height(ui.available_height())
         .show(ui, |ui| {
             if task.logs().is_empty() {
-                ui.label("No task output yet.");
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("No operations yet").strong());
+                ui.label(egui::RichText::new("Start an operation from Files, Storage or Maintenance. Output appears here.").weak());
             } else {
                 for line in task.logs() {
                     let prefix = match line.kind {
