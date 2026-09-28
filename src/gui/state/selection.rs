@@ -33,6 +33,7 @@ impl Default for FilesSection {
 pub(crate) enum StorageSection {
     Providers,
     Pools,
+    Reprocess,
 }
 
 impl Default for StorageSection {

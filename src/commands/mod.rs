@@ -15,15 +15,14 @@ mod usage;
 mod verify;
 
 pub(crate) use doctor::doctor;
-pub(crate) use get::get;
+pub(crate) use get::{get, get_with_storage};
 pub(crate) use put::put;
 pub(crate) use repair::repair;
 pub(crate) use scrub::scrub;
 pub(crate) use status::status;
 pub(crate) use usage::usage;
-pub(crate) use verify::verify;
+pub(crate) use verify::{verify, verify_with_storage};
 
-#[cfg(test)]
 pub(crate) use put::put_with_storage;
 
 #[cfg(test)]

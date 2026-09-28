@@ -1,6 +1,9 @@
-use crate::cli::{Commands, ConfigCommands, InventoryCommands, ManifestCommands, PoolCommands, ProviderCommands, RemoteRootCommands};
-use crate::models::TaskRecord;
+use crate::cli::{
+    Commands, ConfigCommands, InventoryCommands, ManifestCommands, PoolCommands, ProviderCommands,
+    RemoteRootCommands,
+};
 use crate::history::redact_text;
+use crate::models::TaskRecord;
 use crate::utils::now_unix;
 
 #[derive(Debug, Clone)]
@@ -30,39 +33,76 @@ pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> 
             Some(args.artifact_root.display().to_string()),
         ),
         Commands::Import(args) => (
-            if args.dry_run { "portable-import-dry-run" } else { "portable-import" }.to_string(),
+            if args.dry_run {
+                "portable-import-dry-run"
+            } else {
+                "portable-import"
+            }
+            .to_string(),
             Some(args.artifact_root.display().to_string()),
         ),
         Commands::Config(args) => match &args.command {
-            ConfigCommands::Export { output } => ("config-export".to_string(), Some(output.display().to_string())),
+            ConfigCommands::Export { output } => (
+                "config-export".to_string(),
+                Some(output.display().to_string()),
+            ),
             ConfigCommands::Import { input, dry_run } => (
-                if *dry_run { "config-import-dry-run" } else { "config-import" }.to_string(),
+                if *dry_run {
+                    "config-import-dry-run"
+                } else {
+                    "config-import"
+                }
+                .to_string(),
                 Some(input.display().to_string()),
             ),
         },
         Commands::Pool(args) => match &args.command {
+            PoolCommands::PlanReprocess { name, .. } => {
+                ("pool-plan-reprocess".to_string(), Some(name.clone()))
+            }
+            PoolCommands::Reprocess { plan } => (
+                "pool-reprocess".to_string(),
+                Some(plan.display().to_string()),
+            ),
             PoolCommands::List { .. } => ("pool-list".to_string(), None),
             PoolCommands::Show { name, .. } => ("pool-show".to_string(), Some(name.clone())),
             PoolCommands::Set { name, .. } => ("pool-set".to_string(), Some(name.clone())),
             PoolCommands::Remove { name } => ("pool-remove".to_string(), Some(name.clone())),
         },
         Commands::Manifest(args) => match &args.command {
-            ManifestCommands::Replicate { manifest, .. } => ("manifest-replicate".to_string(), Some(manifest.clone())),
-            ManifestCommands::Verify { manifest, .. } => ("manifest-verify".to_string(), Some(manifest.clone())),
-            ManifestCommands::Recover { archive_id, .. } => ("manifest-recover".to_string(), Some(archive_id.clone())),
+            ManifestCommands::Replicate { manifest, .. } => {
+                ("manifest-replicate".to_string(), Some(manifest.clone()))
+            }
+            ManifestCommands::Verify { manifest, .. } => {
+                ("manifest-verify".to_string(), Some(manifest.clone()))
+            }
+            ManifestCommands::Recover { archive_id, .. } => {
+                ("manifest-recover".to_string(), Some(archive_id.clone()))
+            }
         },
         Commands::Inventory(args) => match &args.command {
-            InventoryCommands::Add { manifest } => ("inventory-add".to_string(), Some(manifest.clone())),
-            InventoryCommands::Rebuild { directory } => ("inventory-rebuild".to_string(), Some(directory.display().to_string())),
+            InventoryCommands::Add { manifest } => {
+                ("inventory-add".to_string(), Some(manifest.clone()))
+            }
+            InventoryCommands::Rebuild { directory } => (
+                "inventory-rebuild".to_string(),
+                Some(directory.display().to_string()),
+            ),
             InventoryCommands::List { .. } => ("inventory-list".to_string(), None),
-            InventoryCommands::Find { pattern, .. } => ("inventory-find".to_string(), Some(pattern.clone())),
-            InventoryCommands::Info { archive_id, .. } => ("inventory-info".to_string(), Some(archive_id.clone())),
+            InventoryCommands::Find { pattern, .. } => {
+                ("inventory-find".to_string(), Some(pattern.clone()))
+            }
+            InventoryCommands::Info { archive_id, .. } => {
+                ("inventory-info".to_string(), Some(archive_id.clone()))
+            }
         },
         Commands::Scrub(args) => ("scrub".to_string(), Some(args.manifest.clone())),
         Commands::Repair(args) => ("repair".to_string(), Some(args.manifest.clone())),
         Commands::Provider(args) => match &args.command {
             ProviderCommands::Health { pool, .. } => ("provider-health".to_string(), pool.clone()),
-            ProviderCommands::Drain { manifest, from, to, .. } => (
+            ProviderCommands::Drain {
+                manifest, from, to, ..
+            } => (
                 "provider-drain".to_string(),
                 Some(format!("{manifest}: {from} -> {to}")),
             ),
@@ -73,14 +113,22 @@ pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> 
                 "remote-root-set".to_string(),
                 Some(format!("{remote} -> {path}")),
             ),
-            RemoteRootCommands::Remove { remote } => ("remote-root-remove".to_string(), Some(remote.clone())),
+            RemoteRootCommands::Remove { remote } => {
+                ("remote-root-remove".to_string(), Some(remote.clone()))
+            }
         },
         Commands::Doctor(_) => ("doctor".to_string(), None),
     };
 
     let target = target.map(|value| redact_text(&value, 300));
     let started_unix = now_unix();
-    let seed = format!("{}\0{}\0{}\0{}", operation, target.as_deref().unwrap_or(""), started_unix, std::process::id());
+    let seed = format!(
+        "{}\0{}\0{}\0{}",
+        operation,
+        target.as_deref().unwrap_or(""),
+        started_unix,
+        std::process::id()
+    );
     let hash = blake3::hash(seed.as_bytes()).to_hex().to_string();
     Some(PendingTaskRecord {
         id: hash[..16].to_string(),
@@ -98,7 +146,9 @@ pub(crate) fn finish_record(pending: PendingTaskRecord, result: &anyhow::Result<
         started_unix: pending.started_unix,
         finished_unix: now_unix(),
         status: if result.is_ok() { "success" } else { "failed" }.to_string(),
-        message: result.as_ref().err().map(|error| redact_text(&format!("{error:#}"), 500)),
+        message: result
+            .as_ref()
+            .err()
+            .map(|error| redact_text(&format!("{error:#}"), 500)),
     }
 }
-

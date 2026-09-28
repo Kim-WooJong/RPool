@@ -23,6 +23,7 @@ pub(crate) struct GuiState {
     pub(crate) integrity: IntegrityForm,
     pub(crate) providers: ProviderForm,
     pub(crate) pools: PoolForm,
+    pub(crate) reprocess: crate::gui::screens::storage::reprocess::ReprocessForm,
     pub(crate) manifest: ManifestForm,
     pub(crate) system: SystemForm,
     pub(crate) jobs: JobsForm,
@@ -44,6 +45,7 @@ impl GuiState {
         pool_definitions: BTreeMap<String, PoolDefinition>,
     ) -> Self {
         let pool_names: Vec<String> = pool_definitions.keys().cloned().collect();
+        let pools = PoolForm::from_settings(&settings);
         Self {
             page: Page::default(),
             files_section: FilesSection::default(),
@@ -58,7 +60,8 @@ impl GuiState {
             status: StatusForm::default(),
             integrity: IntegrityForm::default(),
             providers: ProviderForm::default(),
-            pools: PoolForm::default(),
+            reprocess: crate::gui::screens::storage::reprocess::ReprocessForm::default(),
+            pools,
             manifest: ManifestForm::default(),
             system: SystemForm::default(),
             jobs: JobsForm::default(),

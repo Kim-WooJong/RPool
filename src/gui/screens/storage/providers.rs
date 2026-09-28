@@ -22,87 +22,97 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     ui.label("Check provider health and migrate shards away from a provider without changing archive data.");
     ui.separator();
 
-    ui.heading("Health monitor");
-    ui.horizontal(|ui| {
-        ui.label("Pool (optional)");
-        egui::ComboBox::from_id_salt("provider-health-pool")
-            .selected_text(if state.providers.health_pool.is_empty() {
-                "All crypt remotes"
-            } else {
-                state.providers.health_pool.as_str()
-            })
-            .show_ui(ui, |ui| {
-                ui.selectable_value(
-                    &mut state.providers.health_pool,
-                    String::new(),
-                    "All crypt remotes",
-                );
-                for name in &state.pool_names {
+    let size = egui::vec2(
+        ui.available_width(),
+        ((ui.available_height() - ui.spacing().item_spacing.y) / 2.0).max(1.0),
+    );
+    super::pools::pane(ui, "provider-health-scroll", size, |ui| {
+        ui.heading("Health monitor");
+        ui.horizontal(|ui| {
+            ui.label("Pool (optional)");
+            egui::ComboBox::from_id_salt("provider-health-pool")
+                .selected_text(if state.providers.health_pool.is_empty() {
+                    "All crypt remotes"
+                } else {
+                    state.providers.health_pool.as_str()
+                })
+                .show_ui(ui, |ui| {
                     ui.selectable_value(
                         &mut state.providers.health_pool,
-                        name.clone(),
-                        name.as_str(),
+                        String::new(),
+                        "All crypt remotes",
                     );
-                }
-            });
+                    for name in &state.pool_names {
+                        ui.selectable_value(
+                            &mut state.providers.health_pool,
+                            name.clone(),
+                            name.as_str(),
+                        );
+                    }
+                });
+            if ui
+                .add_enabled(!task.is_running(), egui::Button::new("Check health"))
+                .clicked()
+            {
+                state.providers.error = start_health(state, task).err();
+            }
+        });
+    });
+    super::pools::pane(ui, "provider-migration-scroll", size, |ui| {
+        ui.set_min_width(380.0);
+        ui.separator();
+        ui.heading("Drain / migrate provider");
+        local_file_field(
+            ui,
+            "Manifest (local file or remote path)",
+            &mut state.providers.manifest,
+            Some("rpool manifest"),
+            &["json"],
+        );
+        ui.horizontal(|ui| {
+            ui.label("From");
+            ui.add(
+                egui::TextEdit::singleline(&mut state.providers.from)
+                    .hint_text("old-crypt:rpool")
+                    .desired_width(280.0),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.label("To");
+            ui.add(
+                egui::TextEdit::singleline(&mut state.providers.to)
+                    .hint_text("new-crypt:rpool")
+                    .desired_width(280.0),
+            );
+        });
+        output_file_field(
+            ui,
+            "Output manifest (optional for local input)",
+            &mut state.providers.output,
+        );
+        ui.vertical(|ui| {
+            ui.checkbox(&mut state.providers.dry_run, "Dry run");
+            ui.checkbox(
+                &mut state.providers.delete_source,
+                "Delete old shards after verified migration",
+            );
+            ui.checkbox(
+                &mut state.providers.allow_risky,
+                "Allow unverified / weaker failure-domain safety",
+            );
+        });
         if ui
-            .add_enabled(!task.is_running(), egui::Button::new("Check health"))
+            .add_enabled(!task.is_running(), egui::Button::new("Drain provider"))
             .clicked()
         {
-            state.providers.error = start_health(state, task).err();
+            state.providers.error = start_drain(state, task).err();
+        }
+
+        ui.label("The destination must be an rclone crypt remote. Drain copies and fully verifies new shard objects before manifest replacement; source deletion is optional and occurs last.");
+        if let Some(error) = &state.providers.error {
+            ui.label(error);
         }
     });
-
-    ui.separator();
-    ui.heading("Drain / migrate provider");
-    local_file_field(
-        ui,
-        "Manifest (local file or remote path)",
-        &mut state.providers.manifest,
-        Some("rpool manifest"),
-        &["json"],
-    );
-    ui.horizontal(|ui| {
-        ui.label("From");
-        ui.add(
-            egui::TextEdit::singleline(&mut state.providers.from)
-                .hint_text("old-crypt:rpool")
-                .desired_width(280.0),
-        );
-        ui.label("To");
-        ui.add(
-            egui::TextEdit::singleline(&mut state.providers.to)
-                .hint_text("new-crypt:rpool")
-                .desired_width(280.0),
-        );
-    });
-    output_file_field(
-        ui,
-        "Output manifest (optional for local input)",
-        &mut state.providers.output,
-    );
-    ui.horizontal(|ui| {
-        ui.checkbox(&mut state.providers.dry_run, "Dry run");
-        ui.checkbox(
-            &mut state.providers.delete_source,
-            "Delete old shards after verified migration",
-        );
-        ui.checkbox(
-            &mut state.providers.allow_risky,
-            "Allow unverified / weaker failure-domain safety",
-        );
-    });
-    if ui
-        .add_enabled(!task.is_running(), egui::Button::new("Drain provider"))
-        .clicked()
-    {
-        state.providers.error = start_drain(state, task).err();
-    }
-
-    ui.label("The destination must be an rclone crypt remote. Drain copies and fully verifies new shard objects before manifest replacement; source deletion is optional and occurs last.");
-    if let Some(error) = &state.providers.error {
-        ui.label(error);
-    }
 }
 
 fn start_health(state: &GuiState, task: &mut TaskRunner) -> Result<(), String> {

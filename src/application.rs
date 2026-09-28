@@ -107,6 +107,23 @@ fn dispatch(cli: Cli) -> Result<()> {
             }
         },
         Commands::Pool(args) => match args.command {
+            PoolCommands::PlanReprocess {
+                name,
+                manifests,
+                download_mib_s,
+                upload_mib_s,
+            } => {
+                let target = pool::load_pool_store()?
+                    .pools
+                    .get(&name)
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("pool not found: {name}"))?;
+                let plan =
+                    pool::build_plan(&cli.rclone, manifests, target, download_mib_s, upload_mib_s)?;
+                println!("{}", serde_json::to_string_pretty(&plan)?);
+                Ok(())
+            }
+            PoolCommands::Reprocess { plan } => pool::execute_plan(&cli.rclone, &plan),
             PoolCommands::List { json } => commands::pool::list(json),
             PoolCommands::Show { name, json } => commands::pool::show(&name, json),
             PoolCommands::Set {

@@ -5,7 +5,7 @@
 - Other reviewed project: `projects/initial-setup-review/Initial-setup`.
 - ZIPs and validation logs from earlier deliveries are retained in workspace `.backups/rpool-delivery-20260928`, not the Git repository.
 
-Historical snapshots are immutable Git tags `v0.5.15-r1` through `v0.5.15-r4`. Each tag was checked byte-for-byte against its original ZIP. The main branch additionally records source-delivery configuration. Cargo version remains 0.5.15.
+Historical snapshots are immutable Git tags `v0.5.15-r1` through `v0.5.15-r4` (imported ZIP history); `v0.5.15-r5` adds Storage scrolling and safe copy-only reprocessing. Each imported r1–r4 tag was checked byte-for-byte against its original ZIP. Later snapshots are verified directly against the project source. The main branch additionally records source-delivery configuration. Cargo version remains 0.5.15.
 
 ## Create the next snapshot
 

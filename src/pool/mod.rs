@@ -11,3 +11,6 @@ pub(crate) use resolve::resolve_put_options;
 pub(crate) use save::save_pool_store;
 pub(crate) use targets::resolve_target_remotes;
 pub(crate) use validate::{validate_pool, validate_pool_name};
+
+mod reprocess;
+pub(crate) use reprocess::{build_plan, execute_plan, ReprocessPlan};
