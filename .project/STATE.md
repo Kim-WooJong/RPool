@@ -11,13 +11,15 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
-Version 0.6.0 with batched Unreleased changes. Replica mounts remain the default;
-experimental metadata-first virtual mounts are connected and synthetically tested.
-Long-term hardening adds lease-aware committed spool cleanup, bounded local writes,
-quota-aware Resilient placement and explicit ownership-gated unshared retention.
-Opt-in virtual-v5 now adds single-coordinator bounded shared retention with
-latest-cloud-wins offline expiry. Legacy modes remain unchanged. No real cloud/multiple-PC/
-WinFsp integration validation has been performed here.
+Version 0.6.0 with batched Unreleased changes. Replica remains default; virtual GUI
+now offers Automatic pool sync, selected by default within virtual mode.
+Automatic events-v6 replicates immutable metadata into all existing encrypted pool
+roots with no extra shared-root/provider setup and no coordinator PC. Original +
+all concurrent worker-labelled branches and structured GUI conflict groups work in
+local/synthetic tests. This is the user's requested FIRST stage: history_limit is
+saved config only, NOT active peer deletion/compaction. Old payload/metadata growth
+is unresolved. Legacy single-coordinator v5 remains separate and unchanged.
+No actual cloud/multiple-PC/WinFsp/FUSE acceptance validation performed.
 
 ## Working
 
@@ -38,8 +40,9 @@ WinFsp integration validation has been performed here.
 
 ## In Progress
 
-Virtual-v5 implementation, full-suite and release validation completed.
-No actual cloud objects or user workspaces were modified during development/testing.
+Automatic pool metadata stage completed; default/optional tests and warning-denied
+release build passed. No actual cloud data was changed.
+Future self-contained snapshots/GC are not part of this first-stage completion.
 
 ## Current bounded batch
 
@@ -58,6 +61,12 @@ Implemented the bounded five-lane integration batch (virtual mode opt-in/experim
 - Validate virtual-v5 against real cloud eventual-consistency behavior and native cached writes. It requires one designated coordinator and new workspaces; no election/takeover or automatic v3 adoption.
 
 ## Known limits
+
+- Automatic pool events-v6 is append-only: old cloud versions and causal records are retained. `pool-sync-config.json` history_limit (0–10000, default 0) is reserved for future safe per-file retention, not enforced.
+- All configured metadata replicas must be readable/writable for successful sync/ack. Partial publication retries; downloaded metadata heals missing replicas before acknowledgement. No degraded offline commit.
+- Initial unseen metadata budget 10k events / 64 MiB per replica and 64 MiB unique combined; no peer compaction/checkpoint bootstrap yet.
+- Pool name defines auto namespace scope within actual destinations. Rename changes scope; consistent portable configuration/keys is required. Existing workspace binds full roots and rejects topology/root changes; no automatic migration.
+- Peer files already read in a mount are fenced if their revision changes; remount is required, avoiding mixed unconditioned range reads. Native VFS cache is isolated intact on restart. GUI conflict view has no all-head resolution button.
 
 - Virtual is opt-in and requires a NEW workspace; separate shared-root/virtual-v3 avoids mixing legacy catalogs/hash semantics.
 - Legacy virtual-v3 served paths pin a session revision. Incoming updates appear as copies; deletes of served remote paths take effect at remount. Local acknowledged saves/deletes update visibility. Generic writes may conservatively create extra conflict copies.
@@ -110,6 +119,10 @@ Implemented the bounded five-lane integration batch (virtual mode opt-in/experim
 
 ## Architecture
 
+- `src/mount/pool_sync.rs`: automatic destination derivation, all-replica immutable metadata collect/publish, durable future history config and status sidecar.
+- `src/mount/peer_projection.rs`: validated event-DAG projection, maximal common originals, worker+a aliases, explicit delete/ambiguous groups.
+- Namespace version 6 / `events-v6` is append-only and distinct from the future self-contained snapshot protocol. Mount GUI reads pool-sync-status.json independently of quota results.
+
 - `src/mount/shared_checkpoint{,_model,_transport,_tests}.rs`: bounded shared-v5 runtime, proposal/checkpoint reducer, monotonic activation+GC journal, synthetic regressions.
 
 - `src/storage/admin/{domains,budget}.rs`: non-secret account/outage declarations and pooled snapshots.
@@ -137,6 +150,13 @@ Implemented the bounded five-lane integration batch (virtual mode opt-in/experim
 - `docs/MOUNT.md`: user-facing usage, boundaries and recovery guidance.
 
 ## Validation
+
+2026-09-28 automatic pool metadata first stage, macOS:
+- Default tests: 351 passed, 12 ignored; optional OpenDAL: 362 passed, 12 ignored.
+- Includes replica failure/retry/healing, deterministic pool paths, persisted history config, original+both sibling edits, deleted-path directory reuse, mixed maximal-base ambiguity, offline late sibling, resolution race projection, pending-read fences and real loopback HTTP cross-request range fencing.
+- Independent reviewers identified/fixed scope identity depending on membership, non-atomic worker label persistence, deleted-path name reservation, common-base ambiguity and read-baseline/range hazards.
+- Default release build with RUSTFLAGS="-D warnings", cargo fmt --check and git diff --check passed. Release CLI help confirms automatic pool/worker/history options.
+- GUI status wiring compiled; interactive GUI and real rclone/cloud/native mounts not exercised. No remote deletion run.
 
 2026-09-28 latest-only follow-up, macOS:
 - Default tests: 336 passed, 12 ignored; optional OpenDAL: 347 passed, 12 ignored.
@@ -166,12 +186,9 @@ Previous unshared hardening batch (macOS):
 
 ## Resume
 
-Cloud-authoritative latest-only defaults and fail-closed bounded startup are implemented.
-The latest-only tests cover repeated replacement, offline checkpoint refresh/recovery,
-and removal of existing retained history without new proposals. No native startup
-failure/cloud integration test has been run. Bounded shared-v5 is validated in synthetic/local tests. Stop this
-bounded batch; do not repeat successful verification without a new change.
-Preserve unrelated config-sync/path working-tree changes. Do not enable TTL or
-head-only deletion over the legacy causal event graph. Actual cloud/native
-runtime validation remains unavailable. See docs/MOUNT.md for exact coordinator,
-retention/headroom, offline recovery, new-workspace and provider-trash boundaries.
+The user requested automatic existing-pool metadata FIRST, with history count
+configuration stored for future functionality. That stage is implemented and validated; stop this bounded batch. Do not imply history_limit triggers deletion
+or that coordinator-free bounded cloud storage is complete. Future requirements:
+self-contained snapshots/private ownership, peer compaction/GC and agreed retention
+policy; see docs/PEER_SYNC_DESIGN.md. Do not ask for a separate metadata provider or
+reintroduce a designated PC. Preserve unrelated config-sync/path changes.

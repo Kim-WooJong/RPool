@@ -609,6 +609,30 @@ mod tests {
         assert!(!bad.starts_with("HTTP/1.1 201"));
     }
     #[test]
+    fn pool_sync_http_range_requests_never_mix_replaced_revisions() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut fixture = super::super::virtual_drive::fixture(temp.path());
+        fixture.pool_sync_roots = vec!["crypt:pool".into()];
+        fixture.state.lock().unwrap().version = 6;
+        let drive = Arc::new(fixture);
+        let server = Server::start(drive.clone()).unwrap();
+        assert!(request(&server, "PUT", "/file", "", b"abcdef", true).starts_with("HTTP/1.1 201"));
+        let first = request(&server, "GET", "/file", "Range: bytes=0-2\r\n", b"", true);
+        assert!(
+            first.starts_with("HTTP/1.1 206") && first.ends_with("abc"),
+            "{first}"
+        );
+        let original = drive.view().unwrap()["file"].clone();
+        let put = request(&server, "PUT", "/file", "", b"UVWXYZ", true);
+        assert!(put.starts_with("HTTP/1.1 204"), "{put}");
+        let second = request(&server, "GET", "/file", "Range: bytes=3-5\r\n", b"", true);
+        assert!(
+            !second.starts_with("HTTP/1.1 206") && !second.starts_with("HTTP/1.1 200"),
+            "{second}"
+        );
+        assert_eq!(drive.read(&original, 3, 3).unwrap(), b"def");
+    }
+    #[test]
     fn endpoint_identity_is_stable_and_occupied_port_never_changes_it() {
         let temp = tempfile::tempdir().unwrap();
         let (listener, token) = endpoint(temp.path()).unwrap();

@@ -99,7 +99,7 @@ impl Namespace {
         })
     }
     pub(crate) fn validate(&self) -> Result<()> {
-        if !matches!(self.version, 3 | 4 | 5) {
+        if !matches!(self.version, 3 | 4 | 5 | 6) {
             bail!("unsupported virtual namespace version");
         }
         let valid_id = |id: &str| id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit());
@@ -302,7 +302,11 @@ impl Namespace {
         durable_json(&path, &envelope)
     }
     pub(crate) fn resolved(&self) -> Result<BTreeMap<String, Resolved>> {
-        shared_model::reduce(&self.events)
+        if self.version == 6 {
+            Ok(super::peer_projection::project(&self.events)?.files)
+        } else {
+            shared_model::reduce(&self.events)
+        }
     }
     pub(crate) fn logical_used(&self) -> Result<u64> {
         self.resolved()?

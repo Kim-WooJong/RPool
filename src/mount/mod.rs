@@ -2,6 +2,8 @@ pub(crate) mod adapter;
 pub(crate) mod capacity;
 mod dav;
 mod namespace;
+pub(crate) mod peer_projection;
+pub(crate) mod pool_sync;
 mod retention;
 mod shard_cache;
 mod shared_checkpoint;

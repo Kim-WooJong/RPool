@@ -12,6 +12,12 @@ pub(crate) struct Excluded {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct CapacityStatus {
     pub eligible: Vec<String>,
+    #[serde(default)]
+    pub pool_sync_roots: Vec<String>,
+    #[serde(default)]
+    pub desired_history_limit: usize,
+    #[serde(default)]
+    pub conflicts: Vec<super::peer_projection::Conflict>,
     pub excluded: Vec<Excluded>,
     pub logical_used: u64,
     #[serde(default)]

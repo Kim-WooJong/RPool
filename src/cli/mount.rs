@@ -3,6 +3,15 @@ use std::path::PathBuf;
 
 #[derive(Args, Debug)]
 pub(crate) struct MountArgs {
+    /// Automatically replicate sync metadata inside the existing pool (new workspace, no coordinator).
+    #[arg(long, requires = "virtual_drive", conflicts_with_all = ["shared_root", "worker_name", "bounded_shared", "shared_coordinator", "apply_retention", "retention_report"])]
+    pub(crate) pool_sync: bool,
+    /// Display name in pool-sync conflicts; defaults to a persistent generated PC name.
+    #[arg(long, requires = "pool_sync")]
+    pub(crate) pool_worker: Option<String>,
+    /// Save desired previous versions per file in workspace config (reserved; peer deletion is NOT enabled).
+    #[arg(long, requires = "pool_sync", value_parser = clap::value_parser!(u32).range(0..=10000))]
+    pub(crate) pool_history_limit: Option<u32>,
     /// Opt-in metadata-first virtual drive (requires a NEW empty workspace).
     #[arg(long)]
     pub(crate) virtual_drive: bool,
@@ -221,5 +230,44 @@ mod capacity_tests {
             "--migrate-excluded"
         ])
         .is_err());
+    }
+}
+
+#[cfg(test)]
+mod pool_sync_tests {
+    use clap::Parser;
+    #[test]
+    fn automatic_pool_mode_needs_no_shared_root_or_coordinator() {
+        let base = [
+            "rpool",
+            "mount",
+            "--pool=p",
+            "--workspace=/new",
+            "--sync-only",
+            "--virtual-drive",
+            "--pool-sync",
+        ];
+        let parsed = crate::cli::Cli::try_parse_from(
+            base.into_iter()
+                .chain(["--pool-worker=PC A", "--pool-history-limit=10"]),
+        )
+        .unwrap();
+        let Some(crate::cli::Commands::Mount(args)) = parsed.command else {
+            panic!("mount");
+        };
+        assert!(args.pool_sync);
+        assert_eq!(args.pool_history_limit, Some(10));
+        assert!(args.shared_root.is_none());
+        assert!(!args.shared_coordinator);
+        for incompatible in [
+            "--bounded-shared",
+            "--shared-coordinator",
+            "--shared-root=crypt:x",
+            "--pool-history-limit=10001",
+        ] {
+            assert!(
+                crate::cli::Cli::try_parse_from(base.into_iter().chain([incompatible])).is_err()
+            );
+        }
     }
 }

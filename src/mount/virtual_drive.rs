@@ -46,6 +46,9 @@ pub(crate) struct VirtualDrive {
     pub spool_limit: u64,
     pub spool_writes: Mutex<()>,
     pub bounded_shared: bool,
+    pub pool_sync_roots: Vec<String>,
+    pub pool_history_limit: usize,
+    pub peer_read_pins: Mutex<BTreeMap<String, String>>,
     pub checkpoint_coordinator: bool,
     pub checkpoint_keep: usize,
     _lock: File,
@@ -59,18 +62,44 @@ impl VirtualDrive {
         shared: Option<&str>,
         cache_limit: u64,
         bounded_shared: bool,
+        pool_sync: bool,
     ) -> Result<Self> {
-        let shared_name = shared.map(|root| {
-            format!(
-                "{}/{}",
-                root.trim_end_matches('/'),
-                if bounded_shared {
-                    "virtual-v5"
-                } else {
-                    "virtual-v3"
-                }
-            )
-        });
+        if pool_sync {
+            Event {
+                version: 1,
+                worker: worker.into(),
+                device: "validation".into(),
+                path: "validation".into(),
+                parents: vec![],
+                content: None,
+            }
+            .validate()?;
+        }
+        let auto_roots = if pool_sync {
+            let policy = crate::pool::load_pool_store()?
+                .pools
+                .get(pool)
+                .cloned()
+                .context("unknown pool")?;
+            super::pool_sync::roots(pool, &policy.remotes)?
+        } else {
+            vec![]
+        };
+        let shared_name = if pool_sync {
+            auto_roots.first().cloned()
+        } else {
+            shared.map(|root| {
+                format!(
+                    "{}/{}",
+                    root.trim_end_matches('/'),
+                    if bounded_shared {
+                        "virtual-v5"
+                    } else {
+                        "virtual-v3"
+                    }
+                )
+            })
+        };
         let shared = shared_name.as_deref();
         if root.join(".rpool/catalog.json").exists() {
             bail!(
@@ -100,6 +129,8 @@ impl VirtualDrive {
             pool: String,
             shared: Option<String>,
             policy: PoolDefinition,
+            #[serde(default, skip_serializing_if = "Vec::is_empty")]
+            metadata_roots: Vec<String>,
         }
         let binding: Binding = if config.exists() {
             crate::utils::read_json(&config)?
@@ -110,17 +141,32 @@ impl VirtualDrive {
                 .cloned()
                 .context("unknown pool")?;
             let b = Binding {
-                version: if bounded_shared { 5 } else { 1 },
+                version: if pool_sync {
+                    6
+                } else if bounded_shared {
+                    5
+                } else {
+                    1
+                },
                 pool: pool.into(),
                 shared: shared.map(str::to_owned),
+                metadata_roots: auto_roots.clone(),
                 policy,
             };
             durable_json(&config, &b)?;
             b
         };
-        if binding.version != (if bounded_shared { 5 } else { 1 })
+        if binding.version
+            != (if pool_sync {
+                6
+            } else if bounded_shared {
+                5
+            } else {
+                1
+            })
             || binding.pool != pool
             || binding.shared.as_deref() != shared
+            || binding.metadata_roots != auto_roots
         {
             bail!("virtual workspace pool/shared-root mismatch");
         }
@@ -135,8 +181,8 @@ impl VirtualDrive {
             bail!("existing virtual workspace lost its primary namespace; preserve spool and use recovery");
         }
         let mut state = Namespace::load(&root, worker)?;
-        if bounded_shared {
-            state.version = 5;
+        if bounded_shared || pool_sync {
+            state.version = if pool_sync { 6 } else { 5 };
             state.save(&root)?;
         }
         let cache = ShardCache::new(root.join("clean-cache"), cache_limit)?;
@@ -155,6 +201,9 @@ impl VirtualDrive {
             spool_limit: 64 * 1073741824,
             spool_writes: Mutex::new(()),
             bounded_shared,
+            pool_sync_roots: auto_roots,
+            pool_history_limit: 0,
+            peer_read_pins: Mutex::new(BTreeMap::new()),
             checkpoint_coordinator: false,
             checkpoint_keep: 0,
             _lock: lock,
@@ -189,7 +238,13 @@ impl VirtualDrive {
         // A DAV transport cannot observe native rclone handle closure. Keep
         // served paths pinned for the mount session and expose incoming revisions
         // as named copies instead of mixing bytes across unconditioned ranges.
-        for (name, pinned) in self.pins.lock().unwrap().iter() {
+        for (name, pinned) in self
+            .pins
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|_| self.pool_sync_roots.is_empty())
+        {
             if let Some(current) = result.get(name).cloned() {
                 if current.id() != pinned.id() {
                     let alternate =
@@ -245,6 +300,32 @@ impl VirtualDrive {
     }
     pub(crate) fn pin_read(&self, path: &str, revision: &Revision) -> Result<()> {
         let mut s = self.state.lock().unwrap();
+        if !self.pool_sync_roots.is_empty() {
+            // Native DAV clients may make independent unconditioned range requests.
+            // Once bytes were served, reject a changed revision until remount rather
+            // than assemble ranges from different versions of the same pathname.
+            let current = if let Some(intent) = s.pending.iter().rev().find(|i| i.path == path) {
+                intent.spool.is_some() && intent.id == revision.id()
+            } else {
+                match revision {
+                    Revision::Cloud { id, .. } => {
+                        s.resolved()?.get(path).is_some_and(|r| &r.event_id == id)
+                    }
+                    Revision::Local { .. } => false,
+                }
+            };
+            if !current {
+                bail!("pool file changed during open; refresh and retry");
+            }
+            let mut reads = self.peer_read_pins.lock().unwrap();
+            if reads.get(path).is_some_and(|id| id != revision.id()) {
+                bail!("pool file changed after a prior read; remount to avoid mixing revisions");
+            }
+            reads.insert(path.into(), revision.id().into());
+            if let Revision::Cloud { id, .. } = revision {
+                s.bases.insert(path.into(), vec![id.clone()]);
+            }
+        }
         match revision {
             Revision::Cloud { id, .. } => {
                 if self.bounded_shared {
@@ -687,6 +768,9 @@ impl VirtualDrive {
     }
     /// Metadata refresh never uploads dirty spool.
     pub(crate) fn pull(&self) -> Result<()> {
+        if !self.pool_sync_roots.is_empty() {
+            return self.pull_pool();
+        }
         if self.bounded_shared {
             return self.pull_checkpoint();
         }
@@ -756,7 +840,9 @@ impl VirtualDrive {
             };
             self.commit_uploaded(&intent, content)?;
         }
-        if let Some(root) = &self.shared_root {
+        if !self.pool_sync_roots.is_empty() {
+            self.publish_pool()?;
+        } else if let Some(root) = &self.shared_root {
             let transport = SharedTransport::new(&self.rclone, root)?;
             let unpublished: Vec<_> = {
                 let s = self.state.lock().unwrap();
@@ -800,6 +886,12 @@ impl VirtualDrive {
         status.spool_bytes = self.spool_bytes()?;
         status.spool_limit_bytes = self.spool_limit;
         status.pending_writes = state.pending.len();
+        if !self.pool_sync_roots.is_empty() {
+            status.pool_sync_roots = self.pool_sync_roots.clone();
+            status.desired_history_limit = self.pool_history_limit;
+            status.conflicts = super::peer_projection::project(&state.events)?.conflicts;
+            status.note.push_str(" Pool-sync metadata is replicated automatically. History limit is saved for future retention; remote history deletion is NOT enabled.");
+        }
         drop(state);
         status.logical_ceiling_estimate = status
             .logical_used
@@ -825,7 +917,22 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     if args.stop_file.as_ref().is_some_and(|p| p.exists()) {
         bail!("stop file already exists");
     }
-    let worker = args.worker_name.as_deref().unwrap_or("local");
+    let generated_worker;
+    let worker = if args.pool_sync {
+        if let Some(worker) = &args.pool_worker {
+            worker.as_str()
+        } else {
+            let saved = args.workspace.join("pool-worker.json");
+            generated_worker = if saved.exists() {
+                crate::utils::read_json::<String>(&saved)?
+            } else {
+                format!("pc-{}", &random_id()?[..12])
+            };
+            &generated_worker
+        }
+    } else {
+        args.worker_name.as_deref().unwrap_or("local")
+    };
     let mut drive = VirtualDrive::open(
         rclone,
         &args.pool,
@@ -836,7 +943,16 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
             .checked_mul(1073741824)
             .context("cache limit overflow")?,
         args.bounded_shared,
+        args.pool_sync,
     )?;
+    if args.pool_sync {
+        drive.pool_history_limit = super::pool_sync::Config::load(
+            &drive.root,
+            args.pool_history_limit.map(|v| v as usize),
+        )?
+        .history_limit;
+        durable_json(&drive.root.join("pool-worker.json"), &worker)?;
+    }
     drive.checkpoint_coordinator = args.shared_coordinator;
     drive.checkpoint_keep = args.shared_keep_previous;
     drive.spool_limit = args
@@ -873,39 +989,53 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         drive.pull()?;
     } else if args.sync_only {
         drive.sync()?;
-    } else if drive.bounded_shared {
+    } else if drive.bounded_shared || !drive.pool_sync_roots.is_empty() {
         // Never expose a stale bounded namespace when authoritative startup sync fails.
         // The durable spool/cache remains available for recovery and a later retry.
         drive.sync().context("Cloud synchronization required before opening this shared drive; local work is retained")?;
     } else if let Err(e) = drive.sync() {
         eprintln!("Virtual sync pending, durable local state retained: {e:#}");
     }
-    let report = || match drive.refresh_capacity() {
-        Ok(status) => {
-            println!(
-                "Virtual namespace: logical_used={} additional_estimate={} pending={}",
-                status.logical_used,
-                status.additional_estimate,
-                drive.state.lock().unwrap().pending.len()
-            );
+    let report = || {
+        if !drive.pool_sync_roots.is_empty() {
             if let Some(path) = &args.status_file {
-                if let Err(e) = durable_json(path, &status) {
-                    eprintln!("Status snapshot failed: {e:#}");
+                let destination = path.with_file_name("pool-sync-status.json");
+                let result = drive
+                    .pool_status()
+                    .and_then(|status| durable_json(&destination, &status));
+                if let Err(error) = result {
+                    let _ = fs::remove_file(&destination);
+                    eprintln!("Pool sync status unavailable: {error:#}");
                 }
             }
         }
-        Err(e) => {
-            if let Some(path) = &args.status_file {
-                let _ = fs::remove_file(path);
+        match drive.refresh_capacity() {
+            Ok(status) => {
+                println!(
+                    "Virtual namespace: logical_used={} additional_estimate={} pending={}",
+                    status.logical_used,
+                    status.additional_estimate,
+                    drive.state.lock().unwrap().pending.len()
+                );
+                if let Some(path) = &args.status_file {
+                    if let Err(e) = durable_json(path, &status) {
+                        eprintln!("Status snapshot failed: {e:#}");
+                    }
+                }
             }
-            eprintln!("Quota status unavailable: {e:#}");
+            Err(e) => {
+                if let Some(path) = &args.status_file {
+                    let _ = fs::remove_file(path);
+                }
+                eprintln!("Quota status unavailable: {e:#}");
+            }
         }
     };
     report();
     if args.capacity_only || args.sync_only {
         return Ok(());
     }
-    if drive.bounded_shared {
+    if drive.bounded_shared || !drive.pool_sync_roots.is_empty() {
         drive.isolate_previous_native_cache()?;
     }
     let server = super::dav::Server::start(drive.clone())?;
@@ -917,7 +1047,9 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         shared: true,
         webdav: Some((format!("http://{}/", server.address), server.token.clone())),
     })?;
-    if drive.bounded_shared {
+    if !drive.pool_sync_roots.is_empty() {
+        println!("Pool sync ready: immutable metadata replicated inside {} pool roots; no coordinator. Desired previous versions={} (config only; peer history deletion not enabled).", drive.pool_sync_roots.len(), drive.pool_history_limit);
+    } else if drive.bounded_shared {
         println!("Shared drive starting: cloud-authoritative namespace synchronized; file bytes download on demand. Local writes await coordinator acceptance; no distributed locking guarantee.");
     } else {
         println!("Virtual drive starting: metadata-only listing, verified shard reads, durable local write spool. Incoming updates to served paths appear as incoming revision copies until remount; no distributed locking guarantee.");
@@ -1070,6 +1202,9 @@ pub(crate) fn fixture(root: &Path) -> VirtualDrive {
         spool_limit: 64 * 1073741824,
         spool_writes: Mutex::new(()),
         bounded_shared: false,
+        pool_sync_roots: vec![],
+        pool_history_limit: 0,
+        peer_read_pins: Mutex::new(BTreeMap::new()),
         checkpoint_coordinator: false,
         checkpoint_keep: 0,
         _lock: File::create(root.join("virtual.lock")).unwrap(),

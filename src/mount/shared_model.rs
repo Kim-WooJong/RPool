@@ -92,7 +92,7 @@ impl Event {
 }
 
 // Equality and ancestor relationships are both collisions for materialized files.
-fn overlaps(a: &str, b: &str) -> bool {
+pub(super) fn overlaps(a: &str, b: &str) -> bool {
     let a = a.to_lowercase();
     let b = b.to_lowercase();
     a == b
@@ -101,6 +101,12 @@ fn overlaps(a: &str, b: &str) -> bool {
 }
 
 pub(crate) fn conflict_path(path: &str, worker: &str, id: &str, attempt: usize) -> Result<String> {
+    labelled_path(path, worker, id, attempt, false)
+}
+pub(super) fn peer_path(path: &str, worker: &str, id: &str, attempt: usize) -> Result<String> {
+    labelled_path(path, worker, id, attempt, true)
+}
+fn labelled_path(path: &str, worker: &str, id: &str, attempt: usize, peer: bool) -> Result<String> {
     let (directory, name) = path.rsplit_once('/').map_or(("", path), |(d, n)| (d, n));
     let (stem, extension) = name
         .rsplit_once('.')
@@ -120,7 +126,11 @@ pub(crate) fn conflict_path(path: &str, worker: &str, id: &str, attempt: usize) 
     }
     let worker = shortened(worker, 64);
     let extension = shortened(&extension, 32);
-    let annotation = format!(" (conflict-{worker}-{id}{suffix})");
+    let annotation = if peer {
+        format!("_{worker}+a-{id}{suffix}")
+    } else {
+        format!(" (conflict-{worker}-{id}{suffix})")
+    };
     let stem = shortened(stem, 255 - annotation.len() - extension.len());
     let name = format!("{stem}{annotation}{extension}");
     component(&name)?;

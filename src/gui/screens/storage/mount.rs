@@ -22,6 +22,10 @@ pub(crate) struct MountForm {
     identity_editor: String,
     virtual_drive: bool,
     bounded_shared: bool,
+    pool_sync: bool,
+    pool_history_limit: u32,
+    pool_history_override: bool,
+    pool_status: Option<crate::mount::pool_sync::Status>,
     shared_coordinator: bool,
     shared_keep_previous: usize,
     cache_gib: u64,
@@ -49,6 +53,10 @@ impl Default for MountForm {
             capacity: None,
             virtual_drive: false,
             bounded_shared: false,
+            pool_sync: true,
+            pool_history_limit: 0,
+            pool_history_override: false,
+            pool_status: None,
             shared_coordinator: false,
             shared_keep_previous: 0,
             cache_gib: 10,
@@ -75,6 +83,9 @@ impl MountForm {
         let terminal = self.runner.poll();
         if terminal.is_some() || self.capacity_read.elapsed() >= std::time::Duration::from_secs(1) {
             if let Some(control) = &self.control {
+                self.pool_status = std::fs::read(control.path().join("pool-sync-status.json"))
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice(&bytes).ok());
                 self.capacity = std::fs::read(control.path().join("capacity.json"))
                     .ok()
                     .and_then(|bytes| serde_json::from_slice(&bytes).ok());
@@ -109,13 +120,17 @@ impl MountForm {
 
     fn start_action(&mut self, rclone: &str, action: u8) -> Result<(), String> {
         let sync_only = action != 0;
+        let automatic = self.virtual_drive && self.pool_sync;
         if self.pool.trim().is_empty() || self.workspace.trim().is_empty() {
             return Err("Select an upload pool and a persistent local workspace.".into());
         }
-        if self.shared_root.trim().is_empty() != self.worker_name.trim().is_empty() {
+        if !automatic && self.shared_root.trim().is_empty() != self.worker_name.trim().is_empty() {
             return Err("Enter both a shared root and a worker name, or leave both empty for local-only mode.".into());
         }
-        if self.bounded_shared && (!self.virtual_drive || self.shared_root.trim().is_empty()) {
+        if !automatic
+            && self.bounded_shared
+            && (!self.virtual_drive || self.shared_root.trim().is_empty())
+        {
             return Err(
                 "Bounded shared history requires virtual mode and a shared encrypted root.".into(),
             );
@@ -137,8 +152,16 @@ impl MountForm {
             self.pool.trim(),
             Path::new(self.workspace.trim()),
             self.mountpoint.trim(),
-            self.shared_root.trim(),
-            self.worker_name.trim(),
+            if automatic {
+                ""
+            } else {
+                self.shared_root.trim()
+            },
+            if automatic {
+                ""
+            } else {
+                self.worker_name.trim()
+            },
             &self.manifests,
             self.interval_seconds,
             &control.path().join("stop"),
@@ -147,7 +170,15 @@ impl MountForm {
         if self.virtual_drive {
             args.push("--virtual-drive".into());
             args.push(format!("--cache-gib={}", self.cache_gib).into());
-            if self.bounded_shared {
+            if automatic {
+                args.push("--pool-sync".into());
+                if !self.worker_name.trim().is_empty() {
+                    args.push(format!("--pool-worker={}", self.worker_name.trim()).into());
+                }
+                if self.pool_history_override {
+                    args.push(format!("--pool-history-limit={}", self.pool_history_limit).into());
+                }
+            } else if self.bounded_shared {
                 args.push("--bounded-shared".into());
                 args.push(format!("--shared-keep-previous={}", self.shared_keep_previous).into());
                 if self.shared_coordinator {
@@ -170,6 +201,7 @@ impl MountForm {
             );
         }
         self.capacity = None;
+        self.pool_status = None;
         self.runner.start_rpool(
             if action == 2 {
                 "Check pool capacity"
@@ -237,6 +269,7 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
         form.shared_root.clone(),
         form.manifests.clone(),
         form.virtual_drive,
+        form.pool_sync,
         form.bounded_shared,
         form.shared_coordinator,
         form.shared_keep_previous,
@@ -258,21 +291,33 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
         });
         ui.checkbox(&mut form.virtual_drive,"Virtual cloud drive — experimental (NEW workspace; lazy verified shards)");
         if form.virtual_drive {
-            ui.checkbox(&mut form.bounded_shared, "Cloud-authoritative shared drive — latest only by default (NEW workspace)");
-            if form.bounded_shared {
+            ui.checkbox(&mut form.pool_sync, "Automatic pool sync — no coordinator (NEW workspace)");
+            if form.pool_sync {
+                ui.label("RPool stores immutable sync metadata in every encrypted pool destination. No shared-root entry or dedicated PC. Use the same named pool and remote mapping on each PC.");
+                ui.checkbox(&mut form.pool_history_override, "Save future history limit in workspace config");
+                if form.pool_history_override {
+                    ui.horizontal(|ui| { ui.label("Previous versions per file"); ui.add(egui::DragValue::new(&mut form.pool_history_limit).range(0..=10000)); });
+                }
+                ui.colored_label(egui::Color32::YELLOW, "History limit is config-only in this release: old cloud data is NOT automatically deleted. All metadata replicas must be reachable.");
+            } else {
+                ui.checkbox(&mut form.bounded_shared, "Legacy bounded shared mode — designated coordinator");
+            }
+            if form.bounded_shared && !form.pool_sync {
                 ui.checkbox(&mut form.shared_coordinator, "This is the ONE coordinator PC");
                 ui.horizontal(|ui| { ui.label("Previous versions (0 = latest only)"); ui.add(egui::DragValue::new(&mut form.shared_keep_previous).range(0..=100)); });
                 ui.label("Cloud is authoritative; connect successfully before mounting. Latest only by default; extra history is optional. Deleted files lose their history. Offline PCs do not pin old cloud data. Unsynced stale writes and previous native cache are isolated locally. Keep exactly one coordinator workspace; other PCs wait for its acknowledgement.");
             }
-            if !form.bounded_shared {
+            if !form.bounded_shared && !form.pool_sync {
                 ui.label("Legacy virtual namespace uses shared-root/virtual-v3. Served files stay pinned for this mount; incoming changes appear as named revision copies. Dirty writes and history are retained. Empty directories currently remain local.");
             }
             ui.horizontal(|ui| {ui.label("Clean shard cache budget (GiB)");ui.add(egui::DragValue::new(&mut form.cache_gib).range(1..=1048576));});
         }
         directory_field(ui, "Persistent local workspace", &mut form.workspace);
-        ui.label("Shared encrypted root (optional, e.g. crypt:teamspace)");
-        ui.text_edit_singleline(&mut form.shared_root);
-        ui.label("Worker name (required with shared root; used in conflict filenames)");
+        if !(form.virtual_drive && form.pool_sync) {
+            ui.label("Shared encrypted root (optional, e.g. crypt:teamspace)");
+            ui.text_edit_singleline(&mut form.shared_root);
+        }
+        ui.label(if form.virtual_drive && form.pool_sync { "Worker name (optional; generated per PC if empty)" } else { "Worker name (required with shared root; used in conflict filenames)" });
         ui.text_edit_singleline(&mut form.worker_name);
         ui.label(if cfg!(windows) {
             "Unused drive letter (requires WinFsp), e.g. R:"
@@ -359,12 +404,39 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
             form.shared_root.clone(),
             form.manifests.clone(),
             form.virtual_drive,
+            form.pool_sync,
             form.bounded_shared,
             form.shared_coordinator,
             form.shared_keep_previous,
         )
     {
         form.capacity = None;
+        form.pool_status = None;
+    }
+    if let Some(status) = &form.pool_status {
+        ui.group(|ui| {
+            ui.heading(format!("Pool sync · {} conflict groups", status.conflicts.len()));
+            if !form.runner.is_running() { ui.small("Last sync snapshot (not a live cloud view)"); }
+            ui.small(format!("{} automatic metadata destinations · future previous-version limit: {} · deletion enabled: {}", status.roots.len(), status.desired_history_limit, status.history_deletion_enabled));
+            for root in &status.roots { ui.small(root); }
+            if status.conflicts.is_empty() { ui.label("No conflicts in the last synchronized metadata."); }
+            for conflict in &status.conflicts {
+                ui.collapsing(&conflict.path, |ui| {
+                    for original in &conflict.originals {
+                        ui.horizontal(|ui| { ui.label(format!("Original: {original}")); if ui.small_button("Copy path").clicked() { ui.ctx().copy_text(original.clone()); } });
+                    }
+                    if conflict.original_unavailable { ui.label("No common content original (for example, concurrent creation)."); }
+                    if conflict.ambiguous_original { ui.label("Multiple common originals — manual review required."); }
+                    for branch in &conflict.branches {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{} · {}", branch.worker, branch.file.as_deref().unwrap_or("Deletion request")));
+                            if let Some(path) = &branch.file { if ui.small_button("Copy path").clicked() { ui.ctx().copy_text(path.clone()); } }
+                        });
+                    }
+                    ui.small("All variants are preserved. Automatic merge/resolution is not enabled; no branch is discarded by viewing this list.");
+                });
+            }
+        });
     }
     ui.collapsing("Account capacity / outage identities", |ui| {
         ui.label("One line: backing-remote account-budget-id outage-group-id. Use the SAME budget ID for aliases/accounts sharing quota; distinct budget IDs assert independent capacity. Outage groups are separate: accounts on one provider may fail together. No passwords or tokens.");

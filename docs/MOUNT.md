@@ -6,9 +6,104 @@ restoring all files, then downloads/verifies only intersecting shards on reads.
 Both modes keep writes on local disk before asynchronous verified cloud publication.
 An application save is **not** a completed-cloud-replication acknowledgment.
 
-## Cloud-authoritative shared drive — latest only by default (opt-in)
+## Automatic pool sync — no coordinator (new workspace)
 
-For long-running shared drives, select **Virtual cloud drive → Cloud-authoritative shared drive** in the GUI. Use a **NEW workspace on every PC**. Designate exactly **one
+Select **Virtual cloud drive → Automatic pool sync** (selected by default for the
+virtual GUI workflow). Select the existing pool and a **new persistent workspace
+on each PC**. No shared-root field, extra metadata provider, server or designated
+coordinator PC is required. An optional worker label identifies conflict copies;
+otherwise RPool generates and durably saves a per-workspace `pc-…` label.
+
+RPool discovers the pool's existing encrypted destinations, applies their configured
+root paths and replicates immutable metadata under:
+
+```text
+<configured-pool-root>/.rpool-sync/events-v6/<pool-name-hash>/events/<event-hash>.json
+```
+
+The namespace is stable for the same pool name at the same actual destinations;
+remote ordering and adding a destination do not change the hash. **Pool rename
+changes namespace identity.** Different PCs must use matching portable pool/remote
+configuration pointing to the same encrypted data and keys. Renaming a remote alias
+without updating archive references is not a supported migration. Existing workspace
+bindings reject changed destination sets/root mappings; topology migration is not
+automatic. Never clone an active workspace/device identity across PCs.
+
+Example (the pool and encryption remotes are already configured):
+
+```text
+rpool mount --virtual-drive --pool-sync --pool mypool --workspace C:\RPool\pc-a --pool-worker PC-A --mountpoint R:
+```
+
+Use another local workspace/worker label on PC B, with the same pool configuration.
+Use `--sync-only` instead of a mountpoint to publish/synchronize without mounting.
+Different files are independent immutable records; no PC writes a common mutable
+catalog. Incoming records are merged by ancestry, not arrival time or PC clocks.
+Downloaded metadata also participates in replica repair. Parents publish before
+children. Local spool cleanup waits for verified publication to **every configured
+metadata destination**; a failed/partial publication retries the same immutable ID.
+Any configured metadata destination being unavailable blocks synchronization and
+startup, rather than treating an unavailable listing as an empty cloud namespace.
+
+### Conflict list
+
+Same-base concurrent edits preserve the common original at its normal path and
+**both** edited heads as `stem_Worker+a-<revision-id>.ext`. The immutable suffix
+avoids collisions when two PCs use the same display label. Multi-generation edits
+preserve the common fork original and the latest branch heads. Concurrent creation
+has no prior original; mixed delete/edit groups explicitly show the delete request.
+Ambiguous multiple common bases are displayed as separate original candidates.
+
+The Mount GUI shows **Pool sync · N conflict groups** from structured metadata,
+including original paths, worker/device-associated candidates, deletion rows and
+**Copy path** buttons. This status is independent of capacity-query success. After
+sync exits it is labelled as the last snapshot, not a live cloud view. This release
+has no one-click merge/resolution; generic branch edits/deletes must not be confused
+with an explicit all-head resolution. All variants remain preserved.
+
+Lists refresh on synchronization. File bytes are downloaded on demand. Generic DAV
+clients cannot reliably identify a native editor/read session: after a path has
+been read, a revision change fences further opens of that path until **remount**,
+rather than mixing old and new range bytes. Existing handles keep their immutable
+revision. On restart, previous native VFS cache is isolated under
+`recovered-native-cache/` without deletion; inspect it for unsaved work. Native
+Windows/WinFsp and Linux/FUSE behavior remains unverified.
+
+### Future history-count configuration — stored, NOT enforced yet
+
+Each workspace has `pool-sync-config.json`:
+
+```json
+{ "history_limit": 10 }
+```
+
+`history_limit` means desired **previous versions per file**, in addition to the
+latest version: 0 means latest-only; 10 means latest + up to 10 previous versions.
+Unresolved conflict originals/branches are separately protected. Accepted range
+is 0–10000; default 0. This is a local saved setting, not a globally agreed policy.
+For eventual peer GC, policy agreement and ownership proofs still need implementation.
+
+Set it in the GUI's **Save future history limit in workspace config**, or with
+`--pool-history-limit=10`. Without that override, existing saved config is retained.
+
+**This stage implements automatic metadata management, parallel event publication
+and conflict visibility, not peer retention/compaction. The setting does not delete
+old cloud versions.** Payload history and causal metadata still accumulate; the
+former latest-only v5 policy does not apply to this coordinator-free mode. Fresh
+bootstrap is limited to 10,000 unseen events / 64 MiB per replica (and 64 MiB unique
+combined metadata); exceeding the bound fails safely. Do not regard this release as
+solving long-term storage growth. The self-contained snapshot/GC design remains in
+[PEER_SYNC_DESIGN.md](PEER_SYNC_DESIGN.md).
+
+No existing v3/v5/replica workspace or legacy cloud history is silently converted.
+Validation: **351 default / 362 optional OpenDAL tests passed**, 12 external-tool
+tests ignored per configuration; warning-denied default release build passed.
+Tests use synthetic storage and local HTTP; no real cloud files were deleted and no
+real multi-PC/native-mount acceptance claim is made.
+
+## Legacy bounded shared-v5 — designated coordinator (opt-in)
+
+For long-running shared drives, select **Virtual cloud drive → disable Automatic pool sync → Legacy bounded shared mode** in the GUI. Use a **NEW workspace on every PC**. Designate exactly **one
 coordinator PC/workspace** using the checkbox; leave it off on all other PCs.
 The default policy keeps **only the latest version per live file**
 (`--shared-keep-previous 0`; explicitly select a positive count only for optional history). Offline PCs **never pin
