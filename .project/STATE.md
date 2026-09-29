@@ -11,6 +11,19 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
+Mac 4GiB real-file follow-up is **blocked**, not validated end-to-end. An
+isolated seven-provider v7 resilient 9+3 NFS write reached only about 25MiB
+in native VFS before WebDAV write-open revision amplification grew local spool
+to 9.2GiB (777 content files; 776 pending intents). The 4GiB random source
+was created with SHA-256 recorded, but full cloud publish/readback did not
+occur. Stop during active I/O left a retained mount lease and uninterruptible
+macOS NFS path/umount processes even after the mount-table entry disappeared.
+Do not clear this lease, delete spool/cache, sync the partial intents, or retry
+the mount until the OS state is recovered and the write/stop paths are fixed.
+No automatic reboot was performed. See
+`projects/rpool/4g-e2e-fdb991f6/REPORT.md` for exact evidence and recovery
+plan; its temporary rclone credential copy was removed.
+
 Mac actual-mount diagnostic follow-up: macOS RPool now invokes Homebrew rclone
 v1.75.1 `nfsmount` instead of FUSE `mount`; built-in NFS needs no macFUSE kernel
 extension. With the attached 7-remote policy in isolated app configuration and
