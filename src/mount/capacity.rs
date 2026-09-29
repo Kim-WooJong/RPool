@@ -132,6 +132,9 @@ impl CapacityStatus {
         {
             status.note.insert_str(0, "Resilient placement requires an outage/failure group for every backing remote; declare those groups before writing. ");
         }
+        if let Some(note) = policy.placement.protection_note() {
+            status.note.insert_str(0, &format!("{note} "));
+        }
         if !feasible {
             if let Err(reason) = status.check_upload(policy, 1) {
                 status
@@ -720,9 +723,11 @@ mod tests {
         let p = PoolDefinition {
             data_shards: 3,
             parity_shards: 1,
+            shard_mib: 1024,
             placement: Placement::Resilient,
             ..policy()
         };
+        status.eligible = status.targets.iter().map(|t| t.remote.clone()).collect();
         status.update_account_totals(&p).unwrap();
         status.budget = status.physical_free;
         status.update_outage_bound(&p).unwrap();
@@ -731,6 +736,17 @@ mod tests {
         assert_eq!(status.eligible_failure_groups, 4);
         assert_eq!(status.resilient_remaining_upper, Some(6 * gib));
         assert!(status.remaining_logical_upper > 6 * gib);
+        assert!(status.check_upload(&p, 9 * gib).is_err());
+        let relaxed = PoolDefinition {
+            placement: Placement::CapacityFirst,
+            ..p.clone()
+        };
+        assert!(status.check_upload(&relaxed, 9 * gib).is_ok());
+        status.update_outage_bound(&relaxed).unwrap();
+        assert_eq!(status.resilient_remaining_upper, None);
+        assert_eq!(status.required_failure_groups, 0);
+        status.recalculate(&relaxed).unwrap();
+        assert!(status.additional_estimate > 6 * gib);
 
         status.targets.truncate(2);
         status.update_account_totals(&p).unwrap();

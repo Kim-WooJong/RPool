@@ -82,6 +82,9 @@ impl CapacityPreview {
             ui.colored_label(egui::Color32::YELLOW, e);
         }
         if let Some(report) = &self.report {
+            if let Some(note) = report.policy.placement.protection_note() {
+                ui.colored_label(egui::Color32::YELLOW, note);
+            }
             summary(ui, &report.capacity);
             ui.small("Logical file usage: not queried (requires workspace namespace). Account usage includes history, parity and unrelated files.");
             if !report.capacity.quota_complete

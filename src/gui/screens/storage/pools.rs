@@ -172,6 +172,11 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                                     Placement::Resilient,
                                     Placement::Resilient.label(),
                                 );
+                                ui.selectable_value(
+                                    &mut state.pools.placement,
+                                    Placement::CapacityFirst,
+                                    Placement::CapacityFirst.label(),
+                                );
                             });
                         ui.end_row();
 
@@ -183,6 +188,9 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                         ui.add(egui::DragValue::new(&mut state.pools.parity_shards).range(0..=254));
                         ui.end_row();
                     });
+                if let Some(note) = state.pools.placement.protection_note() {
+                    ui.small(note);
+                }
 
                 let draft = PoolDefinition {
                     remotes: state.pools.remotes.clone(),
@@ -320,15 +328,7 @@ fn pool_save_args(name: &str, pool: &PoolDefinition) -> Vec<OsString> {
     ] {
         args.extend([flag.into(), value.into()]);
     }
-    args.extend([
-        "--placement".into(),
-        match pool.placement {
-            Placement::RoundRobin => "round-robin",
-            Placement::FreeRatio => "free-ratio",
-            Placement::Resilient => "resilient",
-        }
-        .into(),
-    ]);
+    args.extend(["--placement".into(), pool.placement.cli_value().into()]);
     args.extend(["--".into(), name.into()]);
     args
 }

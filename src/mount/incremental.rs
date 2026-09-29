@@ -153,7 +153,10 @@ fn upload_with(
         && base.original_size == metadata.len()
         && base.shard_size == shard_size
         && base.coding == coding
-        && policy.placement != Placement::Resilient;
+        && !matches!(
+            policy.placement,
+            Placement::Resilient | Placement::CapacityFirst
+        );
     if !compatible {
         if resumed {
             bail!("incremental retry layout changed; preserve staging");

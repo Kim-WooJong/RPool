@@ -10,6 +10,7 @@ CLI:
 ```sh
 rpool pool capacity my-pool --json
 rpool pool capacity my-pool --placement=resilient --data-shards=8 --parity-shards=2
+rpool pool capacity my-pool --placement=capacity-first --data-shards=8 --parity-shards=2
 rpool pool capacity --remote=crypt-a: --remote=crypt-b: --shard-mib=64 --parity-shards=0
 ```
 
@@ -42,6 +43,26 @@ limits simulation to 65,536 physical shards; `estimate_limited` identifies a cap
 Greedy placement has non-monotone boundaries, so a zero search result is not proof
 that every possible file size is impossible. Metadata/encryption overhead,
 small-file padding, and concurrent writers can reduce actual writable bytes.
+
+## Heterogeneous account modes
+
+- **Resilient** (`--placement=resilient`) requires declared outage groups and
+  limits each group to at most `M` shards per coding group. One declared group
+  can then be lost without exceeding the parity budget. A much larger account
+  can be limited by the aggregate capacity of the smaller groups.
+- **Capacity-first** (`--placement=capacity-first`) chooses the largest remaining
+  independent account budget for each shard. It still charges shared account
+  quotas once and keeps `K+M` parity coding, but imposes **no outage-group shard
+  limit**. Losing one account or provider can therefore lose more than `M` shards
+  of a coding group and make files unrecoverable. This is not a provider-outage
+  recovery mode. Outage-group declarations are not required for this placement.
+
+For example, one 2 TiB account plus three 2 GiB accounts with `K=3, M=1` can
+make the strict Resilient writable bound much smaller than the coding-only
+figure. Capacity-first can use the large account beyond that strict bound, but
+it does not preserve the same failure guarantee. The mode applies to new
+uploads. Existing archives keep their saved shard locations; existing mounted
+workspaces keep their frozen policy until explicitly reconfigured.
 
 ## Mounted space reporting
 

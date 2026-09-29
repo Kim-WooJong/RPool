@@ -40,6 +40,11 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
                         Placement::Resilient,
                         Placement::Resilient.label(),
                     );
+                    ui.selectable_value(
+                        &mut state.settings.placement,
+                        Placement::CapacityFirst,
+                        Placement::CapacityFirst.label(),
+                    );
                 });
             ui.end_row();
 
@@ -51,6 +56,9 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
             ui.add(egui::DragValue::new(&mut state.settings.parity_shards).range(0..=254));
             ui.end_row();
         });
+    if let Some(note) = state.settings.placement.protection_note() {
+        ui.small(note);
+    }
 
     if state.settings.parity_shards > 0 && state.settings.data_shards > 0 {
         let overhead =

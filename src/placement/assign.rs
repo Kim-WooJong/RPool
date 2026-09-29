@@ -17,17 +17,14 @@ pub(crate) fn assign_remotes(
             specs,
         ),
         Placement::FreeRatio => plan_free_ratio(rclone, remotes, specs, parity_shards.is_some()),
-        Placement::Resilient => {
+        Placement::Resilient | Placement::CapacityFirst => {
             use crate::storage::admin::{BackendAdmin, RcloneAdmin};
             let admin = RcloneAdmin::inherited(rclone);
             let catalog = admin.catalog()?;
             let snapshot =
                 crate::storage::admin::budget::BudgetSnapshot::query(&admin, &catalog, remotes);
             if !snapshot.rejected.is_empty() {
-                bail!(
-                    "Resilient quota planning unavailable: {:?}",
-                    snapshot.rejected
-                );
+                bail!("Quota planning unavailable: {:?}", snapshot.rejected);
             }
             let assigned = assign_with_budget(&snapshot, specs, placement, parity_shards)?;
             // Budget query may deduplicate/reorder targets. Never interpret its
@@ -64,6 +61,7 @@ pub(crate) fn assign_with_budget(
 ) -> Result<Vec<usize>> {
     let assignments = match placement {
         Placement::FreeRatio => super::free_ratio::allocate(snapshot, specs, parity.is_some())?,
+        Placement::CapacityFirst => super::free_ratio::allocate_capacity_first(snapshot, specs)?,
         Placement::RoundRobin => balanced_assign(
             &snapshot
                 .targets
@@ -381,6 +379,35 @@ mod tests {
             Some(1)
         )
         .is_err());
+    }
+    #[test]
+    fn capacity_first_spends_large_account_without_claiming_outage_safety() {
+        let gib = 1u64 << 30;
+        let tib = 1u64 << 40;
+        let mut s = snapshot(&[2 * tib, 2 * gib, 2 * gib, 2 * gib]);
+        s.targets[0].total = 4 * tib; // Partly used; small accounts are empty.
+        for target in &mut s.targets[1..] {
+            target.total = target.free;
+        }
+        for target in &mut s.targets {
+            target.failure_domain = None;
+        }
+        let specs = vec![
+            PhysicalSpec {
+                group: 0,
+                size: gib
+            };
+            4
+        ];
+        assert!(assign_with_budget(&s, &specs, Placement::Resilient, Some(1)).is_err());
+        assert_eq!(
+            assign_with_budget(&s, &specs, Placement::CapacityFirst, Some(1)).unwrap(),
+            vec![0; 4]
+        );
+        // Multiple aliases never multiply a single account's actual quota.
+        let mut aliases = snapshot(&[2 * gib, 2 * gib]);
+        aliases.targets[1].capacity_domain = aliases.targets[0].capacity_domain.clone();
+        assert!(assign_with_budget(&aliases, &specs, Placement::CapacityFirst, Some(1)).is_err());
     }
     #[test]
     fn two_choice_prefers_lower_projected_utilization_not_raw_free_bytes() {

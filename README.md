@@ -1,4 +1,4 @@
-# rpool v0.6.0
+# rpool v0.7.0
 
 ## Read/write Pool drive
 
@@ -524,7 +524,7 @@ A coding layout cannot protect against a provider outage if too many shards from
 
 ### Strict placement and fair transfers
 
-Choose **Resilient (parity-bound)** in Upload/Pool/Reprocess/Settings, or
+Choose **Resilient (provider-outage bound)** in Upload/Pool/Reprocess/Settings, or
 `--placement resilient`, with `--parity-shards 2` for a two-parity layout.
 Known crypt/alias/chunker chains are resolved to backing configuration sections.
 A planned coding group may place **at most M physical shards in one declared
@@ -548,6 +548,14 @@ are not proof of independent providers. Unknown/aggregate mappings fail closed.
 Existing Pool settings and archives are not automatically converted; select the
 new policy for new workspaces/uploads or explicitly reprocess existing archives.
 Older binaries do not understand the new placement enum; manifests remain v2.
+
+For heterogeneous quotas, **Capacity-first (no provider-outage guarantee)**
+(`--placement capacity-first`) spends the largest remaining independent account
+budget first. It keeps `K+M` coding and account quota checks, but may place more
+than `M` shards of a coding group on one account/provider. A whole-provider
+outage may therefore make an archive unrecoverable. This mode is selectable
+separately from Resilient; changing a Pool only affects future uploads and does
+not move existing archives. See [Pool capacity](docs/POOL_CAPACITY.md).
 
 Uploads and downloads share a bounded, fair transfer dispatcher per operation:
 

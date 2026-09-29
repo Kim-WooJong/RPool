@@ -9,14 +9,17 @@ pub(crate) fn manifest_remotes(manifest: &Manifest) -> Vec<String> {
     remotes.into_iter().collect()
 }
 
-/// Resilient skips exhausted targets for both shards and metadata. Replicate
-/// metadata to every actually used target, not unused/full pool members.
+/// Quota-aware modes skip exhausted targets for both shards and metadata.
+/// Replicate metadata to every actually used target, not unused/full members.
 pub(crate) fn publication_remotes(
     manifest: &Manifest,
     requested: &[String],
     placement: crate::models::Placement,
 ) -> Vec<String> {
-    if placement == crate::models::Placement::Resilient {
+    if matches!(
+        placement,
+        crate::models::Placement::Resilient | crate::models::Placement::CapacityFirst
+    ) {
         manifest_remotes(manifest)
     } else {
         requested.to_vec()
@@ -52,6 +55,14 @@ mod tests {
         let requested = vec!["full:".into(), "usable:".into()];
         assert_eq!(
             publication_remotes(&manifest, &requested, crate::models::Placement::Resilient),
+            vec!["usable:"]
+        );
+        assert_eq!(
+            publication_remotes(
+                &manifest,
+                &requested,
+                crate::models::Placement::CapacityFirst
+            ),
             vec!["usable:"]
         );
         assert_eq!(

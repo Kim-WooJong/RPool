@@ -113,6 +113,15 @@ mod capacity_tests {
                 "--parity-shards=1",
                 "--placement=resilient",
             ],
+            vec![
+                "rpool",
+                "pool",
+                "capacity",
+                "--remote=a:",
+                "--data-shards=2",
+                "--parity-shards=1",
+                "--placement=capacity-first",
+            ],
         ] {
             let cli = crate::cli::Cli::try_parse_from(args).unwrap();
             assert!(matches!(

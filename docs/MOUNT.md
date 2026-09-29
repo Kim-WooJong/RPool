@@ -573,12 +573,15 @@ are excluded until mapped, because they might alias one of the declared accounts
 CLI equivalents: `--capacity-domain backing-a=account-a` and
 `--failure-domain backing-a=provider-a`.
 
-Capacity uses the SAME round-robin/free-ratio/resilient allocation logic as fresh
+Capacity uses the SAME round-robin/free-ratio/resilient/capacity-first allocation logic as fresh
 uploads, debiting actual account budgets. Resilient now requires declared outage
 groups and limits each group's shard concentration to M. It skips targets without
 enough account quota, charges shared account budgets once and places larger shards
 first within each group. Both upload and estimation use the same allocator;
-Resilient metadata replicas go only to targets actually used by that archive.
+Resilient and capacity-first metadata replicas go only to targets actually used
+by that archive. Capacity-first prioritizes the largest remaining account quota
+without an outage-group limit: parity remains, but a whole provider outage is
+not guaranteed recoverable. See [Pool capacity](POOL_CAPACITY.md).
 This is a deterministic feasible greedy policy, not an optimal packing solver.
 Saved uploads validate
 remaining shards against their saved destinations, crediting only reverified data;
@@ -770,7 +773,7 @@ remain v1.
 Mount writeback and shared-file downloads use the archive transfer paths of
 put/get. Erasure-coded incoming files automatically use delayed hedged reads and
 early group recovery; the safe unmounted-apply boundary remains unchanged. To enable strict shard distribution for a **new** workspace, select a
-Pool configured with `Resilient (parity-bound)` and nonzero parity. Existing
+Pool configured with `Resilient (provider-outage bound)` and nonzero parity. Existing
 workspaces freeze their original Pool policy; editing the Pool alone does not
 change them. Empty files retain the existing no-parity handling. See README's
 "Strict placement and fair transfers" for bounds and compatibility. This does not

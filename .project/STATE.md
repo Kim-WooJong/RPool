@@ -227,7 +227,7 @@ Validation: default 390 / optional 401 tests passed (12 ignored each);
 warning-denied release build, formatting/diff checks and CLI help passed.
 Local HTTP quota and headless late-GUI-result tests run; actual provider quota and
 Windows/Finder/FUSE mount acceptance remain unverified. No cloud data changed.
-Current skew follow-up validation in `projects/rpool/capacity-skew-check`:
+Previous skew follow-up validation in `projects/rpool/capacity-skew-check`:
 macOS default suite **452 passed / 13 ignored**, `cargo fmt --check`,
 `git diff --check`, macOS release build, and Windows x64 GNU release cross-build
 passed. Synthetic regressions cover 2 GiB + 2 TiB independent/unknown quota,
@@ -235,6 +235,20 @@ outage-limited upper bound, weighted fallback avoiding a tiny account when
 enough large domains exist, and GUI quota invalidation after identity save.
 Windows executable is in `projects/rpool/target/x86_64-pc-windows-gnu/release/`;
 actual Windows/cloud runtime and source GUI click path are not verified.
+
+Capacity mode follow-up (v0.7.0): `resilient` retains its declared-outage-group
+M-shard concentration bound. New `capacity-first` selects the largest remaining
+independent account quota, still charges shared quotas once and keeps K+M
+coding, but deliberately does not promise recovery from one whole account or
+provider outage. GUI Pool/Upload/Reprocess/Settings and CLI expose the distinct
+mode and warning. Metadata is published only to remotes actually used; old
+archives and existing frozen workspace policies are not rewritten. Isolated
+`projects/rpool/capacity-mode-check` validation: macOS serial default suite
+**454 passed / 13 ignored**, fmt/diff checks and macOS release build passed;
+Windows x64 GNU release cross-build passed with existing Windows-only
+`unused-variables` warning exempted from otherwise warnings-denied build.
+The initial parallel test run had one unrelated occupied-DAV-port failure;
+serial rerun passed. Real Windows/cloud mount and GUI click-path remain untested.
 
 ## Working
 
@@ -311,6 +325,8 @@ Implemented the bounded five-lane integration batch (virtual mode opt-in/experim
 - On Windows, declare truthful independent account-budget and correlated
   outage-group IDs, refresh Pool and Mount capacity, then check nonzero DAV/
   Explorer free space and actual shard distribution on a new small test file.
+  Compare resilient and capacity-first on a mixed-size pool; never treat the
+  latter's K+M parity as provider-outage recovery.
   Never infer account independence from crypt remote names alone.
 - Test actual dirty native VFS cache replay after process crash. Endpoint/cache identity is stable, but synthetic preservation does not prove native replay.
 - True transparent replacement of open native file handles needs a stronger filesystem/client revision protocol.

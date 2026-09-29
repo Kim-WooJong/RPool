@@ -91,9 +91,17 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
                                 Placement::Resilient,
                                 Placement::Resilient.label(),
                             );
+                            ui.selectable_value(
+                                &mut state.settings.placement,
+                                Placement::CapacityFirst,
+                                Placement::CapacityFirst.label(),
+                            );
                         });
                     ui.end_row();
                 });
+            if let Some(note) = state.settings.placement.protection_note() {
+                ui.small(note);
+            }
 
             ui.add_space(12.0);
             if ui.button("Save GUI defaults").clicked() {

@@ -88,8 +88,10 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                         ui.selectable_value(&mut draft.placement, Placement::RoundRobin, Placement::RoundRobin.label());
                         ui.selectable_value(&mut draft.placement, Placement::FreeRatio, Placement::FreeRatio.label());
                         ui.selectable_value(&mut draft.placement, Placement::Resilient, Placement::Resilient.label());
+                        ui.selectable_value(&mut draft.placement, Placement::CapacityFirst, Placement::CapacityFirst.label());
                     }); ui.end_row();
                 });
+                if let Some(note) = draft.placement.protection_note() { ui.small(note); }
             }
             let can_save = !task.is_running()
                 && state.reprocess.pending.is_none()

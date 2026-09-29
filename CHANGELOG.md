@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added selectable `capacity-first` placement for heterogeneous account quotas.
+  It prioritizes the largest remaining account budget without Resilient's
+  provider-outage bound; parity remains but a provider outage may be unrecoverable.
+  Existing `resilient` placement and saved defaults retain their behavior.
+
 - Documented the phased online-write/native-frontend plan and added aggregate
   DAV write diagnostics. Content-Range now validates received body length before
   sealing; local tests distinguish one fragmented write from repeated full PUTs.

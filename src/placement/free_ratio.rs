@@ -69,6 +69,36 @@ pub(crate) fn allocate(
     Ok(result)
 }
 
+/// Place against the largest remaining independent account budget. This is
+/// intentionally not an outage-safe placement: a coding group can put more
+/// than M shards on one provider when that is where the capacity is.
+pub(crate) fn allocate_capacity_first(
+    snapshot: &crate::storage::admin::budget::BudgetSnapshot,
+    specs: &[PhysicalSpec],
+) -> Result<Vec<usize>> {
+    let mut budgets = snapshot.budgets();
+    let mut result = Vec::with_capacity(specs.len());
+    for spec in specs {
+        let index = snapshot
+            .targets
+            .iter()
+            .enumerate()
+            .filter(|(_, target)| budgets[&target.capacity_domain] >= spec.size)
+            .max_by(|(a, left), (b, right)| {
+                budgets[&left.capacity_domain]
+                    .cmp(&budgets[&right.capacity_domain])
+                    .then_with(|| b.cmp(a))
+            })
+            .map(|(index, _)| index)
+            .context("insufficient account quota for capacity-first placement")?;
+        *budgets
+            .get_mut(&snapshot.targets[index].capacity_domain)
+            .unwrap() -= spec.size;
+        result.push(index);
+    }
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
