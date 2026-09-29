@@ -5,7 +5,7 @@ fn main() {
     let verb=args.first().map(String::as_str).unwrap_or("");
     let address=args.last().map(String::as_str).unwrap_or("");
     if verb=="config" { print!("{}",config.as_ref().map(|p|fs::read_to_string(p).unwrap()).unwrap_or_else(||r#"{"crypt":{"type":"crypt"}}"#.into()));return }
-    if address.contains("hang") {thread::sleep(Duration::from_secs(30));return}
+    if address.contains("hang") {if let Some(path)=&config{fs::write(format!("{path}.started"),std::process::id().to_string()).unwrap();}thread::sleep(Duration::from_secs(30));return}
     if address.contains("missing") {eprintln!("object not found");std::process::exit(4)}
     if address.contains("auth") {eprintln!("authentication failed secret-marker not found");std::process::exit(1)}
     if address.contains("denied") {eprintln!("permission denied secret-marker");std::process::exit(1)}

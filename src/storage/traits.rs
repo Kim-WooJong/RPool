@@ -8,7 +8,7 @@
 
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::storage::capabilities::BackendCapabilities;
@@ -117,6 +117,45 @@ pub(crate) struct ListPage {
     pub(crate) next_page: Option<String>,
 }
 
+// Only installed by a dedicated mount CLI process. Never install this in the GUI:
+// its independent jobs run in their own child processes. A process scope is needed
+// because upload scheduling creates threads that do not inherit thread-local state.
+static PROCESS_CANCELLATION: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
+
+pub(crate) struct ProcessCancellationGuard {
+    cancel: Arc<AtomicBool>,
+}
+impl ProcessCancellationGuard {
+    pub(crate) fn install(cancel: Arc<AtomicBool>) -> anyhow::Result<Self> {
+        let mut slot = PROCESS_CANCELLATION
+            .lock()
+            .map_err(|_| anyhow::anyhow!("process cancellation lock poisoned"))?;
+        anyhow::ensure!(slot.is_none(), "process cancellation already installed");
+        *slot = Some(cancel.clone());
+        Ok(Self { cancel })
+    }
+}
+impl Drop for ProcessCancellationGuard {
+    fn drop(&mut self) {
+        if let Ok(mut slot) = PROCESS_CANCELLATION.lock() {
+            if slot
+                .as_ref()
+                .is_some_and(|flag| Arc::ptr_eq(flag, &self.cancel))
+            {
+                *slot = None;
+            }
+        }
+    }
+}
+fn inherited_cancellation() -> Vec<Arc<AtomicBool>> {
+    PROCESS_CANCELLATION
+        .lock()
+        .expect("process cancellation lock poisoned")
+        .iter()
+        .cloned()
+        .collect()
+}
+
 /// Per-operation deadline + cancellation, propagated into adapters. A remote
 /// write that may have committed after a cancel/timeout is `UnknownOutcome`,
 /// not a clean cancel (target.md §3.4, ADR-004).
@@ -132,7 +171,7 @@ impl OperationContext {
         Self {
             deadline: None,
             cancel: None,
-            child_cancels: Vec::new(),
+            child_cancels: inherited_cancellation(),
         }
     }
 
@@ -140,7 +179,7 @@ impl OperationContext {
         Self {
             deadline: Some(deadline),
             cancel: None,
-            child_cancels: Vec::new(),
+            child_cancels: inherited_cancellation(),
         }
     }
 
@@ -155,7 +194,7 @@ impl OperationContext {
         Self {
             deadline: None,
             cancel: Some(cancel),
-            child_cancels: Vec::new(),
+            child_cancels: inherited_cancellation(),
         }
     }
 
@@ -170,7 +209,7 @@ impl OperationContext {
         Self {
             deadline: Some(deadline),
             cancel: Some(cancel),
-            child_cancels: Vec::new(),
+            child_cancels: inherited_cancellation(),
         }
     }
 

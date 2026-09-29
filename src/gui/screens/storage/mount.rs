@@ -684,10 +684,13 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
         ui.horizontal(|ui| {
             ui.spinner();
             ui.label(if form.stopping { "Graceful shutdown requested; pending edits may remain local. Check the log for results." } else { "Mount/sync process running — normal application jobs remain available" });
-            if ui.add_enabled(!form.stopping, egui::Button::new("Unmount / finish sync")).clicked() {
+            if ui.add_enabled(!form.stopping, egui::Button::new("Unmount / stop (retain pending data)")).clicked() {
                 if let Err(error) = form.request_stop() { form.notice = Some(error); }
             }
         });
+        if form.virtual_drive {
+            ui.small("Online unmount retains pending local data; it does not wait for a full cloud upload. Use Sync without mounting to finish replication separately.");
+        }
         ui.collapsing("Recovery controls", |ui| {
             ui.label("Force stop can interrupt uploads and leave edits in the local VFS cache. Restart this same workspace to recover. Cache files are not deleted.");
             if ui.add_enabled(form.stopping, egui::Button::new("Force stop process (retain local cache)")).clicked() { form.runner.cancel(); }

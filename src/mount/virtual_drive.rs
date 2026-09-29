@@ -1130,6 +1130,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     if args.stop_file.as_ref().is_some_and(|p| p.exists()) {
         bail!("stop file already exists");
     }
+    let stop = super::lifecycle::StopControl::new(args.stop_file.clone())?;
     let generated_worker;
     let worker = if args.pool_sync {
         if let Some(worker) = &args.pool_worker {
@@ -1205,16 +1206,26 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         drive.pull()?;
     } else if args.sync_only {
         drive.sync()?;
-    } else if drive.bounded_shared || !drive.pool_sync_roots.is_empty() {
-        // Never expose a stale bounded namespace when authoritative startup sync fails.
-        // The durable spool/cache remains available for recovery and a later retry.
+    } else if drive.bounded_shared && drive.checkpoint_coordinator {
+        // Coordinator sync also initializes a new shared root. Retain that
+        // bootstrap until a separate metadata-only initialization exists.
         drive.sync().context("Cloud synchronization required before opening this shared drive; local work is retained")?;
-    } else if let Err(e) = drive.sync() {
-        eprintln!("Virtual sync pending, durable local state retained: {e:#}");
+    } else if drive.bounded_shared || !drive.pool_sync_roots.is_empty() {
+        // Refresh the authoritative namespace, but do not delay mounting for
+        // pending uploads, private copies, replication or remote collection.
+        // Failed metadata discovery remains fatal; durable local work is retained.
+        drive.pull().context(
+            "Cloud metadata required before opening this shared drive; local work is retained",
+        )?;
+    } else if let Err(e) = drive.pull() {
+        eprintln!("Virtual metadata refresh pending, durable local state retained: {e:#}");
     }
-    let report = || {
+    let report_drive = drive.clone();
+    let status_file = args.status_file.clone();
+    let report = Arc::new(move || {
+        let drive = &report_drive;
         if !drive.pool_sync_roots.is_empty() {
-            if let Some(path) = &args.status_file {
+            if let Some(path) = &status_file {
                 let destination = path.with_file_name("pool-sync-status.json");
                 let result = drive
                     .pool_status()
@@ -1233,23 +1244,27 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
                     status.additional_estimate,
                     drive.state.lock().unwrap().pending.len()
                 );
-                if let Some(path) = &args.status_file {
+                if let Some(path) = &status_file {
                     if let Err(e) = durable_json(path, &status) {
                         eprintln!("Status snapshot failed: {e:#}");
                     }
                 }
             }
             Err(e) => {
-                if let Some(path) = &args.status_file {
+                if let Some(path) = &status_file {
                     let _ = fs::remove_file(path);
                 }
                 eprintln!("Quota status unavailable: {e:#}");
             }
         }
-    };
-    println!("Querying capacity before mount");
-    report();
+    });
     if args.capacity_only || args.sync_only {
+        report();
+        return Ok(());
+    }
+    println!("Capacity verification and pending uploads will run after mount readiness");
+    if stop.requested() {
+        println!("Mount cancelled before native startup; local data retained");
         return Ok(());
     }
     if drive.bounded_shared || !drive.pool_sync_roots.is_empty() {
@@ -1277,54 +1292,81 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     let start = std::time::Instant::now();
     let mut ready = false;
     let mut last = std::time::Instant::now();
+    let mut first_job = true;
     let mut job: Option<std::thread::JoinHandle<()>> = None;
-    loop {
-        for line in mount.logs() {
-            eprintln!("{line}");
+    let outcome: Result<()> = (|| {
+        loop {
+            for line in mount.logs() {
+                eprintln!("{line}");
+            }
+            if let Some(code) = mount.poll()? {
+                bail!("virtual mount exited {code}; spool and cache retained");
+            }
+            if stop.requested() {
+                break;
+            }
+            if !ready && mount.ready() {
+                ready = true;
+                println!("Virtual filesystem ready. Save acknowledges local spool, not completed cloud replication.");
+            }
+            if !ready && start.elapsed() > std::time::Duration::from_secs(30) {
+                bail!("virtual mount readiness timeout; state retained");
+            }
+            if job.as_ref().is_some_and(|j| j.is_finished()) {
+                job.take()
+                    .unwrap()
+                    .join()
+                    .map_err(|_| anyhow!("background maintenance panicked; local data retained"))?;
+            }
+            if ready
+                && job.is_none()
+                && (first_job
+                    || last.elapsed() >= std::time::Duration::from_secs(args.interval_seconds))
+            {
+                let drive = drive.clone();
+                let report = report.clone();
+                let initial_report = first_job;
+                let cancelled = stop.flag.clone();
+                first_job = false;
+                job = Some(std::thread::spawn(move || {
+                    // Quota is optional for reads and must never block the mount
+                    // control loop. Keep reporting and sync in one serialized worker.
+                    if initial_report && !cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                        report();
+                    }
+                    if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                        return;
+                    }
+                    if let Err(e) = drive.sync() {
+                        eprintln!("Virtual sync pending: {e:#}");
+                    }
+                    if !cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                        report();
+                    }
+                }));
+                last = std::time::Instant::now();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
         }
-        if let Some(code) = mount.poll()? {
-            bail!("virtual mount exited {code}; spool and cache retained");
-        }
-        if args.stop_file.as_ref().is_some_and(|p| p.exists()) {
-            break;
-        }
-        if !ready && mount.ready() {
-            ready = true;
-            println!("Virtual filesystem ready. Save acknowledges local spool, not completed cloud replication.");
-        }
-        if !ready && start.elapsed() > std::time::Duration::from_secs(30) {
-            bail!("virtual mount readiness timeout; state retained");
-        }
-        if job.as_ref().is_some_and(|j| j.is_finished()) {
-            let _ = job.take().unwrap().join();
-            report();
-        }
-        if ready
-            && job.is_none()
-            && last.elapsed() >= std::time::Duration::from_secs(args.interval_seconds)
-        {
-            let drive = drive.clone();
-            job = Some(std::thread::spawn(move || {
-                if let Err(e) = drive.sync() {
-                    eprintln!("Virtual sync pending: {e:#}");
-                }
-            }));
-            last = std::time::Instant::now();
-        }
-        std::thread::sleep(std::time::Duration::from_millis(250));
-    }
-    let stopped = mount.stop()?;
-    if let Some(job) = job {
-        let _ = job.join();
-    }
-    drive.sync()?;
-    report();
+        Ok(())
+    })();
+    stop.cancel();
     println!(
-        "Virtual mount stopped; forced={} pending spool/cache/history retained; verified committed spool may be reclaimed",
+        "Stopping native mount and cancelling remote work; pending local data will be retained"
+    );
+    let stopped = mount.stop();
+    let joined = job
+        .map(|job| job.join())
+        .transpose()
+        .map_err(|_| anyhow!("background maintenance panicked during stop; local data retained"));
+    let stopped = stopped?;
+    println!(
+        "Virtual mount stopped; forced={} pending spool/cache/history retained. Cloud replication was not drained; use sync-only separately or resume this workspace.",
         stopped.forced
     );
     drop(server);
-    Ok(())
+    joined?;
+    outcome
 }
 
 fn checked_directory(path: &Path) -> Result<()> {

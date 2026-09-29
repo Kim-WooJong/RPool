@@ -11,6 +11,21 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
+Online mount latency follow-up: required metadata-only bootstrap replaces full
+startup upload/GC for normal pool/shared-worker mounts. Quota/reporting and pending
+writeback run in one worker after native readiness. Legacy bounded coordinator
+bootstrap and replica mode keep their existing behavior. Unmount cancels supervised
+remote work/retry waits and joins it without a fresh final cloud sync; pending spool,
+VFS cache and uncertain-upload receipts remain. Process cancellation is installed
+only in the dedicated virtual-mount CLI child, not the GUI. DAV shutdown joins local
+seal/fsync work; local hash/encoding/disk operations mean no hard timing guarantee.
+Final validation in projects: default 419 passed / 12 ignored; optional 430 passed /
+12 ignored; warnings-denied release, fmt and diff checks passed. Regression coverage
+includes metadata-only pending-spool preservation, stop-file cancellation, stalled
+read/write child reaping, retry cancellation, uncertain-mutation error precedence,
+and immediate remount with an inherited lock descriptor. Adapter lease now explicitly
+unlocks on drop. Actual Windows/cloud latency remains unmeasured.
+
 Account-removal follow-up implemented: explicit source-preserving recovery into a
 different v6 pool/new workspace permits normal read/write use on remaining accounts.
 Optional completed Reprocess plan receipts reuse independently verified replacement
@@ -29,7 +44,7 @@ precede cloud synchronization. Actual WinFsp/rclone/cloud behavior is unverified
 
 Current verification: projects/rpool/account-recovery-check only, target/logs under
 projects/rpool and test TMPDIR projects/t (short enough for Unix socket paths).
-Default 414 passed / 12 ignored; optional suite 425 passed / 12 ignored.
+Latest default 419 passed / 12 ignored; optional suite 430 passed / 12 ignored.
 Warnings-denied release build, formatting and diff checks passed; release CLI help
 exposes the recovery flags. Actual Windows/cloud execution remains unverified.
 Independent reviews covered receipt provenance, explicit read exclusion vs auth,
@@ -307,8 +322,8 @@ Previous unshared hardening batch (macOS):
 
 ## Resume
 
-Account-removal/Reprocess reuse and Explorer capacity fixes are implemented and
-locally validated. No further implementation is active for this bounded milestone.
+Online mount latency changes are implemented and locally validated; no active
+implementation remains for this milestone. Prior account recovery/Explorer fixes remain.
 Do not migrate/delete real data or start cloud mounts implicitly.
 Preserve unrelated config-sync/path changes. Real Windows/WinFsp and cloud mount
 acceptance remain runtime gates. Do not restart legacy retention work from older

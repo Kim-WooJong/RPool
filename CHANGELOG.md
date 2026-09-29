@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Online mount startup separates required metadata refresh from pending uploads/GC and moves capacity reporting off the control loop. Online unmount cancels supervised remote work and retains pending local data instead of forcing a final full cloud sync. Explicit sync remains available; legacy bounded coordinator bootstrap and replica mode retain their existing behavior.
+- Mount adapter releases its OS lease explicitly on drop, preventing an inherited file descriptor from delaying immediate remount; durable surviving-process fences remain enforced.
+
 - Completed Reprocess plans can supply exact verified replacement archives to recovery without duplicate uploads; full mounted paths are retained. Explorer no longer receives unsupported quota properties when capacity is stale/missing: the DAV bridge reports known usage and zero verified additional free space until a fresh sample is available, avoiding rclone's synthetic 1 PiB fallback.
 
 - Explicit account-failure recovery to a differently named writable pool/workspace on remaining accounts, preserving the source. GUI/CLI expose verified-copy recovery and explicit read exclusions; unresolved data remains reported. Ordinary membership/retention guards remain in place. Mount startup stages are logged before cloud synchronization so a running process is not mistaken for a mounted drive.

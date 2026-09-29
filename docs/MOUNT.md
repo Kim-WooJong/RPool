@@ -314,12 +314,36 @@ periodically synced to accept writes and reclaim history. There is **no automati
 coordinator election/failover**. Never clone an active coordinator workspace or
 run two copies; generic rclone storage provides no distributed compare-and-swap.
 
-On connection, the PC must successfully synchronize the authoritative cloud checkpoint
+On connection, the PC must successfully refresh the authoritative cloud checkpoint
 before the drive opens. A failed startup sync leaves local work intact and does not
 expose a stale mounted namespace; retry when the cloud is reachable. The file list
 is refreshed first, and verified file bytes download on demand, not as a full local
 replica. While mounted, reconciliation runs at the configured scan interval; this
 is eventual synchronization, not a lock or instantaneous cache coherence.
+
+### Responsive online mount and unmount
+
+Normal online pool mounts now fetch the required cloud metadata before opening the
+drive, without first draining pending uploads, replicating history, or running GC.
+Metadata/account errors still fail closed; this does not permit stale or incomplete
+cloud listings. The legacy bounded shared coordinator retains its full bootstrap
+because that operation also initializes a new shared root.
+
+Capacity queries and writeback run in a single background worker after native mount
+readiness. Until capacity is verified, the drive reports zero **verified additional**
+free space; reads can proceed but Explorer may defer new copies. No invented free
+capacity is advertised. The first maintenance pass starts immediately after readiness.
+
+Online unmount cancels remote operations and stops the native mount instead of
+waiting for a fresh full cloud synchronization. A stop request is also observed during
+startup network operations. Spawned storage processes are cancelled/reaped and the
+worker is joined; it is not abandoned with an active workspace lock. Local disk
+transactions still finish safely, so this is not a hard wall-clock shutdown guarantee.
+Pending spool, uncertain upload receipts and native VFS cache are preserved, not
+reported as uploaded. Use **Sync without mounting** / `--sync-only` separately to
+complete replication. Preserved native cache may require the existing recovery/export
+flow; shared-drive restart does not promise automatic replay of stale native writes.
+This fast path applies to online virtual mounts, not legacy full-replica mode.
 
 ### Storage and offline-PC policy
 

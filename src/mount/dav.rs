@@ -448,6 +448,7 @@ pub(crate) struct Server {
     pub address: std::net::SocketAddr,
     pub token: String,
     stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 impl Server {
     pub(crate) fn start(drive: Arc<VirtualDrive>) -> Result<Self> {
@@ -462,7 +463,7 @@ impl Server {
             .worker_threads(2)
             .enable_all()
             .build()?;
-        std::thread::spawn(move || {
+        let thread = std::thread::spawn(move || {
             runtime.block_on(async move {
                 let listener = match tokio::net::TcpListener::from_std(listener) {
                     Ok(l) => l,
@@ -518,18 +519,25 @@ impl Server {
                     });
                 }
             });
-            runtime.shutdown_timeout(std::time::Duration::from_secs(2));
+            // Abort async connections, but finish local blocking seal/fsync work
+            // before releasing the workspace/process. Remote work has already
+            // been cancelled by the mount lifecycle during normal shutdown.
+            drop(runtime);
         });
         Ok(Self {
             address,
             token,
             stop,
+            thread: Some(thread),
         })
     }
 }
 impl Drop for Server {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Release);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 

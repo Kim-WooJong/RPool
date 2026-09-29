@@ -290,6 +290,16 @@ struct MountLease {
     _lock: std::fs::File,
 }
 
+impl Drop for MountLease {
+    fn drop(&mut self) {
+        // On Unix a concurrently forked child can briefly retain this open file
+        // description until exec, even with close-on-exec set. Closing only our
+        // descriptor can therefore delay release past the lease lifetime.
+        // The durable lease record independently fences uncertain/live mounts.
+        let _ = self._lock.unlock();
+    }
+}
+
 impl MountLease {
     fn prepare(
         source: &Path,
@@ -699,6 +709,21 @@ mod tests {
         assert!(process_alive(std::process::id()).unwrap());
         assert!(MountLease::prepare(&files, &cache, &target, None).is_err());
         assert!(process_alive(0).is_err());
+    }
+
+    #[test]
+    fn dropping_lease_unlocks_even_with_an_inherited_description() {
+        let (_root, _other, files, cache, target) = lease_fixture();
+        let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
+        // Deterministically model the descriptor inherited across fork without
+        // depending on thread/process scheduling or weakening exclusive locking.
+        let inherited = lease._lock.try_clone().unwrap();
+        assert!(MountLease::prepare(&files, &cache, &target, None).is_err());
+        drop(lease);
+        let next = MountLease::prepare(&files, &cache, &target, None).unwrap();
+        assert!(MountLease::prepare(&files, &cache, &target, None).is_err());
+        drop(next);
+        drop(inherited);
     }
 
     #[test]

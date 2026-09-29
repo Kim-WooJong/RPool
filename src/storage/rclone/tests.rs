@@ -473,3 +473,203 @@ fn admin_and_tool_adapter_use_bounded_process_owner() {
     assert!(binding.failure_domain.is_none());
     assert_eq!(admin.quota(&binding.target).free, Some(75));
 }
+
+// A process-wide mount scope must be tested in its own process, otherwise parallel
+// test operations would intentionally inherit its cancellation token too.
+#[test]
+fn mount_process_cancellation_inherits_across_threads_and_reaps_children() {
+    const CHILD: &str = "RPOOL_TEST_MOUNT_CANCELLATION_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let module = module_path!().split_once("::").unwrap().1;
+        let name = format!(
+            "{module}::mount_process_cancellation_inherits_across_threads_and_reaps_children"
+        );
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &name, "--nocapture"])
+            .env(CHILD, "1")
+            .status()
+            .unwrap();
+        assert!(status.success());
+        return;
+    }
+    use crate::storage::traits::ProcessCancellationGuard;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let unrelated = OperationContext::none();
+    for mutation in [false, true] {
+        let (dir, context) = normal();
+        let started = dir.path().join("config file.json.started");
+        let flag = Arc::new(AtomicBool::new(false));
+        let guard = ProcessCancellationGuard::install(flag.clone()).unwrap();
+        assert!(ProcessCancellationGuard::install(flag.clone()).is_err());
+        let inherited = std::thread::spawn(|| {
+            [
+                OperationContext::none(),
+                OperationContext::with_deadline(Instant::now() + Duration::from_secs(30)),
+                OperationContext::with_cancel(Arc::new(AtomicBool::new(false))),
+                OperationContext::with_deadline_and_cancel(
+                    Instant::now() + Duration::from_secs(30),
+                    Arc::new(AtomicBool::new(false)),
+                ),
+            ]
+        })
+        .join()
+        .unwrap();
+        let observed = started.clone();
+        let cancel = flag.clone();
+        let stopper = std::thread::spawn(move || {
+            let until = Instant::now() + Duration::from_secs(5);
+            while !observed.exists() && Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            cancel.store(true, Ordering::Release);
+        });
+        let begin = Instant::now();
+        let mut command = context.command(&[
+            if mutation {
+                "rcat".into()
+            } else {
+                "cat".into()
+            },
+            "--".into(),
+            "crypt:hang".into(),
+        ]);
+        let bytes = vec![42; 1024 * 1024];
+        let mut source = bytes.as_slice();
+        let error = process::run(
+            &mut command,
+            &inherited[0],
+            if mutation { Some(&mut source) } else { None },
+            &mut io::sink(),
+            mutation,
+        )
+        .unwrap_err();
+        stopper.join().unwrap();
+        assert!(
+            started.exists(),
+            "fixture must actually start before cancellation"
+        );
+        assert!(begin.elapsed() < Duration::from_secs(10));
+        assert_eq!(
+            error.kind(),
+            if mutation {
+                StorageErrorKind::UnknownOutcome
+            } else {
+                StorageErrorKind::Cancelled
+            }
+        );
+        #[cfg(unix)]
+        {
+            unsafe extern "C" {
+                fn kill(pid: i32, signal: i32) -> i32;
+            }
+            let pid = std::fs::read_to_string(&started)
+                .unwrap()
+                .parse::<i32>()
+                .unwrap();
+            assert_eq!(
+                unsafe { kill(pid, 0) },
+                -1,
+                "cancelled child must be reaped"
+            );
+        }
+        assert!(inherited.iter().all(OperationContext::is_cancelled));
+        let dispatched = AtomicBool::new(false);
+        let result = crate::storage::scheduler::run(
+            vec![()],
+            1,
+            1,
+            |_| "remote".into(),
+            |_| {
+                dispatched.store(true, Ordering::Release);
+                Ok(())
+            },
+            |_, _| None,
+            |_, result| {
+                result?;
+                Ok(Vec::new())
+            },
+        );
+        assert!(result.is_err());
+        assert!(!dispatched.load(Ordering::Acquire));
+        // Cancellation during a long retry-after must wake the queue promptly.
+        flag.store(false, Ordering::Release);
+        let (retry_started, retry_received) = std::sync::mpsc::channel();
+        let cancel = flag.clone();
+        let stopper = std::thread::spawn(move || {
+            retry_received.recv_timeout(Duration::from_secs(5)).unwrap();
+            std::thread::sleep(Duration::from_millis(100));
+            cancel.store(true, Ordering::Release);
+        });
+        let attempts = std::sync::atomic::AtomicUsize::new(0);
+        let begin = Instant::now();
+        let result = crate::storage::scheduler::run(
+            vec![()],
+            1,
+            2,
+            |_| "remote".into(),
+            |_| -> anyhow::Result<()> {
+                attempts.fetch_add(1, Ordering::Relaxed);
+                anyhow::bail!("synthetic retryable error")
+            },
+            |_, _| {
+                retry_started.send(()).unwrap();
+                Some(Duration::from_secs(30))
+            },
+            |_, result| {
+                result?;
+                Ok(Vec::new())
+            },
+        );
+        stopper.join().unwrap();
+        assert!(result.is_err());
+        assert_eq!(attempts.load(Ordering::Relaxed), 1);
+        assert!(begin.elapsed() < Duration::from_secs(5));
+        // A running mutation can report an uncertain outcome after the
+        // scheduler has already noticed cancellation. Never mask that outcome.
+        for terminal in [
+            crate::storage::error::StorageError::unknown_outcome("synthetic interrupted write"),
+            crate::storage::error::StorageError::CorruptData {
+                found: "actual".into(),
+                expected: "expected".into(),
+            },
+        ] {
+            flag.store(false, Ordering::Release);
+            let completed = AtomicBool::new(false);
+            let error = crate::storage::scheduler::run(
+                vec![()],
+                1,
+                1,
+                |_| "remote".into(),
+                |_| -> anyhow::Result<()> {
+                    flag.store(true, Ordering::Release);
+                    // Allow the scheduler's cancellation poll to fire while
+                    // this already-running operation is still unwinding.
+                    std::thread::sleep(Duration::from_millis(200));
+                    Err(terminal.clone().into())
+                },
+                |_, _| None,
+                |_, result| {
+                    completed.store(true, Ordering::Release);
+                    result?;
+                    Ok(Vec::new())
+                },
+            )
+            .unwrap_err();
+            assert!(completed.load(Ordering::Acquire));
+            assert_eq!(
+                error
+                    .downcast_ref::<crate::storage::error::StorageError>()
+                    .unwrap()
+                    .kind(),
+                terminal.kind(),
+            );
+        }
+        assert!(!unrelated.is_cancelled());
+        drop(guard);
+        assert!(
+            inherited[0].is_cancelled(),
+            "existing operations retain ownership"
+        );
+        assert!(!OperationContext::none().is_cancelled());
+    }
+}

@@ -11,6 +11,9 @@ struct Backend {
     copies: usize,
     deleted: Vec<String>,
     fail_publish_once: bool,
+    fail_collect: bool,
+    publications: usize,
+    collections: usize,
 }
 #[derive(Clone, Default)]
 struct FakeIo(Rc<RefCell<Backend>>);
@@ -44,6 +47,9 @@ impl PayloadIo for FakeIo {
 }
 impl Io for FakeIo {
     fn collect(&self, kind: &str, known: &BTreeSet<String>) -> Result<BTreeMap<String, Vec<u8>>> {
+        if self.0.borrow().fail_collect {
+            bail!("injected metadata outage");
+        }
         Ok(self
             .0
             .borrow()
@@ -62,6 +68,7 @@ impl Io for FakeIo {
         if state.records.get(&key).is_some_and(|b| b != bytes) {
             bail!("immutable overwrite")
         }
+        state.publications += 1;
         state.records.insert(key, bytes.to_vec());
         if state.fail_publish_once {
             state.fail_publish_once = false;
@@ -130,6 +137,7 @@ impl Io for FakeIo {
         Ok(())
     }
     fn gc(&self, path: &Path, proof: &mut dyn FnMut(&str, &str) -> Result<()>) -> Result<()> {
+        self.0.borrow_mut().collections += 1;
         resume_gc_with(self, path, proof)
     }
 }
@@ -528,4 +536,107 @@ fn concurrent_renames_converge_without_discarding_either_name() {
     materialize(&drive, &mut right);
     assert_eq!(drive.state.lock().unwrap().snapshot_view, expected);
     assert_eq!(name_heads(&right, &file).len(), 2);
+}
+
+#[test]
+fn metadata_bootstrap_preserves_pending_spool_without_cloud_mutations() {
+    let root_a = tempfile::tempdir().unwrap();
+    let root_b = tempfile::tempdir().unwrap();
+    let a = drive(root_a.path());
+    let b = drive(root_b.path());
+    let io = FakeIo::default();
+    stage(&a, &io, "unsent", b"durable local bytes");
+    stage(&b, &io, "remote", b"current cloud bytes");
+    b.sync_snapshots_with(&io).unwrap();
+    let pending = a.state.lock().unwrap().pending.clone();
+    let pending_before = serde_json::to_vec(&pending).unwrap();
+    let mutations = {
+        let backend = io.0.borrow();
+        (
+            backend.uploads,
+            backend.copies,
+            backend.publications,
+            backend.collections,
+            backend.deleted.clone(),
+        )
+    };
+
+    a.pull_snapshots_with(&io).unwrap();
+
+    assert_eq!(
+        serde_json::to_vec(&a.state.lock().unwrap().pending).unwrap(),
+        pending_before
+    );
+    assert_eq!(
+        fs::read(a.spool_path(&pending[0])).unwrap(),
+        b"durable local bytes"
+    );
+    let view = a.view().unwrap();
+    assert!(matches!(
+        view["unsent"],
+        super::super::virtual_drive::Revision::Local { .. }
+    ));
+    let super::super::virtual_drive::Revision::Cloud { content, .. } = &view["remote"] else {
+        panic!("remote metadata was not materialized");
+    };
+    assert_eq!(
+        content.hash,
+        blake3::hash(b"current cloud bytes").to_hex().to_string()
+    );
+    let backend = io.0.borrow();
+    assert_eq!(
+        (
+            backend.uploads,
+            backend.copies,
+            backend.publications,
+            backend.collections,
+            backend.deleted.clone()
+        ),
+        mutations
+    );
+    drop(backend);
+
+    // Bootstrap left the intent usable by the ordinary durable sync path.
+    a.sync_snapshots_with(&io).unwrap();
+    assert!(a.state.lock().unwrap().pending.is_empty());
+    assert_eq!(visible_bytes(&a, &io)["unsent"], b"durable local bytes");
+}
+
+#[test]
+fn metadata_bootstrap_outage_or_invalid_record_keeps_local_state_and_spool() {
+    for invalid_record in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let d = drive(root.path());
+        let io = FakeIo::default();
+        stage(&d, &io, "unsent", b"retain me");
+        let pending = d.state.lock().unwrap().pending.clone();
+        let namespace_before = serde_json::to_vec(&*d.state.lock().unwrap()).unwrap();
+        if invalid_record {
+            io.0.borrow_mut().records.insert(
+                ("snapshots".into(), "invalid-identity".into()),
+                b"{}".to_vec(),
+            );
+        } else {
+            io.0.borrow_mut().fail_collect = true;
+        }
+
+        assert!(d.pull_snapshots_with(&io).is_err());
+
+        assert_eq!(
+            serde_json::to_vec(&*d.state.lock().unwrap()).unwrap(),
+            namespace_before
+        );
+        assert_eq!(fs::read(d.spool_path(&pending[0])).unwrap(), b"retain me");
+        let backend = io.0.borrow();
+        assert_eq!(
+            (
+                backend.uploads,
+                backend.copies,
+                backend.publications,
+                backend.collections
+            ),
+            (0, 0, 0, 0)
+        );
+        assert!(backend.deleted.is_empty());
+    }
 }

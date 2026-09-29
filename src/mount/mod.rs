@@ -3,6 +3,7 @@ pub(crate) mod adapter;
 pub(crate) mod capacity;
 mod dav;
 mod incremental;
+mod lifecycle;
 mod namespace;
 pub(crate) mod peer_projection;
 mod peer_snapshot;

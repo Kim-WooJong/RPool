@@ -81,6 +81,7 @@ pub(crate) fn run<T: Send, R: Send>(
     let mut active = BTreeMap::<String, usize>::new();
     let mut running = 0;
     let mut fatal = None;
+    let operation = crate::storage::traits::OperationContext::none();
     std::thread::scope(|scope| {
         for _ in 0..thread_count {
             let work_rx = &work_rx;
@@ -101,6 +102,16 @@ pub(crate) fn run<T: Send, R: Send>(
             });
         }
         loop {
+            // Stop dispatch/retry waits, but drain running results through complete
+            // so verified writes still get their durable journal receipts.
+            if fatal.is_none() && operation.is_cancelled() {
+                fatal = Some(
+                    crate::storage::error::StorageError::Cancelled {
+                        detail: "transfer scheduling cancelled".into(),
+                    }
+                    .into(),
+                );
+            }
             if fatal.is_none() {
                 while running < thread_count {
                     let mut selected = None;
@@ -159,7 +170,7 @@ pub(crate) fn run<T: Send, R: Send>(
             let wait = next_ready
                 .map(|at| at.saturating_duration_since(Instant::now()))
                 .unwrap_or(Duration::from_secs(1));
-            let received = done_rx.recv_timeout(wait);
+            let received = done_rx.recv_timeout(wait.min(Duration::from_millis(50)));
             let Ok((domain, mut pending, result)) = received else {
                 continue;
             };
@@ -185,7 +196,21 @@ pub(crate) fn run<T: Send, R: Send>(
                 }
                 Ok(_) => {}
                 Err(error) => {
-                    if fatal.is_none() {
+                    // Cancellation stops dispatch, but says nothing about already
+                    // running mutations. Preserve uncertainty over any other
+                    // terminal error, and real failures over a clean cancellation.
+                    let priority = |error: &anyhow::Error| match error
+                        .downcast_ref::<crate::storage::error::StorageError>()
+                        .map(crate::storage::error::StorageError::kind)
+                    {
+                        Some(crate::storage::error::StorageErrorKind::UnknownOutcome) => 2,
+                        Some(crate::storage::error::StorageErrorKind::Cancelled) => 0,
+                        _ => 1,
+                    };
+                    if fatal
+                        .as_ref()
+                        .map_or(true, |previous| priority(&error) > priority(previous))
+                    {
                         fatal = Some(error);
                     }
                 }

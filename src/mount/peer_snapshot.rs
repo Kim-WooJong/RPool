@@ -515,13 +515,16 @@ impl VirtualDrive {
         Ok(())
     }
     pub(crate) fn pull_snapshots(&self) -> Result<()> {
+        let store = self.snapshot_store()?;
+        self.pull_snapshots_with(&store)
+    }
+    fn pull_snapshots_with(&self, store: &dyn Io) -> Result<()> {
         let _gate = self
             .sync_gate
             .lock()
             .map_err(|_| anyhow!("sync gate poisoned"))?;
-        let store = self.snapshot_store()?;
         let mut state = self.snapshot_state()?;
-        let analysis = self.refresh_snapshots(&mut state, &store)?;
+        let analysis = self.refresh_snapshots(&mut state, store)?;
         self.materialize_snapshots(&mut state, &analysis)
     }
     fn make_plan(
