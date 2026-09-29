@@ -84,7 +84,7 @@ pub(crate) struct RangeStart {
     pub(crate) encrypted_offset: u64,
     /// Plaintext bytes of the first block to drop.
     pub(crate) discard: u64,
-    block: u64,
+    pub(crate) block: u64,
 }
 
 pub(crate) fn range_start(offset: u64) -> RangeStart {
@@ -180,6 +180,19 @@ impl Cipher {
             discard,
             finished: false,
         }
+    }
+
+    /// Opens one sealed block (tag + ciphertext) with `nonce`.
+    pub(crate) fn open_block(&self, nonce: &Nonce, sealed: &[u8]) -> Result<Vec<u8>> {
+        if sealed.len() <= BLOCK_TAG as usize || sealed.len() > BLOCK_SIZE as usize {
+            bail!("encrypted file has a bad block header");
+        }
+        let tag = Tag::clone_from_slice(&sealed[..BLOCK_TAG as usize]);
+        let mut plain = sealed[BLOCK_TAG as usize..].to_vec();
+        self.secretbox()
+            .decrypt_in_place_detached(&nonce.0.into(), b"", &mut plain, &tag)
+            .map_err(|_| anyhow!("failed to authenticate decrypted block - bad password?"))?;
+        Ok(plain)
     }
 
     /// Whole-buffer helpers.

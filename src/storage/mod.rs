@@ -5,6 +5,7 @@ pub(crate) mod error;
 // Synthetic contract backend; not a production archive write destination.
 #[cfg(test)]
 pub(crate) mod memory;
+pub(crate) mod native_crypt;
 // Unix-only synthetic prototype. Windows reparse-safe support is not implemented.
 #[cfg(all(test, unix))]
 pub(crate) mod local;
