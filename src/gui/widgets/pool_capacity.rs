@@ -93,7 +93,7 @@ impl CapacityPreview {
             {
                 ui.small("Independent account budgets and outage groups must be declared explicitly; crypt aliases share their backing account.");
                 if ui
-                    .button("Set account / outage groups in Mount drive")
+                    .button("Set account / outage groups (no mount needed)")
                     .clicked()
                 {
                     return true;
@@ -135,8 +135,19 @@ pub(crate) fn summary(ui: &mut egui::Ui, c: &CapacityStatus) {
         );
         return;
     }
+    ui.strong(format!(
+        "Pool data capacity after parity: {} total · {} remaining{}",
+        format_bytes(c.nominal_logical_upper),
+        format_bytes(c.remaining_logical_upper),
+        if c.quota_complete {
+            ""
+        } else {
+            " (conservative reported quota; partial)"
+        }
+    ));
+    ui.small("Calculated from the sum of independent account quotas × data shards / (data + parity shards), not the smallest provider multiplied as RAID. This is a coding-only upper bound, not guaranteed writable space.");
     ui.label(format!(
-        "Known account budget: {} occupied / {} total · {} free{}",
+        "Account storage: {} occupied / {} total · {} free{}",
         format_bytes(c.physical_occupied),
         format_bytes(c.physical_total),
         format_bytes(c.physical_free),
@@ -146,14 +157,20 @@ pub(crate) fn summary(ui: &mut egui::Ui, c: &CapacityStatus) {
             " (partial; not the full pool)"
         }
     ));
-    ui.label(format!(
-        "Coding-only maximum upper bound: {} · remaining upper bound: {}",
-        format_bytes(c.nominal_logical_upper),
-        format_bytes(c.remaining_logical_upper)
-    ));
+    ui.small("Account occupied space includes parity, retained history and files outside RPool; it is not the visible RPool file size.");
+    if let Some(scenario) = &c.independent_quota_scenario {
+        ui.label(format!(
+            "If unverified backing accounts are independent: {} total data · {} remaining data ({} physical total · {} physical free)",
+            format_bytes(scenario.nominal_logical_upper),
+            format_bytes(scenario.remaining_logical_upper),
+            format_bytes(scenario.physical_total),
+            format_bytes(scenario.physical_free)
+        ));
+        ui.small("What-if estimate only. Distinct remote names can share one account; declare quota identities before treating this as available capacity. It does not change upload admission or the mounted OS free-space report.");
+    }
     if c.required_failure_groups > 0 {
         ui.label(format!(
-            "Resilient outage groups: {} declared and quota-eligible / {} minimum for this K+M layout",
+            "Resilient outage groups: {} declared and quota-eligible / {} needed for a full K+M stripe (smaller files may still fit)",
             c.eligible_failure_groups, c.required_failure_groups
         ));
         if let Some(upper) = c.resilient_remaining_upper {
@@ -164,7 +181,7 @@ pub(crate) fn summary(ui: &mut egui::Ui, c: &CapacityStatus) {
         }
     }
     ui.label(format!(
-        "Placement-verified additional file estimate: {}{}",
+        "Placement-checked next-file estimate: {}{}",
         format_bytes(c.additional_estimate),
         if c.estimate_limited {
             " (simulation-capped lower bound)"

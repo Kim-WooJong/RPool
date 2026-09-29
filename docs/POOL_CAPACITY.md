@@ -23,9 +23,10 @@ and rclone quota support but do not scan file contents or synchronize metadata.
 | Value | Meaning |
 |---|---|
 | Account total / occupied / free | Provider quota, counted once per account domain. Occupied is total minus free, including parity, history, other applications, and possibly trash. Not RPool-only file size. |
-| Coding-only nominal logical upper bound | Total known quota × K/(K+M), or total with no parity. No simulation truncation. An upper bound, **not** the maximum guaranteed by placement or any particular workload. |
+| Pool data after parity | Sum of confirmed independent account quotas × K/(K+M), or the sum without parity. This is not a RAID minimum-provider calculation and has no simulation truncation. It remains a coding-only **upper bound**, not guaranteed writable capacity. |
 | Remaining logical upper bound | The same ratio applied to current known free quota. |
-| Outage-aware remaining upper bound | For Resilient placement with declared outage groups, also excludes the quota held only by the largest single outage group: that group's loss must leave enough physical bytes to reconstruct the logical data. Shows zero if fewer than `ceil((K+M)/M)` eligible outage groups exist. Still an upper bound, not guaranteed writable space; pending uploads reduce it. |
+| If unverified backing accounts are independent | Display-only what-if total/free after parity, counting each distinct backing section once and preserving declared shared-quota groups. Different backing sections can still share one account; this number does **not** authorize uploads or become mounted OS free space. |
+| Outage-aware remaining upper bound | For Resilient placement with declared outage groups, also excludes the quota held only by the largest single outage group: that group's loss must leave enough physical bytes to reconstruct the logical data. `ceil((K+M)/M)` groups are required for a **full stripe**, but smaller files may fit with fewer groups. Still an upper bound, not guaranteed writable space; pending uploads reduce it. |
 | Placement-verified additional file estimate | A feasible single-file size found using the same quota-domain and placement allocator as upload admission. Includes partial final groups and full-size parity. Not a global optimum or a guarantee for many small files. |
 | Logical file usage | Available from a mounted/workspace namespace, including visible conflicts and queued writes. Pure pool queries return `namespace_used: null` rather than pretending usage is zero. |
 
@@ -36,6 +37,11 @@ Unknown identities are conservatively grouped; rejected quota targets and incomp
 coverage are displayed explicitly. The Pools capacity preview now lists included
 backing quotas and exclusions and links to the Mount identity editor. No quota
 response means unknown, not known full.
+
+For a single logical file of `L` bytes, with `K` data shards, `M` parity shards
+and shard size `S`, planned physical storage is `L + ceil(L/(K×S))×M×S`
+(or `L` without parity). The `K/(K+M)` capacity figure describes full-stripe
+efficiency; many small files use proportionally more parity and metadata.
 
 Resilient also enforces outage-domain constraints. Consequently the coding-only
 upper bound may be large while no tested placement fits. The feasible estimator

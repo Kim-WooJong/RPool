@@ -754,11 +754,11 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
         ui.group(|ui| {
             ui.heading("Cloud pool capacity");
             crate::gui::widgets::pool_capacity::summary(ui, capacity);
-            ui.label(format!("{} (without parity): {:.2} GiB / estimated usable ceiling: {:.2} GiB",
+            ui.label(format!("{} (logical file bytes): {:.2} GiB / including the next-file estimate: {:.2} GiB",
                 if capacity.usage_scope == "shared-namespace" {"Known shared files + pending"} else {"Current local files"}, capacity.logical_used as f64 / 1073741824.0, capacity.logical_ceiling_estimate as f64 / 1073741824.0));
             let age = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs().saturating_sub(capacity.observed_unix)).unwrap_or(0);
-            ui.label(format!("Additional file capacity estimate: {:.2} GiB · eligible targets: {} · snapshot: {} seconds ago",
+            ui.label(format!("Next-file estimate: {:.2} GiB · eligible targets: {} · snapshot: {} seconds ago",
                 capacity.additional_estimate as f64 / 1073741824.0, capacity.eligible.len(), age));
             if age > 120 || capacity.eligible.is_empty() {
                 ui.colored_label(egui::Color32::YELLOW, "Cloud capacity is unverified/stale. Explorer reports zero additional free space conservatively, not a real 1 PB drive. This is not proof that the pool is full; refresh capacity and check account errors.");

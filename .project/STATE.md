@@ -196,6 +196,19 @@ Real cloud/native Windows/Linux and interactive GUI remain untested.
 
 ## Capacity follow-up (2026-09-29)
 
+Latest parity-capacity presentation: Pool and Mount GUI plus `pool capacity`
+foreground summed independent account quota × K/(K+M) as coding-only logical
+total/remaining, separate from the placement-checked next-file estimate. A
+display-only scenario sums distinct unverified backing sections (deduplicating
+crypt aliases); it is explicitly conditional and never used for upload admission
+or virtual OS quota. Resilient full-stripe group shortfall no longer forces a
+false zero upper bound for possible partial stripes. In a projects-side copy,
+macOS serial all-target suite **456 passed / 13 ignored**, fmt/diff and stable
+1.98.1 warnings-denied release passed; Windows x64 GNU release cross-build
+passed. Actual provider quota queries, interactive GUI and native Windows mount
+capacity remain unverified. Source changes are restricted to capacity, GUI,
+CLI, docs and the necessary BudgetSnapshot constructors.
+
 Heterogeneous quota follow-up: the observed 2 GiB total / 0 B free is caused
 by undeclared account identities collapsing independent quotas to their
 smallest reported budget and undeclared outage groups blocking Resilient

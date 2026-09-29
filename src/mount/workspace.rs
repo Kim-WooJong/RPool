@@ -605,6 +605,7 @@ pub(super) fn upload_eligible_registered(
         let snapshot = crate::storage::admin::budget::BudgetSnapshot {
             targets: status.targets.clone(),
             rejected: vec![],
+            observed_targets: vec![],
         };
         let mut budgets = snapshot.budgets();
         for shard in &plan.shards {

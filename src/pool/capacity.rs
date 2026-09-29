@@ -54,8 +54,14 @@ pub(crate) fn run(rclone: &str, args: crate::cli::pool::PoolCapacityArgs) -> Res
             "Account quota (known, deduplicated): total={} occupied={} free={} bytes; complete={}",
             c.physical_total, c.physical_occupied, c.physical_free, c.quota_complete
         );
-        println!("Coding-only nominal logical upper bound={} bytes; current remaining upper bound={} bytes", c.nominal_logical_upper, c.remaining_logical_upper);
-        println!("Planner-verified additional file estimate={} bytes; simulation_limited={}; namespace_usage=not_queried", c.additional_estimate, c.estimate_limited);
+        println!(
+            "Pool data after parity (coding-only upper bound): total={} remaining={} bytes",
+            c.nominal_logical_upper, c.remaining_logical_upper
+        );
+        if let Some(scenario) = &c.independent_quota_scenario {
+            println!("If unverified backing accounts are independent (NOT verified/admissible): total={} remaining={} logical bytes", scenario.nominal_logical_upper, scenario.remaining_logical_upper);
+        }
+        println!("Placement-checked next-file estimate={} bytes; simulation_limited={}; namespace_usage=not_queried", c.additional_estimate, c.estimate_limited);
         println!("{}", c.note);
         for excluded in &c.excluded {
             println!("Excluded {}: {}", excluded.remote, excluded.reason);

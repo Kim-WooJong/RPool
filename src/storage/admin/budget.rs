@@ -15,6 +15,8 @@ pub(crate) struct TargetBudget {
 pub(crate) struct BudgetSnapshot {
     pub targets: Vec<TargetBudget>,
     pub rejected: Vec<(String, String, bool)>,
+    /// Valid quota responses before unresolved identities are excluded from admission.
+    pub observed_targets: Vec<TargetBudget>,
 }
 impl BudgetSnapshot {
     pub(crate) fn query(
@@ -86,6 +88,7 @@ impl BudgetSnapshot {
                 }
             }
         }
+        result.observed_targets = result.targets.clone();
         // Unknown configuration sections might alias any declared account.
         // Never add their budget as though it were independent.
         if result.targets.iter().any(|t| t.declared) {
@@ -248,6 +251,7 @@ mod tests {
         let remotes = ["a:".into(), "alias:".into(), "b:".into()];
         let unknown = BudgetSnapshot::query(&admin, &catalog, &remotes);
         assert_eq!(unknown.total_free().unwrap(), 2u64 << 30);
+        assert_eq!(unknown.observed_targets.len(), 3);
 
         catalog.set_domains(DomainStore {
             version: 1,

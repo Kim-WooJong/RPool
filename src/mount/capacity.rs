@@ -19,6 +19,74 @@ pub(crate) struct AccountCapacity {
     pub declared: bool,
 }
 
+/// A display-only scenario: each unverified backing section has its own quota.
+/// It must never be used for upload admission or OS free-space reporting.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct IndependentQuotaScenario {
+    pub physical_total: u64,
+    pub physical_free: u64,
+    pub physical_occupied: u64,
+    pub nominal_logical_upper: u64,
+    pub remaining_logical_upper: u64,
+}
+
+fn coding_ratio(bytes: u64, policy: &PoolDefinition) -> u64 {
+    if policy.parity_shards == 0 {
+        bytes
+    } else {
+        ((bytes as u128 * policy.data_shards as u128)
+            / (policy.data_shards + policy.parity_shards) as u128) as u64
+    }
+}
+
+impl IndependentQuotaScenario {
+    fn from_targets(
+        targets: &[crate::storage::admin::budget::TargetBudget],
+        policy: &PoolDefinition,
+    ) -> Result<Option<Self>> {
+        if !targets.iter().any(|target| !target.declared) {
+            return Ok(None);
+        }
+        let mut groups = BTreeMap::<(bool, String), (u64, u64)>::new();
+        for target in targets {
+            // Declared shared quotas stay shared. Unverified crypt/alias wrappers
+            // resolve to one backing section, but separate sections may still
+            // be the same account; this is only an explicit what-if scenario.
+            let key = if target.declared {
+                (true, target.capacity_domain.clone())
+            } else {
+                (false, target.backing.clone())
+            };
+            groups
+                .entry(key)
+                .and_modify(|(total, free)| {
+                    *total = (*total).min(target.total);
+                    *free = (*free).min(target.free);
+                })
+                .or_insert((target.total, target.free));
+        }
+        let (physical_total, physical_free) = groups.values().try_fold(
+            (0u64, 0u64),
+            |(total, free), (group_total, group_free)| {
+                Ok::<_, anyhow::Error>((
+                    total
+                        .checked_add(*group_total)
+                        .context("scenario total overflow")?,
+                    free.checked_add(*group_free)
+                        .context("scenario free overflow")?,
+                ))
+            },
+        )?;
+        Ok(Some(Self {
+            physical_total,
+            physical_free,
+            physical_occupied: physical_total.saturating_sub(physical_free),
+            nominal_logical_upper: coding_ratio(physical_total, policy),
+            remaining_logical_upper: coding_ratio(physical_free, policy),
+        }))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct CapacityStatus {
     pub eligible: Vec<String>,
@@ -30,6 +98,8 @@ pub(crate) struct CapacityStatus {
     pub physical_free: u64,
     #[serde(default)]
     pub physical_occupied: u64,
+    #[serde(default)]
+    pub independent_quota_scenario: Option<IndependentQuotaScenario>,
     #[serde(default)]
     pub quota_complete: bool,
     #[serde(default)]
@@ -116,6 +186,8 @@ impl CapacityStatus {
             })
             .collect();
         status.budget = snapshot.total_free()?;
+        status.independent_quota_scenario =
+            IndependentQuotaScenario::from_targets(&snapshot.observed_targets, policy)?;
         status.targets = snapshot.targets;
         status.update_account_totals(policy)?;
         status.recalculate(policy)?;
@@ -182,16 +254,8 @@ impl CapacityStatus {
         self.quota_complete = self.excluded.is_empty()
             && !self.accounts.is_empty()
             && self.accounts.iter().all(|a| a.declared);
-        let ratio = |bytes: u64| -> u64 {
-            if policy.parity_shards == 0 {
-                bytes
-            } else {
-                ((bytes as u128 * policy.data_shards as u128)
-                    / (policy.data_shards + policy.parity_shards) as u128) as u64
-            }
-        };
-        self.nominal_logical_upper = ratio(self.physical_total);
-        self.remaining_logical_upper = ratio(self.physical_free);
+        self.nominal_logical_upper = coding_ratio(self.physical_total, policy);
+        self.remaining_logical_upper = coding_ratio(self.physical_free, policy);
         Ok(())
     }
 
@@ -226,6 +290,7 @@ impl CapacityStatus {
                 for (domain, free) in (crate::storage::admin::budget::BudgetSnapshot {
                     targets: self.targets.clone(),
                     rejected: vec![],
+                    observed_targets: vec![],
                 })
                 .budgets()
                 {
@@ -240,15 +305,10 @@ impl CapacityStatus {
                     }
                 }
                 let largest = exclusive_free.values().copied().max().unwrap_or(0);
+                // Fewer groups than a full K+M stripe needs can still fit a
+                // partial final stripe. Do not report a false zero bound.
                 self.resilient_remaining_upper = Some(
-                    if self.eligible_failure_groups < self.required_failure_groups {
-                        0
-                    } else {
-                        (((self.budget as u128 * policy.data_shards as u128)
-                            / (policy.data_shards + policy.parity_shards) as u128)
-                            as u64)
-                            .min(self.budget.saturating_sub(largest))
-                    },
+                    coding_ratio(self.budget, policy).min(self.budget.saturating_sub(largest)),
                 );
             }
         }
@@ -344,6 +404,7 @@ impl CapacityStatus {
             let snapshot = crate::storage::admin::budget::BudgetSnapshot {
                 targets: self.targets.clone(),
                 rejected: vec![],
+                observed_targets: vec![],
             };
             let assignments = match crate::placement::assign_with_budget(
                 &snapshot,
@@ -375,6 +436,7 @@ impl CapacityStatus {
         self.budget = crate::storage::admin::budget::BudgetSnapshot {
             targets: self.targets.clone(),
             rejected: vec![],
+            observed_targets: vec![],
         }
         .total_free()?;
         self.recalculate(policy)
@@ -403,6 +465,7 @@ impl CapacityStatus {
             &crate::storage::admin::budget::BudgetSnapshot {
                 targets: self.targets.clone(),
                 rejected: vec![],
+                observed_targets: vec![],
             },
             &specs,
             policy.placement,
@@ -530,6 +593,33 @@ mod tests {
         s.check_upload(&policy(), 17).unwrap();
         assert!(s.check_upload(&policy(), 18).is_err());
         assert!(!s.quota_complete);
+        let scenario = s.independent_quota_scenario.as_ref().unwrap();
+        // x: and y: resolve to the same backing; unknown: is only a what-if.
+        assert_eq!(scenario.physical_total, 200 * 1048576);
+        assert_eq!(scenario.nominal_logical_upper, 160 * 1048576);
+    }
+    #[test]
+    fn mixed_declared_and_unknown_quotas_keep_admission_conservative() {
+        let a = admin();
+        let mut catalog = a.catalog().unwrap();
+        catalog.set_domains(crate::storage::admin::domains::DomainStore {
+            version: 1,
+            remotes: BTreeMap::from([(
+                "a".into(),
+                crate::storage::admin::domains::DomainIdentity {
+                    capacity: "account-a".into(),
+                    failure: String::new(),
+                },
+            )]),
+        });
+        let s = CapacityStatus::with_catalog(&a, &catalog, &policy()).unwrap();
+        assert_eq!(s.physical_total, 100 * 1048576);
+        assert_eq!(s.targets.len(), 2); // x:/y: are one declared account.
+        assert!(s.excluded.iter().any(|x| x.remote == "unknown:"));
+        let scenario = s.independent_quota_scenario.as_ref().unwrap();
+        assert_eq!(scenario.physical_total, 200 * 1048576);
+        assert_eq!(scenario.remaining_logical_upper, 128 * 1048576);
+        assert_eq!(s.budget, 80 * 1048576);
     }
     #[test]
     fn pending_upload_reserves_parity_and_preserves_observed_account_quota() {
@@ -754,6 +844,7 @@ mod tests {
         status.update_outage_bound(&p).unwrap();
         assert_eq!(status.required_failure_groups, 4);
         assert_eq!(status.eligible_failure_groups, 2);
-        assert_eq!(status.resilient_remaining_upper, Some(0));
+        assert_eq!(status.resilient_remaining_upper, Some(2 * gib));
+        status.check_upload(&p, gib).unwrap(); // One data shard + parity fits.
     }
 }

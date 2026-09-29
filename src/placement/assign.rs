@@ -358,6 +358,7 @@ mod tests {
                 })
                 .collect(),
             rejected: vec![],
+            observed_targets: vec![],
         }
     }
     #[test]

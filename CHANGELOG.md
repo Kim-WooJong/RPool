@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Pool capacity now foregrounds summed independent account storage after
+  data/parity overhead. Unverified backing accounts get a separately labelled
+  independence what-if estimate; actual admission/OS free space remains
+  conservative. Resilient partial stripes no longer show a false zero upper
+  bound merely because a full stripe needs more outage groups.
+
 - Pool provider selection now adds discovered crypt remotes at `name:` without
   appending the GUI default folder. Existing saved destinations are unchanged.
 
