@@ -841,6 +841,98 @@ mod tests {
         let (new_puts, new_seals, new_spool) = replay(delay, 8);
         assert_eq!((new_puts, new_seals, new_spool), (1, 1, 8 * 32768));
     }
+    // Real rclone VFS + RC, still without the host NFS client: the stop path's
+    // drain must deliver a save queued behind the 60 s write-back immediately.
+    #[test]
+    #[ignore = "requires rclone"]
+    fn rclone_rc_drain_delivers_delayed_writeback_immediately() {
+        struct OwnedChild(std::process::Child);
+        impl Drop for OwnedChild {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        let free_port = || {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.local_addr().unwrap()
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let drive = Arc::new(super::super::virtual_drive::fixture(temp.path()));
+        let backend = Server::start(drive.clone(), false).unwrap();
+        let config = temp.path().join("empty-rclone.conf");
+        std::fs::write(&config, "").unwrap();
+        let (front, rc) = (free_port(), free_port());
+        let rclone = std::env::var_os("RPOOL_TEST_RCLONE").unwrap_or_else(|| {
+            if cfg!(target_os = "macos") {
+                "/opt/homebrew/bin/rclone".into()
+            } else {
+                "rclone".into()
+            }
+        });
+        let (_, write_back) = super::super::adapter::vfs_cache_policy(true);
+        let mut command = std::process::Command::new(rclone);
+        command
+            .args(["serve", "webdav", ":webdav:", "--addr"])
+            .arg(front.to_string())
+            .args(["--rc", "--rc-addr"])
+            .arg(rc.to_string())
+            .arg("--config")
+            .arg(config)
+            .arg("--cache-dir")
+            .arg(temp.path().join("vfs-cache"))
+            .args(["--vfs-cache-mode", "full", "--vfs-write-back", write_back])
+            .env_clear()
+            .env("RCLONE_RC_USER", "rpool")
+            .env("RCLONE_RC_PASS", "password")
+            .env("RCLONE_WEBDAV_URL", format!("http://{}", backend.address))
+            .env("RCLONE_WEBDAV_BEARER_TOKEN", &backend.token)
+            .env("RCLONE_WEBDAV_VENDOR", "other")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        let mut child = OwnedChild(command.spawn().unwrap());
+        let ready_by = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        for address in [front, rc] {
+            while std::net::TcpStream::connect_timeout(
+                &address,
+                std::time::Duration::from_millis(100),
+            )
+            .is_err()
+            {
+                assert!(child.0.try_wait().unwrap().is_none(), "rclone exited early");
+                assert!(std::time::Instant::now() < ready_by, "rclone did not bind");
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+        let body = vec![b'y'; 65536];
+        let mut socket = std::net::TcpStream::connect(front).unwrap();
+        write!(
+            socket,
+            "PUT /saved HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+            body.len()
+        )
+        .unwrap();
+        socket.write_all(&body).unwrap();
+        let mut response = String::new();
+        socket.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 201"), "{response}");
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        assert_eq!(backend.write_stats.put_successes.load(Ordering::Relaxed), 0);
+        let started = std::time::Instant::now();
+        let drained = super::super::adapter::drain_writeback(
+            rc,
+            "cnBvb2w6cGFzc3dvcmQ=",
+            std::time::Duration::from_secs(40),
+        )
+        .unwrap();
+        assert!(drained);
+        assert!(started.elapsed() < std::time::Duration::from_secs(20));
+        assert_eq!(backend.write_stats.put_successes.load(Ordering::Relaxed), 1);
+        let view = drive.view().unwrap();
+        let revision = &view["saved"];
+        assert_eq!(drive.read(revision, 0, 65536).unwrap(), body);
+    }
     #[test]
     fn fragmented_write_is_one_seal_and_short_body_is_not_sealed() {
         let temp = tempfile::tempdir().unwrap();

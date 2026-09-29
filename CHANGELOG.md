@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Safer native mount shutdown. Before quitting rclone, RPool now asks rclone to
+  upload its delayed (60 s) write-back queue into the still-running WebDAV
+  backend and waits up to 90 s for it to empty. rclone writes its output to a
+  private `.rpool/rclone-mount.log` (the previous session is kept as
+  `rclone-mount.previous.log`) instead of pipes, so it cannot be killed by
+  SIGPIPE if RPool exits first. When a macOS NFS stop is uncertain, the WebDAV
+  backend now stays up until rclone exits instead of disappearing under a live
+  kernel mount.
+
 - Default data shard size is now 64 MiB (was 220 MiB). Saved pools keep their
   stored `shard_mib`; existing manifests are unaffected. Shard sizes are
   limited to 1–4096 MiB in CLI, GUI and pool validation, and MiB→bytes

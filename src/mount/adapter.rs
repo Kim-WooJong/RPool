@@ -1,13 +1,19 @@
 //! Owned rclone mount process. Local/VFS data is deliberately never deleted here.
 use anyhow::{bail, Context, Result};
-use std::collections::VecDeque;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
+
+/// Upper bound for moving rclone's delayed write-back queue into the WebDAV
+/// backend before quitting. Remaining items stay in the durable VFS cache.
+const WRITEBACK_DRAIN_LIMIT: Duration = Duration::from_secs(90);
+const LOG_LINE_LIMIT: usize = 4096;
+const LOG_READ_LIMIT: u64 = 1024 * 1024;
+const LOG_LINES_RETURNED: usize = 200;
 
 pub(crate) struct MountConfig {
     pub(crate) rclone: String,
@@ -31,7 +37,7 @@ pub(crate) struct MountProcess {
     target: PathBuf,
     address: SocketAddr,
     credential: String,
-    logs: Arc<Mutex<VecDeque<String>>>,
+    logs: Mutex<MountLog>,
     stopped: bool,
     graceful_quit_requested: bool,
     shutdown_uncertain: bool,
@@ -51,6 +57,12 @@ impl MountProcess {
         let files = config.files_dir.canonicalize()?;
         let cache = config.cache_dir.canonicalize()?;
         let lease = MountLease::prepare(&files, &cache, &target, config.webdav.as_ref())?;
+        let log_path = files
+            .parent()
+            .context("workspace root missing")?
+            .join(".rpool")
+            .join("rclone-mount.log");
+        let log = open_mount_log(&log_path)?;
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let address = listener.local_addr()?;
         let mut random = [0u8; 32];
@@ -84,9 +96,11 @@ impl MountProcess {
             .env("RCLONE_RC_USER", "rpool")
             .env("RCLONE_RC_PASS", &password)
             .env("RCLONE_RC_NO_AUTH", "false")
+            // rclone writes its own log file, never a pipe: if RPool exits first,
+            // a pipe would kill rclone (SIGPIPE) while the kernel mount still needs it.
             .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stdout(Stdio::from(log.try_clone()?))
+            .stderr(Stdio::from(log));
         if let Some((url, token)) = &config.webdav {
             command
                 .env("RCLONE_WEBDAV_URL", url)
@@ -139,25 +153,9 @@ impl MountProcess {
             }
             return Err(error).context("cannot record mount child; uncertain lease retained unless child termination was confirmed");
         }
-        let logs = Arc::new(Mutex::new(VecDeque::new()));
-        if let Some(stdout) = child.stdout.take() {
-            collect_log(
-                stdout,
-                logs.clone(),
-                password.clone(),
-                credential.clone(),
-                config.webdav.as_ref().map(|(_, token)| token.clone()),
-            );
-        }
-        if let Some(stderr) = child.stderr.take() {
-            collect_log(
-                stderr,
-                logs.clone(),
-                password,
-                credential.clone(),
-                config.webdav.as_ref().map(|(_, token)| token.clone()),
-            );
-        }
+        let mut secrets = vec![password, credential.clone()];
+        secrets.extend(config.webdav.as_ref().map(|(_, token)| token.clone()));
+        let logs = Mutex::new(MountLog::new(log_path, secrets));
         Ok(Self {
             child,
             target,
@@ -222,8 +220,34 @@ impl MountProcess {
     pub(crate) fn logs(&self) -> Vec<String> {
         self.logs
             .lock()
-            .map(|mut logs| logs.drain(..).collect())
+            .map(|mut logs| logs.read_new())
             .unwrap_or_default()
+    }
+
+    pub(crate) fn is_running(&mut self) -> bool {
+        !self.stopped && matches!(self.child.try_wait(), Ok(None))
+    }
+
+    /// Waits up to `limit` for the owned rclone child to exit by itself and never
+    /// kills it. A live macOS NFS server may still answer kernel I/O through the
+    /// WebDAV backend, so the caller keeps that backend serving until this returns true.
+    pub(crate) fn wait_for_exit(&mut self, limit: Duration) -> Result<bool> {
+        let deadline = Instant::now() + limit;
+        loop {
+            match self.child.try_wait()? {
+                Some(status) => {
+                    self.stopped = true;
+                    // Same criteria as a timely graceful stop; otherwise the lease stays.
+                    if self.graceful_quit_requested && status.success() {
+                        self.lease.clear_if_unmounted(&self.target)?;
+                        self.shutdown_uncertain = false;
+                    }
+                    return Ok(true);
+                }
+                None if Instant::now() >= deadline => return Ok(false),
+                None => thread::sleep(Duration::from_millis(100)),
+            }
+        }
     }
 
     pub(crate) fn stop(&mut self) -> Result<StopReport> {
@@ -250,6 +274,17 @@ impl MountProcess {
                 forced: false,
                 cache_preserved: true,
             });
+        }
+        // Deliver delayed saves to the still-serving WebDAV backend before rclone quits.
+        match drain_writeback(self.address, &self.credential, WRITEBACK_DRAIN_LIMIT) {
+            Ok(true) => {}
+            Ok(false) => eprintln!(
+                "Native saves were still queued after {}s; they remain in the durable VFS cache for the next start",
+                WRITEBACK_DRAIN_LIMIT.as_secs()
+            ),
+            Err(error) => eprintln!(
+                "Native write-back queue not drained ({error:#}); queued saves remain in the VFS cache"
+            ),
         }
         self.graceful_quit_requested = self.rc("core/quit").is_ok();
         // macOS nfsmount must also tear down its loopback NFS server and native
@@ -288,26 +323,211 @@ impl MountProcess {
     }
 
     fn rc(&self, endpoint: &str) -> Result<Vec<u8>> {
-        let timeout = Duration::from_millis(400);
-        let mut stream = TcpStream::connect_timeout(&self.address, timeout)?;
-        stream.set_read_timeout(Some(timeout))?;
-        stream.set_write_timeout(Some(timeout))?;
-        write!(stream, "POST /{endpoint} HTTP/1.0\r\nHost: {}\r\nAuthorization: Basic {}\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{{}}", self.address, self.credential)?;
-        let mut response = Vec::new();
-        stream.take(1024 * 1024).read_to_end(&mut response)?;
-        let split = response
-            .windows(4)
-            .position(|w| w == b"\r\n\r\n")
-            .context("invalid mount control response")?;
-        let headers = std::str::from_utf8(&response[..split])?;
-        if !headers
-            .lines()
-            .next()
-            .is_some_and(|line| line.split_whitespace().nth(1) == Some("200"))
-        {
-            bail!("mount control endpoint unavailable");
+        rc_call(
+            self.address,
+            &self.credential,
+            endpoint,
+            "{}",
+            Duration::from_millis(400),
+            1024 * 1024,
+        )
+    }
+}
+
+fn rc_call(
+    address: SocketAddr,
+    credential: &str,
+    endpoint: &str,
+    body: &str,
+    timeout: Duration,
+    limit: u64,
+) -> Result<Vec<u8>> {
+    let mut stream = TcpStream::connect_timeout(&address, timeout)?;
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
+    write!(stream, "POST /{endpoint} HTTP/1.0\r\nHost: {address}\r\nAuthorization: Basic {credential}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())?;
+    let mut response = Vec::new();
+    stream.take(limit).read_to_end(&mut response)?;
+    let split = response
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .context("invalid mount control response")?;
+    let headers = std::str::from_utf8(&response[..split])?;
+    if !headers
+        .lines()
+        .next()
+        .is_some_and(|line| line.split_whitespace().nth(1) == Some("200"))
+    {
+        bail!("mount control endpoint unavailable");
+    }
+    Ok(response[split + 4..].to_vec())
+}
+
+/// Makes rclone upload its delayed write-back queue now and waits until it is
+/// empty. Returns false when `limit` expires. Items already retrying after an
+/// upload error keep their backoff instead of being retried in a tight loop.
+pub(super) fn drain_writeback(
+    address: SocketAddr,
+    credential: &str,
+    limit: Duration,
+) -> Result<bool> {
+    let started = Instant::now();
+    let mut next_note = started + Duration::from_secs(10);
+    loop {
+        let stats = rc_call(
+            address,
+            credential,
+            "vfs/stats",
+            "{}",
+            Duration::from_secs(2),
+            1024 * 1024,
+        )?;
+        let stats: serde_json::Value =
+            serde_json::from_slice(&stats).context("invalid rclone VFS statistics")?;
+        let Some(disk) = stats.get("diskCache") else {
+            return Ok(true); // No VFS cache, so nothing can be queued.
+        };
+        let pending = disk["uploadsQueued"].as_u64().unwrap_or(0)
+            + disk["uploadsInProgress"].as_u64().unwrap_or(0);
+        if pending == 0 {
+            return Ok(true);
         }
-        Ok(response[split + 4..].to_vec())
+        if started.elapsed() >= limit {
+            return Ok(false);
+        }
+        let queue = rc_call(
+            address,
+            credential,
+            "vfs/queue",
+            "{}",
+            Duration::from_secs(2),
+            8 * 1024 * 1024,
+        )
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+        for item in queue
+            .as_ref()
+            .and_then(|queue| queue["queue"].as_array())
+            .into_iter()
+            .flatten()
+        {
+            let waiting = item["uploading"].as_bool() == Some(false)
+                && item["tries"].as_u64().unwrap_or(0) == 0
+                && item["expiry"].as_f64().is_some_and(|expiry| expiry > 0.0);
+            if let (true, Some(id)) = (waiting, item["id"].as_i64()) {
+                // An item that started uploading meanwhile just returns an error.
+                let _ = rc_call(
+                    address,
+                    credential,
+                    "vfs/queue-set-expiry",
+                    &format!("{{\"id\":{id},\"expiry\":-1000000000}}"),
+                    Duration::from_secs(2),
+                    1024 * 1024,
+                );
+            }
+        }
+        if Instant::now() >= next_note {
+            eprintln!(
+                "Waiting for {pending} native saves to reach the RPool spool before unmounting"
+            );
+            next_note += Duration::from_secs(10);
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// Recreates the private rclone log, keeping the previous session's log for
+/// diagnosis. rclone does not log its RC credentials or the WebDAV bearer token;
+/// display still redacts them and the file stays owner-only in `.rpool`.
+fn open_mount_log(path: &Path) -> Result<std::fs::File> {
+    reject_link(path)?;
+    let previous = path.with_extension("previous.log");
+    reject_link(&previous)?;
+    if path.exists() {
+        std::fs::rename(path, &previous).context("cannot keep previous rclone mount log")?;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.create_new(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path).context("cannot create rclone mount log")
+}
+
+/// Incrementally reads rclone's log file into bounded, redacted display lines.
+struct MountLog {
+    path: PathBuf,
+    offset: u64,
+    partial: Vec<u8>,
+    discarding: bool,
+    secrets: Vec<String>,
+}
+
+impl MountLog {
+    fn new(path: PathBuf, secrets: Vec<String>) -> Self {
+        Self {
+            path,
+            offset: 0,
+            partial: Vec::new(),
+            discarding: false,
+            secrets: secrets.into_iter().filter(|s| !s.is_empty()).collect(),
+        }
+    }
+
+    fn read_new(&mut self) -> Vec<String> {
+        let mut chunk = Vec::new();
+        let read = std::fs::File::open(&self.path).and_then(|mut file| {
+            if file.metadata()?.len() < self.offset {
+                self.offset = 0;
+                self.partial.clear();
+                self.discarding = false;
+            }
+            file.seek(SeekFrom::Start(self.offset))?;
+            file.take(LOG_READ_LIMIT).read_to_end(&mut chunk)
+        });
+        if read.is_err() {
+            return Vec::new();
+        }
+        self.offset += chunk.len() as u64;
+        let mut lines = Vec::new();
+        let mut rest = &chunk[..];
+        while let Some(end) = rest.iter().position(|&byte| byte == b'\n') {
+            self.push(&rest[..end]);
+            lines.push(self.finish_line());
+            rest = &rest[end + 1..];
+        }
+        self.push(rest);
+        if lines.len() > LOG_LINES_RETURNED {
+            let omitted = lines.len() - LOG_LINES_RETURNED;
+            lines.drain(..omitted);
+            lines.insert(0, format!("[{omitted} earlier mount log lines omitted]"));
+        }
+        lines
+    }
+
+    fn push(&mut self, bytes: &[u8]) {
+        if self.discarding {
+            return;
+        }
+        self.partial.extend_from_slice(bytes);
+        if self.partial.len() > LOG_LINE_LIMIT {
+            // Never publish a truncated fragment that might end inside a secret.
+            self.partial.clear();
+            self.discarding = true;
+        }
+    }
+
+    fn finish_line(&mut self) -> String {
+        if std::mem::take(&mut self.discarding) {
+            return "[oversized mount log line omitted]".into();
+        }
+        let mut text = String::from_utf8_lossy(&std::mem::take(&mut self.partial)).into_owned();
+        for secret in &self.secrets {
+            text = text.replace(secret, "[redacted]");
+        }
+        text.trim_end().to_string()
     }
 }
 
@@ -742,67 +962,6 @@ fn normalized_existing_or_parent(path: &Path) -> Result<PathBuf> {
     Ok(parent.join(name))
 }
 
-fn collect_log<R: Read + Send + 'static>(
-    reader: R,
-    logs: Arc<Mutex<VecDeque<String>>>,
-    password: String,
-    credential: String,
-    bearer: Option<String>,
-) {
-    thread::spawn(move || {
-        // Bound both individual line allocation and retained output.
-        let mut reader = BufReader::new(reader);
-        loop {
-            let mut line = Vec::new();
-            let n = match Read::by_ref(&mut reader)
-                .take(4096)
-                .read_until(b'\n', &mut line)
-            {
-                Ok(n) => n,
-                Err(_) => break,
-            };
-            if n == 0 {
-                break;
-            }
-            let oversized = n == 4096 && line.last() != Some(&b'\n');
-            if oversized {
-                // Do not publish truncated credential fragments; discard the whole line.
-                loop {
-                    let available = match reader.fill_buf() {
-                        Ok(bytes) => bytes,
-                        Err(_) => return,
-                    };
-                    if available.is_empty() {
-                        break;
-                    }
-                    let end = available.iter().position(|b| *b == b'\n');
-                    let count = end.map_or(available.len(), |i| i + 1);
-                    reader.consume(count);
-                    if end.is_some() {
-                        break;
-                    }
-                }
-            }
-            let text = if oversized {
-                "[oversized mount log line omitted]".to_string()
-            } else {
-                String::from_utf8_lossy(&line)
-                    .replace(&password, "[redacted]")
-                    .replace(&credential, "[redacted]")
-            };
-            let text = bearer
-                .as_ref()
-                .map_or(text.clone(), |token| text.replace(token, "[redacted]"));
-            if let Ok(mut buffer) = logs.lock() {
-                if buffer.len() >= 200 {
-                    buffer.pop_front();
-                }
-                buffer.push_back(text.trim_end().to_string());
-            }
-        }
-    });
-}
-
 fn base64(bytes: &[u8]) -> String {
     const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
@@ -829,6 +988,7 @@ fn base64(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     #[test]
     fn dav_vfs_policy_keeps_dirty_writes_until_after_the_nfs_callback_burst() {
         assert_eq!(vfs_cache_policy(true), ("full", "60s"));
@@ -906,7 +1066,7 @@ mod tests {
             target: target.clone(),
             address,
             credential: "synthetic".into(),
-            logs: Arc::new(Mutex::new(VecDeque::new())),
+            logs: Mutex::new(MountLog::new(PathBuf::from("unused-mount.log"), Vec::new())),
             stopped: false,
             graceful_quit_requested: false,
             shutdown_uncertain: false,
@@ -944,7 +1104,7 @@ mod tests {
             target: target.clone(),
             address,
             credential: "synthetic".into(),
-            logs: Arc::new(Mutex::new(VecDeque::new())),
+            logs: Mutex::new(MountLog::new(PathBuf::from("unused-mount.log"), Vec::new())),
             stopped: false,
             graceful_quit_requested: false,
             shutdown_uncertain: false,
@@ -1031,7 +1191,7 @@ mod tests {
             target,
             address,
             credential: "synthetic".into(),
-            logs: Arc::new(Mutex::new(VecDeque::new())),
+            logs: Mutex::new(MountLog::new(PathBuf::from("unused-mount.log"), Vec::new())),
             stopped: false,
             graceful_quit_requested: false,
             shutdown_uncertain: false,
@@ -1043,6 +1203,291 @@ mod tests {
         assert!(process.child.try_wait().unwrap().is_some());
         assert!(!lease_path.exists());
         assert_eq!(std::fs::read(sentinel).unwrap(), b"must survive");
+    }
+
+    #[test]
+    fn mount_log_tails_incrementally_redacts_and_bounds_output() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("rclone-mount.log");
+        let mut log = MountLog::new(path.clone(), vec!["s3cret".into(), String::new()]);
+        assert!(log.read_new().is_empty()); // Missing file is not an error.
+        std::fs::write(&path, b"first s3cret line\npartial").unwrap();
+        assert_eq!(log.read_new(), ["first [redacted] line"]);
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(b" continued\n").unwrap();
+        assert_eq!(log.read_new(), ["partial continued"]);
+        file.write_all(&vec![b'x'; LOG_LINE_LIMIT + 10]).unwrap();
+        assert!(log.read_new().is_empty());
+        file.write_all(b"tail-s3cret\nnext\n").unwrap();
+        assert_eq!(
+            log.read_new(),
+            ["[oversized mount log line omitted]", "next"]
+        );
+        let many: String = (0..LOG_LINES_RETURNED + 5)
+            .map(|i| format!("{i}\n"))
+            .collect();
+        file.write_all(many.as_bytes()).unwrap();
+        let lines = log.read_new();
+        assert_eq!(lines.len(), LOG_LINES_RETURNED + 1);
+        assert_eq!(lines[0], "[5 earlier mount log lines omitted]");
+        assert_eq!(lines.last().unwrap(), &(LOG_LINES_RETURNED + 4).to_string());
+    }
+
+    #[test]
+    fn mount_log_is_private_and_keeps_previous_session() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("rclone-mount.log");
+        std::fs::write(&path, b"old session\n").unwrap();
+        let mut file = open_mount_log(&path).unwrap();
+        file.write_all(b"new session\n").unwrap();
+        assert_eq!(
+            std::fs::read(root.path().join("rclone-mount.previous.log")).unwrap(),
+            b"old session\n"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"new session\n");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+            let link = root.path().join("linked.log");
+            std::os::unix::fs::symlink(&path, &link).unwrap();
+            assert!(open_mount_log(&link).is_err());
+        }
+    }
+
+    /// Minimal authenticated rclone RC stand-in: answers vfs/stats, vfs/queue and
+    /// records vfs/queue-set-expiry calls.
+    fn fake_rc(
+        queued: Arc<std::sync::atomic::AtomicU64>,
+        tries: u64,
+    ) -> (SocketAddr, Arc<Mutex<Vec<String>>>) {
+        use std::sync::atomic::Ordering;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let seen = calls.clone();
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut request = Vec::new();
+                let mut buffer = [0u8; 4096];
+                loop {
+                    let n = stream.read(&mut buffer).unwrap_or(0);
+                    request.extend_from_slice(&buffer[..n]);
+                    if n == 0 || request.windows(4).any(|w| w == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let text = String::from_utf8_lossy(&request).into_owned();
+                let head = text.split("\r\n\r\n").next().unwrap_or("").to_string();
+                let length: usize = head
+                    .lines()
+                    .find_map(|l| l.strip_prefix("Content-Length: "))
+                    .and_then(|v| v.trim().parse().ok())
+                    .unwrap_or(0);
+                let mut body = text
+                    .split_once("\r\n\r\n")
+                    .map(|(_, b)| b.to_string())
+                    .unwrap_or_default();
+                while body.len() < length {
+                    let n = stream.read(&mut buffer).unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    body.push_str(&String::from_utf8_lossy(&buffer[..n]));
+                }
+                let authorized = head.contains("Authorization: Basic cnBvb2w6cGFzc3dvcmQ=");
+                let endpoint = head.split_whitespace().nth(1).unwrap_or("").to_string();
+                seen.lock().unwrap().push(format!("{endpoint} {body}"));
+                let reply = match (authorized, endpoint.as_str()) {
+                    (false, _) => None,
+                    (true, "/vfs/stats") => Some(format!(
+                        "{{\"diskCache\":{{\"uploadsQueued\":{},\"uploadsInProgress\":0}}}}",
+                        queued.load(Ordering::SeqCst)
+                    )),
+                    (true, "/vfs/queue") => Some(format!(
+                        "{{\"queue\":[{{\"id\":7,\"uploading\":false,\"tries\":{tries},\"expiry\":59.5}}]}}"
+                    )),
+                    (true, "/vfs/queue-set-expiry") => {
+                        queued.store(0, Ordering::SeqCst);
+                        Some("{}".into())
+                    }
+                    _ => None,
+                };
+                let response = match reply {
+                    Some(json) => format!(
+                        "HTTP/1.0 200 OK\r\nContent-Length: {}\r\n\r\n{json}",
+                        json.len()
+                    ),
+                    None => "HTTP/1.0 401 Unauthorized\r\nContent-Length: 0\r\n\r\n".into(),
+                };
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        (address, calls)
+    }
+
+    #[test]
+    fn drain_expedites_delayed_writeback_until_queue_is_empty() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        let credential = base64(b"rpool:password");
+        let queued = Arc::new(AtomicU64::new(1));
+        let (address, calls) = fake_rc(queued.clone(), 0);
+        assert!(drain_writeback(address, &credential, Duration::from_secs(10)).unwrap());
+        assert_eq!(queued.load(Ordering::SeqCst), 0);
+        let calls = calls.lock().unwrap();
+        assert!(calls
+            .iter()
+            .any(|c| c == "/vfs/queue-set-expiry {\"id\":7,\"expiry\":-1000000000}"));
+    }
+
+    #[test]
+    fn drain_respects_retry_backoff_and_time_limit() {
+        use std::sync::atomic::AtomicU64;
+        let credential = base64(b"rpool:password");
+        let (address, calls) = fake_rc(Arc::new(AtomicU64::new(3)), 2);
+        let started = Instant::now();
+        assert!(!drain_writeback(address, &credential, Duration::from_millis(300)).unwrap());
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(!calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|c| c.starts_with("/vfs/queue-set-expiry")));
+        // Wrong credentials or no RC server are reported, not treated as drained.
+        assert!(drain_writeback(address, "wrong", Duration::from_secs(1)).is_err());
+        let closed = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        assert!(drain_writeback(closed, &credential, Duration::from_secs(1)).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn late_graceful_exit_is_awaited_without_killing_and_then_clears_lease() {
+        let (_root, _other, files, cache, target) = lease_fixture();
+        let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
+        let child = Command::new("/bin/sh")
+            .args(["-c", "sleep 0.5"])
+            .spawn()
+            .unwrap();
+        lease
+            .record(&LeaseState::ShutdownUncertain { pid: child.id() })
+            .unwrap();
+        let lease_path = lease.path.clone();
+        let mut process = MountProcess {
+            child,
+            target,
+            address: TcpListener::bind("127.0.0.1:0")
+                .unwrap()
+                .local_addr()
+                .unwrap(),
+            credential: "synthetic".into(),
+            logs: Mutex::new(MountLog::new(PathBuf::from("unused-mount.log"), Vec::new())),
+            stopped: false,
+            graceful_quit_requested: true,
+            shutdown_uncertain: true,
+            lease,
+        };
+        assert!(process.is_running());
+        assert!(!process.wait_for_exit(Duration::from_millis(50)).unwrap());
+        assert!(process.is_running(), "waiting must never kill the child");
+        assert!(process.wait_for_exit(Duration::from_secs(10)).unwrap());
+        assert!(!process.is_running());
+        assert!(!process.shutdown_uncertain);
+        assert!(!lease_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn late_exit_without_graceful_quit_keeps_uncertain_lease() {
+        let (_root, _other, files, cache, target) = lease_fixture();
+        let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
+        let child = Command::new("/bin/sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .unwrap();
+        lease
+            .record(&LeaseState::ShutdownUncertain { pid: child.id() })
+            .unwrap();
+        let lease_path = lease.path.clone();
+        let mut process = MountProcess {
+            child,
+            target,
+            address: TcpListener::bind("127.0.0.1:0")
+                .unwrap()
+                .local_addr()
+                .unwrap(),
+            credential: "synthetic".into(),
+            logs: Mutex::new(MountLog::new(PathBuf::from("unused-mount.log"), Vec::new())),
+            stopped: false,
+            graceful_quit_requested: false,
+            shutdown_uncertain: true,
+            lease,
+        };
+        assert!(process.wait_for_exit(Duration::from_secs(10)).unwrap());
+        assert!(process.shutdown_uncertain);
+        assert!(lease_path.exists());
+        drop(process);
+        assert!(lease_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rclone_output_goes_to_private_log_file_not_pipes() {
+        use std::os::unix::fs::PermissionsExt;
+        let (root, _other, files, cache, target) = lease_fixture();
+        let script = root.path().join("fake rclone");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\nif [ \"$1\" = version ]; then echo 'rclone v1.75.1'; exit 0; fi\n\
+             echo \"stdout pass=$RCLONE_RC_PASS\"\n\
+             echo \"stderr token=$RCLONE_WEBDAV_BEARER_TOKEN\" >&2\n\
+             [ -p /dev/stdout ] && echo 'stdout is a pipe'\n\
+             exec sleep 30\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut process = MountProcess::start(MountConfig {
+            rclone: script.to_str().unwrap().into(),
+            files_dir: files,
+            cache_dir: cache,
+            target,
+            shared: false,
+            read_only: false,
+            vfs_cache_gib: 1,
+            cache_min_free_gib: 0,
+            webdav: Some(("http://127.0.0.1:9/".into(), "bearer-secret-token".into())),
+        })
+        .unwrap();
+        let mut lines = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while lines.len() < 2 && Instant::now() < deadline {
+            lines.extend(process.logs());
+            thread::sleep(Duration::from_millis(50));
+        }
+        let log_path = root.path().join(".rpool/rclone-mount.log");
+        let mode = std::fs::metadata(&log_path).unwrap().permissions().mode();
+        process.child.kill().unwrap();
+        process.child.wait().unwrap();
+        process.stopped = true;
+        drop(process);
+        assert_eq!(mode & 0o777, 0o600);
+        assert!(
+            lines.contains(&"stdout pass=[redacted]".to_string()),
+            "{lines:?}"
+        );
+        assert!(
+            lines.contains(&"stderr token=[redacted]".to_string()),
+            "{lines:?}"
+        );
+        assert!(!lines.iter().any(|l| l.contains("pipe")), "{lines:?}");
+        assert!(!lines.iter().any(|l| l.contains("bearer-secret-token")));
     }
 
     #[test]

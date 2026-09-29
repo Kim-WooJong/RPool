@@ -1540,6 +1540,34 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         "Stopping native mount and cancelling remote work; pending local data will be retained"
     );
     let stopped = mount.stop();
+    if stopped.is_err() && mount.is_running() {
+        // Dropping `server` now would leave a live rclone NFS/FUSE server without its
+        // backend while the kernel may still send it I/O. Keep serving until it exits.
+        eprintln!("Native mount process is still running after the stop request; keeping the RPool WebDAV backend alive until it exits so kernel I/O can finish. Do not force-quit RPool.");
+        let waiting = std::time::Instant::now();
+        loop {
+            for line in mount.logs() {
+                eprintln!("{line}");
+            }
+            match mount.wait_for_exit(std::time::Duration::from_secs(30)) {
+                Ok(true) => {
+                    println!(
+                        "Native mount process exited after {}s of extra waiting",
+                        waiting.elapsed().as_secs()
+                    );
+                    break;
+                }
+                Ok(false) => eprintln!(
+                    "Still waiting for the native mount process ({}s); WebDAV backend retained",
+                    waiting.elapsed().as_secs()
+                ),
+                Err(error) => {
+                    eprintln!("Native mount process state after exit: {error:#}");
+                    break;
+                }
+            }
+        }
+    }
     let joined = job
         .map(|job| job.join())
         .transpose()
