@@ -24,8 +24,8 @@ a non-ignored regression test. Synthetic DAV tests show
 64 body writes in one open make one revision, whereas 16 acknowledged growing
 full PUTs make 16 revisions and 4,456,448 content-spool bytes for a 524,288-byte
 final file. Content-Range verifies request-body bytes before sealing, rather
-than comparing with total resulting file size. Default suite in the isolated
-`projects/rpool/write-amplification-check` copy: 448 passed / 13 ignored
+than comparing with total resulting file size. Default suite in an isolated
+validation copy (removed after testing): 448 passed / 13 ignored
 (including the opt-in VFS test); that test was run separately with installed
 rclone. An unrelated config-restore lock test failed once in parallel, then
 passed alone and in the full serial suite. The actual native NFS request trace,
@@ -45,6 +45,13 @@ the mount until the OS state is recovered and the write/stop paths are fixed.
 No automatic reboot was performed. See
 `projects/rpool/4g-e2e-fdb991f6/REPORT.md` for exact evidence and recovery
 plan; its temporary rclone credential copy was removed.
+
+Test-artifact cleanup (2026-09-29): disposable validation copies, the completed
+read-only Mac mount diagnostic workspace, and `projects/rpool/target/debug`
+were removed. `target/release`, the 4GiB test source, uncertain spool/cache,
+lease, report, and remote test objects were retained. The mount table has no
+RPool entry, but uninterruptible operations on the old 4GiB mount path remain;
+do not access or remove that mountpoint before OS recovery.
 
 2026-09-29 follow-up code changes: virtual WebDAV write-back now waits 60s
 of inactivity instead of immediate PUT; macOS NFS timeout/unexpected exit
@@ -81,7 +88,7 @@ prefix pages only for a typed output-cap overflow. Other errors remain fatal;
 known-history and unseen-event bounds remain intact. On empty diagnostic paths,
 six accessible Mac crypt remotes took 6.269 s for one sequential pass versus
 94.956 s summed for the old 16-prefix scans; this is not a real mount timing.
-Final macOS validation in `projects/rpool/mount-scan-check`: default 435 passed /
+Final macOS validation in a now-removed isolated copy: default 435 passed /
 12 ignored, optional OpenDAL 446 passed / 12 ignored, warnings-denied release
 passed. A transient DAV localhost port rebinding failure passed alone and on
 the final full rerun. This earlier scan-only benchmark did not attempt a mount;
@@ -136,7 +143,7 @@ trigger rclone's synthetic 1 PiB fallback. Fresh capacity restores estimates; GU
 and transition logs distinguish unknown quota from a full pool. Startup stage logs
 precede cloud synchronization. Actual WinFsp/rclone/cloud behavior is unverified.
 
-Current verification: projects/rpool/account-recovery-check only, target/logs under
+Earlier verification used a now-removed isolated account-recovery copy; target/logs under
 projects/rpool and test TMPDIR projects/t (short enough for Unix socket paths).
 Latest default 433 passed / 12 ignored; optional suite 444 passed / 12 ignored.
 Warnings-denied release build, formatting and diff checks passed; release CLI help
