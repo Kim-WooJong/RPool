@@ -1,6 +1,66 @@
 use super::*;
 
 #[test]
+fn recovery_lookup_requires_exact_completed_source_and_replacement_receipts() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("plan.json");
+    let source = Manifest {
+        version: 2,
+        archive_id: "original".into(),
+        original_name: "empty".into(),
+        original_size: 0,
+        shard_size: 1048576,
+        created_unix: 0,
+        content_root_blake3: crate::manifest::content_root_v2(0, 1048576, &None, &[]),
+        coding: None,
+        shards: vec![],
+    };
+    validate_manifest(&source).unwrap();
+    let entry = ReprocessEntry {
+        source: "old:unavailable/manifest.json".into(),
+        fingerprint: manifest_fingerprint(&source).unwrap(),
+        manifest: source.clone(),
+    };
+    let plan = ReprocessPlan {
+        version: 2,
+        operation_id: "test-operation".into(),
+        plan_path: path.clone(),
+        target: PoolDefinition {
+            remotes: vec!["healthy:".into()],
+            ..Default::default()
+        },
+        entries: vec![entry.clone()],
+        input_bytes: 0,
+        new_storage_bytes: 0,
+        download_bytes: 0,
+        upload_bytes: 0,
+        estimated_seconds: None,
+        estimate_note: String::new(),
+        change_summary: vec![],
+    };
+    save_new(&path, &plan).unwrap();
+    save_new(
+        &temp.path().join("plan.fingerprint.json"),
+        &blake3::hash(&fs::read(&path).unwrap()).to_hex().to_string(),
+    )
+    .unwrap();
+    assert!(completed_reprocess_replacements(&path).unwrap().is_empty());
+    let mut replacement = source;
+    replacement.archive_id = "reprocess-new-independent".into();
+    let manifest_path = temp.path().join("replacement.json");
+    save_new(&manifest_path, &replacement).unwrap();
+    let completion = temp.path().join("completed-00000000.json");
+    record_completion(&completion, &entry, &manifest_path).unwrap();
+    let pairs = completed_reprocess_replacements(&path).unwrap();
+    assert_eq!(pairs.len(), 1);
+    assert_eq!(pairs[0].0.archive_id, "original");
+    assert_eq!(pairs[0].1.archive_id, "reprocess-new-independent");
+    replacement.original_name = "changed".into();
+    fs::write(&manifest_path, serde_json::to_vec(&replacement).unwrap()).unwrap();
+    assert!(completed_reprocess_replacements(&path).is_err());
+}
+
+#[test]
 fn estimate_includes_full_parity_for_partial_group() {
     let target = PoolDefinition {
         shard_mib: 1,

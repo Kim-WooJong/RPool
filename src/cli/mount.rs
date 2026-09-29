@@ -3,6 +3,15 @@ use std::path::PathBuf;
 
 #[derive(Args, Debug)]
 pub(crate) struct MountArgs {
+    /// Copy locally known recoverable files into a NEW differently named pool/workspace, preserving the source. Does not mount.
+    #[arg(long, requires_all = ["virtual_drive", "pool_sync"], conflicts_with_all = ["pool_retention", "shared_root", "worker_name", "bounded_shared", "shared_coordinator", "sync_only", "capacity_only", "migrate_excluded", "cleanup_cache", "recover_spool", "retention_report", "apply_retention", "manifests", "mountpoint"])]
+    pub(crate) account_recovery_from: Option<PathBuf>,
+    /// Explicitly skip this rclone remote alias while reading recovery data (repeatable, alias only).
+    #[arg(long, requires = "account_recovery_from")]
+    pub(crate) recovery_skip_remote: Vec<String>,
+    /// Reuse completed replacement archives from this Reprocess plan after verifying their bytes (no duplicate upload).
+    #[arg(long, requires = "account_recovery_from")]
+    pub(crate) recovery_reprocess_plan: Option<PathBuf>,
     /// Automatically replicate sync metadata inside the existing pool (new workspace, no coordinator).
     #[arg(long, requires = "virtual_drive", conflicts_with_all = ["shared_root", "worker_name", "bounded_shared", "shared_coordinator", "apply_retention", "retention_report"])]
     pub(crate) pool_sync: bool,
@@ -71,7 +80,7 @@ pub(crate) struct MountArgs {
     #[arg(long, requires = "shared_root")]
     pub(crate) worker_name: Option<String>,
     /// Unused Windows drive letter, or an existing empty Unix mount directory.
-    #[arg(long, required_unless_present_any = ["sync_only", "capacity_only", "migrate_excluded", "cleanup_cache", "recover_spool", "retention_report", "apply_retention"])]
+    #[arg(long, required_unless_present_any = ["sync_only", "capacity_only", "migrate_excluded", "cleanup_cache", "recover_spool", "retention_report", "apply_retention", "account_recovery_from"])]
     pub(crate) mountpoint: Option<PathBuf>,
     /// Explicit existing archives to import; pool membership is not inferred.
     #[arg(long = "manifest")]
@@ -343,5 +352,60 @@ mod cache_tests {
         ] {
             assert!(crate::cli::Cli::try_parse_from(base.into_iter().chain([invalid])).is_err());
         }
+    }
+}
+
+#[cfg(test)]
+mod account_recovery_tests {
+    use clap::Parser;
+
+    #[test]
+    fn recovery_requires_explicit_online_destination_and_disallows_mount_or_gc() {
+        let base = [
+            "rpool",
+            "mount",
+            "--pool=new-pool",
+            "--workspace=/new",
+            "--account-recovery-from=/old",
+        ];
+        assert!(crate::cli::Cli::try_parse_from(base).is_err());
+        let modes = ["--virtual-drive", "--pool-sync"];
+        let parsed = crate::cli::Cli::try_parse_from(
+            base.into_iter()
+                .chain(modes)
+                .chain(["--recovery-skip-remote=broken-crypt"]),
+        )
+        .unwrap();
+        let Some(crate::cli::Commands::Mount(args)) = parsed.command else {
+            panic!("mount")
+        };
+        assert_eq!(args.account_recovery_from, Some("/old".into()));
+        assert_eq!(args.recovery_skip_remote, ["broken-crypt"]);
+        assert!(args.mountpoint.is_none());
+        for incompatible in [
+            "--pool-retention",
+            "--sync-only",
+            "--cleanup-cache",
+            "--capacity-only",
+            "--mountpoint=R:",
+            "--manifest=old.json",
+        ] {
+            assert!(
+                crate::cli::Cli::try_parse_from(
+                    base.into_iter().chain(modes).chain([incompatible])
+                )
+                .is_err(),
+                "{incompatible}"
+            );
+        }
+        assert!(crate::cli::Cli::try_parse_from([
+            "rpool",
+            "mount",
+            "--pool=p",
+            "--workspace=/new",
+            "--sync-only",
+            "--recovery-skip-remote=x"
+        ])
+        .is_err());
     }
 }

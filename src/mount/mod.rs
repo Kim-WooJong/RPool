@@ -1,3 +1,4 @@
+mod account_recovery;
 pub(crate) mod adapter;
 pub(crate) mod capacity;
 mod dav;
@@ -22,6 +23,9 @@ use anyhow::{Context, Result};
 use std::time::{Duration, Instant};
 
 pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
+    if args.account_recovery_from.is_some() {
+        return account_recovery::run(rclone, &args);
+    }
     crate::storage::admin::domains::update(&args.capacity_domain, &args.failure_domain)?;
     if args.virtual_drive {
         return virtual_drive::run(rclone, args);

@@ -66,6 +66,7 @@ pub(crate) struct StorageReader {
     routes: Mutex<Routes>,
     legacy: Option<RcloneContext>,
     context: OperationContext,
+    excluded_remotes: BTreeSet<String>,
 }
 
 pub(crate) fn is_recoverable_loss(error: &anyhow::Error) -> bool {
@@ -83,6 +84,7 @@ pub(crate) fn is_restore_unavailable(error: &anyhow::Error) -> bool {
             error.downcast_ref::<StorageError>().map(StorageError::kind),
             Some(
                 StorageErrorKind::Timeout
+                    | StorageErrorKind::ReadExcluded
                     | StorageErrorKind::TransientIo
                     | StorageErrorKind::RateLimited
             )
@@ -100,6 +102,19 @@ impl StorageReader {
     pub(crate) fn rclone(executable: &str) -> Self {
         Self::with_rclone_context(RcloneContext::inherited(executable))
     }
+    /// Explicit, read-only recovery policy. Names are remote aliases, never
+    /// remote paths. The deadline bounds this reader's entire recovery attempt;
+    /// create a fresh reader for each independently resumable file.
+    pub(crate) fn rclone_with_excluded_remotes(
+        executable: &str,
+        excluded: &BTreeSet<String>,
+    ) -> Result<Self> {
+        validate_excluded_remotes(excluded)?;
+        let mut reader = Self::rclone(executable);
+        reader.excluded_remotes = excluded.clone();
+        reader.context = OperationContext::with_deadline(Instant::now() + Duration::from_secs(120));
+        Ok(reader)
+    }
     pub(crate) fn with_rclone_context(context: RcloneContext) -> Self {
         Self {
             routes: Mutex::new(Routes {
@@ -108,6 +123,7 @@ impl StorageReader {
             }),
             legacy: Some(context),
             context: OperationContext::none(),
+            excluded_remotes: BTreeSet::new(),
         }
     }
     #[cfg(test)]
@@ -120,9 +136,20 @@ impl StorageReader {
             routes: Mutex::new(Routes { registry, bindings }),
             legacy: None,
             context,
+            excluded_remotes: BTreeSet::new(),
         }
     }
     pub(super) fn resolve(&self, raw: &str) -> Result<(Arc<dyn StorageBackend>, ObjectKey)> {
+        // Check before route lookup, backend construction, or any remote I/O.
+        // Match the complete alias, not a path prefix or a similar alias.
+        if let Some((remote, _)) = raw.split_once(':') {
+            if self.excluded_remotes.contains(remote) {
+                return Err(StorageError::ReadExcluded {
+                    remote: remote.into(),
+                }
+                .into());
+            }
+        }
         let mut routes = self.routes.lock().map_err(|_| StorageError::Other {
             detail: "read route lock poisoned".into(),
         })?;
@@ -333,6 +360,25 @@ impl StorageReader {
     }
 }
 
+fn validate_excluded_remotes(excluded: &BTreeSet<String>) -> Result<()> {
+    for remote in excluded {
+        if remote.is_empty()
+            || remote == "."
+            || remote == ".."
+            || remote.starts_with('-')
+            || remote.trim() != remote
+            || !remote
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"_-. ".contains(&b))
+        {
+            return Err(StorageError::invalid_input(
+                "excluded remote must be an alias using letters, digits, underscore, hyphen, dot, or internal ASCII spaces, without a leading hyphen",
+            ).into());
+        }
+    }
+    Ok(())
+}
+
 fn probe_error(error: anyhow::Error) -> Probe {
     match error.downcast_ref::<StorageError>() {
         Some(StorageError::NotFound { .. }) => Probe::Missing,
@@ -419,4 +465,162 @@ pub(crate) fn check_read_context(context: &OperationContext) -> Result<()> {
         .into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod recovery_exclusion_tests {
+    use super::*;
+    use crate::storage::memory::faults::{Fault, FaultBackend};
+    use crate::storage::memory::MemoryBackend;
+    use crate::storage::traits::WriteOptions;
+
+    #[test]
+    fn exclusion_is_explicit_read_only_and_precedes_route_lookup() {
+        let excluded = BTreeSet::from(["failed-crypt".into()]);
+        let reader =
+            StorageReader::rclone_with_excluded_remotes("never-executed", &excluded).unwrap();
+        let error = reader.stat("failed-crypt:archive/shard").unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<StorageError>().unwrap().kind(),
+            StorageErrorKind::ReadExcluded
+        );
+        assert!(is_restore_unavailable(&error));
+        assert!(!is_recoverable_loss(&error));
+        assert!(!error.downcast_ref::<StorageError>().unwrap().is_retriable());
+        assert!(reader.routes.lock().unwrap().bindings.is_empty());
+        assert!(reader.operation_context().deadline().is_some());
+        // Similar aliases must not be excluded, and resolution itself does not execute rclone.
+        assert!(reader.resolve("failed-crypt-other:archive/shard").is_ok());
+        assert!(StorageReader::rclone("never-executed")
+            .resolve("failed-crypt:archive/shard")
+            .is_ok());
+        let auth: anyhow::Error = StorageError::Authentication {
+            detail: "synthetic".into(),
+        }
+        .into();
+        assert!(!is_restore_unavailable(&auth));
+    }
+
+    #[test]
+    fn malformed_exclusion_names_are_rejected() {
+        for name in [
+            "",
+            ".",
+            "..",
+            "bad:",
+            "bad:path",
+            "bad/path",
+            "bad\\path",
+            " bad",
+            "bad ",
+            "bad\nname",
+            "-bad",
+            "bad\tname",
+            "bad@name",
+            "bad\u{a0}name",
+        ] {
+            let result = StorageReader::rclone_with_excluded_remotes(
+                "never-executed",
+                &BTreeSet::from([name.into()]),
+            );
+            assert!(result.is_err(), "accepted {name:?}");
+        }
+    }
+
+    #[test]
+    fn internal_ascii_spaces_are_exact_remote_aliases() {
+        let reader = StorageReader::rclone_with_excluded_remotes(
+            "never-executed",
+            &BTreeSet::from(["another crypt".into()]),
+        )
+        .unwrap();
+        let error = reader.stat("another crypt:archive/shard").unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<StorageError>().unwrap().kind(),
+            StorageErrorKind::ReadExcluded
+        );
+        assert!(reader.routes.lock().unwrap().bindings.is_empty());
+        assert!(reader.resolve("another crypt extra:archive/shard").is_ok());
+        assert!(reader.resolve("another:crypt/archive/shard").is_ok());
+    }
+
+    #[test]
+    fn excluded_data_shard_restores_from_healthy_parity_without_auth_operation() {
+        let id = BackendId::new("recovery-memory").unwrap();
+        let memory = Arc::new(MemoryBackend::new(id.clone()));
+        let mut blocks = vec![b"ABCD".to_vec(), b"EFGH".to_vec(), vec![0; 4]];
+        ReedSolomon::new(2, 1).unwrap().encode(&mut blocks).unwrap();
+        let coding = Some(Coding {
+            algorithm: RS_ALGORITHM.into(),
+            data_shards: 2,
+            parity_shards: 1,
+            stripe_size: 2,
+        });
+        let mut bindings = BTreeMap::new();
+        let mut shards = Vec::new();
+        for (index, bytes) in blocks.iter().enumerate() {
+            let key = ObjectKey::new(format!("part-{index}")).unwrap();
+            memory
+                .write(
+                    &OperationContext::none(),
+                    &key,
+                    &mut std::io::Cursor::new(bytes),
+                    &WriteOptions::default(),
+                )
+                .unwrap();
+            let remote = if index == 0 {
+                "failed-crypt:"
+            } else {
+                "healthy-crypt:"
+            };
+            let object = format!("{remote}archive/part-{index}");
+            bindings.insert(object.clone(), ObjectRef::new(id.clone(), key));
+            shards.push(Shard {
+                index: index as u32,
+                offset: if index < 2 { (index * 4) as u64 } else { 0 },
+                size: 4,
+                remote: remote.into(),
+                object,
+                blake3: blake3::hash(bytes).to_hex().to_string(),
+                kind: if index < 2 {
+                    ShardKind::Data
+                } else {
+                    ShardKind::Parity
+                },
+                group: 0,
+                slot: index as u16,
+            });
+        }
+        let manifest = Manifest {
+            version: 2,
+            archive_id: "recovery-fixture".into(),
+            original_name: "input".into(),
+            original_size: 8,
+            shard_size: 4,
+            created_unix: 0,
+            content_root_blake3: crate::manifest::content_root_v2(8, 4, &coding, &shards),
+            coding,
+            shards,
+        };
+        let backend = Arc::new(FaultBackend::keyed_reads(
+            memory,
+            vec![(
+                ObjectKey::new("part-0").unwrap(),
+                Fault::Error(StorageError::Authentication {
+                    detail: "excluded backend must never be read".into(),
+                }),
+            )],
+        ));
+        let mut registry = BackendRegistry::new();
+        registry.register(backend).unwrap();
+        let mut reader = StorageReader::from_registry(registry, bindings, OperationContext::none());
+        reader.excluded_remotes = BTreeSet::from(["failed-crypt".into()]);
+        let temp = tempfile::tempdir().unwrap();
+        let metadata = temp.path().join("manifest.json");
+        fs::write(&metadata, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let output = temp.path().join("restored");
+        crate::commands::get_with_storage(&reader, metadata.to_str().unwrap(), &output, 1, 1)
+            .unwrap();
+        assert_eq!(fs::read(output).unwrap(), b"ABCDEFGH");
+    }
 }

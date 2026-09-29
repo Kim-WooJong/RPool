@@ -318,6 +318,61 @@ fn validate_completion(path: &Path, dir: &Path, entry: &ReprocessEntry) -> Resul
     Ok(manifest_path)
 }
 
+/// Read-only receipt lookup for explicit workspace recovery. This proves local
+/// completion identity, not current remote availability: the caller must verify
+/// replacement bytes and policy before publishing a mounted-file reference.
+pub(crate) fn completed_reprocess_replacements(
+    plan_path: &Path,
+) -> Result<Vec<(Manifest, Manifest)>> {
+    let plan = load_plan(plan_path)?;
+    let canonical = plan_path.canonicalize()?;
+    let dir = canonical.parent().context("plan directory missing")?;
+    let mut replacements = Vec::new();
+    let mut seen = BTreeSet::new();
+    for (index, entry) in plan.entries.iter().enumerate() {
+        validate_manifest(&entry.manifest)?;
+        if manifest_fingerprint(&entry.manifest)? != entry.fingerprint
+            || !seen.insert(entry.fingerprint.clone())
+        {
+            bail!("reprocess source identity is invalid or duplicated");
+        }
+        let receipt = dir.join(format!("completed-{index:08}.json"));
+        if !receipt.try_exists()? {
+            continue;
+        }
+        let manifest_path = validate_completion(&receipt, dir, entry)?;
+        let replacement: Manifest = read_json(&manifest_path)?;
+        if !replacement.archive_id.starts_with("reprocess-")
+            || replacement.archive_id.len() == "reprocess-".len()
+            || !replacement
+                .archive_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+        {
+            bail!("replacement is not an independent reprocess archive");
+        }
+        for shard in &replacement.shards {
+            let prefix =
+                crate::utils::remote_join(&shard.remote, &format!("{}/", replacement.archive_id));
+            let suffix = shard
+                .object
+                .strip_prefix(&prefix)
+                .context("reprocess replacement contains borrowed source objects")?;
+            if suffix.split('/').any(|part| {
+                part.is_empty()
+                    || part == "."
+                    || part == ".."
+                    || part.contains('\\')
+                    || part.chars().any(char::is_control)
+            }) {
+                bail!("reprocess replacement contains borrowed source objects");
+            }
+        }
+        replacements.push((entry.manifest.clone(), replacement));
+    }
+    Ok(replacements)
+}
+
 fn verify_completion(
     writer: &StorageWriter,
     path: &Path,

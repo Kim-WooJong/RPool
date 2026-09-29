@@ -55,6 +55,69 @@ pub(crate) struct VirtualDrive {
     _lock: File,
 }
 impl VirtualDrive {
+    /// Recovery-only opener: never initializes, saves, synchronizes or cleans source state.
+    pub(crate) fn open_recovery_source(
+        rclone: &str,
+        root: &Path,
+        cache: ShardCache,
+    ) -> Result<Self> {
+        #[derive(Deserialize)]
+        struct Binding {
+            version: u32,
+            pool: String,
+            shared: Option<String>,
+            policy: PoolDefinition,
+            metadata_roots: Vec<String>,
+        }
+        let binding: Binding = crate::utils::read_json(&root.join("virtual.json"))?;
+        if !matches!(binding.version, 6 | 7) || binding.metadata_roots.is_empty() {
+            bail!("account recovery requires an existing v6/v7 pool workspace");
+        }
+        let lock = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(root.join("virtual.lock"))?;
+        lock.try_lock()
+            .context("stop the source mount before recovery")?;
+        if !root.join("namespace.json").is_file() {
+            bail!("source primary namespace missing; preserve workspace");
+        }
+        let state = Namespace::load(root, "recovery-reader")?;
+        if state.version != binding.version {
+            bail!("source binding/namespace version mismatch");
+        }
+        let history_limit = if binding.version == 7 {
+            let value: super::pool_sync::Config =
+                crate::utils::read_json(&root.join("pool-sync-config.json"))?;
+            value.history_limit
+        } else {
+            0
+        };
+        Ok(Self {
+            root: root.into(),
+            state: Mutex::new(state),
+            policy: binding.policy,
+            pool: binding.pool,
+            rclone: rclone.into(),
+            shared_root: binding.shared,
+            cache,
+            capacity: Mutex::new(None),
+            sync_gate: Mutex::new(()),
+            pins: Mutex::new(BTreeMap::new()),
+            local_leases: Mutex::new(BTreeMap::new()),
+            spool_limit: 0,
+            spool_writes: Mutex::new(()),
+            bounded_shared: false,
+            peer_retention: binding.version == 7,
+            pool_sync_roots: binding.metadata_roots,
+            pool_history_limit: history_limit,
+            peer_read_pins: Mutex::new(BTreeMap::new()),
+            checkpoint_coordinator: false,
+            checkpoint_keep: 0,
+            _lock: lock,
+        })
+    }
+
     pub(crate) fn open(
         rclone: &str,
         pool: &str,
@@ -182,7 +245,7 @@ impl VirtualDrive {
             || binding.shared.as_deref() != shared
             || binding.metadata_roots != auto_roots
         {
-            bail!("virtual workspace pool/shared-root mismatch");
+            bail!("workspace pool/shared-root changed; editing or reprocessing a pool does not update this mount binding. Keep the original workspace; use account recovery with a new named pool/workspace and an optional completed Reprocess plan");
         }
         for name in ["spool", "clean-cache", "anchor", ".rpool"] {
             fs::create_dir_all(root.join(name))?;
@@ -1083,6 +1146,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     } else {
         args.worker_name.as_deref().unwrap_or("local")
     };
+    println!("Opening virtual workspace");
     let mut drive = VirtualDrive::open(
         rclone,
         &args.pool,
@@ -1136,6 +1200,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         );
         return Ok(());
     }
+    println!("Synchronizing cloud metadata before mount; account failures retain local data");
     if args.capacity_only {
         drive.pull()?;
     } else if args.sync_only {
@@ -1182,6 +1247,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
             }
         }
     };
+    println!("Querying capacity before mount");
     report();
     if args.capacity_only || args.sync_only {
         return Ok(());
@@ -1189,6 +1255,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     if drive.bounded_shared || !drive.pool_sync_roots.is_empty() {
         drive.isolate_previous_native_cache()?;
     }
+    println!("Starting virtual filesystem and native mount");
     let server = super::dav::Server::start(drive.clone())?;
     let mut mount = super::adapter::MountProcess::start(super::adapter::MountConfig {
         rclone: rclone.into(),

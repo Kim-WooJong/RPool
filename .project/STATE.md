@@ -11,6 +11,30 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
+Account-removal follow-up implemented: explicit source-preserving recovery into a
+different v6 pool/new workspace permits normal read/write use on remaining accounts.
+Optional completed Reprocess plan receipts reuse independently verified replacement
+archives without reupload, preserving full source paths; unmatched/current local
+writes use fresh verified copies. Never relax original v6/v7 topology/GC guards.
+Source is only the locally known v6/v7 view; unseen remote files, old revisions,
+dirty native cache and original clean-cache recovery are outside scope. Per-file
+failure/resume report is account-recovery.json. Bootstrap is staged then renamed;
+source identity/policy and destination edits are checked before resumed work.
+
+Explorer capacity follow-up: unavailable/stale DAV quota now reports known logical
+usage + zero verified additional free bytes instead of unsupported properties that
+trigger rclone's synthetic 1 PiB fallback. Fresh capacity restores estimates; GUI
+and transition logs distinguish unknown quota from a full pool. Startup stage logs
+precede cloud synchronization. Actual WinFsp/rclone/cloud behavior is unverified.
+
+Current verification: projects/rpool/account-recovery-check only, target/logs under
+projects/rpool and test TMPDIR projects/t (short enough for Unix socket paths).
+Default 414 passed / 12 ignored; optional suite 425 passed / 12 ignored.
+Warnings-denied release build, formatting and diff checks passed; release CLI help
+exposes the recovery flags. Actual Windows/cloud execution remains unverified.
+Independent reviews covered receipt provenance, explicit read exclusion vs auth,
+resume revalidation, source preservation and WebDAV quota interoperability.
+
 Version 0.6.0. New opt-in private-snapshot v7 (`--pool-retention` with
 `--pool-sync`) enforces current + configured previous content revisions without a
 coordinator PC. Positive causal successors own independent verified payloads
@@ -283,9 +307,9 @@ Previous unshared hardening batch (macOS):
 
 ## Resume
 
-Online-first/cache persistence follow-up complete and validated. No active workers
-or pending implementation steps. Do not migrate/delete existing replica data or
-start real cloud mounts implicitly. Future work follows a new user request.
+Account-removal/Reprocess reuse and Explorer capacity fixes are implemented and
+locally validated. No further implementation is active for this bounded milestone.
+Do not migrate/delete real data or start cloud mounts implicitly.
 Preserve unrelated config-sync/path changes. Real Windows/WinFsp and cloud mount
 acceptance remain runtime gates. Do not restart legacy retention work from older
 handoff notes; v7 implementation is present.

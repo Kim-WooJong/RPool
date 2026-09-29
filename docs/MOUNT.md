@@ -1,10 +1,76 @@
 # Read/write Pool drive
 
-Two modes are available. **Replica** (default) keeps a full local copy. The new
-**Virtual cloud drive** is opt-in: it lists the shared metadata namespace without
+Two modes are available. The GUI defaults to **Online drive** (virtual); the CLI
+retains explicit `--virtual-drive` opt-in. **Replica** keeps a full local copy.
+The online drive lists the shared metadata namespace without
 restoring all files, then downloads/verifies only intersecting shards on reads.
 Both modes keep writes on local disk before asynchronous verified cloud publication.
 An application save is **not** a completed-cloud-replication acknowledgment.
+
+## Account failure / removing accounts while keeping a writable drive
+
+A workspace binds its original pool topology. Editing the pool's remote list is
+not an in-place migration: ordinary mounts deliberately reject a mismatch, and
+ordinary pool sync still requires all of that pool's metadata replicas.
+
+Use **Storage → Mount → Recover after account removal** to create an independent
+writable destination on remaining accounts:
+
+1. Stop the original mount. Keep its workspace, rclone account definitions and
+   old cloud data; do not delete or manually edit `virtual.json`.
+2. In **Pools**, create a **different pool name** containing only usable accounts.
+   Choose coding/placement settings feasible on those accounts. Select this pool
+   in Mount and set a **new empty destination workspace**. Use Online drive and
+   Automatic pool sync, with Automatic history deletion **off** for the destination.
+3. In the recovery panel, select the original online workspace. Enter failed
+   **rclone remote aliases**, one per line (for example `failed-crypt`, not a URL,
+   password, provider display name or `failed-crypt:path`). These aliases are
+   explicitly skipped for source reads and must not belong to the destination.
+4. If **Reprocess data** has already finished, use **Use saved plan in mount recovery**
+   on that screen, or select that operation's `plan.json`
+   in **Completed Reprocess plan**. Exact original-manifest fingerprints and
+   completion receipts link each old file to its independent replacement archive;
+   filenames alone are never used for matching. Replacement bytes are verified
+   again on the remaining accounts, then referenced without another upload.
+   Reprocess currently updates the archive library, **not existing mount references**;
+   this step connects those completed results to the new writable namespace.
+5. Run recovery and inspect `account-recovery.json` in the destination. It reuses
+   matching completed Reprocess results or copies unmatched recoverable contents,
+   retaining current names, local sealed writes and visible conflict copies; it
+   does not grant the new pool ownership of old objects. Destination uploads and
+   metadata publication must succeed before a file is reported recovered.
+6. Use **Mount read/write** with this destination. New files use the remaining
+   accounts. Resume incomplete recovery using the same source and destination;
+   never overwrite newer destination edits to make a recovery report look complete.
+
+CLI example (PowerShell, with a new `recovered-pool` already configured):
+
+```powershell
+.\rpool.exe mount --virtual-drive --pool-sync --pool=recovered-pool --workspace="C:\RPoolRecovered" --account-recovery-from="C:\RPoolOriginal" --recovery-skip-remote=failed-crypt
+.\rpool.exe mount --virtual-drive --pool-sync --pool=recovered-pool --workspace="C:\RPoolRecovered" --mountpoint=R:
+```
+
+Add `--recovery-reprocess-plan="C:\path\to\reprocess\operation\plan.json"`
+to the first command to reuse completed Reprocess output. Keep the plan directory
+and completion receipts intact. Pending edits newer than those receipts are copied
+as their current contents, never replaced with an older reprocessed version.
+
+Recovery **does not mount automatically**. This is a new independent current-file
+view, not a membership change propagated to old PCs: move other writers to the new
+pool deliberately. Source history and local state are retained, not purged.
+Old v7 snapshots cannot invalidate successfully copied destination payloads.
+
+**Limits:** the source is its locally known snapshot, not a fresh authoritative
+cloud listing. Files/events never synchronized to it, historical versions, partial
+writes and dirty native VFS cache are not silently declared recovered. Sufficient
+surviving shards/parity, completed Reprocess replacements, or sealed local spool
+are required. Original clean-cache files are preserved but not reused by this
+recovery operation. An unavailable source
+file remains a reported failure rather than becoming an empty file. A destination
+with partial recovery can still be used for new files, but is not a complete copy.
+Recovery costs download/upload traffic, destination capacity and temporary local
+space. No failed account is deleted and no authentication error is automatically
+treated as proof that data is absent.
 
 ## Capacity display and configuration preview
 
@@ -13,6 +79,16 @@ space, see [Pool capacity](POOL_CAPACITY.md). Storage → Pools can calculate th
 current unsaved options without creating a workspace or mounting. The same engine
 feeds mount reports. Virtual DAV quotas expire stale samples and reserve queued
 upload space; replica OS capacity remains local disk capacity.
+
+Windows Explorer's **1 PB total / 1 PB free** is rclone's unknown-quota fallback,
+not the pool's capacity. The online DAV bridge reports known namespace usage and
+**zero additional free bytes** while cloud capacity is missing, expired or being
+refreshed. A fresh verified sample restores the calculated logical total/free.
+Zero free in this state is conservative and does not prove the pool is full;
+check the app's capacity status and account errors. Values are logical estimates
+after coding/placement and pending reservations, not a sum of provider raw quotas.
+Protocol reference: [rclone WebDAV About](https://github.com/rclone/rclone/blob/master/backend/webdav/webdav.go)
+and [VFS Statfs unknown-space fallback](https://github.com/rclone/rclone/blob/master/vfs/vfs.go).
 
 ## Automatic history collection — private snapshots v7 (NEW workspace)
 

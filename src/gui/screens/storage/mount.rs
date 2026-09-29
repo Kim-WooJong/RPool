@@ -33,6 +33,10 @@ pub(crate) struct MountForm {
     vfs_cache_gib: u64,
     cache_min_free_gib: u64,
     spool_gib: u64,
+    recovery_source: String,
+    recovery_skip_remotes: String,
+    recovery_reprocess_plan: String,
+    recovering_accounts: bool,
 }
 
 impl Default for MountForm {
@@ -68,6 +72,10 @@ impl Default for MountForm {
             vfs_cache_gib: 10,
             cache_min_free_gib: 2,
             spool_gib: 64,
+            recovery_source: String::new(),
+            recovery_skip_remotes: String::new(),
+            recovery_reprocess_plan: String::new(),
+            recovering_accounts: false,
             capacity_read: std::time::Instant::now(),
             identity_editor: crate::storage::admin::domains::DomainStore::load()
                 .map(|s| {
@@ -83,6 +91,10 @@ impl Default for MountForm {
 }
 
 impl MountForm {
+    pub(crate) fn use_reprocess_plan(&mut self, path: &Path) {
+        self.recovery_reprocess_plan = path.display().to_string();
+        self.notice = Some("Reprocess plan selected. Open Recover after account removal, choose the original workspace and a new destination pool/workspace. Only validated completed replacements will be reused.".into());
+    }
     pub(crate) fn from_settings(settings: &crate::gui::settings::GuiSettings) -> Self {
         let cache = &settings.mount_cache;
         let mut form = Self::default();
@@ -143,10 +155,17 @@ impl MountForm {
             self.capacity_read = std::time::Instant::now();
         }
         if let Some(status) = terminal {
-            self.notice = Some(match status {
+            self.notice = Some(if self.recovering_accounts {
+                match status {
+                    JobStatus::Completed => "Recovery copy completed for the locally known source view. Inspect the recovery report, then mount this destination normally for reading and new writes. Original workspace retained.".into(),
+                    _ => "Recovery stopped or is incomplete. See log and destination recovery report; original data is retained. Resume with the same source/destination, or mount the destination to use already recovered files and save new files.".into(),
+                }
+            } else {
+                match status {
                 JobStatus::Completed => "Mount/sync process finished. Check the log for writeback results; local workspace and VFS cache are retained.".into(),
                 JobStatus::Cancelled => "Process force-stopped. Local files and VFS cache are retained; restart the same workspace to recover pending changes.".into(),
                 _ => "Mount/sync failed. Check the log; local files and cache are retained. Windows mounts require WinFsp.".into(),
+            }
             });
             self.stopping = false;
             self.control = None;
@@ -166,6 +185,60 @@ impl MountForm {
 
     fn start(&mut self, rclone: &str, sync_only: bool) -> Result<(), String> {
         self.start_action(rclone, if sync_only { 1 } else { 0 })
+    }
+
+    fn recovery_args(&self, stop: &Path) -> Result<Vec<OsString>, String> {
+        if !self.virtual_drive || !self.pool_sync || self.pool_retention {
+            return Err("Recovery destination must use Online drive + Automatic pool sync, with automatic history deletion OFF.".into());
+        }
+        if self.pool.trim().is_empty()
+            || !Path::new(self.workspace.trim()).is_absolute()
+            || !Path::new(self.recovery_source.trim()).is_absolute()
+        {
+            return Err("Select a NEW differently named destination pool, an absolute destination workspace, and the original source workspace.".into());
+        }
+        let mut args: Vec<OsString> = vec![
+            "mount".into(),
+            format!("--pool={}", self.pool.trim()).into(),
+            "--workspace".into(),
+            self.workspace.trim().into(),
+            "--account-recovery-from".into(),
+            self.recovery_source.trim().into(),
+            "--pool-sync".into(),
+            "--stop-file".into(),
+            stop.as_os_str().to_owned(),
+        ];
+        self.append_cache_args(&mut args);
+        for remote in self
+            .recovery_skip_remotes
+            .lines()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            args.push(format!("--recovery-skip-remote={remote}").into());
+        }
+        if !self.recovery_reprocess_plan.trim().is_empty() {
+            args.push("--recovery-reprocess-plan".into());
+            args.push(self.recovery_reprocess_plan.trim().into());
+        }
+        Ok(args)
+    }
+
+    fn start_account_recovery(&mut self, rclone: &str) -> Result<(), String> {
+        let control = tempfile::Builder::new()
+            .prefix("rpool-recovery-control-")
+            .tempdir()
+            .map_err(|e| format!("Cannot create recovery control directory: {e}"))?;
+        let args = self.recovery_args(&control.path().join("stop"))?;
+        self.runner
+            .start_rpool("Recover into remaining-account pool", rclone, args)?;
+        self.control = Some(control);
+        self.recovering_accounts = true;
+        self.stopping = false;
+        self.capacity = None;
+        self.pool_status = None;
+        self.notice = Some("Copying the locally known file view into the new destination. This does not mount a drive or remove source data. Review unresolved files in the report before treating recovery as complete.".into());
+        Ok(())
     }
 
     fn start_action(&mut self, rclone: &str, action: u8) -> Result<(), String> {
@@ -272,6 +345,7 @@ impl MountForm {
             args,
         )?;
         self.control = Some(control);
+        self.recovering_accounts = false;
         self.stopping = false;
         self.notice = Some(if action >= 2 { "Maintenance running. See log for capacity, cleanup or recovery results." } else if sync_only { "Synchronizing local workspace. See log for verified archive results." } else {
             "Mount process started; this is not yet proof that the drive is mounted or cloud changes are committed. See log for readiness and sync status."
@@ -393,6 +467,30 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
             });
         }
         directory_field(ui, "Persistent local workspace", &mut form.workspace);
+        ui.collapsing("Recover after account removal — copy to a new writable pool", |ui| {
+            ui.label("1. In Pools, save remaining accounts under a NEW pool name. Select that destination above and a NEW empty workspace (or the same recovery destination to resume). Turn automatic history deletion OFF.");
+            ui.label("2. Select the original online workspace below. Stop its mount first. Source data is retained; verified file contents are copied and uploaded independently, not just linked.");
+            directory_field(ui, "Original source workspace", &mut form.recovery_source);
+            ui.label("Unavailable rclone remote aliases to skip while reading (one per line, e.g. broken-crypt; no colon/path). Keep them out of the destination pool.");
+            ui.text_edit_multiline(&mut form.recovery_skip_remotes);
+            ui.label("Completed Reprocess plan (optional): reuse verified replacement archives without uploading the same contents again. Choose the plan.json shown by Reprocess data.");
+            ui.horizontal(|ui| {
+                ui.text_edit_singleline(&mut form.recovery_reprocess_plan);
+                if ui.button("Choose Reprocess plan…").clicked() {
+                    if let Some(path) = rfd::FileDialog::new().add_filter("Reprocess plan", &["json"]).pick_file() {
+                        form.recovery_reprocess_plan = path.display().to_string();
+                    }
+                }
+            });
+            ui.label("Only locally known current files, pending sealed writes and conflict copies can be recovered. History, unseen peer changes and dirty native-cache writes are not silently discarded or declared recovered. Insufficient surviving data is reported per file.");
+            if ui.button("Recover files into selected destination").clicked() {
+                if let Err(error) = form.save_cache_settings(&mut state.settings)
+                    .and_then(|()| form.start_account_recovery(&state.settings.rclone)) {
+                    form.notice = Some(error);
+                }
+            }
+            ui.label("3. Inspect the recovery report/log, then use Mount read/write above. The destination uses only its configured remaining accounts for new writes. Old workspaces are not converted in place.");
+        });
         if !(form.virtual_drive && form.pool_sync) {
             ui.label("Shared encrypted root (optional, e.g. crypt:teamspace)");
             ui.text_edit_singleline(&mut form.shared_root);
@@ -552,6 +650,9 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
                 .map(|d| d.as_secs().saturating_sub(capacity.observed_unix)).unwrap_or(0);
             ui.label(format!("Additional file capacity estimate: {:.2} GiB · eligible targets: {} · snapshot: {} seconds ago",
                 capacity.additional_estimate as f64 / 1073741824.0, capacity.eligible.len(), age));
+            if age > 120 || capacity.eligible.is_empty() {
+                ui.colored_label(egui::Color32::YELLOW, "Cloud capacity is unverified/stale. Explorer reports zero additional free space conservatively, not a real 1 PB drive. This is not proof that the pool is full; refresh capacity and check account errors.");
+            }
             ui.small(&capacity.note);
             for target in &capacity.targets {
                 ui.small(format!("{} → {} · quota group {} · free {:.2} / total {:.2} GiB · {}",
@@ -577,7 +678,7 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
             }
         }
     } else {
-        ui.label("Cloud capacity is not available yet. Refresh capacity to inspect eligible storage; local disk capacity is separate.");
+        ui.label("Cloud capacity is not available yet. Refresh capacity and check account errors. Online drives report zero additional free space until verified; this is not proof the pool is full. Local disk capacity is separate.");
     }
     if form.runner.is_running() {
         ui.horizontal(|ui| {
@@ -661,6 +762,41 @@ fn build_args(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn recovery_form_forwards_source_and_skip_aliases_without_mount_or_retention() {
+        let mut form = super::MountForm::default();
+        form.pool = "recovered-pool".into();
+        let base = std::env::temp_dir();
+        form.workspace = base.join("new destination 한 글").display().to_string();
+        form.recovery_source = base.join("original source 한 글").display().to_string();
+        form.recovery_skip_remotes = "badcrypt\n another crypt \n".into();
+        form.recovery_reprocess_plan = base
+            .join("reprocess operation/plan.json")
+            .display()
+            .to_string();
+        let args = form.recovery_args(&base.join("stop")).unwrap();
+        let parsed = crate::cli::Cli::try_parse_from(
+            std::iter::once(std::ffi::OsString::from("rpool")).chain(args),
+        )
+        .unwrap();
+        let Some(crate::cli::Commands::Mount(args)) = parsed.command else {
+            panic!("mount")
+        };
+        assert_eq!(
+            args.account_recovery_from,
+            Some(form.recovery_source.clone().into())
+        );
+        assert_eq!(args.recovery_skip_remote, ["badcrypt", "another crypt"]);
+        assert_eq!(
+            args.recovery_reprocess_plan,
+            Some(form.recovery_reprocess_plan.clone().into())
+        );
+        assert!(args.virtual_drive && args.pool_sync);
+        assert!(!args.pool_retention && args.mountpoint.is_none() && !args.sync_only);
+        let mut invalid = super::MountForm::default();
+        invalid.pool_retention = true;
+        assert!(invalid.recovery_args(&base.join("stop")).is_err());
+    }
     #[test]
     fn saved_cache_preferences_reach_mount_cli_and_keep_explicit_replica() {
         use clap::Parser;

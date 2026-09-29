@@ -295,6 +295,41 @@ impl VirtualDrive {
         }
         Ok(())
     }
+    /// Resolve retained bytes without updating source metadata or contacting peers.
+    pub(crate) fn recovery_snapshot_manifest(&self, event: &str) -> Result<Manifest> {
+        let state = self.snapshot_state()?;
+        self.validate_snapshot_locations(&state)?;
+        let target = state
+            .mappings
+            .get(event)
+            .context("source snapshot mapping missing")?;
+        let analysis = model::analyze(&state.snapshots, &self.snapshot_policy()?)?;
+        let merged = analysis
+            .merged
+            .get(&target.file)
+            .context("source snapshot file missing")?;
+        let semantic = merged
+            .revisions
+            .get(&target.revision)
+            .context("source revision missing")?;
+        let namespace = self.state.lock().unwrap();
+        let content = namespace
+            .events
+            .get(event)
+            .and_then(|e| e.content.as_ref())
+            .context("source event content missing")?;
+        if semantic.content_hash.as_deref() != Some(content.hash.as_str())
+            || semantic.size != content.size
+        {
+            bail!("source materialized event differs from retained snapshot revision");
+        }
+        Ok(merged
+            .payloads
+            .get(&target.revision)
+            .context("source revision is no longer retained")?
+            .manifest
+            .clone())
+    }
     pub(crate) fn read_snapshot(&self, event: &str, offset: u64, count: usize) -> Result<Vec<u8>> {
         let state = self.snapshot_state()?;
         let target = state

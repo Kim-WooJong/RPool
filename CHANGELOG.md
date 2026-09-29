@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Completed Reprocess plans can supply exact verified replacement archives to recovery without duplicate uploads; full mounted paths are retained. Explorer no longer receives unsupported quota properties when capacity is stale/missing: the DAV bridge reports known usage and zero verified additional free space until a fresh sample is available, avoiding rclone's synthetic 1 PiB fallback.
+
+- Explicit account-failure recovery to a differently named writable pool/workspace on remaining accounts, preserving the source. GUI/CLI expose verified-copy recovery and explicit read exclusions; unresolved data remains reported. Ordinary membership/retention guards remain in place. Mount startup stages are logged before cloud synchronization so a running process is not mistaken for a mounted drive.
+
 - GUI mounts default to online/on-demand files with automatic pool metadata sync; explicit replica mode and legacy workspace guards remain. Cache limits and online/replica preference persist locally via Save or mount/sync launch. Cleanup reporting includes bytes reclaimed on cache startup. Existing replica files and uncertain native recovery data are never silently migrated or deleted.
 
 - Configurable native mount cache size/free-disk targets, GUI pending-spool budget, and access-based clean-shard LRU with pre-download admission. Dirty/open native data stays protected; native limits are soft and replica files/recovery data are not cache-evicted.

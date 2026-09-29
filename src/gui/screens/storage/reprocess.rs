@@ -246,6 +246,12 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 Err(error) => state.reprocess.notice = Some(format!("Cannot resume: {error:#}")),
             }
         }
+        if ui.add_enabled(!task.is_running() && !state.mount.is_running()
+            && state.reprocess.active_plan.is_some(), egui::Button::new("Use saved plan in mount recovery")).clicked() {
+            let path = state.reprocess.active_plan.as_ref().unwrap().plan_path.clone();
+            state.mount.use_reprocess_plan(&path);
+            state.storage_section = crate::gui::state::StorageSection::Mount;
+        }
     });
     if let Some(draft) = &mut state.reprocess.draft {
         let action = state.reprocess.picker.show(

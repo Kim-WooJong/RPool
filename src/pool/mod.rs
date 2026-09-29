@@ -14,4 +14,6 @@ pub(crate) use targets::resolve_target_remotes;
 pub(crate) use validate::{validate_pool, validate_pool_name};
 
 mod reprocess;
-pub(crate) use reprocess::{build_plan, execute_plan, load_plan, ReprocessPlan};
+pub(crate) use reprocess::{
+    build_plan, completed_reprocess_replacements, execute_plan, load_plan, ReprocessPlan,
+};

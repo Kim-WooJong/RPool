@@ -1,7 +1,7 @@
 //! Storage error taxonomy (Step 2 contract).
 //!
 //! Every backend and transfer path classifies its failures into one of these
-//! 14 kinds. Callers must NOT collapse them into `Option::None`, an empty
+//! kinds. Callers must NOT collapse them into `Option::None`, an empty
 //! list, or a `Missing` sentinel (target.md §3.5, R1). An ambiguous remote
 //! outcome is `UnknownOutcome`, never guessed as `NotFound`.
 //!
@@ -18,6 +18,7 @@ pub(crate) enum StorageErrorKind {
     AlreadyExists,
     PermissionDenied,
     Authentication,
+    ReadExcluded,
     RateLimited,
     Timeout,
     Cancelled,
@@ -44,6 +45,11 @@ pub(crate) enum StorageError {
     },
     Authentication {
         detail: String,
+    },
+    /// Explicit administrative exclusion for a read-only recovery operation.
+    /// This is not evidence that an object is absent or safe to overwrite.
+    ReadExcluded {
+        remote: String,
     },
     RateLimited {
         retry_after: Option<Duration>,
@@ -95,6 +101,7 @@ impl StorageError {
             Self::AlreadyExists { .. } => StorageErrorKind::AlreadyExists,
             Self::PermissionDenied { .. } => StorageErrorKind::PermissionDenied,
             Self::Authentication { .. } => StorageErrorKind::Authentication,
+            Self::ReadExcluded { .. } => StorageErrorKind::ReadExcluded,
             Self::RateLimited { .. } => StorageErrorKind::RateLimited,
             Self::Timeout { .. } => StorageErrorKind::Timeout,
             Self::Cancelled { .. } => StorageErrorKind::Cancelled,
@@ -156,6 +163,10 @@ impl fmt::Display for StorageError {
             Self::AlreadyExists { path } => write!(f, "already exists: {path}"),
             Self::PermissionDenied { path } => write!(f, "permission denied: {path}"),
             Self::Authentication { detail } => write!(f, "authentication failed: {detail}"),
+            Self::ReadExcluded { remote } => write!(
+                f,
+                "remote explicitly excluded from recovery reads: {remote}"
+            ),
             Self::RateLimited {
                 retry_after,
                 detail,
@@ -205,6 +216,13 @@ mod tests {
         assert_eq!(
             StorageError::Authentication { detail: "d".into() }.kind(),
             StorageErrorKind::Authentication
+        );
+        assert_eq!(
+            StorageError::ReadExcluded {
+                remote: "excluded".into()
+            }
+            .kind(),
+            StorageErrorKind::ReadExcluded
         );
         assert_eq!(
             StorageError::RateLimited {
@@ -268,6 +286,10 @@ mod tests {
         // UnknownOutcome is NOT retriable: a lost response may have committed.
         assert!(!StorageError::unknown_outcome("d").is_retriable());
         assert!(!StorageError::not_found("x").is_retriable());
+        assert!(!StorageError::ReadExcluded {
+            remote: "excluded".into()
+        }
+        .is_retriable());
         assert!(!StorageError::unsupported("op").is_retriable());
         assert!(!StorageError::CorruptData {
             found: "a".into(),

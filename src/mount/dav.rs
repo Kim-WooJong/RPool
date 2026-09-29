@@ -62,6 +62,7 @@ impl DavDirEntry for Entry {
 #[derive(Clone)]
 struct VirtualFs {
     drive: Arc<VirtualDrive>,
+    quota_unavailable: Arc<AtomicBool>,
 }
 impl VirtualFs {
     fn stat(&self, path: &str) -> FsResult<Meta> {
@@ -295,7 +296,29 @@ impl DavFileSystem for VirtualFs {
         })
     }
     fn get_quota(&self) -> FsFuture<'_, (u64, Option<u64>)> {
-        Box::pin(async move { self.drive.quota().ok_or(FsError::NotImplemented) })
+        Box::pin(async move {
+            if let Some(quota) = self.drive.quota() {
+                if self.quota_unavailable.swap(false, Ordering::AcqRel) {
+                    eprintln!("Virtual drive capacity verified again; Explorer now shows the current writable-space estimate.");
+                }
+                return Ok(quota);
+            }
+            // rclone's WebDAV About reads these RFC quota properties. Missing
+            // properties become its synthetic 1 PiB Statfs fallback. Advertise
+            // only confirmed namespace usage and zero *additional* writable
+            // bytes while cloud capacity is unverified, not an invented quota.
+            let used = self
+                .drive
+                .state
+                .lock()
+                .map_err(|_| failure("namespace lock poisoned while reading quota"))?
+                .visible_logical_used()
+                .map_err(failure)?;
+            if !self.quota_unavailable.swap(true, Ordering::AcqRel) {
+                eprintln!("Virtual drive capacity unavailable or stale: Explorer shows 0 additional free bytes until verification succeeds. This does not mean the cloud pool is full; existing reads remain available.");
+            }
+            Ok((used, Some(used)))
+        })
     }
 }
 struct Handle {
@@ -446,7 +469,10 @@ impl Server {
                     Err(_) => return,
                 };
                 let handler = DavHandler::builder()
-                    .filesystem(Box::new(VirtualFs { drive }))
+                    .filesystem(Box::new(VirtualFs {
+                        drive,
+                        quota_unavailable: Arc::new(AtomicBool::new(false)),
+                    }))
                     .locksystem(dav_server::memls::MemLs::new())
                     .build_handler();
                 let limit = Arc::new(tokio::sync::Semaphore::new(32));
@@ -641,7 +667,47 @@ mod tests {
             body,
             true,
         );
-        assert!(quota.contains("404"), "{quota}");
+        // Missing quota properties make rclone invent a 1 PiB volume. Stale
+        // capacity must instead expose known usage and no verified free bytes.
+        assert!(!quota.contains("404"), "{quota}");
+        assert!(quota.contains(">5</") && quota.contains(">0</"), "{quota}");
+        *drive.capacity.lock().unwrap() = None;
+        let quota = request(
+            &server,
+            "PROPFIND",
+            "/",
+            "Depth: 0\r\nContent-Type: application/xml\r\n",
+            body,
+            true,
+        );
+        assert!(!quota.contains("404"), "{quota}");
+        assert!(quota.contains(">5</") && quota.contains(">0</"), "{quota}");
+        {
+            let state = drive.state.lock().unwrap();
+            *drive.capacity.lock().unwrap() = Some(super::super::capacity::CapacityStatus {
+                logical_used: 5,
+                additional_estimate: 200,
+                eligible: vec!["test:".into()],
+                observed_unix: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
+                pending_ids: state.pending.iter().map(|i| i.id.clone()).collect(),
+                ..Default::default()
+            });
+        }
+        let quota = request(
+            &server,
+            "PROPFIND",
+            "/",
+            "Depth: 0\r\nContent-Type: application/xml\r\n",
+            body,
+            true,
+        );
+        assert!(
+            quota.contains(">5</") && quota.contains(">200</"),
+            "{quota}"
+        );
         let bad = request(&server, "PUT", "/%2e%2e/outside", "", b"bad", true);
         assert!(!bad.starts_with("HTTP/1.1 201"));
     }
