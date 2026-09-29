@@ -11,6 +11,23 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
+Mac actual-mount diagnostic follow-up (`7379773`): macFUSE 5.4.0 installed,
+official rclone v1.75.1 arm64 checksum-verified under
+`projects/rpool/mac-mount-test`; Homebrew rclone has macOS mount disabled.
+Isolated app configuration and a permission-restricted temporary rclone
+configuration avoid changing the Mac's live settings. Test-only Mikrotik crypt
+backing path correction made that remote readable. Added `RPOOL_CONFIG_DIR`,
+v7 `--diagnostic-read-only` (no background sync/GC; native/WebDAV writes
+blocked), and workspace/cloud/native timing logs. With the attached 7-remote
+policy, capacity-only took 19.97 s including 14.410 s cloud metadata; actual
+diagnostic mount attempt took 44.67 s including 12.771 s cloud metadata, then
+timed out after 30 s native startup. macOS logs explicitly blocked
+`io.macfuse.filesystems.macfuse.25` pending System Settings approval. No mount
+child/lease remained. Current default suite 438 passed / 12 ignored and
+warnings-denied release build passed. Full Mac mount readiness/read remains
+blocked until extension approval/restart. See
+`projects/rpool/mount-latency-cache/REPORT.md`.
+
 Mac metadata-scan latency follow-up: v6/v7 peer event listing now attempts one
 8 MiB-bounded `lsjson` per kind/remote and falls back to the previous 16 hash
 prefix pages only for a typed output-cap overflow. Other errors remain fatal;
@@ -20,10 +37,8 @@ six accessible Mac crypt remotes took 6.269 s for one sequential pass versus
 Final macOS validation in `projects/rpool/mount-scan-check`: default 435 passed /
 12 ignored, optional OpenDAL 446 passed / 12 ignored, warnings-denied release
 passed. A transient DAV localhost port rebinding failure passed alone and on
-the final full rerun. Real Mac mount is still blocked/unverified: Mikrotik SMB
-returns `invalid response packet`, compatible FUSE was not found, and this
-Mac has no registered RPool profile or macOS workspace/mountpoint. No remote
-mutation or real mount was attempted for this optimization.
+the final full rerun. This earlier scan-only benchmark did not attempt a mount;
+the later isolated mount attempt and current blocker are described above.
 
 Pool profile/workspace evolution follow-up: GUI saves machine-local per-pool mount
 profiles and restores workspace/history/cache/options on selection. Compatible
