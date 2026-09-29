@@ -26,6 +26,22 @@ The old 4 GiB test mount, lease, spool, and VFS cache are retained. No new Mac
 mount may use that workspace. Recover the old host's uncertain NFS state before
 fresh mount tests; do not delete its dirty cache or partial intents.
 
+### User-space VFS qualification (2026-09-29)
+
+An opt-in test runs installed rclone `serve webdav` with a fresh full VFS cache
+against a disposable RPool DAV server; it does not attach the macOS NFS client.
+Run `cargo test --bin rpool rclone_vfs_writeback_collapses_repeated_prefix_puts -- --ignored`
+from an isolated verification copy with `TMPDIR` and Cargo output under
+`projects/rpool`.
+Eight rapidly growing 32 KiB-prefix frontend PUTs yielded eight backend PUTs
+with `0s` write-back, but one final backend PUT with the production `60s`
+policy. The final 256 KiB content was read back exactly and the retained
+content spool was one 256 KiB image in the delayed case. The test shares the
+mount adapter's policy selector, so a regression to immediate DAV write-back
+fails the check. This qualifies the VFS close/reopen debounce for an
+uninterrupted burst, not the NFS RPC path, arbitrary pauses, crash recovery,
+power-loss durability, or a 4 GiB cloud roundtrip.
+
 ## Phase 0 — establish the write trace (current)
 
 1. Count authenticated PUT/PATCH/Content-Range attempts and successful PUTs,

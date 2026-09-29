@@ -431,7 +431,10 @@ An occupied saved port or live/uncertain old mount lease fails closed.
   for only the affected coding group. Clean shard cache is bounded; dirty spool is
   never evicted. Uncached content needs network access.
 - PUT completion at the bridge flushes content, recovery receipt and namespace.
-  Native application writes can still be in rclone's VFS cache; keep that cache too.
+  DAV mounts use full VFS caching with 60 seconds of write-back inactivity to
+  combine rapid close/reopen writes before that PUT. Native application writes
+  can still be only in rclone's VFS cache; keep that cache too. The delay is not
+  a per-save revision boundary or a proven power-loss-durable native `fsync`.
 - Shared changes are fetched while mounted. Previously unserved paths update live.
   Served paths retain an immutable mount-session revision; newer remote versions
   appear as `conflict-incoming-ID` copies until remount. This avoids combining bytes

@@ -15,15 +15,23 @@ Write-path follow-up (2026-09-29): `docs/MOUNT_WRITE_ROADMAP.md` defines the
 measured DAV mitigation and phase-gated native frontend plan. Aggregate DAV
 PUT/PATCH/range, write-open, body/copy-byte, seal and incomplete counters now
 report on server stop, with bounded progress every 64 seals, without paths or
-credentials. Synthetic DAV tests show
+credentials. A real rclone `serve webdav` VFS test (no OS mount) now compares
+eight increasing 32 KiB-prefix frontend PUTs under immediate versus production
+60-second write-back. The immediate route sends eight backend PUTs, whereas
+the delayed route sends one final 256 KiB PUT and leaves one 256 KiB content
+image with exact readback. The production full-cache/write-back selector has
+a non-ignored regression test. Synthetic DAV tests show
 64 body writes in one open make one revision, whereas 16 acknowledged growing
 full PUTs make 16 revisions and 4,456,448 content-spool bytes for a 524,288-byte
 final file. Content-Range verifies request-body bytes before sealing, rather
 than comparing with total resulting file size. Default suite in the isolated
-`projects/rpool/write-path-check` copy: 447 passed / 12 ignored. The exact
-old NFS request trace, 60-second VFS replay/power-loss behavior, recursive v7
-captured-original accounting and 4GiB cloud roundtrip remain unverified. No
-same-path blind PUT coalescing was enabled.
+`projects/rpool/write-amplification-check` copy: 448 passed / 13 ignored
+(including the opt-in VFS test); that test was run separately with installed
+rclone. An unrelated config-restore lock test failed once in parallel, then
+passed alone and in the full serial suite. The actual native NFS request trace,
+VFS crash/power-loss behavior, recursive v7 captured-original accounting and
+4GiB cloud roundtrip remain unverified. No same-path blind PUT coalescing was
+enabled.
 
 Mac 4GiB real-file follow-up is **blocked**, not validated end-to-end. An
 isolated seven-provider v7 resilient 9+3 NFS write reached only about 25MiB

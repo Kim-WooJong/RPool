@@ -66,11 +66,7 @@ impl MountProcess {
         if config.webdav.is_some() {
             source = ":webdav:".into();
         }
-        let cache_mode = if config.webdav.is_some() {
-            "full"
-        } else {
-            "writes"
-        };
+        let (cache_mode, write_back) = vfs_cache_policy(config.webdav.is_some());
         let mut command = Command::new(&config.rclone);
         command
             .arg(native_mount_command())
@@ -80,7 +76,7 @@ impl MountProcess {
                 "--vfs-cache-mode",
                 cache_mode,
                 "--vfs-write-back",
-                if config.webdav.is_some() { "60s" } else { "0s" },
+                write_back,
                 "--cache-dir",
             ])
             .arg(cache)
@@ -312,6 +308,16 @@ impl MountProcess {
             bail!("mount control endpoint unavailable");
         }
         Ok(response[split + 4..].to_vec())
+    }
+}
+
+/// The NFS server closes a VFS handle after each WRITE RPC. Without delayed
+/// write-back, every close uploads the growing whole file through WebDAV.
+pub(super) fn vfs_cache_policy(webdav: bool) -> (&'static str, &'static str) {
+    if webdav {
+        ("full", "60s")
+    } else {
+        ("writes", "0s")
     }
 }
 
@@ -823,6 +829,12 @@ fn base64(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dav_vfs_policy_keeps_dirty_writes_until_after_the_nfs_callback_burst() {
+        assert_eq!(vfs_cache_policy(true), ("full", "60s"));
+        assert_eq!(vfs_cache_policy(false), ("writes", "0s"));
+    }
+
     fn lease_fixture() -> (
         tempfile::TempDir,
         tempfile::TempDir,

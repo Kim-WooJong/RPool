@@ -710,6 +710,137 @@ mod tests {
         socket.read_to_end(&mut bytes).unwrap();
         String::from_utf8(bytes).unwrap()
     }
+
+    // Exercise rclone's real VFS cache without attaching the host's NFS mount.
+    // This test is opt-in because it needs an installed rclone and waits for
+    // the production write-back interval to expire.
+    #[test]
+    #[ignore = "requires rclone and the 60-second VFS write-back interval"]
+    fn rclone_vfs_writeback_collapses_repeated_prefix_puts() {
+        struct OwnedChild(std::process::Child);
+        impl Drop for OwnedChild {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+        fn front_request(address: std::net::SocketAddr, method: &str, body: &[u8]) -> String {
+            let mut socket = std::net::TcpStream::connect(address).unwrap();
+            socket
+                .set_read_timeout(Some(std::time::Duration::from_secs(20)))
+                .unwrap();
+            write!(
+                socket,
+                "{method} /file HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            socket.write_all(body).unwrap();
+            let mut response = Vec::new();
+            socket.read_to_end(&mut response).unwrap();
+            String::from_utf8(response).unwrap()
+        }
+        fn replay(write_back: &str, count: usize) -> (u64, u64, u64) {
+            let temp = tempfile::tempdir().unwrap();
+            let drive = Arc::new(super::super::virtual_drive::fixture(temp.path()));
+            let backend = Server::start(drive.clone(), false).unwrap();
+            let config = temp.path().join("empty-rclone.conf");
+            std::fs::write(&config, "").unwrap();
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            drop(listener);
+            let rclone = std::env::var_os("RPOOL_TEST_RCLONE").unwrap_or_else(|| {
+                if cfg!(target_os = "macos") {
+                    "/opt/homebrew/bin/rclone".into()
+                } else {
+                    "rclone".into()
+                }
+            });
+            let mut command = std::process::Command::new(rclone);
+            command
+                .args(["serve", "webdav", ":webdav:", "--addr"])
+                .arg(address.to_string())
+                .args(["--config"])
+                .arg(config)
+                .args(["--cache-dir"])
+                .arg(temp.path().join("vfs-cache"))
+                .args([
+                    "--vfs-cache-mode",
+                    "full",
+                    "--vfs-write-back",
+                    write_back,
+                    "--vfs-cache-poll-interval",
+                    "100ms",
+                    "--dir-cache-time",
+                    "1s",
+                ])
+                .env_clear()
+                .env("RCLONE_WEBDAV_URL", format!("http://{}", backend.address))
+                .env("RCLONE_WEBDAV_BEARER_TOKEN", &backend.token)
+                .env("RCLONE_WEBDAV_VENDOR", "other")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null());
+            let mut child = OwnedChild(command.spawn().unwrap());
+            let ready_by = std::time::Instant::now() + std::time::Duration::from_secs(15);
+            loop {
+                if child.0.try_wait().unwrap().is_some() {
+                    panic!("rclone serve webdav exited before readiness");
+                }
+                if std::net::TcpStream::connect_timeout(
+                    &address,
+                    std::time::Duration::from_millis(100),
+                )
+                .is_ok()
+                {
+                    break;
+                }
+                assert!(std::time::Instant::now() < ready_by, "rclone did not bind");
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            for prefix in 1..=count {
+                let body = vec![b'x'; prefix * 32768];
+                let response = front_request(address, "PUT", &body);
+                assert!(
+                    response.starts_with("HTTP/1.1 201") || response.starts_with("HTTP/1.1 204"),
+                    "frontend PUT {prefix} returned {}",
+                    response.lines().next().unwrap_or("")
+                );
+            }
+            let expected = if write_back == "0s" { count as u64 } else { 1 };
+            let complete_by = std::time::Instant::now()
+                + std::time::Duration::from_secs(if write_back == "0s" { 20 } else { 85 });
+            while backend.write_stats.put_successes.load(Ordering::Relaxed) < expected {
+                assert!(
+                    std::time::Instant::now() < complete_by,
+                    "VFS write-back did not reach {expected} backend PUTs: got {}",
+                    backend.write_stats.put_successes.load(Ordering::Relaxed)
+                );
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            let view = drive.view().unwrap();
+            let revision = &view["file"];
+            assert_eq!(revision.size(), (count * 32768) as u64);
+            assert_eq!(
+                drive.read(revision, 0, revision.size() as usize).unwrap(),
+                vec![b'x'; count * 32768]
+            );
+            (
+                backend.write_stats.put_successes.load(Ordering::Relaxed),
+                backend.write_stats.seals.load(Ordering::Relaxed),
+                drive.spool_bytes().unwrap(),
+            )
+        }
+
+        let (_, delay) = super::super::adapter::vfs_cache_policy(true);
+        assert_eq!(delay, "60s");
+        let (old_puts, old_seals, old_spool) = replay("0s", 8);
+        assert!(old_puts >= 8 && old_seals >= 8);
+        assert!(old_spool >= 32768 * (1..=8).sum::<u64>());
+        let (new_puts, new_seals, new_spool) = replay(delay, 8);
+        assert_eq!((new_puts, new_seals, new_spool), (1, 1, 8 * 32768));
+    }
     #[test]
     fn fragmented_write_is_one_seal_and_short_body_is_not_sealed() {
         let temp = tempfile::tempdir().unwrap();
