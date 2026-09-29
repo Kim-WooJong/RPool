@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Opt-in native crypt writes per pool (`pool set --native-crypt`, GUI
+  "Encrypt in RPool"). `put --pool` and reprocess encrypt shards in RPool in
+  rclone crypt format and upload them to the crypt remote's base; readback
+  still uses rclone crypt. Unsupported crypt options, wrapping bases and
+  `RCLONE_CRYPT_*`/`RCLONE_CONFIG_*` overrides are refused. Mounts and other
+  commands keep using rclone crypt. Pools without the flag are unchanged.
+  Milestone M2 of `docs/NATIVE_MOUNT_CRYPT_PLAN.md`.
+
 - Internal: `src/crypt`, an rclone-crypt-compatible format library (keys,
   obscure/reveal, streaming and ranged data, standard/obfuscate/off names).
   It is milestone M1 of `docs/NATIVE_MOUNT_CRYPT_PLAN.md`, verified two-way

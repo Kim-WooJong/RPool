@@ -16,6 +16,8 @@ pub(crate) struct PoolForm {
     pub(crate) shard_mib: u64,
     /// Provider per-object limit in bytes; 0 means no limit.
     pub(crate) max_object_bytes: u64,
+    /// Encrypt in RPool instead of through rclone crypt (put and reprocess).
+    pub(crate) native_crypt: bool,
     pub(crate) workers: usize,
     pub(crate) retries: u32,
     pub(crate) placement: Placement,
@@ -40,6 +42,7 @@ impl PoolForm {
             manual_remote: String::new(),
             shard_mib: settings.shard_mib,
             max_object_bytes: 0,
+            native_crypt: false,
             workers: settings.workers,
             retries: settings.retries,
             placement: settings.placement,
@@ -58,6 +61,7 @@ impl PoolForm {
         self.remotes = pool.remotes;
         self.shard_mib = pool.shard_size.mib_ceil();
         self.max_object_bytes = pool.max_object_bytes.unwrap_or(0);
+        self.native_crypt = pool.native_crypt;
         self.workers = pool.workers;
         self.retries = pool.retries;
         self.placement = pool.placement;
@@ -158,6 +162,11 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                         ui.add(egui::DragValue::new(&mut state.pools.max_object_bytes));
                         ui.end_row();
 
+                        ui.label("Native crypt (experimental)")
+                            .on_hover_text("RPool encrypts shards in rclone crypt format and writes them to each crypt remote's base. Uploads and reprocessing only; mounts still use rclone crypt.");
+                        ui.checkbox(&mut state.pools.native_crypt, "Encrypt in RPool");
+                        ui.end_row();
+
                         ui.label("Workers");
                         ui.add(egui::DragValue::new(&mut state.pools.workers).range(1..=256));
                         ui.end_row();
@@ -217,6 +226,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                     data_shards: state.pools.data_shards,
                     parity_shards: state.pools.parity_shards,
                     max_object_bytes: state.pools.object_limit(),
+                    native_crypt: state.pools.native_crypt,
                 };
                 if let Err(error) = crate::models::shard_size::check_object_limit(
                     shard_size.bytes(),
@@ -332,6 +342,7 @@ fn save_current(state: &mut GuiState, task: &mut TaskRunner) {
         data_shards: state.pools.data_shards,
         parity_shards: state.pools.parity_shards,
         max_object_bytes: state.pools.object_limit(),
+        native_crypt: state.pools.native_crypt,
     };
 
     let args = pool_save_args(&name, &definition);
@@ -358,6 +369,9 @@ fn pool_save_args(name: &str, pool: &PoolDefinition) -> Vec<OsString> {
     }
     if let Some(limit) = pool.max_object_bytes {
         args.extend(["--max-object-bytes".into(), limit.to_string().into()]);
+    }
+    if pool.native_crypt {
+        args.push("--native-crypt".into());
     }
     args.extend(["--placement".into(), pool.placement.cli_value().into()]);
     args.extend(["--".into(), name.into()]);
@@ -540,6 +554,7 @@ mod tests {
             data_shards: 3,
             parity_shards: 2,
             max_object_bytes: Some(250_000_000),
+            native_crypt: true,
         };
         form.load_definition("existing".into(), existing.clone());
         settings.shard_mib = 91;
@@ -557,9 +572,11 @@ mod tests {
         );
         assert_eq!(form.placement, Placement::RoundRobin);
         assert_eq!(form.object_limit(), Some(250_000_000));
+        assert!(form.native_crypt);
         let reset = PoolForm::from_settings(&settings);
         assert_eq!((reset.shard_mib, reset.workers), (91, 6));
         assert_eq!(reset.object_limit(), None);
+        assert!(!reset.native_crypt);
         assert!(reset.name.is_empty() && reset.selected.is_empty());
     }
 
@@ -574,6 +591,7 @@ mod tests {
             data_shards: 4,
             parity_shards: 2,
             max_object_bytes: Some(250_000_000),
+            native_crypt: true,
         };
         let mut args = vec![
             OsString::from("rpool"),
@@ -595,9 +613,11 @@ mod tests {
                     data_shards,
                     parity_shards,
                     max_object_bytes,
+                    native_crypt,
                 } => {
                     assert_eq!(name, "-pool name");
                     assert_eq!(max_object_bytes, Some(250_000_000));
+                    assert!(native_crypt);
                     assert_eq!(remotes, definition.remotes);
                     assert_eq!(
                         (shard_mib, workers, retries, data_shards, parity_shards),

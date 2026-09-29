@@ -49,7 +49,7 @@ frontend. Each layer ships and is verified separately.
 | # | Deliverable | Exit gate |
 | --- | --- | --- |
 | M1 ✅ | `src/crypt`: format library (keys, reveal, streaming data, names, sizes, ranged reads) | Two-way rclone oracle tests pass (rclone 1.75.1, 2026-09-29). No production caller yet. |
-| M2 | Native-crypt storage backend over the base remote. Opt-in per pool. | Objects are interchangeable with the rclone crypt remote. Ranged reads verified. Fault tests pass. |
+| M2 ✅ | Native-crypt storage backend over the base remote. Opt-in per pool. | Objects are interchangeable with the rclone crypt remote. Ranged reads verified. Fault tests pass. |
 | M3 | Protocol-independent filesystem core (roadmap Phase 2) | The Phase 2 exit gate in `MOUNT_WRITE_ROADMAP.md` |
 | M4 | Windows WinFsp frontend (`winfsp_wrs`, MIT). Read-only first, then writable. | Windows machine: listing, reads, stop, and small writes with remount and recovery |
 | M5 | Linux FUSE (`fuser`) | Linux machine |
@@ -79,3 +79,31 @@ about non-canonical trailing bits; rclone never produces those.
 
 Instead of the published rclone test vectors, the rclone binary itself serves
 as the reference.
+
+## M2 status (2026-09-29)
+
+Done for `put` and pool reprocess. A pool opts in with `native_crypt`
+(`pool set --native-crypt`, GUI "Encrypt in RPool"). Shards are then encrypted
+by `CryptBackend` and written with `rclone rcat` to the crypt remote's base.
+The writer's readback still goes through the rclone crypt remote, so every
+native write is proven readable by rclone before it counts.
+
+The write gate (`src/storage/native_crypt/route.rs`) allows a destination only
+when it is a configured crypt remote that `CryptConfig` fully supports, its
+base is a plain configured remote (not crypt, alias, union, combine, chunker,
+hasher, compress or cache, and not a `:backend:` string), and no
+`RCLONE_CRYPT_*` or `RCLONE_CONFIG_*` override except `RCLONE_CONFIG_PASS` is
+set. Crypt options that are present with an empty value are refused rather
+than read as defaults. Keys that are non-ASCII or not canonical (`a//b`, `./a`,
+`a/`) use the gated rclone crypt route instead. The config dump is read once
+per command, and failures are not cached.
+
+Verified: gate unit tests, the M2a fault and ranged-read tests, and an ignored
+end-to-end test (`native_writer_objects_read_back_through_rclone_crypt`) in
+which a native writer publishes onto a local base, `rclone cat` returns the
+same bytes, and the base holds only `RCLONE\0\0` ciphertext under encrypted
+names. No cloud provider was used.
+
+Not covered: mounts, repair, scrub, migrate and manifest replication still
+write through rclone crypt. Objects are interchangeable, so mixing is safe.
+Server-side copy and rename through `CryptBackend` are not wired.

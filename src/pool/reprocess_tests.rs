@@ -225,6 +225,7 @@ impl ConversionFixture {
     fn target(coded: bool) -> PoolDefinition {
         PoolDefinition {
             max_object_bytes: None,
+            native_crypt: false,
             remotes: vec!["a:".into()],
             shard_size: crate::models::shard_size::ShardSize::from_mib(1).unwrap(),
             workers: 1,

@@ -70,6 +70,11 @@ pub(crate) enum PoolCommands {
         /// Provider per-object limit in bytes; encrypted shard objects must fit.
         #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
         max_object_bytes: Option<u64>,
+
+        /// Encrypt shards in RPool (rclone crypt format) and write them to each
+        /// crypt remote's base. Applies to put and reprocess; mounts still use rclone crypt.
+        #[arg(long)]
+        native_crypt: bool,
     },
 
     /// Remove a storage pool definition. Stored shards are not touched.

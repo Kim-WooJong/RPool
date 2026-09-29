@@ -10,4 +10,5 @@ pub(crate) struct ResolvedPutOptions {
     pub(crate) data_shards: usize,
     pub(crate) parity_shards: usize,
     pub(crate) pool_name: Option<String>,
+    pub(crate) native_crypt: bool,
 }

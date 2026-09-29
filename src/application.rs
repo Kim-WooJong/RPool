@@ -67,6 +67,7 @@ fn dispatch(cli: Cli) -> Result<()> {
                 resolved.parity_shards,
                 id,
                 resolved.pool_name,
+                resolved.native_crypt,
             )
         }
         Commands::Get {
@@ -138,6 +139,7 @@ fn dispatch(cli: Cli) -> Result<()> {
                 data_shards,
                 parity_shards,
                 max_object_bytes,
+                native_crypt,
             } => commands::pool::set(
                 &cli.rclone,
                 name,
@@ -149,6 +151,7 @@ fn dispatch(cli: Cli) -> Result<()> {
                 data_shards,
                 parity_shards,
                 max_object_bytes,
+                native_crypt,
             ),
             PoolCommands::Remove { name } => commands::pool::remove(&name),
         },

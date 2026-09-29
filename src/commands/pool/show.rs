@@ -20,6 +20,7 @@ pub(crate) fn run(name: &str, json: bool) -> Result<()> {
     println!("placement={}", pool.placement.cli_value());
     println!("data_shards={}", pool.data_shards);
     println!("parity_shards={}", pool.parity_shards);
+    println!("native_crypt={}", pool.native_crypt);
     for remote in &pool.remotes {
         println!("remote={remote}");
     }

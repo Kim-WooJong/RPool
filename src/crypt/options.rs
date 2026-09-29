@@ -37,7 +37,7 @@ pub(crate) struct CryptConfig {
 
 fn boolean(section: &BTreeMap<String, String>, key: &str, default: bool) -> Result<bool> {
     match section.get(key).map(String::as_str) {
-        None | Some("") => Ok(default),
+        None => Ok(default),
         Some("true" | "1") => Ok(true),
         Some("false" | "0") => Ok(false),
         Some(_) => bail!("unsupported value for crypt option {key}"),
@@ -92,19 +92,19 @@ impl CryptConfig {
             }
         };
         let name_mode = match section.get("filename_encryption").map(String::as_str) {
-            None | Some("" | "standard") => NameMode::Standard,
+            None | Some("standard") => NameMode::Standard,
             Some("obfuscate") => NameMode::Obfuscate,
             Some("off") => NameMode::Off,
             Some(_) => bail!("unsupported crypt filename_encryption"),
         };
         let name_encoding = match section.get("filename_encoding").map(String::as_str) {
-            None | Some("" | "base32") => NameEncoding::Base32,
+            None | Some("base32") => NameEncoding::Base32,
             Some("base64") => NameEncoding::Base64,
             Some("base32768") => bail!("crypt filename_encoding base32768 is not supported yet"),
             Some(_) => bail!("unsupported crypt filename_encoding"),
         };
         let suffix = match section.get("suffix").map(String::as_str) {
-            None | Some("") => Some(".bin".to_string()),
+            None => Some(".bin".to_string()),
             Some("none") => None,
             Some(value) if value.starts_with('.') && !value.contains('/') => Some(value.into()),
             Some(_) => bail!("unsupported crypt suffix"),

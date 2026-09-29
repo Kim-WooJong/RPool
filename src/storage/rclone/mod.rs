@@ -139,17 +139,7 @@ impl RcloneContext {
     ) -> Result<(), StorageError> {
         process::check(ctx)?;
         let remote = remote_name(destination)?;
-        // Freeze environment for inspection/I/O and fail closed on overrides that
-        // could make effective policy disagree with config dump. Never log values.
-        if self.environment.iter().any(|(key, _)| {
-            let key = key.to_string_lossy().to_ascii_uppercase();
-            key == "RCLONE_CRYPT_NO_DATA_ENCRYPTION"
-                || (key.starts_with("RCLONE_CONFIG_") && key != "RCLONE_CONFIG_PASS")
-        }) {
-            return Err(invalid(
-                "rclone policy-changing environment override is not supported",
-            ));
-        }
+        self.check_policy_environment(false)?;
         let config = self.config_dump(ctx)?;
         let entry = config
             .get(remote)
@@ -182,6 +172,28 @@ impl RcloneContext {
             }
             _ => Err(invalid("invalid crypt encryption setting")),
         }
+    }
+    /// Freeze environment for inspection/I/O and fail closed on overrides that
+    /// could make effective policy disagree with config dump. Never log values.
+    /// Native crypt also refuses every `RCLONE_CRYPT_*` override, because RPool
+    /// encrypts from the config dump alone.
+    pub(crate) fn check_policy_environment(&self, native_crypt: bool) -> Result<(), StorageError> {
+        if self.environment.iter().any(|(key, _)| {
+            let key = key.to_string_lossy().to_ascii_uppercase();
+            key == "RCLONE_CRYPT_NO_DATA_ENCRYPTION"
+                || (native_crypt && key.starts_with("RCLONE_CRYPT_"))
+                || (key.starts_with("RCLONE_CONFIG_") && key != "RCLONE_CONFIG_PASS")
+        }) {
+            return Err(invalid(
+                "rclone policy-changing environment override is not supported",
+            ));
+        }
+        Ok(())
+    }
+    #[cfg(test)]
+    pub(crate) fn set_test_environment(&mut self, key: &str, value: &str) {
+        self.environment.retain(|(k, _)| k != key);
+        self.environment.push((key.into(), value.into()));
     }
     pub(crate) fn stat_raw(
         &self,
@@ -272,10 +284,21 @@ impl RcloneContext {
         size: Option<u64>,
         options: &WriteOptions,
     ) -> Result<WriteReceipt, StorageError> {
-        if !options.overwrite || options.expected_version.is_some() {
-            return Err(StorageError::unsupported("rclone conditional write"));
-        }
+        unconditional(options)?;
         self.ensure_crypt(ctx, address)?;
+        self.write_ungated(ctx, address, source, size, options)
+    }
+    /// Only reachable through `RcloneBackend::for_crypt_base`, whose bytes are
+    /// already encrypted by RPool.
+    fn write_ungated(
+        &self,
+        ctx: &OperationContext,
+        address: &str,
+        source: &mut dyn Read,
+        size: Option<u64>,
+        options: &WriteOptions,
+    ) -> Result<WriteReceipt, StorageError> {
+        unconditional(options)?;
         let mut args = vec![
             "rcat".into(),
             "--retries".into(),
@@ -347,7 +370,14 @@ impl RcloneContext {
     }
 }
 
-fn remote_name(address: &str) -> Result<&str, StorageError> {
+fn unconditional(options: &WriteOptions) -> Result<(), StorageError> {
+    if !options.overwrite || options.expected_version.is_some() {
+        return Err(StorageError::unsupported("rclone conditional write"));
+    }
+    Ok(())
+}
+
+pub(crate) fn remote_name(address: &str) -> Result<&str, StorageError> {
     let (name, _) = address
         .split_once(':')
         .ok_or_else(|| invalid("expected configured rclone remote"))?;
@@ -371,6 +401,8 @@ pub(crate) struct RcloneBackend {
     context: RcloneContext,
     root: String,
     legacy_object: Option<String>,
+    /// Base remote of a native crypt backend: writes carry RPool ciphertext.
+    crypt_base: bool,
 }
 impl RcloneBackend {
     #[cfg(test)]
@@ -385,6 +417,24 @@ impl RcloneBackend {
             context,
             root,
             legacy_object: None,
+            crypt_base: false,
+        })
+    }
+    /// Base remote under a native `CryptBackend`. The token can only be created by
+    /// the native crypt router, after it validated the crypt remote and its base.
+    pub(crate) fn for_crypt_base(
+        id: BackendId,
+        context: RcloneContext,
+        root: String,
+        _access: crate::storage::native_crypt::route::BaseAccess,
+    ) -> Result<Self, StorageError> {
+        remote_name(&root)?;
+        Ok(Self {
+            id,
+            context,
+            root,
+            legacy_object: None,
+            crypt_base: true,
         })
     }
     /// Runtime-only binding. The safe key never contains or normalizes the legacy address.
@@ -394,6 +444,7 @@ impl RcloneBackend {
             context,
             root: String::new(),
             legacy_object: Some(raw),
+            crypt_base: false,
         }
     }
     fn address(&self, key: &ObjectKey) -> Result<String, StorageError> {
@@ -476,8 +527,13 @@ impl StorageBackend for RcloneBackend {
         source: &mut dyn Read,
         options: &WriteOptions,
     ) -> Result<WriteReceipt, StorageError> {
-        self.context
-            .write_raw(ctx, &self.address(key)?, source, None, options)
+        let address = self.address(key)?;
+        if self.crypt_base {
+            self.context
+                .write_ungated(ctx, &address, source, None, options)
+        } else {
+            self.context.write_raw(ctx, &address, source, None, options)
+        }
     }
     fn delete(&self, ctx: &OperationContext, key: &ObjectKey) -> Result<(), StorageError> {
         self.context.delete_raw(ctx, &self.address(key)?)

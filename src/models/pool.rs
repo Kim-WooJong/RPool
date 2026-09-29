@@ -18,6 +18,10 @@ pub(crate) struct PoolDefinition {
     /// (rclone crypt) shard size. Omitted from JSON when unset.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) max_object_bytes: Option<u64>,
+    /// Opt-in: `put` and reprocess encrypt shards in RPool (rclone-crypt compatible)
+    /// and write them to the crypt remote's base. Omitted from JSON when false.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) native_crypt: bool,
 }
 
 impl PoolDefinition {
@@ -43,6 +47,7 @@ impl Default for PoolDefinition {
             data_shards: crate::config::constants::DEFAULT_DATA_SHARDS,
             parity_shards: crate::config::constants::DEFAULT_PARITY_SHARDS,
             max_object_bytes: None,
+            native_crypt: false,
         }
     }
 }

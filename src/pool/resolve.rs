@@ -77,5 +77,6 @@ pub(crate) fn resolve_put_options(
                 .unwrap_or(DEFAULT_PARITY_SHARDS)
         }),
         pool_name: pool_name.map(ToOwned::to_owned),
+        native_crypt: pool.as_ref().is_some_and(|p| p.native_crypt),
     })
 }

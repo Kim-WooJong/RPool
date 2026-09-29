@@ -11,6 +11,14 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
+Native crypt M2 (2026-09-29): per-pool `native_crypt` routes `put`/reprocess
+shard writes through RPool encryption onto the crypt base, with rclone crypt
+readback. Gate unit tests plus an ignored real-rclone local end-to-end test pass;
+default suite 489 passed / 21 ignored with a non-symlink TMPDIR (the
+`transition_and_mount_share_exclusive_lock_with_explicit_release` test fails
+under macOS `/var/folders` TMPDIR because of the symlinked path). No cloud
+provider used. Next: M3 filesystem core (`docs/NATIVE_MOUNT_CRYPT_PLAN.md`).
+
 Write-path follow-up (2026-09-29): `docs/MOUNT_WRITE_ROADMAP.md` defines the
 measured DAV mitigation and phase-gated native frontend plan. Aggregate DAV
 PUT/PATCH/range, write-open, body/copy-byte, seal and incomplete counters now

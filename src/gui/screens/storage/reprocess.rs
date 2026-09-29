@@ -435,6 +435,7 @@ mod tests {
         form.selected.insert("original.json".into());
         form.draft = Some(PoolDefinition {
             max_object_bytes: None,
+            native_crypt: false,
             remotes: vec!["crypt:custom saved path".into()],
             shard_size: crate::models::shard_size::ShardSize::from_mib(32).unwrap(),
             workers: 2,

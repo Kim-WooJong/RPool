@@ -1,6 +1,10 @@
-//! Verified archive mutations. Production construction is rclone-only until a
-//! native encryption binding exists. Synthetic routes are available only in tests.
+//! Verified archive mutations. Writes go through rclone crypt, or, for pools with
+//! `native_crypt`, through RPool's own rclone-compatible encryption onto the crypt
+//! remote's base. Readback always uses rclone crypt, so every native write is
+//! proven readable by rclone. Synthetic routes are available only in tests.
 use super::error::StorageError;
+use super::native_crypt::route::NativeCrypt;
+use super::rclone::RcloneContext;
 use super::reader::{is_recoverable_loss, StorageReader};
 use super::traits::WriteOptions;
 use crate::prelude::*;
@@ -23,22 +27,46 @@ pub(crate) fn upload_retry(error: &anyhow::Error, attempt: u32) -> Option<std::t
 
 pub(crate) struct StorageWriter {
     reader: StorageReader,
+    native: Option<NativeCrypt>,
 }
 impl StorageWriter {
     pub(crate) fn rclone(executable: &str) -> Self {
         Self {
             reader: StorageReader::rclone(executable),
+            native: None,
+        }
+    }
+    /// Writer for a pool: native crypt writes when the pool opts in.
+    pub(crate) fn for_pool(executable: &str, native_crypt: bool) -> Self {
+        if !native_crypt {
+            return Self::rclone(executable);
+        }
+        Self::native(RcloneContext::inherited(executable))
+    }
+    pub(crate) fn native(context: RcloneContext) -> Self {
+        Self {
+            reader: StorageReader::with_rclone_context(context.clone()),
+            native: Some(NativeCrypt::new(context)),
         }
     }
     #[cfg(test)]
     pub(crate) fn synthetic(reader: StorageReader) -> Self {
-        Self { reader }
+        Self {
+            reader,
+            native: None,
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn is_native(&self) -> bool {
+        self.native.is_some()
     }
     pub(crate) fn reader(&self) -> &StorageReader {
         &self.reader
     }
     pub(crate) fn ensure_destination(&self, raw: &str) -> Result<()> {
-        if let Some(context) = self.reader.legacy_context() {
+        if let Some(native) = &self.native {
+            native.ensure(self.reader.operation_context(), raw)?;
+        } else if let Some(context) = self.reader.legacy_context() {
             context.ensure_crypt(self.reader.operation_context(), raw)?;
         } else {
             #[cfg(not(test))]
@@ -87,7 +115,14 @@ impl StorageWriter {
         if self.reusable(shard)? {
             return Ok(());
         }
-        let (backend, key) = self.reader.resolve(&shard.object)?;
+        let routed = match &self.native {
+            Some(native) => native.route(self.reader.operation_context(), &shard.object)?,
+            None => None,
+        };
+        let (backend, key) = match routed {
+            Some(route) => route,
+            None => self.reader.resolve(&shard.object)?,
+        };
         for attempt in 1..=retries.max(1) {
             let mut input = File::open(&staged)?;
             match backend.write(

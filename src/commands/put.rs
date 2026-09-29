@@ -23,10 +23,11 @@ pub(crate) fn put(
     parity_shards: usize,
     explicit_id: Option<String>,
     pool_name: Option<String>,
+    native_crypt: bool,
 ) -> Result<()> {
     let original = source.canonicalize()?;
     put_with_storage(
-        &StorageWriter::rclone(rclone),
+        &StorageWriter::for_pool(rclone, native_crypt),
         rclone,
         &original,
         remotes,

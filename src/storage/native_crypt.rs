@@ -23,6 +23,8 @@ use crate::storage::error::StorageError;
 use crate::storage::reference::{BackendId, ObjectKey};
 use crate::storage::traits::*;
 
+pub(crate) mod route;
+
 pub(crate) struct CryptBackend {
     id: BackendId,
     inner: Arc<dyn StorageBackend>,
@@ -240,7 +242,10 @@ impl StorageBackend for CryptBackend {
                 detail: "crypt nonce generation failed".into(),
             })?;
         let mut receipt = self.inner.write(ctx, &key, &mut encrypting, options)?;
-        receipt.size = self.plain_size(receipt.size)?;
+        // The object may already be published, so a bad size is not a clean failure.
+        receipt.size = self.plain_size(receipt.size).map_err(|_| {
+            StorageError::unknown_outcome("crypt write receipt size is not a ciphertext size")
+        })?;
         Ok(receipt)
     }
 
@@ -323,5 +328,7 @@ impl StorageBackend for CryptBackend {
     }
 }
 
+#[cfg(test)]
+mod route_tests;
 #[cfg(test)]
 mod tests;

@@ -203,7 +203,7 @@ pub(crate) fn execute_plan(rclone: &str, plan_path: &Path) -> Result<()> {
             );
         }
     }
-    let writer = StorageWriter::rclone(rclone);
+    let writer = StorageWriter::for_pool(rclone, plan.target.native_crypt);
     for remote in &plan.target.remotes {
         writer.ensure_destination(remote)?;
     }
