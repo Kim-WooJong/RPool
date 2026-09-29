@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Internal: `src/crypt`, an rclone-crypt-compatible format library (keys,
+  obscure/reveal, streaming and ranged data, standard/obfuscate/off names).
+  It is milestone M1 of `docs/NATIVE_MOUNT_CRYPT_PLAN.md`, verified two-way
+  against rclone on local directories. Nothing uses it yet; behaviour is
+  unchanged.
+
 - Safer native mount shutdown. Before quitting rclone, RPool now asks rclone to
   upload its delayed (60 s) write-back queue into the still-running WebDAV
   backend and waits up to 90 s for it to empty. rclone writes its output to a

@@ -42,6 +42,12 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 bytes = "1"
 futures-util = "0.3"
+aes = "0.8.4"
+ctr = "0.9.2"
+zeroize = "1.9"
+scrypt = { version = "0.11.0", default-features = false }
+crypto_secretbox = { version = "0.1.1", default-features = false, features = ["salsa20", "alloc"] }
+data-encoding = "2.11"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"

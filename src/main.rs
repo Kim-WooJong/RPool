@@ -3,6 +3,7 @@ mod cli;
 mod commands;
 mod config;
 mod config_sync;
+mod crypt;
 mod doctor;
 mod erasure;
 mod gui;
