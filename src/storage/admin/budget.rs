@@ -208,4 +208,69 @@ mod tests {
         assert_eq!(s.targets[0].capacity_domain, s.targets[2].capacity_domain);
         assert_eq!(s.targets[0].failure_domain, s.targets[1].failure_domain);
     }
+
+    #[test]
+    fn two_gib_and_two_tib_are_summed_only_when_independence_is_declared() {
+        struct SkewAdmin;
+        impl BackendAdmin for SkewAdmin {
+            fn catalog(&self) -> Result<RemoteCatalog> {
+                Admin.catalog()
+            }
+            fn quota(&self, remote: &str) -> QuotaReport {
+                let bytes = if remote == "b:" {
+                    2u64 << 40
+                } else {
+                    2u64 << 30
+                };
+                QuotaReport {
+                    remote: remote.into(),
+                    total: Some(bytes),
+                    used: Some(0),
+                    free: Some(bytes),
+                    trashed: None,
+                    other: None,
+                    used_percent: None,
+                    error: None,
+                }
+            }
+            fn discover(&self) -> Result<Vec<String>> {
+                unreachable!()
+            }
+            fn probe(&self, _: &str) -> Result<()> {
+                unreachable!()
+            }
+            fn ensure_encrypted(&self, _: &str) -> Result<()> {
+                unreachable!()
+            }
+        }
+        let admin = SkewAdmin;
+        let mut catalog = admin.catalog().unwrap();
+        let remotes = ["a:".into(), "alias:".into(), "b:".into()];
+        let unknown = BudgetSnapshot::query(&admin, &catalog, &remotes);
+        assert_eq!(unknown.total_free().unwrap(), 2u64 << 30);
+
+        catalog.set_domains(DomainStore {
+            version: 1,
+            remotes: BTreeMap::from([
+                (
+                    "a".into(),
+                    DomainIdentity {
+                        capacity: "small".into(),
+                        failure: "small-provider".into(),
+                    },
+                ),
+                (
+                    "b".into(),
+                    DomainIdentity {
+                        capacity: "large".into(),
+                        failure: "large-provider".into(),
+                    },
+                ),
+            ]),
+        });
+        let declared = BudgetSnapshot::query(&admin, &catalog, &remotes);
+        assert!(declared.rejected.is_empty());
+        assert_eq!(declared.total_free().unwrap(), (2u64 << 40) + (2u64 << 30));
+        assert_eq!(declared.budgets().len(), 2); // The crypt alias adds no quota.
+    }
 }

@@ -723,7 +723,9 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
             }
         });
     }
-    ui.collapsing("Account capacity / outage identities", |ui| {
+    egui::CollapsingHeader::new("Account capacity / outage identities")
+        .default_open(true)
+        .show(ui, |ui| {
         ui.label("One line: backing-remote account-budget-id outage-group-id. Use the SAME budget ID for aliases/accounts sharing quota; distinct budget IDs assert independent capacity. Outage groups are separate: accounts on one provider may fail together. No passwords or tokens.");
         ui.add_enabled_ui(!form.runner.is_running(), |ui| {
             ui.text_edit_multiline(&mut form.identity_editor);
@@ -739,7 +741,11 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
                     }
                     store.save()
                 })();
-                form.notice = Some(match result { Ok(()) => {form.capacity=None; "Identity declarations saved; refresh capacity.".into()}, Err(e)=>format!("{e:#}") });
+                form.notice = Some(match result { Ok(()) => {
+                    form.capacity=None;
+                    state.pools.invalidate_capacity();
+                    "Identity declarations saved; refresh capacity.".into()
+                }, Err(e)=>format!("{e:#}") });
             }
         });
     });

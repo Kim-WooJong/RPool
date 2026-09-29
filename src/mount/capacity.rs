@@ -36,6 +36,14 @@ pub(crate) struct CapacityStatus {
     pub nominal_logical_upper: u64,
     #[serde(default)]
     pub remaining_logical_upper: u64,
+    /// A tighter upper bound after accounting for a whole outage group's loss.
+    /// None means the failure identities are not fully declared.
+    #[serde(default)]
+    pub resilient_remaining_upper: Option<u64>,
+    #[serde(default)]
+    pub eligible_failure_groups: usize,
+    #[serde(default)]
+    pub required_failure_groups: usize,
     #[serde(default)]
     pub pending_physical_reservation: u64,
 
@@ -184,7 +192,68 @@ impl CapacityStatus {
         Ok(())
     }
 
+    fn update_outage_bound(&mut self, policy: &PoolDefinition) -> Result<()> {
+        self.resilient_remaining_upper = None;
+        self.eligible_failure_groups = 0;
+        self.required_failure_groups = 0;
+        if policy.placement == Placement::Resilient && policy.parity_shards > 0 {
+            self.required_failure_groups =
+                (policy.data_shards + policy.parity_shards).div_ceil(policy.parity_shards);
+            let groups: BTreeSet<_> = self
+                .targets
+                .iter()
+                .filter_map(|target| target.failure_domain.as_deref())
+                .collect();
+            self.eligible_failure_groups = groups.len();
+            if self
+                .targets
+                .iter()
+                .all(|target| target.failure_domain.is_some())
+            {
+                let mut domain_failures = BTreeMap::<String, BTreeSet<String>>::new();
+                for target in &self.targets {
+                    domain_failures
+                        .entry(target.capacity_domain.clone())
+                        .or_default()
+                        .insert(target.failure_domain.as_ref().unwrap().clone());
+                }
+                // A shared quota exposed by targets in several failure groups
+                // cannot be charged exclusively to any one of them.
+                let mut exclusive_free = BTreeMap::<String, u64>::new();
+                for (domain, free) in (crate::storage::admin::budget::BudgetSnapshot {
+                    targets: self.targets.clone(),
+                    rejected: vec![],
+                })
+                .budgets()
+                {
+                    if let Some(failures) = domain_failures.get(&domain) {
+                        if failures.len() == 1 {
+                            let failure = failures.iter().next().unwrap().clone();
+                            let entry = exclusive_free.entry(failure).or_default();
+                            *entry = entry
+                                .checked_add(free)
+                                .context("outage-group quota overflow")?;
+                        }
+                    }
+                }
+                let largest = exclusive_free.values().copied().max().unwrap_or(0);
+                self.resilient_remaining_upper = Some(
+                    if self.eligible_failure_groups < self.required_failure_groups {
+                        0
+                    } else {
+                        (((self.budget as u128 * policy.data_shards as u128)
+                            / (policy.data_shards + policy.parity_shards) as u128)
+                            as u64)
+                            .min(self.budget.saturating_sub(largest))
+                    },
+                );
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn recalculate(&mut self, policy: &PoolDefinition) -> Result<()> {
+        self.update_outage_bound(policy)?;
         let shard = policy
             .shard_mib
             .checked_mul(1048576)
@@ -620,5 +689,55 @@ mod tests {
         assert_eq!(s.additional_estimate, 0);
         assert!(s.note.contains("outage/failure group"));
         assert_eq!(p.placement, Placement::Resilient);
+    }
+
+    #[test]
+    fn outage_aware_bound_exposes_two_gib_vs_two_tib_bottleneck() {
+        let gib = 1u64 << 30;
+        let tib = 1u64 << 40;
+        let mut status = CapacityStatus {
+            targets: [
+                ("huge", 2 * tib),
+                ("small-a", 2 * gib),
+                ("small-b", 2 * gib),
+                ("small-c", 2 * gib),
+            ]
+            .into_iter()
+            .map(
+                |(name, bytes)| crate::storage::admin::budget::TargetBudget {
+                    remote: format!("{name}:"),
+                    backing: name.into(),
+                    capacity_domain: name.into(),
+                    failure_domain: Some(name.into()),
+                    declared: true,
+                    total: bytes,
+                    free: bytes,
+                },
+            )
+            .collect(),
+            ..Default::default()
+        };
+        let p = PoolDefinition {
+            data_shards: 3,
+            parity_shards: 1,
+            placement: Placement::Resilient,
+            ..policy()
+        };
+        status.update_account_totals(&p).unwrap();
+        status.budget = status.physical_free;
+        status.update_outage_bound(&p).unwrap();
+        assert_eq!(status.physical_total, 2 * tib + 6 * gib);
+        assert_eq!(status.required_failure_groups, 4);
+        assert_eq!(status.eligible_failure_groups, 4);
+        assert_eq!(status.resilient_remaining_upper, Some(6 * gib));
+        assert!(status.remaining_logical_upper > 6 * gib);
+
+        status.targets.truncate(2);
+        status.update_account_totals(&p).unwrap();
+        status.budget = status.physical_free;
+        status.update_outage_bound(&p).unwrap();
+        assert_eq!(status.required_failure_groups, 4);
+        assert_eq!(status.eligible_failure_groups, 2);
+        assert_eq!(status.resilient_remaining_upper, Some(0));
     }
 }

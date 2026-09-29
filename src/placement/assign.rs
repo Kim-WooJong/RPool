@@ -96,8 +96,52 @@ fn resilient_allocate(
     specs: &[PhysicalSpec],
     parity: usize,
 ) -> Result<Vec<usize>> {
-    resilient_allocate_inner(snapshot, specs, parity, true)
-        .or_else(|_| resilient_allocate_inner(snapshot, specs, parity, false))
+    resilient_allocate_inner(snapshot, specs, parity, ResilientChoice::Sampled)
+        .or_else(|_| resilient_allocate_inner(snapshot, specs, parity, ResilientChoice::Weighted))
+        .or_else(|_| resilient_allocate_inner(snapshot, specs, parity, ResilientChoice::Balanced))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ResilientChoice {
+    Sampled,
+    Weighted,
+    Balanced,
+}
+
+fn projected_utilization_cmp(
+    a: usize,
+    b: usize,
+    spec: &PhysicalSpec,
+    targets: &[crate::storage::admin::budget::TargetBudget],
+    budgets: &BTreeMap<String, u64>,
+    totals: &BTreeMap<String, u64>,
+    domains: &[String],
+    counts: &BTreeMap<(u32, &str), usize>,
+) -> std::cmp::Ordering {
+    let ta = &targets[a];
+    let tb = &targets[b];
+    let free_a = budgets[&ta.capacity_domain];
+    let free_b = budgets[&tb.capacity_domain];
+    let total_a = totals[&ta.capacity_domain].max(1);
+    let total_b = totals[&tb.capacity_domain].max(1);
+    let used_a = total_a.saturating_sub(free_a).saturating_add(spec.size);
+    let used_b = total_b.saturating_sub(free_b).saturating_add(spec.size);
+    (used_a as u128 * total_b as u128)
+        .cmp(&(used_b as u128 * total_a as u128))
+        .then_with(|| {
+            counts
+                .get(&(spec.group, domains[a].as_str()))
+                .copied()
+                .unwrap_or(0)
+                .cmp(
+                    &counts
+                        .get(&(spec.group, domains[b].as_str()))
+                        .copied()
+                        .unwrap_or(0),
+                )
+        })
+        .then_with(|| free_b.cmp(&free_a))
+        .then_with(|| a.cmp(&b))
 }
 
 fn next_choice(state: &mut u64) -> u64 {
@@ -137,7 +181,7 @@ fn resilient_allocate_inner(
     snapshot: &crate::storage::admin::budget::BudgetSnapshot,
     specs: &[PhysicalSpec],
     parity: usize,
-    two_choice: bool,
+    choice: ResilientChoice,
 ) -> Result<Vec<usize>> {
     let targets = &snapshot.targets;
     let domains = targets
@@ -176,7 +220,7 @@ fn resilient_allocate_inner(
                             < parity)
             })
             .collect();
-        let chosen = if two_choice {
+        let chosen = if choice == ResilientChoice::Sampled {
             // Several rclone targets can draw on one account. Sample independent
             // quota domains, not aliases that would bias the lottery by count.
             let mut representatives = BTreeMap::<&str, usize>::new();
@@ -214,30 +258,11 @@ fn resilient_allocate_inner(
                 candidates[index]
             };
             [first, second].into_iter().min_by(|&a, &b| {
-                let ta = &targets[a];
-                let tb = &targets[b];
-                let free_a = budgets[&ta.capacity_domain];
-                let free_b = budgets[&tb.capacity_domain];
-                let total_a = totals[&ta.capacity_domain].max(1);
-                let total_b = totals[&tb.capacity_domain].max(1);
-                let used_a = total_a.saturating_sub(free_a).saturating_add(spec.size);
-                let used_b = total_b.saturating_sub(free_b).saturating_add(spec.size);
-                (used_a as u128 * total_b as u128)
-                    .cmp(&(used_b as u128 * total_a as u128))
-                    .then_with(|| {
-                        counts
-                            .get(&(spec.group, domains[a].as_str()))
-                            .copied()
-                            .unwrap_or(0)
-                            .cmp(
-                                &counts
-                                    .get(&(spec.group, domains[b].as_str()))
-                                    .copied()
-                                    .unwrap_or(0),
-                            )
-                    })
-                    .then_with(|| free_b.cmp(&free_a))
-                    .then_with(|| a.cmp(&b))
+                projected_utilization_cmp(a, b, spec, targets, &budgets, &totals, &domains, &counts)
+            })
+        } else if choice == ResilientChoice::Weighted {
+            eligible.into_iter().min_by(|&a, &b| {
+                projected_utilization_cmp(a, b, spec, targets, &budgets, &totals, &domains, &counts)
             })
         } else {
             eligible.into_iter().min_by_key(|&j| {
@@ -367,6 +392,31 @@ mod tests {
             assign_with_budget(&s, &specs, Placement::Resilient, Some(1)).unwrap(),
             vec![0]
         );
+    }
+
+    #[test]
+    fn weighted_fallback_avoids_tiny_domain_when_large_domains_suffice() {
+        let gib = 1u64 << 30;
+        let tib = 1u64 << 40;
+        let mut s = snapshot(&[2 * gib, 2 * tib, 2 * tib, 2 * tib, 2 * tib]);
+        for target in &mut s.targets {
+            target.total = target.free;
+        }
+        let specs: Vec<_> = (0..4)
+            .flat_map(|group| {
+                (0..4).map(move |_| PhysicalSpec {
+                    group,
+                    size: 1 << 20,
+                })
+            })
+            .collect();
+        let assigned = resilient_allocate_inner(&s, &specs, 1, ResilientChoice::Weighted).unwrap();
+        assert!(!assigned.contains(&0));
+        for group in 0..4 {
+            let stripe = &assigned[(group * 4)..((group + 1) * 4)];
+            assert_eq!(stripe.iter().copied().collect::<BTreeSet<_>>().len(), 4);
+        }
+        assert!(assign_with_budget(&s, &specs, Placement::Resilient, Some(1)).is_ok());
     }
 
     #[test]

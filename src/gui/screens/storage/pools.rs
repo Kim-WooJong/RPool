@@ -26,6 +26,10 @@ pub(crate) struct PoolForm {
 }
 
 impl PoolForm {
+    pub(crate) fn invalidate_capacity(&mut self) {
+        self.capacity.invalidate();
+    }
+
     pub(crate) fn from_settings(settings: &GuiSettings) -> Self {
         Self {
             selected: String::new(),
@@ -189,10 +193,13 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                     data_shards: state.pools.data_shards,
                     parity_shards: state.pools.parity_shards,
                 };
-                state
+                if state
                     .pools
                     .capacity
-                    .show(ui, &state.settings.rclone, &draft);
+                    .show(ui, &state.settings.rclone, &draft)
+                {
+                    state.storage_section = StorageSection::Mount;
+                }
                 if let Some(notice) = &state.pools.notice {
                     ui.label(notice);
                 }

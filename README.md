@@ -533,10 +533,15 @@ the planner samples two and chooses the lower projected utilization
 (used bytes plus this shard, divided by total quota). The candidate stream is
 repeatable for the same quota snapshot so capacity checks and uploads agree;
 if sampled choices strand later shards, a full-candidate deterministic greedy pass retries
-without weakening the safety bounds. This makes larger and smaller accounts
+with the same projected-utilization preference, then the original count-balanced
+greedy pass remains a final feasibility fallback. Neither fallback weakens the
+safety bounds. This makes larger and smaller accounts
 contribute according to available capacity, not equal shard counts. If no safe
 plan exists, planning fails before shard writes. An 8+2
 layout therefore requires at least five distinct resolved targets for this bound.
+Even with much larger quota on one account, a stripe cannot place more than M
+shards in its outage group. The usable logical capacity may therefore be far
+below the sum of account quotas when the other outage groups are small.
 This protects against one target's loss within the coding budget; it does NOT
 promise tolerance of two entire cloud outages, and distinct account/config names
 are not proof of independent providers. Unknown/aggregate mappings fail closed.

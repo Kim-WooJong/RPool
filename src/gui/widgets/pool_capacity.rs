@@ -13,7 +13,20 @@ pub(crate) struct CapacityPreview {
     error: Option<String>,
 }
 impl CapacityPreview {
-    pub(crate) fn show(&mut self, ui: &mut egui::Ui, rclone: &str, policy: &PoolDefinition) {
+    pub(crate) fn invalidate(&mut self) {
+        self.pending = None;
+        self.signature.clear();
+        self.report = None;
+        self.error = None;
+    }
+
+    /// Returns true when the user wants to open the account identity editor.
+    pub(crate) fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        rclone: &str,
+        policy: &PoolDefinition,
+    ) -> bool {
         let signature = serde_json::to_string(&(rclone, policy)).unwrap_or_default();
         if self.signature != signature {
             self.report = None;
@@ -71,13 +84,44 @@ impl CapacityPreview {
         if let Some(report) = &self.report {
             summary(ui, &report.capacity);
             ui.small("Logical file usage: not queried (requires workspace namespace). Account usage includes history, parity and unrelated files.");
+            if !report.capacity.quota_complete
+                || (report.capacity.required_failure_groups > 0
+                    && report.capacity.resilient_remaining_upper.is_none())
+            {
+                ui.small("Independent account budgets and outage groups must be declared explicitly; crypt aliases share their backing account.");
+                if ui
+                    .button("Set account / outage groups in Mount drive")
+                    .clicked()
+                {
+                    return true;
+                }
+            }
+            for target in &report.capacity.targets {
+                ui.small(format!(
+                    "{} → {} · quota group {} · {} free / {} total · {}",
+                    target.remote,
+                    target.backing,
+                    target.capacity_domain,
+                    format_bytes(target.free),
+                    format_bytes(target.total),
+                    if target.declared {
+                        "declared"
+                    } else {
+                        "unverified account identity"
+                    }
+                ));
+            }
+            for excluded in &report.capacity.excluded {
+                ui.colored_label(
+                    egui::Color32::YELLOW,
+                    format!("Excluded {}: {}", excluded.remote, excluded.reason),
+                );
+            }
             ui.collapsing("Calculation details", |ui| {
                 ui.small(&report.capacity.note);
-                for e in &report.capacity.excluded {
-                    ui.label(format!("{}: {}", e.remote, e.reason));
-                }
             });
         }
+        false
     }
 }
 pub(crate) fn summary(ui: &mut egui::Ui, c: &CapacityStatus) {
@@ -89,16 +133,33 @@ pub(crate) fn summary(ui: &mut egui::Ui, c: &CapacityStatus) {
         return;
     }
     ui.label(format!(
-        "Account quota: {} occupied / {} total · {} free",
+        "Known account budget: {} occupied / {} total · {} free{}",
         format_bytes(c.physical_occupied),
         format_bytes(c.physical_total),
-        format_bytes(c.physical_free)
+        format_bytes(c.physical_free),
+        if c.quota_complete {
+            ""
+        } else {
+            " (partial; not the full pool)"
+        }
     ));
     ui.label(format!(
         "Coding-only maximum upper bound: {} · remaining upper bound: {}",
         format_bytes(c.nominal_logical_upper),
         format_bytes(c.remaining_logical_upper)
     ));
+    if c.required_failure_groups > 0 {
+        ui.label(format!(
+            "Resilient outage groups: {} declared and quota-eligible / {} minimum for this K+M layout",
+            c.eligible_failure_groups, c.required_failure_groups
+        ));
+        if let Some(upper) = c.resilient_remaining_upper {
+            ui.label(format!(
+                "Outage-aware remaining upper bound: {} (not guaranteed writable)",
+                format_bytes(upper)
+            ));
+        }
+    }
     ui.label(format!(
         "Placement-verified additional file estimate: {}{}",
         format_bytes(c.additional_estimate),
@@ -152,7 +213,7 @@ mod tests {
         edited.parity_shards += 1;
         let ctx = egui::Context::default();
         ctx.run_ui(Default::default(), |ui| {
-            preview.show(ui, "unused-rclone", &edited)
+            preview.show(ui, "unused-rclone", &edited);
         })
         .drop_without_applying_deltas();
         assert!(preview.pending.is_none());
@@ -161,9 +222,34 @@ mod tests {
         tx.send(Ok(report)).unwrap();
         preview.pending = Some(rx);
         ctx.run_ui(Default::default(), |ui| {
-            preview.show(ui, "unused-rclone", &policy)
+            preview.show(ui, "unused-rclone", &policy);
         })
         .drop_without_applying_deltas();
         assert!(preview.report.is_some());
+    }
+
+    #[test]
+    fn identity_save_invalidation_discards_pending_quota_response() {
+        let policy = PoolDefinition::default();
+        let report = PoolCapacity {
+            policy: policy.clone(),
+            namespace_used: None,
+            capacity: Default::default(),
+        };
+        let (tx, rx) = mpsc::channel();
+        tx.send(Ok(report)).unwrap();
+        let mut preview = CapacityPreview {
+            pending: Some(rx),
+            signature: serde_json::to_string(&("rclone", &policy)).unwrap(),
+            ..Default::default()
+        };
+        preview.invalidate();
+        let ctx = egui::Context::default();
+        ctx.run_ui(Default::default(), |ui| {
+            preview.show(ui, "rclone", &policy);
+        })
+        .drop_without_applying_deltas();
+        assert!(preview.report.is_none());
+        assert!(preview.pending.is_none());
     }
 }

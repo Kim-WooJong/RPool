@@ -196,6 +196,19 @@ Real cloud/native Windows/Linux and interactive GUI remain untested.
 
 ## Capacity follow-up (2026-09-29)
 
+Heterogeneous quota follow-up: the observed 2 GiB total / 0 B free is caused
+by undeclared account identities collapsing independent quotas to their
+smallest reported budget and undeclared outage groups blocking Resilient
+placement, not by equal-sized RS shards. Pool preview now shows each eligible
+backing quota, exclusions, required versus declared outage groups, a direct
+path to the identity editor, and an outage-aware upper bound. Resilient
+allocation retains its M-shard outage limit and tries a full-candidate
+capacity-weighted fallback before the original balance-first feasibility
+fallback. The estimate remains a planner-verified bounded lower estimate,
+not the sum of account quotas. A 2 TiB account cannot be fully protected by
+only a few 2 GiB peers; the remaining logical upper bound is at most the
+physical budget outside the largest exclusive outage group.
+
 Implemented workspace-free `pool capacity [NAME]` with read-only overrides and
 JSON output, plus asynchronous unsaved GUI pool-policy preview. Shared capacity
 calculation distinguishes account quota occupied/total/free, coding-only nominal
@@ -214,6 +227,14 @@ Validation: default 390 / optional 401 tests passed (12 ignored each);
 warning-denied release build, formatting/diff checks and CLI help passed.
 Local HTTP quota and headless late-GUI-result tests run; actual provider quota and
 Windows/Finder/FUSE mount acceptance remain unverified. No cloud data changed.
+Current skew follow-up validation in `projects/rpool/capacity-skew-check`:
+macOS default suite **452 passed / 13 ignored**, `cargo fmt --check`,
+`git diff --check`, macOS release build, and Windows x64 GNU release cross-build
+passed. Synthetic regressions cover 2 GiB + 2 TiB independent/unknown quota,
+outage-limited upper bound, weighted fallback avoiding a tiny account when
+enough large domains exist, and GUI quota invalidation after identity save.
+Windows executable is in `projects/rpool/target/x86_64-pc-windows-gnu/release/`;
+actual Windows/cloud runtime and source GUI click path are not verified.
 
 ## Working
 
@@ -287,6 +308,10 @@ Implemented the bounded five-lane integration batch (virtual mode opt-in/experim
 - Validate actual Windows/WinFsp and Linux/FUSE with rclone and two PCs; the
   macOS Homebrew rclone is available, but the old NFS test OS state is unsafe
   for a new live mount until recovered.
+- On Windows, declare truthful independent account-budget and correlated
+  outage-group IDs, refresh Pool and Mount capacity, then check nonzero DAV/
+  Explorer free space and actual shard distribution on a new small test file.
+  Never infer account independence from crypt remote names alone.
 - Test actual dirty native VFS cache replay after process crash. Endpoint/cache identity is stable, but synthetic preservation does not prove native replay.
 - True transparent replacement of open native file handles needs a stronger filesystem/client revision protocol.
 - Validate virtual-v5 against real cloud eventual-consistency behavior and native cached writes. It requires one designated coordinator and new workspaces; no election/takeover or automatic v3 adoption.
