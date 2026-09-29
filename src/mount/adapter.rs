@@ -39,10 +39,14 @@ pub(crate) struct MountProcess {
 impl MountProcess {
     pub(crate) fn start(config: MountConfig) -> Result<Self> {
         validate_mountpoint(&config)?;
+        #[cfg(target_os = "macos")]
+        let target = config.target.canonicalize()?;
+        #[cfg(not(target_os = "macos"))]
+        let target = config.target.clone();
         std::fs::create_dir_all(&config.cache_dir).context("cannot create durable VFS cache")?;
         let files = config.files_dir.canonicalize()?;
         let cache = config.cache_dir.canonicalize()?;
-        let lease = MountLease::prepare(&files, &cache, &config.target, config.webdav.as_ref())?;
+        let lease = MountLease::prepare(&files, &cache, &target, config.webdav.as_ref())?;
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let address = listener.local_addr()?;
         let mut random = [0u8; 32];
@@ -65,9 +69,9 @@ impl MountProcess {
         };
         let mut command = Command::new(&config.rclone);
         command
-            .arg("mount")
+            .arg(native_mount_command())
             .arg(source)
-            .arg(&config.target)
+            .arg(&target)
             .args([
                 "--vfs-cache-mode",
                 cache_mode,
@@ -123,13 +127,15 @@ impl MountProcess {
             Err(error) => {
                 // spawn returned an error, so no owned child was launched.
                 lease.clear()?;
-                return Err(error).context("cannot start rclone mount; install rclone and the platform filesystem driver (WinFsp on Windows, FUSE on Unix)");
+                return Err(error).context(
+                    "cannot start rclone native mount; check rclone and the platform mount support",
+                );
             }
         };
         if let Err(error) = lease.record(&LeaseState::Running { pid: child.id() }) {
             // Do not discard a launching lease unless termination has actually been observed.
             if child.kill().is_ok() && child.wait().is_ok() {
-                let _ = lease.clear();
+                let _ = lease.clear_if_unmounted(&target);
             }
             return Err(error).context("cannot record mount child; uncertain lease retained unless child termination was confirmed");
         }
@@ -154,7 +160,7 @@ impl MountProcess {
         }
         Ok(Self {
             child,
-            target: config.target,
+            target,
             address,
             credential,
             logs,
@@ -167,7 +173,7 @@ impl MountProcess {
         let status = self.child.try_wait()?;
         if status.is_some() {
             self.stopped = true;
-            self.lease.clear()?;
+            self.lease.clear_if_unmounted(&self.target)?;
         }
         Ok(status)
     }
@@ -211,14 +217,24 @@ impl MountProcess {
     }
 
     pub(crate) fn stop(&mut self) -> Result<StopReport> {
-        if self.stopped || self.poll()?.is_some() {
+        if self.stopped {
+            self.lease.clear_if_unmounted(&self.target)?;
+            return Ok(StopReport {
+                forced: false,
+                cache_preserved: true,
+            });
+        }
+        if self.poll()?.is_some() {
             return Ok(StopReport {
                 forced: false,
                 cache_preserved: true,
             });
         }
         let _ = self.rc("core/quit");
-        let deadline = Instant::now() + Duration::from_secs(3);
+        // macOS nfsmount must also tear down its loopback NFS server and native
+        // mount. Allow its exit callback to complete before a forced kill.
+        let deadline =
+            Instant::now() + Duration::from_secs(if cfg!(target_os = "macos") { 12 } else { 3 });
         while Instant::now() < deadline {
             if self.poll()?.is_some() {
                 return Ok(StopReport {
@@ -233,7 +249,7 @@ impl MountProcess {
             .context("cannot stop mount process; mount may still be active")?;
         self.child.wait().context("cannot reap mount process")?;
         self.stopped = true;
-        self.lease.clear()?;
+        self.lease.clear_if_unmounted(&self.target)?;
         Ok(StopReport {
             forced: true,
             cache_preserved: true,
@@ -261,6 +277,14 @@ impl MountProcess {
             bail!("mount control endpoint unavailable");
         }
         Ok(response[split + 4..].to_vec())
+    }
+}
+
+fn native_mount_command() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "nfsmount"
+    } else {
+        "mount"
     }
 }
 
@@ -345,7 +369,7 @@ impl MountLease {
                         bail!("previous mount process PID {pid} may still be active; stop it before restarting this workspace");
                     }
                     // The recorded PID does not exist. Never signal/kill a possibly reused PID.
-                    lease.clear()?;
+                    lease.clear_if_unmounted(target)?;
                 }
             }
         }
@@ -388,6 +412,74 @@ impl MountLease {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(error.into()),
         }
+    }
+
+    fn clear_if_unmounted(&self, target: &Path) -> Result<()> {
+        #[cfg(target_os = "macos")]
+        if macos_mount_attached(target)? {
+            bail!(
+                "native mount remains attached at {}; mount lease retained",
+                target.display()
+            );
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = target;
+        self.clear()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_mount_attached(target: &Path) -> Result<bool> {
+    use std::os::unix::ffi::OsStrExt;
+
+    unsafe extern "C" {
+        fn getmntinfo_r_np(mntbufp: *mut *mut libc::statfs, flags: libc::c_int) -> libc::c_int;
+    }
+    let mut table: *mut libc::statfs = std::ptr::null_mut();
+    // MNT_NOWAIT avoids querying an unreachable NFS server. The _r_np variant
+    // owns a fresh buffer per call, unlike getmntinfo's shared static buffer.
+    let count = unsafe { getmntinfo_r_np(&mut table, libc::MNT_NOWAIT) };
+    if count <= 0 || table.is_null() {
+        if !table.is_null() {
+            unsafe { libc::free(table.cast()) };
+        }
+        bail!("cannot verify macOS mount table; mount lease retained");
+    }
+    let mounts = unsafe { std::slice::from_raw_parts(table, count as usize) };
+    let target = target.as_os_str().as_bytes();
+    let attached = mounts.iter().any(|mount| {
+        let name = &mount.f_mntonname;
+        let len = name
+            .iter()
+            .position(|&byte| byte == 0)
+            .unwrap_or(name.len());
+        name[..len]
+            .iter()
+            .map(|&byte| byte as u8)
+            .eq(target.iter().copied())
+    });
+    unsafe { libc::free(table.cast()) };
+    Ok(attached)
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod mount_table_tests {
+    use super::*;
+
+    #[test]
+    fn attached_mount_retains_lease_until_kernel_table_clears() {
+        let root = tempfile::tempdir().unwrap();
+        let lease = MountLease {
+            path: root.path().join("mount-process.json"),
+            _lock: std::fs::File::create(root.path().join("mount-process.lock")).unwrap(),
+        };
+        lease.record(&LeaseState::Running { pid: 1 }).unwrap();
+        assert!(macos_mount_attached(Path::new("/")).unwrap());
+        assert!(lease.clear_if_unmounted(Path::new("/")).is_err());
+        assert!(lease.path.exists());
+        assert!(!macos_mount_attached(root.path()).unwrap());
+        lease.clear_if_unmounted(root.path()).unwrap();
+        assert!(!lease.path.exists());
     }
 }
 

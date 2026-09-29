@@ -3,7 +3,8 @@
 ## Read/write Pool drive
 
 Storage → **Mount drive** provides a persistent local working copy with verified
-background Pool uploads. It needs full local disk space and WinFsp/FUSE; deletion
+background Pool uploads. It needs full local disk space and a native mount backend
+(WinFsp on Windows, FUSE on Linux, built-in NFS on macOS); deletion
 retains earlier cloud versions. See [mount setup and recovery](docs/MOUNT.md).
 
 ## 0.6.0: provider setup and encryption defaults

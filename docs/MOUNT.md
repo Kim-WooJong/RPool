@@ -419,7 +419,8 @@ are imported explicitly from manifests; listing imports does not download conten
 Never point this mode at an existing replica or copy/share an active workspace.
 
 The authenticated loopback DAV bridge mounts through rclone, requiring WinFsp on
-Windows or a mount-capable FUSE installation on Linux/macOS. Its private persisted
+Windows or FUSE on Linux. On macOS RPool uses `rclone nfsmount` with the built-in
+NFS client, so macFUSE is not required (tested with rclone v1.75.1). Its private persisted
 endpoint/token must remain unchanged alongside the VFS cache after interruption.
 An occupied saved port or live/uncertain old mount lease fails closed.
 
@@ -534,8 +535,9 @@ Do not manually delete causal events or old archive objects to work around quota
    then use Unmount and inspect the final scan. Sync once archives already-materialized
    local files without mounting; it cannot drain a detached VFS cache.
 
-Install rclone plus **WinFsp** on Windows, or a compatible FUSE/mount-capable rclone
-installation on macOS/Linux. RPool does not install system drivers. A running child
+Install rclone plus **WinFsp** on Windows, a FUSE-capable rclone on Linux, or
+an rclone with `nfsmount` on macOS (tested with v1.75.1; no macFUSE required).
+RPool does not install system drivers. A running child
 process alone is not considered a ready filesystem. Startup times out after 30 seconds.
 
 ## Quota-aware placement and capacity

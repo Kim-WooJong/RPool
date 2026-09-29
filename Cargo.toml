@@ -43,6 +43,9 @@ http-body-util = "0.1"
 bytes = "1"
 futures-util = "0.3"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 # Isolated synthetic LocalBackend: descriptor-relative, no-follow Unix filesystem I/O.
 [target.'cfg(unix)'.dev-dependencies]
 rustix = { version = "1.1.5", features = ["fs"] }

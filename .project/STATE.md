@@ -11,21 +11,22 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
-Mac actual-mount diagnostic follow-up (`7379773`): macFUSE 5.4.0 installed,
-official rclone v1.75.1 arm64 checksum-verified under
-`projects/rpool/mac-mount-test`; Homebrew rclone has macOS mount disabled.
-Isolated app configuration and a permission-restricted temporary rclone
-configuration avoid changing the Mac's live settings. Test-only Mikrotik crypt
-backing path correction made that remote readable. Added `RPOOL_CONFIG_DIR`,
-v7 `--diagnostic-read-only` (no background sync/GC; native/WebDAV writes
-blocked), and workspace/cloud/native timing logs. With the attached 7-remote
-policy, capacity-only took 19.97 s including 14.410 s cloud metadata; actual
-diagnostic mount attempt took 44.67 s including 12.771 s cloud metadata, then
-timed out after 30 s native startup. macOS logs explicitly blocked
-`io.macfuse.filesystems.macfuse.25` pending System Settings approval. No mount
-child/lease remained. Current default suite 438 passed / 12 ignored and
-warnings-denied release build passed. Full Mac mount readiness/read remains
-blocked until extension approval/restart. See
+Mac actual-mount diagnostic follow-up: macOS RPool now invokes Homebrew rclone
+v1.75.1 `nfsmount` instead of FUSE `mount`; built-in NFS needs no macFUSE kernel
+extension. With the attached 7-remote policy in isolated app configuration and
+a temporary 0600 rclone config copy (Mikrotik crypt backing path corrected only
+in the copy), v7 `--diagnostic-read-only` successfully reached native readiness:
+workspace 0.040 s, cloud metadata 13.615 s, NFS startup 0.263 s on final
+repeat after the thread-safe macOS mount-table API change. macOS mount table
+showed NFS, root directory read succeeded (0 entries),
+stop-file unmounted normally (`forced=false`), and no rclone child or mount
+lease remained. macOS mount-table lease guard preserves the lease if a residual
+native mount survives child exit. Diagnostic mode blocks background sync/GC and
+native/WebDAV writes; no remote objects were changed. Temporary credential
+config removed. Default suite 439 passed / 12 ignored and warnings-denied
+release build passed. File-content reads and populated remote metadata remain
+unverified because this Mac's test namespace was empty. Earlier FUSE route
+failed due macFUSE extension approval, but is no longer needed for NFS. See
 `projects/rpool/mount-latency-cache/REPORT.md`.
 
 Mac metadata-scan latency follow-up: v6/v7 peer event listing now attempts one
@@ -38,7 +39,7 @@ Final macOS validation in `projects/rpool/mount-scan-check`: default 435 passed 
 12 ignored, optional OpenDAL 446 passed / 12 ignored, warnings-denied release
 passed. A transient DAV localhost port rebinding failure passed alone and on
 the final full rerun. This earlier scan-only benchmark did not attempt a mount;
-the later isolated mount attempt and current blocker are described above.
+the later successful isolated NFS mount and remaining limitations are described above.
 
 Pool profile/workspace evolution follow-up: GUI saves machine-local per-pool mount
 profiles and restores workspace/history/cache/options on selection. Compatible

@@ -3282,6 +3282,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "libc",
  "opendal",
  "rayon",
  "reed-solomon-erasure",
