@@ -11,6 +11,14 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
+Native mount M3a (2026-09-30): `src/mount/fs_core/` filesystem core over
+VirtualDrive (handles, shared write generations, fsync = local seal ack,
+depends_on continuation). 16 fixture traces pass; default suite 505 passed /
+21 ignored (non-symlink TMPDIR). No frontend uses it yet. Next (M3b): crash-point
+injection in seal/save/sync, uploader seam with stall/lost-response faults,
+randomized traces vs a reference model, then DAV on FsCore. Details:
+`docs/NATIVE_MOUNT_CRYPT_PLAN.md` "M3a status".
+
 Native crypt M2 (2026-09-29): per-pool `native_crypt` routes `put`/reprocess
 shard writes through RPool encryption onto the crypt base, with rclone crypt
 readback. Gate unit tests plus an ignored real-rclone local end-to-end test pass;
