@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Internal: `src/mount/fs_core`, a protocol-independent filesystem core with
+  handle APIs over the virtual drive (native mount milestone M3a). `fsync`
+  is the local durability acknowledgement; upload never gates it. No frontend
+  uses it yet; DAV directory create/remove now share the drive's rules.
+
 - `rpool config paths` prints the active settings file paths as JSON (no file
   contents). Portable config bundles now carry the GUI encryption preferences
   (entropy bits, filename/directory encryption, never passwords); import

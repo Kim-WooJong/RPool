@@ -782,6 +782,38 @@ impl VirtualDrive {
         }
         Ok(intent)
     }
+    /// Record an explicit (possibly empty) directory.
+    pub(crate) fn create_directory(&self, path: &str) -> Result<()> {
+        valid_path(path)?;
+        let mut s = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("namespace lock poisoned"))?;
+        let mut next = s.clone();
+        next.directories.insert(path.into());
+        next.save(&self.root)?;
+        *s = next;
+        Ok(())
+    }
+    /// Remove an explicit directory. `Ok(false)` means it still has children.
+    pub(crate) fn remove_directory(&self, path: &str) -> Result<bool> {
+        let prefix = format!("{path}/");
+        if self.view()?.keys().any(|n| n.starts_with(&prefix)) {
+            return Ok(false);
+        }
+        let mut s = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("namespace lock poisoned"))?;
+        if s.directories.iter().any(|name| name.starts_with(&prefix)) {
+            return Ok(false);
+        }
+        let mut next = s.clone();
+        next.directories.remove(path);
+        next.save(&self.root)?;
+        *s = next;
+        Ok(true)
+    }
     pub(crate) fn delete(&self, path: &str) -> Result<()> {
         let revision = self
             .view()?
@@ -1662,6 +1694,15 @@ pub(crate) fn fixture(root: &Path) -> VirtualDrive {
     }
     let mut state = Namespace::create("tester").unwrap();
     state.save(root).unwrap();
+    fixture_with(root, state)
+}
+/// Reopen a fixture workspace from its saved namespace, as after a process exit.
+#[cfg(test)]
+pub(crate) fn fixture_reopen(root: &Path) -> VirtualDrive {
+    fixture_with(root, Namespace::load(root, "tester").unwrap())
+}
+#[cfg(test)]
+fn fixture_with(root: &Path, state: Namespace) -> VirtualDrive {
     VirtualDrive {
         root: root.into(),
         state: Mutex::new(state),

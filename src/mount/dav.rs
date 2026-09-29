@@ -258,12 +258,7 @@ impl DavFileSystem for VirtualFs {
             if self.stat(&p).is_ok() {
                 return Err(FsError::Exists);
             }
-            let mut s = self.drive.state.lock().unwrap();
-            let mut next = s.clone();
-            next.directories.insert(p);
-            next.save(&self.drive.root).map_err(failure)?;
-            *s = next;
-            Ok(())
+            self.drive.create_directory(&p).map_err(failure)
         })
     }
     fn remove_file<'a>(&'a self, p: &'a DavPath) -> FsFuture<'a, ()> {
@@ -281,27 +276,10 @@ impl DavFileSystem for VirtualFs {
             if p.is_empty() {
                 return Err(FsError::Forbidden);
             }
-            if self
-                .drive
-                .view()
-                .map_err(failure)?
-                .keys()
-                .any(|n| n.starts_with(&format!("{p}/")))
-            {
-                return Err(FsError::Exists);
+            match self.drive.remove_directory(&p).map_err(failure)? {
+                true => Ok(()),
+                false => Err(FsError::Exists),
             }
-            let mut s = self.drive.state.lock().unwrap();
-            if s.directories
-                .iter()
-                .any(|name| name.starts_with(&format!("{p}/")))
-            {
-                return Err(FsError::Exists);
-            }
-            let mut next = s.clone();
-            next.directories.remove(&p);
-            next.save(&self.drive.root).map_err(failure)?;
-            *s = next;
-            Ok(())
         })
     }
     fn rename<'a>(&'a self, from: &'a DavPath, to: &'a DavPath) -> FsFuture<'a, ()> {

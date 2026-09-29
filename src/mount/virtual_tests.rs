@@ -37,7 +37,7 @@ fn online_mount_refuses_legacy_or_nonempty_workspace_without_changing_files() {
     }
 }
 
-fn content(bytes: &[u8]) -> Content {
+pub(super) fn content(bytes: &[u8]) -> Content {
     let hash = blake3::hash(bytes).to_hex().to_string();
     let shards = vec![Shard {
         index: 0,

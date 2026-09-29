@@ -50,7 +50,7 @@ frontend. Each layer ships and is verified separately.
 | --- | --- | --- |
 | M1 ✅ | `src/crypt`: format library (keys, reveal, streaming data, names, sizes, ranged reads) | Two-way rclone oracle tests pass (rclone 1.75.1, 2026-09-29). No production caller yet. |
 | M2 ✅ | Native-crypt storage backend over the base remote. Opt-in per pool. | Objects are interchangeable with the rclone crypt remote. Ranged reads verified. Fault tests pass. |
-| M3 | Protocol-independent filesystem core (roadmap Phase 2) | The Phase 2 exit gate in `MOUNT_WRITE_ROADMAP.md` |
+| M3 (M3a done) | Protocol-independent filesystem core (roadmap Phase 2) | The Phase 2 exit gate in `MOUNT_WRITE_ROADMAP.md` |
 | M4 | Windows WinFsp frontend (`winfsp_wrs`, MIT). Read-only first, then writable. | Windows machine: listing, reads, stop, and small writes with remount and recovery |
 | M5 | Linux FUSE (`fuser`) | Linux machine |
 | M6 | macOS frontend, only after the wedged test mount is cleared by a reboot | New workspace. Clean and uncertain stop measured. |
@@ -107,3 +107,51 @@ names. No cloud provider was used.
 Not covered: mounts, repair, scrub, migrate and manifest replication still
 write through rclone crypt. Objects are interchangeable, so mixing is safe.
 Server-side copy and rename through `CryptBackend` are not wired.
+
+## M3a status (2026-09-30)
+
+`src/mount/fs_core/` provides `FsCore` over `VirtualDrive`: `lookup`,
+`readdir`, `open`, `read_at`, `write_at`, `truncate`, `flush`, `fsync`,
+`freeze`, `release`, `rename`, `delete`, `mkdir`, `rmdir` and `statfs`.
+
+| Operation | Local durability ack | Cloud sync |
+| --- | --- | --- |
+| `write_at`, `truncate` | none (volatile; spool budget enforced) | none |
+| `fsync`, `flush`, `freeze`, last write `release` | yes: `VirtualDrive::seal` (spool fsync, `intent.json`, namespace save) | eligible for the next `sync`; never waited on |
+| `rename`, `delete`, `mkdir`, `rmdir` | yes: the drive's atomic namespace save (unsealed rename sources are sealed first) | eligible |
+
+- All write handles of a file share one generation. The first mutation of an
+  existing file copies its current visible revision (read under the file's
+  generation lock, so after any concurrent seal) into a new spool image.
+- A generation that starts from a revision sealed earlier in this workspace
+  records it as `depends_on`, so successive saves commit as one history
+  rather than as conflicting siblings. The DAV route keeps its conservative
+  sibling behaviour, because a DAV PUT carries no trusted continuation.
+- A read-only handle opened while the file has no unsealed writes reads an
+  immutable snapshot. Other handles follow this core's seals.
+- Unlink or rename-over leaves open handles working. `fsync` of the replaced
+  file returns `Stale`, and its unsealed spool is discarded at last release.
+- File identity is per session and not persisted; there is no new on-disk
+  format. Shared-history (`bounded_shared`, `peer_retention`) and pool-sync
+  workspaces are refused until traces cover them.
+
+Verified by `cargo test --bin rpool fs_core` on a fixture workspace (no OS
+mount, rclone or network): local acknowledgement without upload, abrupt exit
+and reopen, old readers across overwrite/rename/delete, concurrent writers,
+rename-over, delete/recreate, retries, spool budget, truncate and sparse
+writes, open flags and directories, and successive saves plus a rename
+committed in `sync` order without conflict copies (this test fails without
+the `depends_on` continuation). An independent adversarial review found a
+stale-base race between a write and a concurrent seal; it is fixed, but only
+the sequential case is tested.
+
+Known limits: the first write to a clean cloud file hydrates it while holding
+that file's generation lock and the shared namespace lock, so a stalled
+download delays namespace changes. Every lookup and attached read rebuilds the
+drive view (O(files)). A failed `write_at` may leave a prefix that a later
+`fsync` seals, as POSIX allows.
+
+M3b, before any OS frontend: crash-point injection inside seal/save/sync, an
+uploader test seam with stall and lost-response faults, randomized traces
+against a reference model, and moving the DAV frontend onto `FsCore`.
+

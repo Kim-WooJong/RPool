@@ -3,6 +3,16 @@ use super::namespace::{durable_json, Intent};
 use super::virtual_drive::VirtualDrive;
 use crate::prelude::*;
 
+/// Local write spool budget refusal. Existing writes are retained.
+#[derive(Debug)]
+pub(crate) struct SpoolBudgetExceeded;
+impl std::fmt::Display for SpoolBudgetExceeded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("local write spool budget exceeded; existing writes retained. Sync/recover writes or increase --spool-gib")
+    }
+}
+impl std::error::Error for SpoolBudgetExceeded {}
+
 #[derive(Serialize, Deserialize)]
 struct Checked<T> {
     hash: String,
@@ -562,12 +572,7 @@ impl VirtualDrive {
         output.sync_all()?;
         Ok(())
     }
-    pub(crate) fn write_spool_bytes(&self, file: &mut File, bytes: &[u8]) -> Result<()> {
-        let _gate = self.spool_writes.lock().unwrap();
-        let end = file
-            .stream_position()?
-            .checked_add(bytes.len() as u64)
-            .context("write range overflow")?;
+    fn admit_spool_growth(&self, file: &File, end: u64) -> Result<()> {
         let growth = end.saturating_sub(file.metadata()?.len());
         if growth > 0
             && self
@@ -575,10 +580,48 @@ impl VirtualDrive {
                 .checked_add(growth)
                 .is_none_or(|n| n > self.spool_limit)
         {
-            bail!("local write spool budget exceeded; existing writes retained. Sync/recover writes or increase --spool-gib");
+            return Err(SpoolBudgetExceeded.into());
         }
+        Ok(())
+    }
+    pub(crate) fn write_spool_bytes(&self, file: &mut File, bytes: &[u8]) -> Result<()> {
+        let _gate = self.spool_writes.lock().unwrap();
+        let end = file
+            .stream_position()?
+            .checked_add(bytes.len() as u64)
+            .context("write range overflow")?;
+        self.admit_spool_growth(file, end)?;
         file.write_all(bytes)?;
         Ok(())
+    }
+    /// Resize an unsealed spool file under the same budget as writes.
+    pub(crate) fn resize_spool(&self, file: &File, len: u64) -> Result<()> {
+        let _gate = self.spool_writes.lock().unwrap();
+        self.admit_spool_growth(file, len)?;
+        file.set_len(len)?;
+        Ok(())
+    }
+    /// Remove the spool of an intent that was begun but never sealed. Refuses a
+    /// spool that has an intent record or is pending, because that data may be
+    /// acknowledged.
+    pub(crate) fn discard_unsealed(&self, intent: &Intent) -> Result<()> {
+        let id = intent.spool.as_deref().context("intent has no spool")?;
+        let dir = self.root.join("spool").join(id);
+        if dir.join("intent.json").exists()
+            || self
+                .state
+                .lock()
+                .map_err(|_| anyhow!("namespace lock poisoned"))?
+                .pending
+                .iter()
+                .any(|i| i.id == intent.id)
+        {
+            bail!("refusing to discard a sealed spool");
+        }
+        match fs::remove_dir_all(&dir) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.into()),
+            _ => Ok(()),
+        }
     }
 }
 

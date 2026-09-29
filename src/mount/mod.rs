@@ -2,6 +2,7 @@ mod account_recovery;
 pub(crate) mod adapter;
 pub(crate) mod capacity;
 mod dav;
+mod fs_core;
 mod incremental;
 mod lifecycle;
 mod namespace;
