@@ -20,9 +20,8 @@ pub(crate) fn validate_pool(pool: &PoolDefinition) -> Result<()> {
     if pool.remotes.is_empty() {
         bail!("pool requires at least one remote");
     }
-    if pool.shard_mib == 0 {
-        bail!("pool shard_mib must be greater than zero");
-    }
+    pool.shard_bytes()
+        .map_err(|e| anyhow::anyhow!("invalid pool shard_mib: {e}"))?;
     if pool.workers == 0 {
         bail!("pool workers must be greater than zero");
     }
@@ -45,3 +44,4 @@ pub(crate) fn validate_pool(pool: &PoolDefinition) -> Result<()> {
     }
     Ok(())
 }
+

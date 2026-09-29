@@ -138,10 +138,7 @@ fn upload_with(
     if !metadata.is_file() || metadata.file_type().is_symlink() {
         bail!("invalid incremental source");
     }
-    let shard_size = policy
-        .shard_mib
-        .checked_mul(1048576)
-        .context("shard size overflow")?;
+    let shard_size = policy.shard_bytes()?.get();
     let coding = (metadata.len() > 0 && policy.parity_shards > 0).then(|| Coding {
         algorithm: RS_ALGORITHM.into(),
         data_shards: policy.data_shards,
@@ -465,7 +462,7 @@ mod tests {
     fn policy(parity: bool) -> PoolDefinition {
         PoolDefinition {
             remotes: vec!["crypt:".into()],
-            shard_mib: 1,
+            shard_size: crate::models::shard_size::ShardSize::from_mib(1).unwrap(),
             data_shards: 2,
             parity_shards: usize::from(parity),
             placement: Placement::RoundRobin,

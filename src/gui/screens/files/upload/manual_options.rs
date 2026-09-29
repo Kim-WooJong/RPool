@@ -10,7 +10,10 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
         .spacing([16.0, 8.0])
         .show(ui, |ui| {
             ui.label("Shard size (MiB)");
-            ui.add(egui::DragValue::new(&mut state.settings.shard_mib).range(1..=1024 * 1024));
+            ui.add(
+                egui::DragValue::new(&mut state.settings.shard_mib)
+                    .range(1..=crate::config::constants::MAX_SHARD_MIB),
+            );
             ui.end_row();
 
             ui.label("Workers");

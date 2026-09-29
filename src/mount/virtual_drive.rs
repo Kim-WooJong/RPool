@@ -42,7 +42,7 @@ fn validate_policy_refresh(
     if saved_remotes != current_remotes {
         bail!("pool membership changed; apply pool changes before mounting this workspace");
     }
-    let layout_changed = saved.shard_mib != current.shard_mib
+    let layout_changed = saved.shard_size != current.shard_size
         || saved.placement != current.placement
         || saved.data_shards != current.data_shards
         || saved.parity_shards != current.parity_shards;
@@ -1687,7 +1687,10 @@ mod policy_refresh_tests {
         current.retries += 1;
         validate_policy_refresh(root.path(), &saved, &current).unwrap();
         assert_eq!(fs::read(&pending).unwrap(), b"pending bytes");
-        current.shard_mib += 1;
+        current.shard_size = crate::models::shard_size::ShardSize::from_mib(
+            current.shard_size.exact_mib().unwrap() + 1,
+        )
+        .unwrap();
         assert!(validate_policy_refresh(root.path(), &saved, &current).is_err());
         assert_eq!(fs::read(&pending).unwrap(), b"pending bytes");
     }
@@ -1697,7 +1700,10 @@ mod policy_refresh_tests {
         let root = tempfile::tempdir().unwrap();
         let saved = policy();
         let mut current = saved.clone();
-        current.shard_mib += 1;
+        current.shard_size = crate::models::shard_size::ShardSize::from_mib(
+            current.shard_size.exact_mib().unwrap() + 1,
+        )
+        .unwrap();
         validate_policy_refresh(root.path(), &saved, &current).unwrap();
         current.remotes.push("two:explicit".into());
         assert!(validate_policy_refresh(root.path(), &saved, &current).is_err());

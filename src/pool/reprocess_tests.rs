@@ -63,7 +63,7 @@ fn recovery_lookup_requires_exact_completed_source_and_replacement_receipts() {
 #[test]
 fn estimate_includes_full_parity_for_partial_group() {
     let target = PoolDefinition {
-        shard_mib: 1,
+        shard_size: crate::models::shard_size::ShardSize::from_mib(1).unwrap(),
         data_shards: 3,
         parity_shards: 2,
         ..Default::default()
@@ -222,7 +222,7 @@ impl ConversionFixture {
     fn target(coded: bool) -> PoolDefinition {
         PoolDefinition {
             remotes: vec!["a:".into()],
-            shard_mib: 1,
+            shard_size: crate::models::shard_size::ShardSize::from_mib(1).unwrap(),
             workers: 1,
             retries: 1,
             placement: Placement::RoundRobin,

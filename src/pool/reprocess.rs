@@ -66,10 +66,7 @@ fn save_new<T: Serialize>(path: &Path, value: &T) -> Result<()> {
 }
 
 fn storage_bytes(size: u64, target: &PoolDefinition) -> Result<u64> {
-    let shard = target
-        .shard_mib
-        .checked_mul(1024 * 1024)
-        .context("shard size overflow")?;
+    let shard = target.shard_bytes()?.get();
     if target.parity_shards == 0 {
         return Ok(size);
     }
@@ -408,7 +405,7 @@ fn describe_changes(entries: &[ReprocessEntry], target: &PoolDefinition) -> Vec<
         };
         notes.push(format!("{}: added destinations {:?}; removed destinations {:?}; shard size changed: {}; K/M coding changed: {}. Destinations compare actual shard locations, not historical pool membership.",
             entry.manifest.archive_id, added, removed,
-            entry.manifest.shard_size != target.shard_mib * 1048576, coding_changed));
+            target.shard_bytes().map_or(true, |b| entry.manifest.shard_size != b.get()), coding_changed));
     }
     notes.push("Full-copy replacement of every selected archive (not minimum movement). Workers/retries are execution-only knobs; changing them alone does not require rewriting existing data. Placement history is not recorded. Keep old providers accessible until every selected replacement is verified and indexed; unselected archives may still depend on them.".into());
     notes
@@ -439,7 +436,7 @@ fn convert_one(
         rclone,
         &source,
         target.remotes.clone(),
-        target.shard_mib,
+        target.shard_mib()?,
         target.workers,
         target.placement,
         target.retries,

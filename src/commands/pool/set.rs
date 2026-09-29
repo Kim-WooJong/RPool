@@ -16,7 +16,7 @@ pub(crate) fn run(
 ) -> Result<()> {
     let pool = PoolDefinition {
         remotes,
-        shard_mib,
+        shard_size: crate::models::shard_size::ShardSize::from_mib(shard_mib)?,
         workers,
         retries,
         placement,

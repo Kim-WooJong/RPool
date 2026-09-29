@@ -64,9 +64,9 @@ pub(crate) fn put_with_storage(
     pool_name: Option<String>,
 ) -> Result<()> {
     ensure_positive(workers, "workers")?;
-    if shard_mib == 0 {
-        bail!("shard-mib must be greater than zero");
-    }
+    let shard_size = crate::models::shard_size::shard_bytes(shard_mib)
+        .context("invalid --shard-mib")?
+        .get();
     if remotes.is_empty() {
         bail!("at least one --remote is required");
     }
@@ -100,9 +100,6 @@ pub(crate) fn put_with_storage(
     let snapshot = UploadSource::capture(&source, meta.len())?;
     let snapshot_path = snapshot.path();
     let source_size = snapshot.size();
-    let shard_size = shard_mib
-        .checked_mul(1024 * 1024)
-        .ok_or_else(|| anyhow!("shard size overflow"))?;
     let archive_id = explicit_id.unwrap_or_else(|| make_archive_id(&source, &meta));
     let plan_path = append_suffix(&source, ".rpool.upload.json");
     let journal_path = append_suffix(&source, ".rpool.upload.state.json");

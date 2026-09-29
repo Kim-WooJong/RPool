@@ -34,7 +34,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::pool::PoolCapacityArgs) -> Res
         policy.remotes = args.remotes;
     }
     if let Some(n) = args.shard_mib {
-        policy.shard_mib = n;
+        policy.shard_size = crate::models::shard_size::ShardSize::from_mib(n)?;
     }
     if let Some(n) = args.data_shards {
         policy.data_shards = n;

@@ -53,7 +53,7 @@ impl PoolForm {
         self.picker = PoolPicker::default();
         self.name = name;
         self.remotes = pool.remotes;
-        self.shard_mib = pool.shard_mib;
+        self.shard_mib = pool.shard_size.mib_ceil();
         self.workers = pool.workers;
         self.retries = pool.retries;
         self.placement = pool.placement;
@@ -141,7 +141,8 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                     .show(ui, |ui| {
                         ui.label("Shard size (MiB)");
                         ui.add(
-                            egui::DragValue::new(&mut state.pools.shard_mib).range(1..=1024 * 1024),
+                            egui::DragValue::new(&mut state.pools.shard_mib)
+                                .range(1..=crate::config::constants::MAX_SHARD_MIB),
                         );
                         ui.end_row();
 
@@ -192,9 +193,12 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                     ui.small(note);
                 }
 
+                let shard_size =
+                    crate::models::shard_size::ShardSize::from_mib(state.pools.shard_mib)
+                        .unwrap_or_default();
                 let draft = PoolDefinition {
                     remotes: state.pools.remotes.clone(),
-                    shard_mib: state.pools.shard_mib,
+                    shard_size,
                     workers: state.pools.workers,
                     retries: state.pools.retries,
                     placement: state.pools.placement,
@@ -293,9 +297,16 @@ fn load_selected(state: &mut GuiState) {
 
 fn save_current(state: &mut GuiState, task: &mut TaskRunner) {
     let name = state.pools.name.trim().to_string();
+    let shard_size = match crate::models::shard_size::ShardSize::from_mib(state.pools.shard_mib) {
+        Ok(size) => size,
+        Err(error) => {
+            state.pools.notice = Some(error.to_string());
+            return;
+        }
+    };
     let definition = PoolDefinition {
         remotes: state.pools.remotes.clone(),
-        shard_mib: state.pools.shard_mib,
+        shard_size,
         workers: state.pools.workers,
         retries: state.pools.retries,
         placement: state.pools.placement,
@@ -317,7 +328,7 @@ fn pool_save_args(name: &str, pool: &PoolDefinition) -> Vec<OsString> {
         args.push(format!("--remote={remote}").into());
     }
     for (flag, value) in [
-        ("--shard-mib", pool.shard_mib.to_string()),
+        ("--shard-mib", pool.shard_size.to_string()),
         ("--workers", pool.workers.to_string()),
         ("--retries", pool.retries.to_string()),
         ("--data-shards", pool.data_shards.to_string()),
@@ -499,7 +510,7 @@ mod tests {
         assert_eq!(form.placement, Placement::FreeRatio);
         let existing = PoolDefinition {
             remotes: vec!["existing-crypt:archive".into()],
-            shard_mib: 29,
+            shard_size: crate::models::shard_size::ShardSize::from_mib(29).unwrap(),
             workers: 2,
             retries: 1,
             placement: Placement::RoundRobin,
@@ -530,7 +541,7 @@ mod tests {
     fn pool_save_arguments_roundtrip_spaces_unicode_and_policy() {
         let definition = PoolDefinition {
             remotes: vec!["-crypt:폴더 with spaces".into()],
-            shard_mib: 17,
+            shard_size: crate::models::shard_size::ShardSize::from_mib(17).unwrap(),
             workers: 3,
             retries: 2,
             placement: Placement::FreeRatio,

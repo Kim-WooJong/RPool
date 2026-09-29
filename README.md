@@ -467,7 +467,7 @@ rpool put large.iso \
   --workers 8
 ```
 
-Default data shard size is 220 MiB. Default placement is deterministic round-robin.
+Default data shard size is 64 MiB. Default placement is deterministic round-robin.
 
 ## Reed-Solomon upload
 
@@ -767,9 +767,11 @@ rpull large.iso.rpool.json restored.iso
 
 ## Box note
 
-The default `220 MiB` value is the plaintext **data-shard** size. When a data shard is uploaded through an rclone `crypt` remote, crypt framing increases its underlying provider object size. 220 MiB leaves headroom below Box Free's 250 MB single-file limit.
+The default `64 MiB` value is the plaintext **data-shard** size. When a data shard is uploaded through an rclone `crypt` remote, crypt framing increases its underlying provider object size (64 MiB → 67,125,280 bytes). This leaves wide headroom below Box Free's 250 MB single-file limit; up to 238 MiB still fits if a pool needs larger shards. Earlier versions defaulted to 220 MiB; pools saved with an explicit `shard_mib` keep their value, and existing archives keep the `shard_size` recorded in their manifests.
 
 Parity objects use the same plaintext `shard_size`, so the same provider object-size consideration applies to parity.
+
+Shard sizes are limited to 1–4096 MiB in the CLI, GUI and pool validation. Local staging grows roughly with `(workers + 2·M) × shard_size`, so larger values are almost always a unit mistake.
 
 ## Resume behavior
 

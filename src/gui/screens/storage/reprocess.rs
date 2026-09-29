@@ -74,7 +74,11 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 for remote in &draft.remotes { ui.monospace(remote); }
                 egui::Grid::new("reprocess-draft-policy").num_columns(2).show(ui, |ui| {
                     ui.label("Shard size (MiB)");
-                    ui.add(egui::DragValue::new(&mut draft.shard_mib).range(1..=1024 * 1024)); ui.end_row();
+                    let mut shard_mib = draft.shard_size.mib_ceil();
+                    if ui.add(egui::DragValue::new(&mut shard_mib).range(1..=crate::config::constants::MAX_SHARD_MIB)).changed() {
+                        if let Ok(size) = crate::models::shard_size::ShardSize::from_mib(shard_mib) { draft.shard_size = size; }
+                    }
+                    ui.end_row();
                     ui.label("Data shards (K)");
                     ui.add(egui::DragValue::new(&mut draft.data_shards).range(1..=255)); ui.end_row();
                     ui.label("Parity shards (M)");
@@ -165,7 +169,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 ui.small(&plan.estimate_note);
                 for change in &plan.change_summary { ui.label(change); }
                 ui.separator();
-                ui.label(format!("Frozen target: {} MiB shards, {}+{}, {} workers, {} retries, {}", plan.target.shard_mib, plan.target.data_shards, plan.target.parity_shards, plan.target.workers, plan.target.retries, plan.target.placement.label()));
+                ui.label(format!("Frozen target: {} MiB shards, {}+{}, {} workers, {} retries, {}", plan.target.shard_size, plan.target.data_shards, plan.target.parity_shards, plan.target.workers, plan.target.retries, plan.target.placement.label()));
                 for remote in &plan.target.remotes { ui.monospace(remote); }
                 ui.small("Temporary disk needs at least two copies of the largest restored file, plus parity/transfer scratch. Remote space must hold both original and new archives.");
                 ui.label(format!("Plan: {}", plan.plan_path.display()));
@@ -176,7 +180,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 ui.separator();
                 ui.strong("Saved operation / resume");
                 ui.label(format!("Plan: {}", plan.plan_path.display()));
-                ui.label(format!("Exact saved target: {} MiB, {}+{}, {} workers, {} retries, {}", plan.target.shard_mib, plan.target.data_shards, plan.target.parity_shards, plan.target.workers, plan.target.retries, plan.target.placement.label()));
+                ui.label(format!("Exact saved target: {} MiB, {}+{}, {} workers, {} retries, {}", plan.target.shard_size, plan.target.data_shards, plan.target.parity_shards, plan.target.workers, plan.target.retries, plan.target.placement.label()));
                 for remote in &plan.target.remotes { ui.monospace(remote); }
                 ui.label(format!("{} explicitly selected archives", plan.entries.len()));
                 for entry in &plan.entries { ui.label(&entry.source); }
@@ -431,7 +435,7 @@ mod tests {
         form.selected.insert("original.json".into());
         form.draft = Some(PoolDefinition {
             remotes: vec!["crypt:custom saved path".into()],
-            shard_mib: 32,
+            shard_size: crate::models::shard_size::ShardSize::from_mib(32).unwrap(),
             workers: 2,
             retries: 3,
             placement: Placement::RoundRobin,
@@ -441,7 +445,12 @@ mod tests {
         let original = form.draft.clone().unwrap();
         let baseline = input_signature(&form, "rclone");
         for mutate in [
-            (|p: &mut PoolDefinition| p.shard_mib += 1) as fn(&mut PoolDefinition),
+            (|p: &mut PoolDefinition| {
+                p.shard_size = crate::models::shard_size::ShardSize::from_mib(
+                    p.shard_size.exact_mib().unwrap() + 1,
+                )
+                .unwrap()
+            }) as fn(&mut PoolDefinition),
             |p| p.workers += 1,
             |p| p.retries += 1,
             |p| p.data_shards += 1,

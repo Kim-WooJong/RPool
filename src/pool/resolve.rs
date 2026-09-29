@@ -43,11 +43,13 @@ pub(crate) fn resolve_put_options(
 
     Ok(ResolvedPutOptions {
         remotes,
-        shard_mib: shard_mib.unwrap_or_else(|| {
-            pool.as_ref()
-                .map(|p| p.shard_mib)
-                .unwrap_or(DEFAULT_SHARD_MIB)
-        }),
+        shard_mib: match shard_mib {
+            Some(mib) => mib,
+            None => match pool.as_ref() {
+                Some(p) => p.shard_mib()?,
+                None => DEFAULT_SHARD_MIB,
+            },
+        },
         workers: workers
             .unwrap_or_else(|| pool.as_ref().map(|p| p.workers).unwrap_or(DEFAULT_WORKERS)),
         retries: retries

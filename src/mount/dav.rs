@@ -1152,4 +1152,111 @@ mod tests {
         assert_ne!(a.modified().unwrap(), b.modified().unwrap());
         assert_ne!(a.etag(), b.etag());
     }
+    #[test]
+    #[ignore = "requires rclone"]
+    fn rclone_about_reports_mount_capacity_for_default_64_mib_pool() {
+        use super::super::capacity::CapacityStatus;
+        let gib = 1u64 << 30;
+        let now = || {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        };
+        // Seven independent accounts, Resilient RS 9+3, default (64 MiB) shards.
+        let policy = crate::models::PoolDefinition {
+            remotes: (0..7).map(|i| format!("p{i}:")).collect(),
+            data_shards: 9,
+            parity_shards: 3,
+            placement: crate::models::Placement::Resilient,
+            ..crate::models::PoolDefinition::default()
+        };
+        assert_eq!(policy.shard_bytes().unwrap().get(), 64 << 20);
+        let frees = [15u64, 10, 20, 5, 50, 12, 8];
+        let mut status = CapacityStatus {
+            targets: frees
+                .iter()
+                .enumerate()
+                .map(|(i, free)| crate::storage::admin::budget::TargetBudget {
+                    remote: format!("p{i}:"),
+                    backing: format!("p{i}"),
+                    capacity_domain: format!("p{i}"),
+                    failure_domain: Some(format!("p{i}")),
+                    declared: true,
+                    total: 2 * free * gib,
+                    free: free * gib,
+                })
+                .collect(),
+            ..Default::default()
+        };
+        status.eligible = status.targets.iter().map(|t| t.remote.clone()).collect();
+        status.budget = frees.iter().sum::<u64>() * gib;
+        status.recalculate(&policy).unwrap();
+        let estimate = status.additional_estimate;
+        assert!(estimate > 69 * gib, "{estimate}");
+        status.check_upload(&policy, estimate).unwrap();
+        status.observed_unix = now();
+
+        let temp = tempfile::tempdir().unwrap();
+        let drive = Arc::new(super::super::virtual_drive::fixture(temp.path()));
+        *drive.capacity.lock().unwrap() = Some(status);
+        let server = Server::start(drive.clone(), false).unwrap();
+        let config = temp.path().join("empty-rclone.conf");
+        std::fs::write(&config, "").unwrap();
+        let rclone = std::env::var_os("RPOOL_TEST_RCLONE").unwrap_or_else(|| {
+            if cfg!(target_os = "macos") {
+                "/opt/homebrew/bin/rclone".into()
+            } else {
+                "rclone".into()
+            }
+        });
+        // Same :webdav: wiring as the native mount adapter; its statfs comes from About.
+        let about = || -> serde_json::Value {
+            let output = std::process::Command::new(&rclone)
+                .args(["about", ":webdav:", "--json", "--config"])
+                .arg(&config)
+                .env_clear()
+                .env("RCLONE_WEBDAV_URL", format!("http://{}/", server.address))
+                .env("RCLONE_WEBDAV_BEARER_TOKEN", &server.token)
+                .env("RCLONE_WEBDAV_VENDOR", "other")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            serde_json::from_slice(&output.stdout).unwrap()
+        };
+
+        let empty = about();
+        assert_eq!(empty["used"], 0, "{empty}");
+        assert_eq!(empty["free"], estimate, "{empty}");
+        assert_eq!(empty["total"], estimate, "{empty}");
+
+        assert!(request(&server, "PUT", "/file", "", b"hello", true).starts_with("HTTP/1.1 201"));
+        {
+            // Mirror a completed capacity refresh that already accounts for the write.
+            let state = drive.state.lock().unwrap();
+            let mut cached = drive.capacity.lock().unwrap();
+            let c = cached.as_mut().unwrap();
+            c.logical_used = 5;
+            c.pending_ids = state.pending.iter().map(|i| i.id.clone()).collect();
+        }
+        let written = about();
+        assert_eq!(written["used"], 5, "{written}");
+        assert_eq!(written["free"], estimate, "{written}");
+        assert_eq!(written["total"], estimate + 5, "{written}");
+
+        drive
+            .capacity
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .observed_unix = now() - 121;
+        let stale = about();
+        assert_eq!(stale["used"], 5, "{stale}");
+        assert_eq!(stale["free"], 0, "{stale}");
+    }
 }

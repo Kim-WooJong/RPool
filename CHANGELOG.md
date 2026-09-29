@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Default data shard size is now 64 MiB (was 220 MiB). Saved pools keep their
+  stored `shard_mib`; existing manifests are unaffected. Shard sizes are
+  limited to 1–4096 MiB in CLI, GUI and pool validation, and MiB→bytes
+  conversion is centralized. The mount capacity search now simulates up to
+  262,144 physical shards, so multi-TiB pools are not under-reported with the
+  smaller shards.
+
 - Pool capacity now foregrounds summed independent account storage after
   data/parity overhead. Unverified backing accounts get a separately labelled
   independence what-if estimate; actual admission/OS free space remains

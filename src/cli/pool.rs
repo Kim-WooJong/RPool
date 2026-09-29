@@ -49,7 +49,7 @@ pub(crate) enum PoolCommands {
         #[arg(long = "remote", required = true)]
         remotes: Vec<String>,
 
-        #[arg(long, default_value_t = crate::config::constants::DEFAULT_SHARD_MIB)]
+        #[arg(long, default_value_t = crate::config::constants::DEFAULT_SHARD_MIB, value_parser = clap::value_parser!(u64).range(1..=crate::config::constants::MAX_SHARD_MIB))]
         shard_mib: u64,
 
         #[arg(long, default_value_t = crate::config::constants::DEFAULT_WORKERS)]
@@ -78,7 +78,7 @@ pub(crate) struct PoolCapacityArgs {
     pub name: Option<String>,
     #[arg(long = "remote")]
     pub remotes: Vec<String>,
-    #[arg(long)]
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..=crate::config::constants::MAX_SHARD_MIB))]
     pub shard_mib: Option<u64>,
     #[arg(long)]
     pub data_shards: Option<usize>,

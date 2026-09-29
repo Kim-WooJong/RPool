@@ -158,8 +158,8 @@ fn validate_manual_target(
     if remotes.is_empty() {
         issues.push("Add at least one crypt destination for the manual upload.".to_string());
     }
-    if state.settings.shard_mib == 0 {
-        issues.push("Shard size must be greater than zero.".to_string());
+    if let Err(error) = crate::models::shard_size::validate_shard_mib(state.settings.shard_mib) {
+        issues.push(format!("{error}."));
     }
     if state.settings.workers == 0 {
         issues.push("Workers must be greater than zero.".to_string());
@@ -247,13 +247,13 @@ fn pool_policy_label(pool: &PoolDefinition) -> String {
             "RS {}+{} · {} MiB shards · {}",
             pool.data_shards,
             pool.parity_shards,
-            pool.shard_mib,
+            pool.shard_size,
             pool.placement.label()
         )
     } else {
         format!(
             "No EC · {} MiB shards · {}",
-            pool.shard_mib,
+            pool.shard_size,
             pool.placement.label()
         )
     }

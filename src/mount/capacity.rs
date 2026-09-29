@@ -30,6 +30,11 @@ pub(crate) struct IndependentQuotaScenario {
     pub remaining_logical_upper: u64,
 }
 
+/// Physical shards the capacity search may simulate. Beyond this the estimate is a
+/// verified lower bound (`estimate_limited`). 262,144 × 64 MiB ≈ 16 TiB keeps the
+/// range the former 65,536 × 220 MiB limit covered; worst case ~2 s in release.
+const MAX_SIMULATED_SHARDS: u64 = 262_144;
+
 fn coding_ratio(bytes: u64, policy: &PoolDefinition) -> u64 {
     if policy.parity_shards == 0 {
         bytes
@@ -317,10 +322,7 @@ impl CapacityStatus {
 
     pub(crate) fn recalculate(&mut self, policy: &PoolDefinition) -> Result<()> {
         self.update_outage_bound(policy)?;
-        let shard = policy
-            .shard_mib
-            .checked_mul(1048576)
-            .context("shard size overflow")?;
+        let shard = policy.shard_bytes()?.get();
         let k = if policy.parity_shards == 0 {
             1
         } else {
@@ -330,7 +332,7 @@ impl CapacityStatus {
         let data_group = shard.checked_mul(k).context("data group overflow")?;
         let group = shard.checked_mul(k + m).context("group overflow")?;
         let upper = self.budget / group;
-        let cap = 65536 / (k + m);
+        let cap = MAX_SIMULATED_SHARDS / (k + m);
         let mut low = 0;
         let mut high = upper.min(cap);
         while low < high {
@@ -389,10 +391,7 @@ impl CapacityStatus {
                 self.logical_used.saturating_add(self.additional_estimate);
             return Ok(());
         }
-        let shard = policy
-            .shard_mib
-            .checked_mul(1048576)
-            .context("shard overflow")?;
+        let shard = policy.shard_bytes()?.get();
         for &size in sizes {
             let coding = (size > 0 && policy.parity_shards > 0).then(|| Coding {
                 algorithm: RS_ALGORITHM.into(),
@@ -450,10 +449,7 @@ impl CapacityStatus {
         if physical > self.budget {
             bail!("Insufficient conservative quota budget including full parity shards; local changes retained");
         }
-        let shard = policy
-            .shard_mib
-            .checked_mul(1048576)
-            .context("shard size overflow")?;
+        let shard = policy.shard_bytes()?.get();
         let coding = (size > 0 && policy.parity_shards > 0).then(|| Coding {
             algorithm: RS_ALGORITHM.into(),
             data_shards: policy.data_shards,
@@ -479,10 +475,7 @@ pub(crate) fn physical_bytes(policy: &PoolDefinition, size: u64) -> Result<u64> 
     if size == 0 || policy.parity_shards == 0 {
         return Ok(size);
     }
-    let shard = policy
-        .shard_mib
-        .checked_mul(1048576)
-        .context("shard size overflow")?;
+    let shard = policy.shard_bytes()?.get();
     let groups = size
         .div_ceil(shard)
         .max(1)
@@ -543,7 +536,7 @@ mod tests {
     fn policy() -> PoolDefinition {
         PoolDefinition {
             remotes: vec!["x:".into(), "y:".into(), "z:".into(), "unknown:".into()],
-            shard_mib: 1,
+            shard_size: crate::models::shard_size::ShardSize::from_mib(1).unwrap(),
             data_shards: 8,
             parity_shards: 2,
             ..Default::default()
@@ -570,7 +563,7 @@ mod tests {
             ..Default::default()
         };
         let p = PoolDefinition {
-            shard_mib: 1,
+            shard_size: crate::models::shard_size::ShardSize::from_mib(1).unwrap(),
             data_shards: 2,
             parity_shards: 1,
             placement: Placement::FreeRatio,
@@ -639,15 +632,47 @@ mod tests {
     #[test]
     fn large_pool_upper_bound_is_not_truncated_by_simulation_limit() {
         let mut a = admin();
-        a.report.total = Some(100000 * 1048576);
+        a.report.total = Some(300000 * 1048576);
         a.report.free = a.report.total;
         a.report.used = Some(0);
         let mut p = policy();
         p.parity_shards = 0;
         let s = CapacityStatus::inspect(&a, &p).unwrap();
-        assert_eq!(s.nominal_logical_upper, 100000 * 1048576);
-        assert_eq!(s.additional_estimate, 65536 * 1048576);
+        assert_eq!(s.nominal_logical_upper, 300000 * 1048576);
+        assert_eq!(s.additional_estimate, MAX_SIMULATED_SHARDS * 1048576);
         assert!(s.estimate_limited);
+    }
+    #[test]
+    fn default_64_mib_shards_report_multi_tib_pools_without_truncation() {
+        // 5 TiB free exceeded the old 65,536-shard search (4 TiB at 64 MiB).
+        let tib = 1u64 << 40;
+        let mut status = CapacityStatus {
+            targets: (0..5)
+                .map(|i| crate::storage::admin::budget::TargetBudget {
+                    remote: format!("p{i}:"),
+                    backing: format!("p{i}"),
+                    capacity_domain: format!("p{i}"),
+                    failure_domain: Some(format!("p{i}")),
+                    declared: true,
+                    total: 2 * tib,
+                    free: tib,
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let p = PoolDefinition {
+            remotes: (0..5).map(|i| format!("p{i}:")).collect(),
+            parity_shards: 0,
+            placement: Placement::FreeRatio,
+            ..Default::default()
+        };
+        assert_eq!(p.shard_bytes().unwrap().get(), 64 * 1048576);
+        status.eligible = status.targets.iter().map(|t| t.remote.clone()).collect();
+        status.update_account_totals(&p).unwrap();
+        status.budget = status.physical_free;
+        status.recalculate(&p).unwrap();
+        assert!(!status.estimate_limited);
+        assert_eq!(status.additional_estimate, 5 * tib);
     }
     #[test]
     fn pool_query_leaves_namespace_usage_unknown() {
@@ -813,7 +838,7 @@ mod tests {
         let p = PoolDefinition {
             data_shards: 3,
             parity_shards: 1,
-            shard_mib: 1024,
+            shard_size: crate::models::shard_size::ShardSize::from_mib(1024).unwrap(),
             placement: Placement::Resilient,
             ..policy()
         };

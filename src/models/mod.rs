@@ -16,6 +16,7 @@ mod remote_root;
 mod resume;
 pub(crate) mod secrets;
 pub(crate) mod sensitive;
+pub(crate) mod shard_size;
 mod upload;
 pub(crate) mod volume;
 

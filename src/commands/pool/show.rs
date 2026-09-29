@@ -14,7 +14,7 @@ pub(crate) fn run(name: &str, json: bool) -> Result<()> {
     }
 
     println!("name={name}");
-    println!("shard_mib={}", pool.shard_mib);
+    println!("shard_mib={}", pool.shard_size);
     println!("workers={}", pool.workers);
     println!("retries={}", pool.retries);
     println!("placement={}", pool.placement.cli_value());

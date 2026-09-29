@@ -583,11 +583,7 @@ pub(super) fn upload_eligible_registered(
         if plan.archive_id != id
             || plan.source_size != size
             || plan.remotes != status.eligible
-            || plan.shard_size
-                != policy
-                    .shard_mib
-                    .checked_mul(1048576)
-                    .context("shard overflow")?
+            || plan.shard_size != policy.shard_bytes()?.get()
             || plan.placement != policy.placement
         {
             bail!("resume plan differs from eligible upload");
@@ -636,10 +632,7 @@ pub(super) fn upload_eligible_registered(
         let plan = crate::planning::build_upload_plan(
             rclone,
             size,
-            policy
-                .shard_mib
-                .checked_mul(1048576)
-                .context("shard size overflow")?,
+            policy.shard_bytes()?.get(),
             id.into(),
             status.eligible.clone(),
             policy.placement,
@@ -660,7 +653,7 @@ pub(super) fn upload_eligible_registered(
         rclone,
         &staged,
         status.eligible.clone(),
-        policy.shard_mib,
+        policy.shard_mib()?,
         policy.workers,
         policy.placement,
         policy.retries,

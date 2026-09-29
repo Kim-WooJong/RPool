@@ -18,7 +18,7 @@ pub(crate) fn run(json: bool) -> Result<()> {
             "{} remotes={} shard_mib={} workers={} coding={}+{} placement={}",
             name,
             pool.remotes.len(),
-            pool.shard_mib,
+            pool.shard_size,
             pool.workers,
             pool.data_shards,
             pool.parity_shards,

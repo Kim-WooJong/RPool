@@ -63,7 +63,7 @@ pub(crate) enum Commands {
         pool: Option<String>,
 
         /// Plaintext data-shard size in MiB. Overrides the pool default.
-        #[arg(long)]
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..=crate::config::constants::MAX_SHARD_MIB))]
         shard_mib: Option<u64>,
 
         /// Number of physical shard transfers performed concurrently. Overrides the pool default.
