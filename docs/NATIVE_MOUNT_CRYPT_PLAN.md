@@ -52,7 +52,7 @@ frontend. Each layer ships and is verified separately.
 | M2 ✅ | Native-crypt storage backend over the base remote. Opt-in per pool. | Objects are interchangeable with the rclone crypt remote. Ranged reads verified. Fault tests pass. |
 | M3 ✅ | Protocol-independent filesystem core (roadmap Phase 2) | The Phase 2 exit gate in `MOUNT_WRITE_ROADMAP.md` |
 | M4 | Windows WinFsp frontend (`winfsp_wrs`, MIT). Read-only first, then writable. | Windows machine: listing, reads, stop, and small writes with remount and recovery |
-| M5 | Linux FUSE (`fuser`) | Linux machine |
+| M5 ✅ | Linux FUSE (`fuser`) | Linux machine (Docker Linux VM: kernel tests pass) |
 | M6 | macOS frontend, only after the wedged test mount is cleared by a reboot | New workspace. Clean and uncertain stop measured. |
 
 WebDAV stays the default until M4 or later passes the fresh 4 GiB 9+3 cloud
@@ -182,4 +182,43 @@ M3b is done (see below).
 
 Not covered: a real upload through rclone interleaved with writes (the fixture
 has no remote), power loss below the filesystem, and multi-process access.
+
+## M5 status (2026-09-30): Linux FUSE
+
+`src/mount/frontend/fuse/` implements `fuser::Filesystem` (fuser 0.18, pure-Rust
+mount, no libfuse) over `FsCore`. `rpool mount --virtual-drive --frontend fuse`
+(optionally `--native-read-only`) mounts a local virtual-drive workspace with it.
+The shared lifecycle in `src/mount/frontend/run.rs` runs background `sync`, and
+it unmounts when the stop file appears or when the OS unmounts the filesystem.
+
+- Inode numbers map to paths (root is 1). Rename moves numbers and unlink
+  forgets them, so a recreated file gets a new inode. The attribute and entry
+  TTL is 1 s.
+- `flush` (every `close`) and `fsync` seal. `release` closes the core handle.
+  `setattr(size)` truncates through the open handle, or through a temporary
+  write handle that is sealed at once. Mode, owner and times are not stored.
+- `RENAME_NOREPLACE` is honoured; `RENAME_EXCHANGE` returns `EINVAL`. A
+  read-only mount returns `EROFS`.
+- Errors map as NotFound→ENOENT, Exists→EEXIST, NotEmpty→ENOTEMPTY,
+  NoSpace→ENOSPC, Stale→ESTALE and I/O→EIO (logged).
+
+Verified on Linux 6.12 (Docker Desktop linuxkit VM, `--device /dev/fuse
+--cap-add SYS_ADMIN`; not this Mac's kernel). The script
+`projects/rpool/docker-linux/run-tests.sh` runs `cargo fmt --check`, `cargo
+check --all-targets` with warnings denied, the ignored kernel tests and the
+whole suite. The kernel tests cover:
+
+- a 3 MiB file round trip and persistence across remount
+- partial overwrite, `set_len` and append
+- rename-over and directory rename
+- ENOTEMPTY and O_EXCL
+- an open reader keeping its bytes after the file is replaced and unlinked
+- eight concurrent writers
+- EROFS on a read-only mount
+
+The whole Linux suite passes (505 passed, 26 ignored).
+
+Not yet verified: mmap-heavy applications, a mount through the CLI with real
+rclone sync, very large files (cloud hydration while locks are held), and
+multi-user `allow_other`.
 

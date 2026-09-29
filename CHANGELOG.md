@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Native Linux FUSE frontend (opt-in): `rpool mount --virtual-drive --frontend
+  fuse [--native-read-only]` mounts a local virtual-drive workspace through the
+  filesystem core, with no rclone mount or WebDAV loopback. `close`/`fsync` are
+  the local durability points; sync stays asynchronous. Pool-sync and shared
+  workspaces keep the DAV frontend, which remains the default.
+
 - Internal: `src/mount/fs_core`, a protocol-independent filesystem core with
   handle APIs over the virtual drive (native mount milestone M3a). `fsync`
   is the local durability acknowledgement; upload never gates it. No frontend

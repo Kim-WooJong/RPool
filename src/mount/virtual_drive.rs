@@ -1340,6 +1340,9 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     if args.stop_file.as_ref().is_some_and(|p| p.exists()) {
         bail!("stop file already exists");
     }
+    if args.native_read_only && args.frontend == crate::cli::Frontend::Dav {
+        bail!("--native-read-only requires a native --frontend");
+    }
     let stop = super::lifecycle::StopControl::new(args.stop_file.clone())?;
     let generated_worker;
     let worker = if args.pool_sync {
@@ -1488,6 +1491,19 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     }
     if drive.bounded_shared || !drive.pool_sync_roots.is_empty() {
         drive.isolate_previous_native_cache()?;
+    }
+    if args.frontend != crate::cli::Frontend::Dav {
+        return super::frontend::run_native(
+            drive,
+            super::frontend::NativeRun {
+                frontend: args.frontend,
+                mountpoint: args.mountpoint.as_deref().context("mountpoint required")?,
+                read_only: args.native_read_only,
+                interval: std::time::Duration::from_secs(args.interval_seconds),
+                stop: &stop,
+                report,
+            },
+        );
     }
     println!("Starting virtual filesystem and native mount");
     let server = super::dav::Server::start(drive.clone(), args.diagnostic_read_only)?;

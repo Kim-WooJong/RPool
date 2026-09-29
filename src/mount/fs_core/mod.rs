@@ -14,7 +14,7 @@
 //! - Nothing here is persisted: file identity is per session.
 #![cfg_attr(
     not(test),
-    expect(dead_code, reason = "no frontend uses the filesystem core yet (M3b)")
+    allow(dead_code, reason = "each OS builds only its own native frontend")
 )]
 mod core;
 #[cfg(test)]

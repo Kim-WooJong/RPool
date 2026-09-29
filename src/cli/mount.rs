@@ -1,8 +1,27 @@
 use clap::Args;
 use std::path::PathBuf;
 
+/// OS filesystem frontend for a virtual drive.
+#[derive(clap::ValueEnum, Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum Frontend {
+    /// rclone mount/VFS over RPool's loopback WebDAV server (default).
+    #[default]
+    Dav,
+    /// Native FUSE frontend (Linux) over the filesystem core; local workspaces only.
+    Fuse,
+    /// Native WinFsp frontend (Windows) over the filesystem core; local workspaces only.
+    Winfsp,
+}
+
 #[derive(Args, Debug, Clone)]
 pub(crate) struct MountArgs {
+    /// Filesystem frontend. Native frontends need a local --virtual-drive workspace
+    /// (no --pool-sync or shared modes) and make fsync/close the local durability point.
+    #[arg(long, value_enum, default_value_t = Frontend::Dav, requires = "virtual_drive", conflicts_with_all = ["pool_sync", "bounded_shared", "shared_root"])]
+    pub(crate) frontend: Frontend,
+    /// Mount a native frontend read-only (writes fail with a read-only error).
+    #[arg(long)]
+    pub(crate) native_read_only: bool,
     /// Apply changed pool membership without resetting the selected workspace. Originals/history remain in a sibling backup; current files are verified in a fresh metadata epoch.
     #[arg(long, requires_all = ["virtual_drive", "pool_sync"], conflicts_with_all = ["account_recovery_from", "shared_root", "worker_name", "bounded_shared", "shared_coordinator", "sync_only", "capacity_only", "migrate_excluded", "cleanup_cache", "recover_spool", "retention_report", "apply_retention", "manifests", "mountpoint"])]
     pub(crate) apply_pool_changes: bool,
@@ -254,6 +273,29 @@ mod tests {
                 .chain(["--shared-root=crypt:s", "--worker-name=pc"])
         )
         .is_err());
+    }
+    #[test]
+    fn native_frontends_need_a_local_virtual_drive() {
+        let base = [
+            "rpool",
+            "mount",
+            "--pool=p",
+            "--workspace=/w",
+            "--mountpoint=/m",
+        ];
+        let parse = |extra: &[&str]| {
+            crate::cli::Cli::try_parse_from(base.iter().copied().chain(extra.iter().copied()))
+        };
+        assert!(parse(&["--virtual-drive", "--frontend=fuse"]).is_ok());
+        assert!(parse(&["--virtual-drive", "--frontend=winfsp", "--native-read-only"]).is_ok());
+        assert!(parse(&["--frontend=fuse"]).is_err());
+        assert!(parse(&["--virtual-drive", "--pool-sync", "--frontend=fuse"]).is_err());
+        assert!(parse(&["--virtual-drive", "--frontend=nfs"]).is_err());
+        let default = parse(&["--virtual-drive"]).unwrap();
+        let Some(crate::cli::Commands::Mount(args)) = default.command else {
+            panic!("mount command expected");
+        };
+        assert_eq!(args.frontend, super::Frontend::Dav);
     }
     #[test]
     fn shared_mount_options_require_each_other() {

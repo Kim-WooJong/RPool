@@ -3,6 +3,7 @@ pub(crate) mod adapter;
 pub(crate) mod capacity;
 mod crash;
 mod dav;
+mod frontend;
 mod fs_core;
 mod incremental;
 mod lifecycle;
