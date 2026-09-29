@@ -17,6 +17,8 @@
     expect(dead_code, reason = "no frontend uses the filesystem core yet (M3b)")
 )]
 mod core;
+#[cfg(test)]
+mod crash_tests;
 mod durability;
 mod error;
 mod generation;
@@ -25,6 +27,8 @@ mod identity;
 mod namespace_ops;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod trace_tests;
 
 #[allow(unused_imports, reason = "API for the frontends that adopt the core")]
 pub(crate) use self::core::{Access, Attr, FsCore};

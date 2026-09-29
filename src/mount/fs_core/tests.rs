@@ -319,7 +319,7 @@ fn open_flags_and_directories_follow_the_overlay() {
 }
 
 /// Commit every pending intent in order, as `sync` does after uploading.
-fn commit_all(drive: &VirtualDrive) {
+pub(super) fn commit_all(drive: &VirtualDrive) {
     let pending = drive.state.lock().unwrap().pending.clone();
     for intent in pending {
         let content = intent.spool.as_ref().map(|_| {
@@ -403,4 +403,33 @@ fn shared_and_pool_sync_workspaces_are_refused() {
     let mut drive = fixture(root.path());
     drive.pool_sync_roots = vec!["remote:pool".into()];
     assert!(FsCore::new(Arc::new(drive)).is_err());
+}
+
+#[test]
+fn a_stalled_uploader_never_blocks_acknowledgement_or_namespace_changes() {
+    let root = tempfile::tempdir().unwrap();
+    let core = Arc::new(core(root.path()));
+    put(&core, "a", b"before");
+    // `sync` holds this gate for its whole upload; hold it as a stalled upload.
+    let stalled = core.drive.sync_gate.lock().unwrap();
+    let (done, finished) = std::sync::mpsc::channel();
+    let worker = core.clone();
+    std::thread::spawn(move || {
+        let handle = worker.open("a", W, false, false).unwrap();
+        worker.write_at(handle, 0, b"AFTER!").unwrap();
+        worker.fsync(handle).unwrap();
+        worker.release(handle).unwrap();
+        put(&worker, "b", b"new");
+        worker.rename("b", "c").unwrap();
+        worker.delete("c").unwrap();
+        worker.mkdir("dir").unwrap();
+        done.send(()).unwrap();
+    });
+    finished
+        .recv_timeout(std::time::Duration::from_secs(20))
+        .expect("operations waited on the uploader");
+    drop(stalled);
+    assert_eq!(content(&core, "a"), b"AFTER!");
+    assert!(matches!(core.lookup("c"), Err(FsError::NotFound)));
+    assert_published_unchanged(&core.drive);
 }

@@ -23,15 +23,17 @@ impl Generation {
         keep: u64,
     ) -> Result<Self> {
         let mut intent = drive.begin_observed(path, visible)?;
-        // A local revision here was sealed earlier in this workspace, so this
-        // generation is its trusted continuation, not a sibling edit.
-        if let Some(Revision::Local { id, .. }) = visible {
+        // The latest pending intent at this path (a seal or deletion made
+        // earlier in this workspace) is what the caller sees, so this
+        // generation is its trusted continuation, not a sibling edit. A cloud
+        // revision keeps the drive's observed ancestry.
+        if !matches!(visible, Some(Revision::Cloud { .. })) {
             let state = drive
                 .state
                 .lock()
                 .map_err(|_| anyhow!("namespace lock poisoned"))?;
-            if let Some(previous) = state.pending.iter().find(|i| &i.id == id) {
-                intent.depends_on = Some(id.clone());
+            if let Some(previous) = state.pending.iter().rev().find(|i| i.path == path) {
+                intent.depends_on = Some(previous.id.clone());
                 intent.event_path = previous.event_path.clone();
                 intent.parents.clear();
             }

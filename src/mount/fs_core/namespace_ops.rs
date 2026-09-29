@@ -167,10 +167,10 @@ impl FsCore {
         checked(from)?;
         checked(to)?;
         let _namespace = self.exclusive()?;
+        let source = self.lookup(from)?;
         if from == to {
             return Ok(());
         }
-        let source = self.lookup(from)?;
         if source.directory {
             let target = format!("{to}/");
             if self

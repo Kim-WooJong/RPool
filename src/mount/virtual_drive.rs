@@ -716,10 +716,12 @@ impl VirtualDrive {
     fn prepare_seal(&self, mut intent: Intent) -> Result<Intent> {
         let path = self.spool_path(&intent);
         let file = File::open(&path)?;
+        super::crash::point("seal.before_fsync")?;
         file.sync_all()?;
         intent.size = file.metadata()?.len();
         intent.hash = crate::utils::hash_file_range(&path, 0, intent.size)?;
         durable_json(&path.parent().unwrap().join("intent.json"), &intent)?;
+        super::crash::point("seal.after_intent_record")?;
         #[cfg(unix)]
         {
             File::open(path.parent().unwrap())?.sync_all()?;
@@ -735,7 +737,9 @@ impl VirtualDrive {
             .map_err(|_| anyhow!("namespace lock poisoned"))?;
         let mut next = s.clone();
         next.pending.push(intent.clone());
+        super::crash::point("seal.before_namespace_save")?;
         next.save(&self.root)?;
+        super::crash::point("seal.after_namespace_save")?;
         *s = next;
         self.pins.lock().unwrap().insert(
             intent.path.clone(),
@@ -827,6 +831,7 @@ impl VirtualDrive {
             .map_err(|_| anyhow!("namespace lock poisoned"))?;
         let mut next = s.clone();
         next.pending.push(intent);
+        super::crash::point("delete.before_namespace_save")?;
         next.save(&self.root)?;
         *s = next;
         self.pins.lock().unwrap().remove(path);
@@ -959,6 +964,7 @@ impl VirtualDrive {
                 }
                 let id = next.commit(&destination, Some(content.clone()))?;
                 next.commit(&deletion, None)?;
+                super::crash::point("rename.before_namespace_save")?;
                 next.save(&self.root)?;
                 *s = next;
                 let mut pins = self.pins.lock().unwrap();
@@ -977,6 +983,7 @@ impl VirtualDrive {
                 let mut next = s.clone();
                 next.pending.push(destination.clone());
                 next.pending.push(deletion);
+                super::crash::point("rename.before_namespace_save")?;
                 next.save(&self.root)?;
                 *s = next;
                 let mut pins = self.pins.lock().unwrap();

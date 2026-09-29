@@ -6,6 +6,9 @@
   handle APIs over the virtual drive (native mount milestone M3a). `fsync`
   is the local durability acknowledgement; upload never gates it. No frontend
   uses it yet; DAV directory create/remove now share the drive's rules.
+  M3b adds test-only crash points, a crash matrix, randomized model traces
+  and a stalled-uploader test; they fixed `rename(x, x)` of a missing file and
+  sibling conflicts for files recreated after a pending delete.
 
 - `rpool config paths` prints the active settings file paths as JSON (no file
   contents). Portable config bundles now carry the GUI encryption preferences

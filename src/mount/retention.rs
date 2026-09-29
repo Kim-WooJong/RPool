@@ -591,6 +591,10 @@ impl VirtualDrive {
             .checked_add(bytes.len() as u64)
             .context("write range overflow")?;
         self.admit_spool_growth(file, end)?;
+        if super::crash::armed("spool.partial_write") {
+            file.write_all(&bytes[..bytes.len() / 2])?;
+            super::crash::point("spool.partial_write")?;
+        }
         file.write_all(bytes)?;
         Ok(())
     }

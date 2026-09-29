@@ -77,6 +77,7 @@ pub(crate) fn durable_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     let mut temp = tempfile::NamedTempFile::new_in(dir)?;
     serde_json::to_writer(&mut temp, value)?;
     temp.as_file().sync_all()?;
+    super::crash::point("durable.before_persist")?;
     temp.persist(path).map_err(|e| e.error)?;
     #[cfg(unix)]
     File::open(dir)?.sync_all()?;
@@ -311,6 +312,7 @@ impl Namespace {
                 bail!("refusing to overwrite corrupt checkpoint");
             }
             durable_json(&dir.join("namespace.previous.json"), &old)?;
+            super::crash::point("namespace.after_previous")?;
         }
         let envelope = Envelope {
             hash: blake3::hash(&serde_json::to_vec(self)?)

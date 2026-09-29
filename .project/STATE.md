@@ -14,9 +14,9 @@ GUI platform; current executed tests are macOS.
 Native mount M3a (2026-09-30): `src/mount/fs_core/` filesystem core over
 VirtualDrive (handles, shared write generations, fsync = local seal ack,
 depends_on continuation). 16 fixture traces pass; default suite 505 passed /
-21 ignored (non-symlink TMPDIR). No frontend uses it yet. Next (M3b): crash-point
-injection in seal/save/sync, uploader seam with stall/lost-response faults,
-randomized traces vs a reference model, then DAV on FsCore. Details:
+21 ignored (non-symlink TMPDIR). No frontend uses it yet. M3b done 2026-09-30
+(crash matrix, randomized model traces, stalled uploader; suite 508 passed /
+21 ignored). DAV intentionally stays off FsCore. Next: M4 WinFsp, M5 FUSE. Details:
 `docs/NATIVE_MOUNT_CRYPT_PLAN.md` "M3a status".
 
 Native crypt M2 (2026-09-29): per-pool `native_crypt` routes `put`/reprocess

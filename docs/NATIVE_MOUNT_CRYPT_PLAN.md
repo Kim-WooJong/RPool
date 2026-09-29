@@ -50,7 +50,7 @@ frontend. Each layer ships and is verified separately.
 | --- | --- | --- |
 | M1 ✅ | `src/crypt`: format library (keys, reveal, streaming data, names, sizes, ranged reads) | Two-way rclone oracle tests pass (rclone 1.75.1, 2026-09-29). No production caller yet. |
 | M2 ✅ | Native-crypt storage backend over the base remote. Opt-in per pool. | Objects are interchangeable with the rclone crypt remote. Ranged reads verified. Fault tests pass. |
-| M3 (M3a done) | Protocol-independent filesystem core (roadmap Phase 2) | The Phase 2 exit gate in `MOUNT_WRITE_ROADMAP.md` |
+| M3 ✅ | Protocol-independent filesystem core (roadmap Phase 2) | The Phase 2 exit gate in `MOUNT_WRITE_ROADMAP.md` |
 | M4 | Windows WinFsp frontend (`winfsp_wrs`, MIT). Read-only first, then writable. | Windows machine: listing, reads, stop, and small writes with remount and recovery |
 | M5 | Linux FUSE (`fuser`) | Linux machine |
 | M6 | macOS frontend, only after the wedged test mount is cleared by a reboot | New workspace. Clean and uncertain stop measured. |
@@ -151,7 +151,35 @@ download delays namespace changes. Every lookup and attached read rebuilds the
 drive view (O(files)). A failed `write_at` may leave a prefix that a later
 `fsync` seals, as POSIX allows.
 
-M3b, before any OS frontend: crash-point injection inside seal/save/sync, an
-uploader test seam with stall and lost-response faults, randomized traces
-against a reference model, and moving the DAV frontend onto `FsCore`.
+M3b is done (see below).
+
+## M3b status (2026-09-30)
+
+- **Crash points.** `src/mount/crash.rs` (test-only; `Ok` in release builds)
+  marks spool writes (cut half-way), the seal steps (before fsync, after the
+  intent record, before and after the namespace save), the namespace backup
+  and atomic-persist steps, and the rename and delete saves. The matrix test
+  crosses 9 points with overwrite, create, rename and delete. The simulated
+  process stops at its first failure without releasing handles. After a
+  reopen from disk, acknowledged operations are always present, unacknowledged
+  ones are entirely old or entirely new, sealed images keep their hashes, and
+  the workspace keeps working.
+- **Randomized traces.** 24 fixed seeds × 60 operations (open, write,
+  truncate, read, fsync, release, rename, delete, crash) are checked against a
+  reference model after every step: result kinds, sizes and bytes of every
+  path, and snapshot/attached reads. At the end all intents are committed in
+  `sync` order and there must be no conflict copies. The traces found two
+  defects, both fixed: `rename(x, x)` of a missing file returned Ok, and a
+  file recreated after a pending delete became a sibling of the deletion.
+  Generations now continue the latest pending intent at their path.
+- **Stalled uploader.** While the sync gate is held as a stalled upload,
+  writes, fsync, rename, delete and mkdir all complete.
+- **DAV stays on its own path.** FsCore treats a later save of the same file
+  as a trusted continuation. A DAV PUT carries no such identity (roadmap
+  Phase 1, Case B), and DAV must also serve pool-sync and shared-history
+  workspaces, so moving DAV onto FsCore would change its conservative
+  behaviour. The native frontends (M4, M5) use FsCore directly.
+
+Not covered: a real upload through rclone interleaved with writes (the fixture
+has no remote), power loss below the filesystem, and multi-process access.
 
