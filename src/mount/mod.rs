@@ -10,6 +10,7 @@ mod peer_snapshot;
 mod peer_snapshot_model;
 mod peer_snapshot_transport;
 pub(crate) mod pool_sync;
+mod pool_transition;
 mod retention;
 mod shard_cache;
 mod shared_checkpoint;
@@ -24,6 +25,17 @@ use anyhow::{Context, Result};
 use std::time::{Duration, Instant};
 
 pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
+    if args.recovery_reprocess_plan.is_some()
+        && args.account_recovery_from.is_none()
+        && !args.apply_pool_changes
+    {
+        anyhow::bail!("Reprocess plan requires account recovery or --apply-pool-changes");
+    }
+    if args.apply_pool_changes {
+        return pool_transition::run(rclone, &args);
+    }
+    let _transition_lock = pool_transition::lock_workspace_transition(&args.workspace)?;
+    pool_transition::assert_no_incomplete_transition(&args.workspace)?;
     if args.account_recovery_from.is_some() {
         return account_recovery::run(rclone, &args);
     }

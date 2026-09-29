@@ -621,6 +621,48 @@ rpool mount --pool mypool --workspace /absolute/workspace --migrate-excluded
 Shared workspaces still require the same `--shared-root` and `--worker-name`.
 `--status-file PATH` writes a GUI-readable snapshot atomically; its parent must exist.
 
+## Remembered pool options and configuration changes
+
+Selecting **Upload pool** restores that pool's saved mount options on this PC:
+workspace, mount point, automatic pool sync/history deletion and history limit,
+worker/shared options, imports, interval and cache budgets. **Save mount settings**
+or launching a mount/sync/maintenance action saves them. Switching pools keeps
+unsaved drafts in memory, but restart restores only saved profiles. Old settings
+without profiles retain the global cache defaults; a new pool never inherits
+another pool's workspace or deletion policy.
+
+For an existing online workspace with unchanged storage membership, worker/retry
+and supported layout changes use the current pool policy on the next mount instead
+of silently using old settings. Existing archive manifests remain unchanged.
+An incompatible unfinished upload/layout plan is retained and may require the
+transition below instead of an ordinary mount.
+
+After adding/removing storage, use **Apply changed pool to this workspace → Apply
+pool changes — keep workspace path** while unmounted. It stages independently
+verified current files, visible conflicts and sealed pending writes in a fresh
+metadata generation. The public pool name, selected workspace path, and v6/v7 mode
+stay the same. Activation happens only after the copied view is published; original
+workspace data is retained in a named sibling backup. Interrupted transitions use
+the same button/settings to resume; normal opening is blocked until resolved.
+
+This is a one-time migration, not a workspace reset or a metadata-guard bypass.
+It can need transfer time and additional disk/cloud capacity. A completed Reprocess
+plan can provide verified replacement bytes when an old account is gone; the new
+generation still owns independent payloads. Unrecoverable current files prevent
+activation. No original cloud objects are deleted by this operation.
+
+**Scope:** old historical versions and dirty native-cache recovery data remain in
+the backup, not in the active file view. This does not guarantee old history remains
+downloadable from unavailable accounts. Unseen remote changes are not imported.
+Old PCs remain isolated on their old metadata generation; this operation does not
+automatically migrate an entire multi-PC pool. Do not treat independent transitions
+on different PCs as one shared generation.
+
+CLI: `rpool mount --pool NAME --workspace PATH --virtual-drive --pool-sync
+--apply-pool-changes` (one line). Keep `--pool-retention` for a v7 source; optional
+`--recovery-reprocess-plan PATH` supplies completed Reprocess results. The operation
+does not mount automatically; afterward mount the same workspace normally.
+
 ## CLI (PowerShell example)
 
 ```powershell

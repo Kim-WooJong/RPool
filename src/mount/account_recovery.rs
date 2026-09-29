@@ -30,7 +30,7 @@ struct Journal {
     entries: BTreeMap<String, Entry>,
 }
 
-fn no_symlink_ancestors(path: &Path) -> Result<()> {
+pub(super) fn no_symlink_ancestors(path: &Path) -> Result<()> {
     for ancestor in path.ancestors().filter(|p| !p.as_os_str().is_empty()) {
         if fs::symlink_metadata(ancestor)?.file_type().is_symlink() {
             bail!("recovery does not accept symlink paths");
@@ -38,7 +38,7 @@ fn no_symlink_ancestors(path: &Path) -> Result<()> {
     }
     Ok(())
 }
-fn no_symlinks(path: &Path) -> Result<()> {
+pub(super) fn no_symlinks(path: &Path) -> Result<()> {
     no_symlink_ancestors(path)?;
     fn visit(path: &Path) -> Result<()> {
         let metadata = fs::symlink_metadata(path)?;
@@ -59,13 +59,13 @@ fn no_symlinks(path: &Path) -> Result<()> {
 fn digest(path: &Path) -> Result<String> {
     Ok(blake3::hash(&fs::read(path)?).to_hex().to_string())
 }
-fn check_stop(stop: Option<&Path>) -> Result<()> {
+pub(super) fn check_stop(stop: Option<&Path>) -> Result<()> {
     if stop.is_some_and(Path::exists) {
         bail!("recovery stopped; source and destination retained for resume");
     }
     Ok(())
 }
-fn copy_revision(
+pub(super) fn copy_revision(
     source: &VirtualDrive,
     destination: &VirtualDrive,
     revision: &Revision,
@@ -165,7 +165,7 @@ fn copy_revision(
     Ok(())
 }
 
-fn source_hashes(source: &VirtualDrive) -> Result<BTreeMap<String, String>> {
+pub(super) fn source_hashes(source: &VirtualDrive) -> Result<BTreeMap<String, String>> {
     let mut paths = vec!["virtual.json", "namespace.json"];
     if source.peer_retention {
         paths.extend(["peer-v7-state.json", "pool-sync-config.json"]);
@@ -175,7 +175,7 @@ fn source_hashes(source: &VirtualDrive) -> Result<BTreeMap<String, String>> {
         .map(|name| Ok((name.into(), digest(&source.root.join(name))?)))
         .collect()
 }
-fn completion_valid(drive: &VirtualDrive, path: &str, intent: &Intent) -> Result<()> {
+pub(super) fn completion_valid(drive: &VirtualDrive, path: &str, intent: &Intent) -> Result<()> {
     let state = drive.state.lock().unwrap();
     let event = state
         .committed_intents
@@ -201,7 +201,7 @@ fn approve_destination(drive: &VirtualDrive, approved: bool) -> Result<()> {
     }
     Ok(())
 }
-fn matching_replacement(
+pub(super) fn matching_replacement(
     source: &VirtualDrive,
     revision: &Revision,
     replacements: &[(Manifest, Manifest)],
@@ -243,7 +243,7 @@ fn matching_replacement(
     }
     Ok(None)
 }
-fn verify_replacement(
+pub(super) fn verify_replacement(
     source: &VirtualDrive,
     revision: &Revision,
     manifest: &Manifest,

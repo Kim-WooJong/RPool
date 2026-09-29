@@ -5,6 +5,85 @@ use super::shared_model::{Content, Event};
 use super::shared_transport::SharedTransport;
 use crate::prelude::*;
 
+fn validate_workspace_epoch(epoch: &str) -> Result<()> {
+    if epoch.len() != 64
+        || !epoch
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        bail!("invalid workspace metadata epoch");
+    }
+    Ok(())
+}
+fn workspace_metadata_roots(
+    pool: &str,
+    remotes: &[String],
+    epoch: Option<&str>,
+) -> Result<Vec<String>> {
+    let mut roots = super::pool_sync::roots(pool, remotes)?;
+    if let Some(epoch) = epoch {
+        validate_workspace_epoch(epoch)?;
+        for root in &mut roots {
+            *root = crate::utils::remote_join(root, &format!("epochs/{epoch}"));
+        }
+    }
+    Ok(roots)
+}
+fn validate_policy_refresh(
+    root: &Path,
+    saved: &PoolDefinition,
+    current: &PoolDefinition,
+) -> Result<()> {
+    crate::pool::validate_pool(current)?;
+    let mut saved_remotes = crate::remote_root::apply_remote_roots(saved.remotes.clone())?;
+    let mut current_remotes = crate::remote_root::apply_remote_roots(current.remotes.clone())?;
+    saved_remotes.sort();
+    current_remotes.sort();
+    if saved_remotes != current_remotes {
+        bail!("pool membership changed; apply pool changes before mounting this workspace");
+    }
+    let layout_changed = saved.shard_mib != current.shard_mib
+        || saved.placement != current.placement
+        || saved.data_shards != current.data_shards
+        || saved.parity_shards != current.parity_shards;
+    if !layout_changed {
+        return Ok(());
+    }
+    fn has_upload_state(path: &Path) -> Result<bool> {
+        if !path.exists() {
+            return Ok(false);
+        }
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let kind = entry.file_type()?;
+            if kind.is_symlink() {
+                bail!("upload state contains a symlink; preserve workspace");
+            }
+            if kind.is_dir() {
+                if has_upload_state(&entry.path())? {
+                    return Ok(true);
+                }
+            } else {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.ends_with(".rpool.upload.json") || name == "snapshot-plan.json" {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
+    if has_upload_state(&root.join("spool"))?
+        || root.join("snapshot-compaction").exists()
+            && fs::read_dir(root.join("snapshot-compaction"))?
+                .next()
+                .is_some()
+    {
+        bail!("finish existing upload/snapshot plans with the previous pool layout before applying layout changes; pending data retained");
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum Revision {
     Cloud {
@@ -129,6 +208,78 @@ impl VirtualDrive {
         pool_sync: bool,
         peer_retention: bool,
     ) -> Result<Self> {
+        Self::open_internal(
+            rclone,
+            pool,
+            root,
+            worker,
+            shared,
+            cache_limit,
+            bounded_shared,
+            pool_sync,
+            peer_retention,
+            None,
+        )
+    }
+
+    /// Initialize a private transition generation; callers persist the epoch in their journal.
+    pub(crate) fn open_with_epoch(
+        rclone: &str,
+        pool: &str,
+        root: &Path,
+        worker: &str,
+        shared: Option<&str>,
+        cache_limit: u64,
+        bounded_shared: bool,
+        pool_sync: bool,
+        peer_retention: bool,
+        epoch: &str,
+    ) -> Result<Self> {
+        if root.join("virtual.json").exists() {
+            bail!("epoch initialization requires a fresh workspace");
+        }
+        Self::open_internal(
+            rclone,
+            pool,
+            root,
+            worker,
+            shared,
+            cache_limit,
+            bounded_shared,
+            pool_sync,
+            peer_retention,
+            Some(epoch),
+        )
+    }
+
+    fn open_internal(
+        rclone: &str,
+        pool: &str,
+        root: &Path,
+        worker: &str,
+        shared: Option<&str>,
+        cache_limit: u64,
+        bounded_shared: bool,
+        pool_sync: bool,
+        peer_retention: bool,
+        requested_epoch: Option<&str>,
+    ) -> Result<Self> {
+        #[derive(Deserialize)]
+        struct Epoch {
+            #[serde(default)]
+            epoch: Option<String>,
+        }
+        let epoch = if root.join("virtual.json").exists() {
+            crate::utils::read_json::<Epoch>(&root.join("virtual.json"))?.epoch
+        } else {
+            requested_epoch.map(str::to_owned)
+        };
+        if let Some(value) = &epoch {
+            validate_workspace_epoch(value)?;
+            if !pool_sync {
+                bail!("workspace epoch requires pool sync");
+            }
+        }
         if pool_sync {
             Event {
                 version: 1,
@@ -146,7 +297,8 @@ impl VirtualDrive {
                 .get(pool)
                 .cloned()
                 .context("unknown pool")?;
-            let roots = super::pool_sync::roots(pool, &policy.remotes)?;
+            crate::pool::validate_pool(&policy)?;
+            let roots = workspace_metadata_roots(pool, &policy.remotes, epoch.as_deref())?;
             if peer_retention {
                 roots
                     .into_iter()
@@ -196,6 +348,9 @@ impl VirtualDrive {
             .context("virtual workspace is already in use")?;
         let config = root.join("virtual.json");
         let existing = config.exists();
+        if requested_epoch.is_some() && existing {
+            bail!("epoch initialization requires a fresh workspace");
+        }
         #[derive(Serialize, Deserialize)]
         struct Binding {
             version: u32,
@@ -204,8 +359,16 @@ impl VirtualDrive {
             policy: PoolDefinition,
             #[serde(default, skip_serializing_if = "Vec::is_empty")]
             metadata_roots: Vec<String>,
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            epoch: Option<String>,
         }
-        let binding: Binding = if config.exists() {
+        let current_policy = crate::pool::load_pool_store()?
+            .pools
+            .get(pool)
+            .cloned()
+            .context("unknown pool")?;
+        crate::pool::validate_pool(&current_policy)?;
+        let mut binding: Binding = if config.exists() {
             crate::utils::read_json(&config)?
         } else {
             let policy = crate::pool::load_pool_store()?
@@ -226,6 +389,7 @@ impl VirtualDrive {
                 pool: pool.into(),
                 shared: shared.map(str::to_owned),
                 metadata_roots: auto_roots.clone(),
+                epoch: epoch.clone(),
                 policy,
             };
             durable_json(&config, &b)?;
@@ -241,12 +405,14 @@ impl VirtualDrive {
             } else {
                 1
             })
+            || binding.epoch != epoch
             || binding.pool != pool
             || binding.shared.as_deref() != shared
             || binding.metadata_roots != auto_roots
         {
-            bail!("workspace pool/shared-root changed; editing or reprocessing a pool does not update this mount binding. Keep the original workspace; use account recovery with a new named pool/workspace and an optional completed Reprocess plan");
+            bail!("workspace pool/shared-root changed; keep this workspace and use Apply pool changes to transition its account membership. Reprocess alone does not update mount metadata");
         }
+        validate_policy_refresh(&root, &binding.policy, &current_policy)?;
         for name in ["spool", "clean-cache", "anchor", ".rpool"] {
             fs::create_dir_all(root.join(name))?;
             checked_directory(&root.join(name))?;
@@ -269,6 +435,10 @@ impl VirtualDrive {
             state.save(&root)?;
         }
         let cache = ShardCache::new(root.join("clean-cache"), cache_limit)?;
+        if serde_json::to_value(&binding.policy)? != serde_json::to_value(&current_policy)? {
+            binding.policy = current_policy;
+            durable_json(&config, &binding)?;
+        }
         Ok(Self {
             root,
             state: Mutex::new(state),
@@ -1471,5 +1641,69 @@ pub(crate) fn fixture(root: &Path) -> VirtualDrive {
         checkpoint_coordinator: false,
         checkpoint_keep: 0,
         _lock: File::create(root.join("virtual.lock")).unwrap(),
+    }
+}
+
+#[cfg(test)]
+mod policy_refresh_tests {
+    use super::*;
+
+    fn policy() -> PoolDefinition {
+        PoolDefinition {
+            remotes: vec!["one:explicit".into()],
+            ..PoolDefinition::default()
+        }
+    }
+
+    #[test]
+    fn policy_refresh_preserves_spool_and_allows_execution_knobs() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join("spool/pending")).unwrap();
+        let pending = root.path().join("spool/pending/content");
+        fs::write(&pending, b"pending bytes").unwrap();
+        fs::write(
+            root.path().join("spool/pending/source.rpool.upload.json"),
+            b"saved plan",
+        )
+        .unwrap();
+        let saved = policy();
+        let mut current = saved.clone();
+        current.workers += 1;
+        current.retries += 1;
+        validate_policy_refresh(root.path(), &saved, &current).unwrap();
+        assert_eq!(fs::read(&pending).unwrap(), b"pending bytes");
+        current.shard_mib += 1;
+        assert!(validate_policy_refresh(root.path(), &saved, &current).is_err());
+        assert_eq!(fs::read(&pending).unwrap(), b"pending bytes");
+    }
+
+    #[test]
+    fn policy_refresh_accepts_fresh_layout_but_rejects_membership_and_invalid_policy() {
+        let root = tempfile::tempdir().unwrap();
+        let saved = policy();
+        let mut current = saved.clone();
+        current.shard_mib += 1;
+        validate_policy_refresh(root.path(), &saved, &current).unwrap();
+        current.remotes.push("two:explicit".into());
+        assert!(validate_policy_refresh(root.path(), &saved, &current).is_err());
+        current = saved.clone();
+        current.workers = 0;
+        assert!(validate_policy_refresh(root.path(), &saved, &current).is_err());
+    }
+
+    #[test]
+    fn metadata_epoch_is_validated_and_does_not_change_legacy_roots() {
+        let remotes = policy().remotes;
+        let legacy = super::super::pool_sync::roots("pool", &remotes).unwrap();
+        assert_eq!(
+            workspace_metadata_roots("pool", &remotes, None).unwrap(),
+            legacy
+        );
+        let epoch = "a".repeat(64);
+        let changed = workspace_metadata_roots("pool", &remotes, Some(&epoch)).unwrap();
+        assert_eq!(changed[0], format!("{}/epochs/{epoch}", legacy[0]));
+        for invalid in ["", "../escape", &"A".repeat(64), &"a".repeat(63)] {
+            assert!(workspace_metadata_roots("pool", &remotes, Some(invalid)).is_err());
+        }
     }
 }

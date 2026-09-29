@@ -116,15 +116,84 @@ impl MountForm {
         }
     }
 
-    fn save_cache_settings(
+    fn save_mount_settings(
         &self,
         settings: &mut crate::gui::settings::GuiSettings,
     ) -> Result<(), String> {
         let mut next = settings.clone();
-        next.mount_cache = self.cache_settings();
+        if self.pool.is_empty() {
+            next.mount_cache = self.cache_settings();
+        } else {
+            next.mount_profiles
+                .insert(self.pool.clone(), self.profile());
+        }
         crate::gui::settings::save(&next)?;
         *settings = next;
         Ok(())
+    }
+
+    fn profile(&self) -> crate::gui::settings::MountProfile {
+        crate::gui::settings::MountProfile {
+            workspace: self.workspace.clone(),
+            mountpoint: self.mountpoint.clone(),
+            shared_root: self.shared_root.clone(),
+            worker_name: self.worker_name.clone(),
+            manifests: self.manifests.clone(),
+            interval_seconds: self.interval_seconds,
+            bounded_shared: self.bounded_shared,
+            pool_sync: self.pool_sync,
+            pool_retention: self.pool_retention,
+            pool_history_limit: self.pool_history_limit,
+            pool_history_override: self.pool_history_override,
+            shared_coordinator: self.shared_coordinator,
+            shared_keep_previous: self.shared_keep_previous,
+            cache: self.cache_settings(),
+        }
+    }
+
+    fn select_pool(&mut self, pool: String, settings: &mut crate::gui::settings::GuiSettings) {
+        if pool == self.pool {
+            return;
+        }
+        if !self.pool.is_empty() {
+            settings
+                .mount_profiles
+                .insert(self.pool.clone(), self.profile());
+        }
+        let profile = settings
+            .mount_profiles
+            .get(&pool)
+            .cloned()
+            .unwrap_or_else(|| crate::gui::settings::MountProfile {
+                cache: settings.mount_cache.clone(),
+                ..Default::default()
+            });
+        self.pool = pool;
+        self.workspace = profile.workspace;
+        self.mountpoint = profile.mountpoint;
+        self.shared_root = profile.shared_root;
+        self.worker_name = profile.worker_name;
+        self.manifests = profile.manifests;
+        self.interval_seconds = profile.interval_seconds;
+        self.bounded_shared = profile.bounded_shared;
+        self.pool_sync = profile.pool_sync;
+        self.pool_retention = profile.pool_retention;
+        self.pool_history_limit = profile.pool_history_limit;
+        self.pool_history_override = profile.pool_history_override;
+        self.shared_coordinator = profile.shared_coordinator;
+        self.shared_keep_previous = profile.shared_keep_previous;
+        self.virtual_drive = profile.cache.online_drive;
+        self.cache_gib = profile.cache.shard_gib;
+        self.vfs_cache_gib = profile.cache.native_gib;
+        self.cache_min_free_gib = profile.cache.min_free_gib;
+        self.spool_gib = profile.cache.spool_gib;
+        self.manifest_input.clear();
+        self.recovery_source.clear();
+        self.recovery_skip_remotes.clear();
+        self.recovery_reprocess_plan.clear();
+        self.capacity = None;
+        self.pool_status = None;
+        self.notice = None;
     }
 
     fn append_cache_args(&self, args: &mut Vec<OsString>) {
@@ -244,6 +313,9 @@ impl MountForm {
     fn start_action(&mut self, rclone: &str, action: u8) -> Result<(), String> {
         let sync_only = action != 0;
         let automatic = self.virtual_drive && self.pool_sync;
+        if action == 6 && (!automatic || !self.manifests.is_empty()) {
+            return Err("Apply pool changes requires Online drive + Automatic pool sync and no explicit imports.".into());
+        }
         if self.pool.trim().is_empty() || self.workspace.trim().is_empty() {
             return Err("Select an upload pool and a persistent local workspace.".into());
         }
@@ -320,10 +392,15 @@ impl MountForm {
                     2 => "--capacity-only",
                     4 => "--cleanup-cache",
                     5 => "--recover-spool",
+                    6 => "--apply-pool-changes",
                     _ => "--migrate-excluded",
                 }
                 .into(),
             );
+        }
+        if action == 6 && !self.recovery_reprocess_plan.trim().is_empty() {
+            args.push("--recovery-reprocess-plan".into());
+            args.push(self.recovery_reprocess_plan.trim().into());
         }
         self.capacity = None;
         self.pool_status = None;
@@ -336,6 +413,8 @@ impl MountForm {
                 "Trim clean shard cache"
             } else if action == 5 {
                 "Export recoverable spool"
+            } else if action == 6 {
+                "Apply pool changes (preserve original workspace)"
             } else if sync_only {
                 "Sync local workspace"
             } else {
@@ -402,6 +481,7 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
         form.shared_keep_previous,
     );
     ui.add_enabled_ui(!form.runner.is_running(), |ui| {
+        let mut selected_pool = form.pool.clone();
         ui.horizontal(|ui| {
             ui.label("Upload pool");
             egui::ComboBox::from_id_salt("mount-pool")
@@ -412,25 +492,26 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
                 })
                 .show_ui(ui, |ui| {
                     for name in &state.pool_names {
-                        ui.selectable_value(&mut form.pool, name.clone(), name);
+                        ui.selectable_value(&mut selected_pool, name.clone(), name);
                     }
                 });
         });
+        form.select_pool(selected_pool, &mut state.settings);
         ui.checkbox(&mut form.virtual_drive,"Online drive — on-demand files and automatic local cache cleanup (recommended)");
         if form.virtual_drive {
             ui.label("All known files remain visible; only needed contents are downloaded. Clean shards are evicted in least-recently-used order; unused OS cache also expires promptly. Cloud files are not deleted. Internet access is required for evicted contents.");
             ui.label("Use a NEW workspace when switching from a full replica. Existing replica files are not converted or deleted automatically. Native mount support remains experimental.");
         }
         if form.virtual_drive {
-            ui.checkbox(&mut form.pool_sync, "Automatic pool sync — no coordinator (NEW workspace)");
+            ui.checkbox(&mut form.pool_sync, "Automatic pool sync — no coordinator");
             if form.pool_sync {
                 ui.label("RPool stores immutable sync metadata in every encrypted pool destination. No shared-root entry or dedicated PC. Use the same named pool and remote mapping on each PC.");
-                ui.checkbox(&mut form.pool_retention, "Automatic history deletion — v7 (NEW workspace)");
+                ui.checkbox(&mut form.pool_retention, "Automatic history deletion — v7");
                 if !form.pool_retention { ui.checkbox(&mut form.pool_history_override, "Save future history limit in workspace config"); }
                 if form.pool_history_override || form.pool_retention {
                     ui.horizontal(|ui| { ui.label("Previous versions per file"); ui.add(egui::DragValue::new(&mut form.pool_history_limit).range(0..=10000)); });
                 }
-                ui.colored_label(egui::Color32::YELLOW, if form.pool_retention { "V7 keeps current + selected history and unresolved conflicts. Collection copies retained data first and needs temporary space. All PCs must use the same limit. Legacy data is untouched; use a new workspace." } else { "V6 history limit is config-only: no automatic deletion. All metadata replicas must be reachable." });
+                ui.colored_label(egui::Color32::YELLOW, if form.pool_retention { "V7 keeps current + selected history and unresolved conflicts. Collection needs temporary space. All PCs must use the same limit. Keep the saved mode for an existing workspace; changing v6/v7 protocol is separate from applying storage membership changes." } else { "V6 history limit is config-only: no automatic deletion. All metadata replicas must be reachable; use Apply pool changes below after adding/removing storage." });
             } else {
                 ui.checkbox(&mut form.bounded_shared, "Legacy bounded shared mode — designated coordinator");
             }
@@ -458,15 +539,38 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
         } else {
             ui.label("The native cache target does not limit replica files or pending replica writes.");
         }
-        if ui.button("Save cache settings").clicked() {
-            form.notice = Some(match form.save_cache_settings(&mut state.settings) {
+        if ui.button("Save mount settings").clicked() {
+            form.notice = Some(match form.save_mount_settings(&mut state.settings) {
                 Ok(()) => {
-                    "Cache settings saved on this PC; they survive app restart and apply on the next mount.".into()
+                    "Mount settings saved on this PC for the selected pool; select that pool to restore them after restart.".into()
                 }
                 Err(error) => error,
             });
         }
         directory_field(ui, "Persistent local workspace", &mut form.workspace);
+        if form.virtual_drive && form.pool_sync {
+            ui.collapsing("Apply changed pool to this workspace", |ui| {
+                ui.label("Worker count, retries and shard/layout changes take effect on the next mount when storage membership is unchanged.");
+                ui.label("After adding/removing storage accounts: stop the mount, then apply below. The selected pool name and workspace path stay the same. Current known files, conflict copies and sealed writes are verified in an independent metadata generation before activation.");
+                ui.colored_label(egui::Color32::YELLOW, "Old history and native-cache recovery data remain in a sibling backup, not the active generation. Unseen changes on other PCs are not imported. Old PCs remain on the old metadata generation. This is a migration and can take time/extra storage; it does not erase/reset the workspace.");
+                ui.label("Completed Reprocess plan (optional; used as verified input for independent new data)");
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut form.recovery_reprocess_plan);
+                    if ui.button("Choose plan…").clicked() {
+                        if let Some(path) = rfd::FileDialog::new().add_filter("Reprocess plan", &["json"]).pick_file() {
+                            form.recovery_reprocess_plan = path.display().to_string();
+                        }
+                    }
+                });
+                if ui.button("Apply pool changes — keep workspace path").clicked() {
+                    if let Err(error) = form.save_mount_settings(&mut state.settings)
+                        .and_then(|()| form.start_action(&state.settings.rclone, 6)) {
+                        form.notice = Some(error);
+                    }
+                }
+                ui.small("When completed, use Mount read/write with the same path. Interrupted transitions resume with the same settings and this button.");
+            });
+        }
         ui.collapsing("Recover after account removal — copy to a new writable pool", |ui| {
             ui.label("1. In Pools, save remaining accounts under a NEW pool name. Select that destination above and a NEW empty workspace (or the same recovery destination to resume). Turn automatic history deletion OFF.");
             ui.label("2. Select the original online workspace below. Stop its mount first. Source data is retained; verified file contents are copied and uploaded independently, not just linked.");
@@ -484,7 +588,7 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
             });
             ui.label("Only locally known current files, pending sealed writes and conflict copies can be recovered. History, unseen peer changes and dirty native-cache writes are not silently discarded or declared recovered. Insufficient surviving data is reported per file.");
             if ui.button("Recover files into selected destination").clicked() {
-                if let Err(error) = form.save_cache_settings(&mut state.settings)
+                if let Err(error) = form.save_mount_settings(&mut state.settings)
                     .and_then(|()| form.start_account_recovery(&state.settings.rclone)) {
                     form.notice = Some(error);
                 }
@@ -553,24 +657,24 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
         }
         ui.horizontal(|ui| {
             if ui.button("Mount read/write").clicked() {
-                if let Err(error) = form.save_cache_settings(&mut state.settings)
+                if let Err(error) = form.save_mount_settings(&mut state.settings)
                     .and_then(|()| form.start(&state.settings.rclone, false)) {
                     form.notice = Some(error);
                 }
             }
             if form.virtual_drive && ui.button("Trim clean cache (retain dirty/history)").clicked() {
-                if let Err(error)=form.start_action(&state.settings.rclone,4){form.notice=Some(error);}
+                if let Err(error)=form.save_mount_settings(&mut state.settings).and_then(|()| form.start_action(&state.settings.rclone, 4)){form.notice=Some(error);}
             }
             if form.virtual_drive && ui.button("Export recoverable spool (unmounted)").clicked() {
-                if let Err(error) = form.start_action(&state.settings.rclone, 5) { form.notice = Some(error); }
+                if let Err(error) = form.save_mount_settings(&mut state.settings).and_then(|()| form.start_action(&state.settings.rclone, 5)) { form.notice = Some(error); }
             }
             if ui.button("Refresh capacity / check exclusions").clicked() {
-                if let Err(error) = form.start_action(&state.settings.rclone, 2) {
+                if let Err(error) = form.save_mount_settings(&mut state.settings).and_then(|()| form.start_action(&state.settings.rclone, 2)) {
                     form.notice = Some(error);
                 }
             }
             if ui.button("Sync without mounting").clicked() {
-                if let Err(error) = form.save_cache_settings(&mut state.settings)
+                if let Err(error) = form.save_mount_settings(&mut state.settings)
                     .and_then(|()| form.start(&state.settings.rclone, true)) {
                     form.notice = Some(error);
                 }
@@ -673,7 +777,10 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
             }
         });
         if migrate {
-            if let Err(error) = form.start_action(&state.settings.rclone, 3) {
+            if let Err(error) = form
+                .save_mount_settings(&mut state.settings)
+                .and_then(|()| form.start_action(&state.settings.rclone, 3))
+            {
                 form.notice = Some(error);
             }
         }
@@ -765,6 +872,82 @@ fn build_args(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pool_profiles_restore_all_options_and_isolate_new_pools() {
+        let mut settings = crate::gui::settings::GuiSettings::default();
+        settings.mount_cache.native_gib = 7;
+        let mut form = super::MountForm::from_settings(&settings);
+        form.select_pool("A".into(), &mut settings);
+        form.workspace = "/persistent/A".into();
+        form.mountpoint = "/mount/A".into();
+        form.shared_root = "crypt:team".into();
+        form.worker_name = "desktop".into();
+        form.manifests = vec!["archive.json".into()];
+        form.interval_seconds = 42;
+        form.pool_retention = true;
+        form.pool_history_limit = 3;
+        form.pool_history_override = true;
+        form.bounded_shared = true;
+        form.shared_coordinator = true;
+        form.shared_keep_previous = 2;
+        form.cache_gib = 23;
+        let a = form.profile();
+        form.recovery_source = "source".into();
+        form.recovery_skip_remotes = "old-remote".into();
+        form.recovery_reprocess_plan = "plan.json".into();
+        form.manifest_input = "unfinished".into();
+        form.select_pool("B".into(), &mut settings);
+        assert_eq!(
+            form.profile(),
+            crate::gui::settings::MountProfile {
+                cache: settings.mount_cache.clone(),
+                ..Default::default()
+            }
+        );
+        assert!(form.recovery_source.is_empty());
+        assert!(form.recovery_skip_remotes.is_empty());
+        assert!(form.recovery_reprocess_plan.is_empty());
+        assert!(form.manifest_input.is_empty());
+        form.workspace = "/persistent/B".into();
+        form.virtual_drive = false;
+        form.pool_sync = false;
+        let b = form.profile();
+        form.select_pool("A".into(), &mut settings);
+        assert_eq!(form.profile(), a);
+        form.select_pool("B".into(), &mut settings);
+        assert_eq!(form.profile(), b);
+        // Simulate restarting with persisted settings, without writing real GUI config.
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("gui-settings.json");
+        crate::utils::save_json_atomic(&path, &settings).unwrap();
+        let mut restored = crate::utils::read_json(&path).unwrap();
+        let mut restarted = super::MountForm::from_settings(&restored);
+        restarted.select_pool("A".into(), &mut restored);
+        assert_eq!(restarted.profile(), a);
+        restarted.select_pool("B".into(), &mut restored);
+        assert_eq!(restarted.profile(), b);
+    }
+
+    #[test]
+    fn legacy_settings_seed_only_safe_cache_defaults_for_each_pool() {
+        let mut settings: crate::gui::settings::GuiSettings =
+            serde_json::from_str(r#"{"mount_cache":{"online_drive":false,"native_gib":5}}"#)
+                .unwrap();
+        assert!(settings.mount_profiles.is_empty());
+        let mut form = super::MountForm::from_settings(&settings);
+        form.select_pool("legacy".into(), &mut settings);
+        assert!(!form.virtual_drive);
+        assert_eq!(form.vfs_cache_gib, 5);
+        assert!(form.workspace.is_empty());
+        assert!(!form.pool_retention);
+        let partial: crate::gui::settings::GuiSettings =
+            serde_json::from_str(r#"{"mount_profiles":{"A":{"workspace":"/A"}}}"#).unwrap();
+        let profile = &partial.mount_profiles["A"];
+        assert_eq!(profile.workspace, "/A");
+        assert!(!profile.pool_retention);
+        assert!(profile.pool_sync && profile.cache.online_drive);
+    }
+
     #[test]
     fn recovery_form_forwards_source_and_skip_aliases_without_mount_or_retention() {
         let mut form = super::MountForm::default();

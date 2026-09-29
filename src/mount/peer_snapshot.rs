@@ -296,6 +296,153 @@ impl VirtualDrive {
         Ok(())
     }
     /// Resolve retained bytes without updating source metadata or contacting peers.
+    pub(super) fn transition_snapshot_events(
+        &self,
+        intents: &BTreeSet<String>,
+    ) -> Result<BTreeSet<String>> {
+        if !self.peer_retention {
+            bail!("semantic transition validation requires v7");
+        }
+        let state = self.snapshot_state()?;
+        self.validate_snapshot_locations(&state)?;
+        validate_names(&state)?;
+        let analysis = model::analyze(&state.snapshots, &self.snapshot_policy()?)?;
+        let namespace = self.state.lock().unwrap();
+        let mut allowed = BTreeSet::new();
+        for intent in intents {
+            let Some(committed) = namespace.committed_intents.get(intent) else {
+                // Publication precedes the namespace commit. A crash can leave the
+                // journal-owned sealed write and its ready snapshot already visible.
+                // Admit only this fresh-file transition's exact checked plan, never
+                // another equal-content file or an arbitrary remote snapshot.
+                let Some(pending) = namespace.pending.iter().find(|p| &p.id == intent) else {
+                    continue;
+                };
+                let path = self
+                    .root
+                    .join("spool")
+                    .join(intent)
+                    .join("snapshot-plan.json");
+                if !path.exists() {
+                    continue;
+                }
+                let plan: Plan = load(&path)?;
+                let Some(ready) = &plan.ready else {
+                    continue;
+                };
+                let (revision_id, semantic) = plan
+                    .revisions
+                    .iter()
+                    .next()
+                    .context("transition pending revision missing")?;
+                if plan.file != pending.id
+                    || !pending.parents.is_empty()
+                    || pending.depends_on.is_some()
+                    || pending.spool.is_none()
+                    || !plan.parents.is_empty()
+                    || plan.revisions.len() != 1
+                    || plan.source_hash.as_deref() != Some(pending.hash.as_str())
+                    || semantic.content_hash.as_deref() != Some(pending.hash.as_str())
+                    || semantic.size != pending.size
+                    || !semantic.parents.is_empty()
+                    || semantic.worker != namespace.worker
+                    || semantic.device != namespace.device
+                    || semantic.id()? != *revision_id
+                    || ready.file_id != plan.file
+                    || ready.owner_id != plan.owner
+                    || ready.revisions != plan.revisions
+                    || !ready.parents.is_empty()
+                {
+                    bail!("transition pending snapshot plan identity mismatch");
+                }
+                let name = plan
+                    .name
+                    .as_ref()
+                    .context("transition pending name missing")?;
+                if name.entries != BTreeMap::from([(plan.file.clone(), pending.path.clone())])
+                    || name.parents != BTreeMap::from([(plan.file.clone(), BTreeSet::new())])
+                {
+                    bail!("transition pending snapshot name mismatch");
+                }
+                // Absent publication is simply not yet a materialized event. Remote
+                // collection may prove publication before local receipt persistence;
+                // normal sync still must finish receipts and commit before activation.
+                if !state.snapshots.contains_key(&ready.id()?)
+                    || !state.names.contains_key(&hash(name)?)
+                {
+                    continue;
+                }
+                for (event_id, mapped) in &state.mappings {
+                    if mapped.file != plan.file || mapped.revision != *revision_id {
+                        continue;
+                    }
+                    if namespace.events.get(event_id).is_some_and(|event| {
+                        event.path == pending.path
+                            && event.content.as_ref().is_some_and(|content| {
+                                content.hash == pending.hash && content.size == pending.size
+                            })
+                    }) {
+                        allowed.insert(event_id.clone());
+                    }
+                }
+                continue;
+            };
+            if !namespace.published.contains(committed) {
+                bail!("transition snapshot commit is not published");
+            }
+            let target = state
+                .mappings
+                .get(committed)
+                .context("transition commit mapping missing")?;
+            let original = namespace
+                .events
+                .get(committed)
+                .context("transition commit event missing")?;
+            let semantic = analysis
+                .merged
+                .get(&target.file)
+                .and_then(|m| m.revisions.get(&target.revision))
+                .context("transition semantic revision missing")?;
+            let snapshots: Vec<_> = state
+                .snapshots
+                .iter()
+                .filter(|(_, snapshot)| snapshot.file_id == target.file)
+                .collect();
+            let names = name_heads(&state, &target.file);
+            if snapshots.is_empty()
+                || names.is_empty()
+                || snapshots
+                    .iter()
+                    .any(|(id, _)| !state.published_snapshots.contains(*id))
+                || names.iter().any(|id| !state.published_names.contains(id))
+            {
+                bail!("transition snapshot or name is not fully published");
+            }
+            for (event_id, mapped) in &state.mappings {
+                if mapped.file != target.file || mapped.revision != target.revision {
+                    continue;
+                }
+                let Some(event) = namespace.events.get(event_id) else {
+                    continue;
+                };
+                let semantic_matches = match (&event.content, &semantic.content_hash) {
+                    (Some(content), Some(hash)) => {
+                        content.hash == *hash && content.size == semantic.size
+                    }
+                    (None, None) => true,
+                    _ => false,
+                };
+                if event.path == original.path && semantic_matches {
+                    allowed.insert(event_id.clone());
+                }
+            }
+            if !allowed.contains(committed) {
+                bail!("transition committed event differs from semantic revision");
+            }
+        }
+        Ok(allowed)
+    }
+
     pub(crate) fn recovery_snapshot_manifest(&self, event: &str) -> Result<Manifest> {
         let state = self.snapshot_state()?;
         self.validate_snapshot_locations(&state)?;

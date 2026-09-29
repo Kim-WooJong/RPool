@@ -11,6 +11,24 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
+Pool profile/workspace evolution follow-up: GUI saves machine-local per-pool mount
+profiles and restores workspace/history/cache/options on selection. Compatible
+same-membership policy edits use current policy; unfinished incompatible layout
+plans remain guarded. Explicit --apply-pool-changes stages a fresh random metadata
+epoch in the same named pool, copies/verifies the locally known current/conflict/
+sealed-pending view and activates at the same selected workspace path. Original
+workspace/history/native cache remain in a sibling backup; history/unseen remote
+changes are NOT migrated into the active generation. Other old PCs stay isolated.
+No original remote deletion. Sibling lock, durable rename journal, stage ownership
+checks and exact v7 committed/pending-plan semantic proofs support interrupted
+transition recovery; required bytes missing prevent activation. v6/v7 mode is
+preserved; target history limit is journaled. Actual cloud/Windows migration is
+unverified. Final local validation in projects: default 433 passed / 12 ignored;
+optional 444 passed / 12 ignored; warnings-denied release, fmt and diff passed.
+Release CLI exposes --apply-pool-changes. GUI tests include saved profile roundtrip,
+pool switching and legacy defaults; transition tests cover interrupted renames,
+exclusive locking, pending-write guards and v7 publish-before-commit resumption.
+
 Online mount latency follow-up: required metadata-only bootstrap replaces full
 startup upload/GC for normal pool/shared-worker mounts. Quota/reporting and pending
 writeback run in one worker after native readiness. Legacy bounded coordinator
@@ -44,7 +62,7 @@ precede cloud synchronization. Actual WinFsp/rclone/cloud behavior is unverified
 
 Current verification: projects/rpool/account-recovery-check only, target/logs under
 projects/rpool and test TMPDIR projects/t (short enough for Unix socket paths).
-Latest default 419 passed / 12 ignored; optional suite 430 passed / 12 ignored.
+Latest default 433 passed / 12 ignored; optional suite 444 passed / 12 ignored.
 Warnings-denied release build, formatting and diff checks passed; release CLI help
 exposes the recovery flags. Actual Windows/cloud execution remains unverified.
 Independent reviews covered receipt provenance, explicit read exclusion vs auth,
@@ -322,8 +340,9 @@ Previous unshared hardening batch (macOS):
 
 ## Resume
 
-Online mount latency changes are implemented and locally validated; no active
-implementation remains for this milestone. Prior account recovery/Explorer fixes remain.
+Pool profile/workspace evolution implementation and local validation complete;
+no active work remains for this milestone. Prior latency/account recovery/Explorer
+fixes remain validated. Real user migrations were not performed implicitly.
 Do not migrate/delete real data or start cloud mounts implicitly.
 Preserve unrelated config-sync/path changes. Real Windows/WinFsp and cloud mount
 acceptance remain runtime gates. Do not restart legacy retention work from older

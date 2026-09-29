@@ -640,3 +640,90 @@ fn metadata_bootstrap_outage_or_invalid_record_keeps_local_state_and_spool() {
         assert!(backend.deleted.is_empty());
     }
 }
+
+#[test]
+fn transition_semantic_receipts_accept_materialized_events_not_equal_content_revisions() {
+    let root = tempfile::tempdir().unwrap();
+    let d = drive(root.path());
+    let io = FakeIo::default();
+    stage(&d, &io, "first", b"identical");
+    let first = d.state.lock().unwrap().pending[0].id.clone();
+    d.sync_snapshots_with(&io).unwrap();
+    stage(&d, &io, "other", b"identical");
+    d.sync_snapshots_with(&io).unwrap();
+    let allowed = d
+        .transition_snapshot_events(&BTreeSet::from([first.clone()]))
+        .unwrap();
+    let namespace = d.state.lock().unwrap();
+    let committed = &namespace.committed_intents[&first];
+    let synthetic = &namespace.snapshot_view["first"];
+    assert_ne!(committed, synthetic);
+    assert!(allowed.contains(committed));
+    assert!(allowed.contains(synthetic));
+    assert!(!allowed.contains(&namespace.snapshot_view["other"]));
+    drop(namespace);
+    // Equal bytes in a later revision of the same file are not the original intent.
+    stage(&d, &io, "first", b"identical");
+    d.sync_snapshots_with(&io).unwrap();
+    let allowed = d
+        .transition_snapshot_events(&BTreeSet::from([first.clone()]))
+        .unwrap();
+    assert!(!allowed.contains(&d.state.lock().unwrap().snapshot_view["first"]));
+    let mut state = d.snapshot_state().unwrap();
+    state.published_names.clear();
+    d.save_snapshot_state(&state).unwrap();
+    assert!(d
+        .transition_snapshot_events(&BTreeSet::from([first]))
+        .is_err());
+}
+
+#[test]
+fn transition_resumes_published_snapshot_before_namespace_commit() {
+    let root = tempfile::tempdir().unwrap();
+    let d = drive(root.path());
+    let io = FakeIo::default();
+    stage(&d, &io, "file", b"pending transition");
+    let intent = d.state.lock().unwrap().pending[0].clone();
+    let mut state = d.snapshot_state().unwrap();
+    let analysis = model::analyze(&state.snapshots, &d.snapshot_policy().unwrap()).unwrap();
+    let mut plan = d.make_plan(&state, &analysis, &intent).unwrap();
+    let path = d
+        .root
+        .join("spool")
+        .join(&intent.id)
+        .join("snapshot-plan.json");
+    save(&path, &plan).unwrap();
+    let snapshot = d
+        .finish_plan(&state, &io, &path, &mut plan, Some(&d.spool_path(&intent)))
+        .unwrap();
+    d.publish_plan(&mut state, &io, &plan, snapshot).unwrap();
+    // Simulate crash here: publication completed, but namespace.commit did not run.
+    // Collection can also precede durable local publication receipts.
+    state.published_snapshots.clear();
+    state.published_names.clear();
+    materialize(&d, &mut state);
+    assert!(!d
+        .state
+        .lock()
+        .unwrap()
+        .committed_intents
+        .contains_key(&intent.id));
+    let intents = BTreeSet::from([intent.id.clone()]);
+    let allowed = d.transition_snapshot_events(&intents).unwrap();
+    assert!(allowed.contains(&d.state.lock().unwrap().snapshot_view["file"]));
+    let mut unrelated = plan.clone();
+    unrelated.file = "f".repeat(64);
+    save(&path, &unrelated).unwrap();
+    assert!(d.transition_snapshot_events(&intents).is_err());
+    save(&path, &plan).unwrap();
+    d.sync_snapshots_with(&io).unwrap();
+    assert!(d
+        .state
+        .lock()
+        .unwrap()
+        .committed_intents
+        .contains_key(&intent.id));
+    let allowed = d.transition_snapshot_events(&intents).unwrap();
+    assert!(allowed.contains(&d.state.lock().unwrap().snapshot_view["file"]));
+    assert!(d.state.lock().unwrap().pending.is_empty());
+}

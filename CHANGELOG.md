@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Per-pool machine-local mount profiles restore workspace, automatic history deletion, cache and other options on pool selection. Save explicitly or on launch; legacy global cache settings remain safe defaults.
+- Existing online workspaces use validated current upload policy for compatible configuration edits. Explicit source-preserving Apply pool changes stages a fresh metadata generation for changed membership and keeps the selected pool/workspace path. Current known files and sealed writes are verified before activation; historical/native recovery data stay in a retained backup, not silently discarded or claimed migrated.
+
 - Online mount startup separates required metadata refresh from pending uploads/GC and moves capacity reporting off the control loop. Online unmount cancels supervised remote work and retains pending local data instead of forcing a final full cloud sync. Explicit sync remains available; legacy bounded coordinator bootstrap and replica mode retain their existing behavior.
 - Mount adapter releases its OS lease explicitly on drop, preventing an inherited file descriptor from delaying immediate remount; durable surviving-process fences remain enforced.
 
