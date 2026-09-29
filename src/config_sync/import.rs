@@ -52,6 +52,9 @@ pub(crate) fn prepare_portable_import(bundle: &PortableConfig) -> Result<Prepare
     let previous_gui = load_settings("rclone");
 
     let mut next_gui = previous_gui.clone();
+    if let Some(encryption) = &bundle.gui.encryption {
+        next_gui.encryption = encryption.clone();
+    }
     next_gui.default_remote_path = bundle.gui.default_remote_path.clone();
     next_gui.remotes = bundle.gui.remotes.clone();
     next_gui.shard_mib = bundle.gui.shard_mib;

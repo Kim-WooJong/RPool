@@ -103,6 +103,19 @@ fn dispatch(cli: Cli) -> Result<()> {
         Commands::Export(args) => commands::config_sync::export::run_package(&cli.rclone, &args),
         Commands::Import(args) => commands::config_sync::import::run_package(&cli.rclone, &args),
         Commands::Config(args) => match args.command {
+            ConfigCommands::Paths => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "config_dir": crate::config::app_config_dir()?,
+                        "gui": crate::config::gui_settings_path()?,
+                        "pools": crate::config::pools_path()?,
+                        "remote_roots": crate::config::remote_roots_path()?,
+                        "portable_encryption_preferences": true
+                    }))?
+                );
+                Ok(())
+            }
             ConfigCommands::Export { output } => commands::config_sync::export::run(&output),
             ConfigCommands::Import { input, dry_run } => {
                 commands::config_sync::import::run(&input, dry_run)

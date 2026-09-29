@@ -34,6 +34,7 @@ fn build_bundle(
         crypt_remotes,
         secret_vault,
         gui: PortableGuiSettings {
+            encryption: Some(gui.encryption),
             default_remote_path: gui.default_remote_path,
             remotes: gui.remotes,
             shard_mib: gui.shard_mib,

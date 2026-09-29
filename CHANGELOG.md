@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `rpool config paths` prints the active settings file paths as JSON (no file
+  contents). Portable config bundles now carry the GUI encryption preferences
+  (entropy bits, filename/directory encryption, never passwords); import
+  validates them, and bundles without them keep the local preferences.
+  `scripts/portable-config-path-test.nu` checks this against the real CLI in
+  an isolated home.
+
 - Opt-in native crypt writes per pool (`pool set --native-crypt`, GUI
   "Encrypt in RPool"). `put --pool` and reprocess encrypt shards in RPool in
   rclone crypt format and upload them to the crypt remote's base; readback

@@ -42,6 +42,9 @@ pub(crate) fn validate_bundle(bundle: &PortableConfig) -> Result<()> {
         validate_pool(pool)?;
     }
 
+    if let Some(encryption) = &bundle.gui.encryption {
+        encryption.validate()?;
+    }
     if bundle.gui.shard_mib == 0 {
         bail!("portable GUI shard_mib must be greater than zero");
     }

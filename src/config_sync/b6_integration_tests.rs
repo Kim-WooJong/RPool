@@ -234,6 +234,7 @@ fn portable_config(crypt_remotes: Vec<PortableCryptRemote>) -> PortableConfig {
         pools: PoolStore::default(),
         remote_roots: RemoteRootStore::default(),
         gui: PortableGuiSettings {
+            encryption: None,
             default_remote_path: String::new(),
             remotes: Vec::new(),
             shard_mib: 1,

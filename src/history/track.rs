@@ -43,6 +43,7 @@ pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> 
             Some(args.artifact_root.display().to_string()),
         ),
         Commands::Config(args) => match &args.command {
+            ConfigCommands::Paths => return None,
             ConfigCommands::Export { output } => (
                 "config-export".to_string(),
                 Some(output.display().to_string()),

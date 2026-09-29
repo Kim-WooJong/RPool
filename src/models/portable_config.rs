@@ -8,6 +8,9 @@ pub(crate) const SECRET_VAULT_PATH: &str = "secrets/rclone.age";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct PortableGuiSettings {
+    // Preferences only, never crypt passwords. Older bundles leave local defaults intact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) encryption: Option<crate::config_sync::provision::EncryptionDefaults>,
     pub(crate) default_remote_path: String,
     pub(crate) remotes: Vec<String>,
     pub(crate) shard_mib: u64,
