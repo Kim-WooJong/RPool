@@ -256,13 +256,11 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         }
     });
     if let Some(draft) = &mut state.reprocess.draft {
-        let action = state.reprocess.picker.show(
-            ui.ctx(),
-            &mut draft.remotes,
-            &state.crypt_remotes,
-            &state.settings.default_remote_path,
-            &state.remote_roots,
-        );
+        let action =
+            state
+                .reprocess
+                .picker
+                .show(ui.ctx(), &mut draft.remotes, &state.crypt_remotes);
         state.pools.refresh_requested |= action.refresh;
         if action.setup {
             state.storage_section = crate::gui::state::StorageSection::Providers;

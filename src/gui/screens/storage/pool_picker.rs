@@ -1,5 +1,4 @@
 use eframe::egui;
-use std::collections::BTreeMap;
 
 #[derive(Debug, Default)]
 pub(super) struct PoolPicker {
@@ -38,8 +37,6 @@ impl PoolPicker {
         ctx: &egui::Context,
         selected: &mut Vec<String>,
         discovered: &[String],
-        default_path: &str,
-        roots: &BTreeMap<String, String>,
     ) -> PickerAction {
         let mut action = PickerAction::default();
         if !self.open {
@@ -71,7 +68,7 @@ impl PoolPicker {
                     .id_salt("pool-provider-picker-list")
                     .max_height(320.0)
                     .show(ui, |ui| {
-                        for target in choices(discovered, default_path, roots) {
+                        for target in choices(discovered) {
                             let mut checked = self.draft.contains(&target);
                             if ui.checkbox(&mut checked, &target).changed() {
                                 self.set_selected(&target, checked);
@@ -105,27 +102,12 @@ impl PoolPicker {
     }
 }
 
-// Match remote_selector's per-provider override and existing-path rules.
-fn choices(
-    discovered: &[String],
-    default_path: &str,
-    roots: &BTreeMap<String, String>,
-) -> Vec<String> {
+// Pool destinations use the discovered crypt root, not a configured upload folder.
+fn choices(discovered: &[String]) -> Vec<String> {
     let mut targets = Vec::new();
     for remote in discovered {
-        let target = match remote.split_once(':') {
-            Some((name, path)) if path.trim().is_empty() => {
-                let root = roots
-                    .get(name)
-                    .map(String::as_str)
-                    .unwrap_or(default_path)
-                    .trim();
-                format!("{remote}{root}")
-            }
-            _ => remote.clone(),
-        };
-        if !targets.contains(&target) {
-            targets.push(target);
+        if !targets.contains(remote) {
+            targets.push(remote.clone());
         }
     }
     targets
@@ -157,7 +139,7 @@ mod tests {
                         ..Default::default()
                     },
                     |ui| {
-                        picker.show(ui.ctx(), &mut selected, &[], "", &BTreeMap::new());
+                        picker.show(ui.ctx(), &mut selected, &[]);
                     },
                 );
                 let shapes = std::mem::take(&mut output.shapes);
@@ -197,16 +179,9 @@ mod tests {
     }
 
     #[test]
-    fn provider_choices_preserve_paths_override_defaults_and_deduplicate() {
-        let roots = BTreeMap::from([
-            ("one".into(), " folder/한국 ".into()),
-            ("empty".into(), "".into()),
-        ]);
-        let remotes = ["one:", "two:", "one:", "one:existing", "empty:"].map(String::from);
-        assert_eq!(
-            choices(&remotes, "global", &roots),
-            ["one:folder/한국", "two:global", "one:existing", "empty:"]
-        );
+    fn provider_choices_use_crypt_roots_without_appending_default_paths() {
+        let remotes = ["one:", "two:", "one:", "one:existing"].map(String::from);
+        assert_eq!(choices(&remotes), ["one:", "two:", "one:existing"]);
     }
 
     #[test]

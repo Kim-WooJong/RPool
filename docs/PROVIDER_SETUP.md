@@ -41,7 +41,7 @@ Select **Set up encryption**, choose a connected base provider and a unique encr
 
 ## Select providers for a pool
 
-Storage → Pools → **Choose encrypted providers…** opens a picker. Click checkboxes or Remove, then **Apply selection** and **Save pool**. Cancel or close leaves the pool selection unchanged. Removing here only removes a destination from the pool draft; it never deletes a provider or cloud data. Custom paths and unavailable saved destinations remain until explicitly removed.
+Storage → Pools → **Choose encrypted providers…** opens a picker. Discovered providers are added at their crypt root (`name:`), without appending a Settings default path. Click checkboxes or Remove, then **Apply selection** and **Save pool**. Cancel or close leaves the pool selection unchanged. Removing here only removes a destination from the pool draft; it never deletes a provider or cloud data. Custom paths and unavailable saved destinations remain until explicitly removed.
 
 The picker has Refresh and Set up provider actions. Leaving for setup discards unapplied picker edits. New pools inherit Settings defaults; no provider is silently added. Newly created encrypted providers are discovered automatically after successful setup, including providers without capacity reporting.
 

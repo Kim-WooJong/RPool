@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Pool provider selection now adds discovered crypt remotes at `name:` without
+  appending the GUI default folder. Existing saved destinations are unchanged.
+
 - Provider health now probes encrypted remote roots rather than appending Pool
   storage prefixes, preventing false missing-directory failures. A Windows-only
   unused-argument build warning in pool transition durability handling is fixed.

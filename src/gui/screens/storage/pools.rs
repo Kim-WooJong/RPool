@@ -236,13 +236,10 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             }
         });
     });
-    let action = state.pools.picker.show(
-        ui.ctx(),
-        &mut state.pools.remotes,
-        &state.crypt_remotes,
-        &state.settings.default_remote_path,
-        &state.remote_roots,
-    );
+    let action = state
+        .pools
+        .picker
+        .show(ui.ctx(), &mut state.pools.remotes, &state.crypt_remotes);
     state.pools.refresh_requested |= action.refresh;
     if action.setup {
         state.storage_section = StorageSection::Providers;
