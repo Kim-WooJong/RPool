@@ -40,6 +40,14 @@ struct BoundedVec {
     bytes: Vec<u8>,
     limit: usize,
 }
+#[derive(Debug)]
+struct AdminOutputCap;
+impl std::fmt::Display for AdminOutputCap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("rclone admin output cap exceeded")
+    }
+}
+impl std::error::Error for AdminOutputCap {}
 struct RangeSink<'a> {
     sink: &'a mut dyn Write,
     remaining: u64,
@@ -63,10 +71,7 @@ impl Write for RangeSink<'_> {
 impl Write for BoundedVec {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         if bytes.len() > self.limit.saturating_sub(self.bytes.len()) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "rclone output cap exceeded",
-            ));
+            return Err(io::Error::new(io::ErrorKind::InvalidData, AdminOutputCap));
         }
         self.bytes.extend_from_slice(bytes);
         Ok(bytes.len())

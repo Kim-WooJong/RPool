@@ -11,6 +11,20 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
+Mac metadata-scan latency follow-up: v6/v7 peer event listing now attempts one
+8 MiB-bounded `lsjson` per kind/remote and falls back to the previous 16 hash
+prefix pages only for a typed output-cap overflow. Other errors remain fatal;
+known-history and unseen-event bounds remain intact. On empty diagnostic paths,
+six accessible Mac crypt remotes took 6.269 s for one sequential pass versus
+94.956 s summed for the old 16-prefix scans; this is not a real mount timing.
+Final macOS validation in `projects/rpool/mount-scan-check`: default 435 passed /
+12 ignored, optional OpenDAL 446 passed / 12 ignored, warnings-denied release
+passed. A transient DAV localhost port rebinding failure passed alone and on
+the final full rerun. Real Mac mount is still blocked/unverified: Mikrotik SMB
+returns `invalid response packet`, compatible FUSE was not found, and this
+Mac has no registered RPool profile or macOS workspace/mountpoint. No remote
+mutation or real mount was attempted for this optimization.
+
 Pool profile/workspace evolution follow-up: GUI saves machine-local per-pool mount
 profiles and restores workspace/history/cache/options on selection. Compatible
 same-membership policy edits use current policy; unfinished incompatible layout

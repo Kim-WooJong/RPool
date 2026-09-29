@@ -64,6 +64,9 @@ pub(crate) enum StorageError {
     InvalidInput {
         detail: String,
     },
+    /// Bounded subprocess output exceeded its limit. Callers may retry with a
+    /// narrower read, but must not treat other invalid input as this condition.
+    OutputBoundsViolated,
     Unsupported {
         operation: String,
     },
@@ -106,6 +109,7 @@ impl StorageError {
             Self::Timeout { .. } => StorageErrorKind::Timeout,
             Self::Cancelled { .. } => StorageErrorKind::Cancelled,
             Self::InvalidInput { .. } => StorageErrorKind::InvalidInput,
+            Self::OutputBoundsViolated => StorageErrorKind::InvalidInput,
             Self::Unsupported { .. } => StorageErrorKind::Unsupported,
             Self::PreconditionFailed { .. } => StorageErrorKind::PreconditionFailed,
             Self::CorruptData { .. } => StorageErrorKind::CorruptData,
@@ -177,6 +181,7 @@ impl fmt::Display for StorageError {
             Self::Timeout { detail } => write!(f, "timeout: {detail}"),
             Self::Cancelled { detail } => write!(f, "cancelled: {detail}"),
             Self::InvalidInput { detail } => write!(f, "invalid input: {detail}"),
+            Self::OutputBoundsViolated => write!(f, "invalid input: rclone output bounds violated"),
             Self::Unsupported { operation } => write!(f, "unsupported operation: {operation}"),
             Self::PreconditionFailed { detail } => write!(f, "precondition failed: {detail}"),
             Self::CorruptData { found, expected } => {

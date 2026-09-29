@@ -1,0 +1,30 @@
+use std::{env, fs::OpenOptions, io::{self, Write}};
+
+fn main() {
+    let args: Vec<_> = env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("config") {
+        print!("{}", r#"{"crypt":{"type":"crypt"}}"#);
+        return;
+    }
+    if args.first().map(String::as_str) != Some("lsjson") {
+        std::process::exit(2);
+    }
+    let paged = args.iter().any(|arg| arg == "--include");
+    let marker = env::current_exe().unwrap().with_extension("calls");
+    writeln!(OpenOptions::new().create(true).append(true).open(marker).unwrap(), "{}", if paged { "page" } else { "full" }).unwrap();
+    let address = args.last().unwrap();
+    if address.contains("auth") {
+        eprintln!("authentication failed");
+        std::process::exit(1);
+    }
+    if address.contains("overflow") && !paged {
+        let chunk = vec![b' '; 64 * 1024];
+        for _ in 0..129 {
+            if io::stdout().write_all(&chunk).is_err() {
+                return;
+            }
+        }
+        return;
+    }
+    print!("[]");
+}

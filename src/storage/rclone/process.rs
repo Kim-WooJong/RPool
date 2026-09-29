@@ -33,7 +33,12 @@ fn io_error() -> StorageError {
     }
 }
 fn sink_error(error: std::io::Error) -> StorageError {
-    if matches!(
+    if error
+        .get_ref()
+        .is_some_and(|source| source.is::<super::AdminOutputCap>())
+    {
+        StorageError::OutputBoundsViolated
+    } else if matches!(
         error.kind(),
         std::io::ErrorKind::InvalidData | std::io::ErrorKind::InvalidInput
     ) {

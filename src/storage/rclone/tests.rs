@@ -386,6 +386,7 @@ fn range_overdelivery_rejected_before_sink_and_copy_enforces_gate() {
         )
         .unwrap_err();
     assert_eq!(error.kind(), StorageErrorKind::InvalidInput);
+    assert!(!matches!(error, StorageError::OutputBoundsViolated));
     assert!(sink.is_empty());
     let (dir, context) = setup(r#"{"crypt":{"type":"local"}}"#);
     assert!(context

@@ -86,27 +86,41 @@ impl SharedTransport {
         let mut result = BTreeMap::new();
         let mut total = 0usize;
         let mut count = 0usize;
-        // Hash-prefix pages bound listing responses independently of the entire
-        // history. Existing v1 event addresses and causal semantics are unchanged.
-        for prefix in b"0123456789abcdef" {
-            let filter = format!("{}*.json", *prefix as char);
-            let listing = match context.capture(
-                &operation,
-                &[
-                    "lsjson",
-                    "--files-only",
-                    "--include",
-                    &filter,
-                    "--",
-                    &events,
-                ],
-            ) {
-                Ok(bytes) => bytes,
-                Err(error) if error.kind() == StorageErrorKind::NotFound => continue,
+        // Most roots have a small event directory: one bounded listing avoids
+        // 16 remote round trips. If it exceeds the existing 8 MiB output cap,
+        // retain the original hash-prefix pages rather than relaxing that cap.
+        let mut complete =
+            match context.capture(&operation, &["lsjson", "--files-only", "--", &events]) {
+                Ok(bytes) => Some(group_listing(serde_json::from_slice(&bytes)?)),
+                Err(error) if error.kind() == StorageErrorKind::NotFound => {
+                    Some(std::array::from_fn(|_| Vec::new()))
+                }
+                Err(StorageError::OutputBoundsViolated) => None,
                 Err(error) => return Err(error.into()),
             };
-            let entries: Vec<Listed> = serde_json::from_slice(&listing)?;
-            for (id, entry) in missing_entries(entries, known, *prefix, &mut count, &mut total)? {
+        for (index, prefix) in b"0123456789abcdef".iter().copied().enumerate() {
+            let entries = if let Some(buckets) = complete.as_mut() {
+                std::mem::take(&mut buckets[index])
+            } else {
+                let filter = format!("{}*.json", prefix as char);
+                let listing = match context.capture(
+                    &operation,
+                    &[
+                        "lsjson",
+                        "--files-only",
+                        "--include",
+                        &filter,
+                        "--",
+                        &events,
+                    ],
+                ) {
+                    Ok(bytes) => bytes,
+                    Err(error) if error.kind() == StorageErrorKind::NotFound => continue,
+                    Err(error) => return Err(error.into()),
+                };
+                serde_json::from_slice(&listing)?
+            };
+            for (id, entry) in missing_entries(entries, known, prefix, &mut count, &mut total)? {
                 let address = remote_join(&events, &entry.path);
                 let metadata = storage.reader().stat(&address)?;
                 if metadata.size != entry.size as u64 {
@@ -148,6 +162,23 @@ impl SharedTransport {
         }
         Ok(())
     }
+}
+
+/// Match the old `<hex>*.json` filters before applying their validation rules.
+/// Other names were not returned by those filtered listings.
+fn group_listing(entries: Vec<Listed>) -> [Vec<Listed>; 16] {
+    let mut buckets = std::array::from_fn(|_| Vec::new());
+    for entry in entries {
+        if entry.path.ends_with(".json") {
+            if let Some(index) = b"0123456789abcdef"
+                .iter()
+                .position(|prefix| entry.path.as_bytes().first() == Some(prefix))
+            {
+                buckets[index].push(entry);
+            }
+        }
+    }
+    buckets
 }
 
 fn missing_entries(
@@ -195,6 +226,104 @@ fn missing_entries(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn list_missing_uses_bounded_fast_path_and_only_overflow_falls_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("fixture.rs");
+        std::fs::write(&source, include_str!("shared_transport_fixture.rs.txt")).unwrap();
+        let executable = dir.path().join(if cfg!(windows) {
+            "fake rclone.exe"
+        } else {
+            "fake rclone"
+        });
+        let output =
+            std::process::Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
+                .arg("--edition=2021")
+                .arg(&source)
+                .arg("-o")
+                .arg(&executable)
+                .output()
+                .unwrap();
+        assert!(
+            output.status.success(),
+            "fixture compilation: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let scan = |root| {
+            SharedTransport::new(executable.to_str().unwrap(), &format!("crypt:{root}"))
+                .unwrap()
+                .list_missing(&Default::default())
+        };
+        assert!(scan("small").unwrap().is_empty());
+        assert!(scan("overflow").unwrap().is_empty());
+        assert!(scan("auth")
+            .unwrap_err()
+            .to_string()
+            .contains("authentication"));
+        let calls = std::fs::read_to_string(executable.with_extension("calls")).unwrap();
+        let calls: Vec<_> = calls.lines().collect();
+        assert_eq!(calls.len(), 19);
+        assert_eq!(&calls[..2], &["full", "full"]);
+        assert!(calls[2..18].iter().all(|call| *call == "page"));
+        assert_eq!(calls[18], "full");
+    }
+    #[test]
+    fn complete_listing_preserves_prefix_filter_and_validation() {
+        let make = |path: String| Listed {
+            path,
+            size: 1,
+            is_dir: false,
+        };
+        let a = format!("{}.json", "a".repeat(64));
+        let f = format!("{}.json", "f".repeat(64));
+        let mut buckets = group_listing(vec![
+            make(a.clone()),
+            make(f.clone()),
+            make("z.json".into()),
+            make("a.txt".into()),
+        ]);
+        assert_eq!(buckets.iter().map(Vec::len).sum::<usize>(), 2);
+        let known = ["a".repeat(64)].into_iter().collect();
+        assert!(missing_entries(
+            std::mem::take(&mut buckets[10]),
+            &known,
+            b'a',
+            &mut 0,
+            &mut 0
+        )
+        .unwrap()
+        .is_empty());
+        assert_eq!(
+            missing_entries(
+                std::mem::take(&mut buckets[15]),
+                &known,
+                b'f',
+                &mut 0,
+                &mut 0
+            )
+            .unwrap()
+            .len(),
+            1
+        );
+        let mut duplicate = group_listing(vec![make(a.clone()), make(a)]);
+        assert!(missing_entries(
+            std::mem::take(&mut duplicate[10]),
+            &Default::default(),
+            b'a',
+            &mut 0,
+            &mut 0
+        )
+        .is_err());
+        let mut invalid = group_listing(vec![make("a-not-an-id.json".into())]);
+        assert!(missing_entries(
+            std::mem::take(&mut invalid[10]),
+            &Default::default(),
+            b'a',
+            &mut 0,
+            &mut 0
+        )
+        .is_err());
+    }
     #[test]
     fn known_history_does_not_consume_download_budget_but_entries_are_validated() {
         let known: std::collections::BTreeSet<_> =
