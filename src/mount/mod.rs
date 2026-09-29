@@ -126,7 +126,12 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
             println!("Mounted read/write. Local changes are archived periodically; this is not immediate cloud durability.");
         }
         if !ready_reported && startup.elapsed() > Duration::from_secs(30) {
-            anyhow::bail!("mount did not become ready within 30 seconds; check rclone/WinFsp/FUSE installation and mount logs. Workspace and cache retained");
+            let hint = if cfg!(target_os = "macos") {
+                "rclone nfsmount, macOS NFS and mount logs"
+            } else {
+                "rclone/WinFsp/FUSE installation and mount logs"
+            };
+            anyhow::bail!("mount did not become ready within 30 seconds; check {hint}. Workspace and cache retained");
         }
         if ready_reported && last_scan.elapsed() >= Duration::from_secs(args.interval_seconds) {
             match workspace.sync_once() {

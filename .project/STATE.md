@@ -24,6 +24,17 @@ No automatic reboot was performed. See
 `projects/rpool/4g-e2e-fdb991f6/REPORT.md` for exact evidence and recovery
 plan; its temporary rclone credential copy was removed.
 
+2026-09-29 follow-up code changes: virtual WebDAV write-back now waits 60s
+of inactivity instead of immediate PUT; macOS NFS timeout/unexpected exit
+retains an uncertain lease and never forcibly kills an attached NFS server;
+old abnormal Mac leases cannot auto-clear. Capacity zero now exposes missing
+account/outage declarations. Resilient placement now uses repeatable two-choice
+sampling over independent quota domains, choosing lower projected utilization
+while preserving quota and max-M-shards-per-failure-domain bounds; full-candidate
+greedy remains a safe retry. Local tests pass, but these changes have NOT been
+validated with a new actual NFS write or 4GiB cloud roundtrip. Details:
+`projects/rpool/fix-20260929/REPORT.md`.
+
 Mac actual-mount diagnostic follow-up: macOS RPool now invokes Homebrew rclone
 v1.75.1 `nfsmount` instead of FUSE `mount`; built-in NFS needs no macFUSE kernel
 extension. With the attached 7-remote policy in isolated app configuration and
@@ -238,7 +249,13 @@ Implemented the bounded five-lane integration batch (virtual mode opt-in/experim
 
 ## Next / runtime gates
 
-- Validate actual Windows/WinFsp and Linux/FUSE with rclone and two PCs; this environment has no rclone binary available at standard locations.
+- Recover the old macOS NFS OS state without deleting its lease/spool. Then use a
+  NEW isolated workspace for bounded small-write DAV PUT/spool and clean-unmount
+  measurement before retrying 4GiB upload/remote readback. The write-back delay
+  is a mitigation, not a proven hard bound on amplification.
+- Validate actual Windows/WinFsp and Linux/FUSE with rclone and two PCs; the
+  macOS Homebrew rclone is available, but the old NFS test OS state is unsafe
+  for a new live mount until recovered.
 - Test actual dirty native VFS cache replay after process crash. Endpoint/cache identity is stable, but synthetic preservation does not prove native replay.
 - True transparent replacement of open native file handles needs a stronger filesystem/client revision protocol.
 - Validate virtual-v5 against real cloud eventual-consistency behavior and native cached writes. It requires one designated coordinator and new workspaces; no election/takeover or automatic v3 adoption.
@@ -334,6 +351,17 @@ Implemented the bounded five-lane integration batch (virtual mode opt-in/experim
 
 ## Validation
 
+2026-09-29 current write/stop/placement patch, isolated macOS verification
+checkout `projects/rpool/fix-20260929`:
+- `cargo check --all-targets --locked`: PASS.
+- `cargo fmt --check`: PASS.
+- `cargo test --all-targets --locked`: **444 passed / 12 ignored**.
+- `cargo build --release --locked`: PASS.
+- Actual cloud/native 4GiB runtime after patch: NOT RUN. Existing uncertain
+  mount/lease/spool remains untouched. A pre-existing `fetch_update`
+  deprecation warning appears on the current Rust toolchain.
+
+
 2026-09-28 Option C incremental-upload batch, macOS:
 - Default tests: 362 passed, 12 ignored; optional OpenDAL: 373 passed, 12 ignored.
 - Changed RS/plain group upload counts, borrowed object identity preservation,
@@ -383,10 +411,12 @@ Previous unshared hardening batch (macOS):
 
 ## Resume
 
-Pool profile/workspace evolution implementation and local validation complete;
-no active work remains for this milestone. Prior latency/account recovery/Explorer
-fixes remain validated. Real user migrations were not performed implicitly.
-Do not migrate/delete real data or start cloud mounts implicitly.
-Preserve unrelated config-sync/path changes. Real Windows/WinFsp and cloud mount
-acceptance remain runtime gates. Do not restart legacy retention work from older
-handoff notes; v7 implementation is present.
+Current write/stop/placement code is locally tested but 4GiB runtime remains
+unverified. Read `projects/rpool/fix-20260929/REPORT.md` and the prior
+`projects/rpool/4g-e2e-fdb991f6/REPORT.md`; preserve the old test lease,
+spool and remote objects. Do not access/reuse its stuck mountpoint or sync
+partial intents before OS recovery. Then use a NEW isolated workspace for a
+small bounded NFS write test, inspect PUT/revision count and spool ratio,
+verify clean unmount, and only afterward retry 4GiB and hash readback. Keep
+unrelated config-sync/path Git changes untouched. Windows/WinFsp and Linux/FUSE
+runtime validation is still outstanding.

@@ -117,9 +117,19 @@ impl CapacityStatus {
             status.note.push_str(" Simulation limit reached: displayed space is a verified lower bound, not the maximum.");
         }
         if status.targets.iter().any(|t| !t.declared) {
-            status.note.insert_str(0, "Account identities are unverified: declare capacity groups below to combine independent accounts. ");
+            status.note.insert_str(0, "Capacity groups are missing for some accounts: declare independent accounts below before combining their free space. ");
+        }
+        if policy.placement == Placement::Resilient
+            && status.targets.iter().any(|t| t.failure_domain.is_none())
+        {
+            status.note.insert_str(0, "Resilient placement requires an outage/failure group for every backing remote; declare those groups before writing. ");
         }
         if !feasible {
+            if let Err(reason) = status.check_upload(policy, 1) {
+                status
+                    .note
+                    .insert_str(0, &format!("Placement blocker: {reason}. "));
+            }
             status.note.insert_str(
                 0,
                 "Capacity search found no feasible nonempty file within current quotas/outage constraints. This is not proof that every possible file size is infeasible. ",
@@ -608,6 +618,7 @@ mod tests {
         p.placement = Placement::Resilient;
         let s = CapacityStatus::inspect(&admin(), &p).unwrap();
         assert_eq!(s.additional_estimate, 0);
+        assert!(s.note.contains("outage/failure group"));
         assert_eq!(p.placement, Placement::Resilient);
     }
 }

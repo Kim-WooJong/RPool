@@ -768,6 +768,15 @@ change them. Empty files retain the existing no-parity handling. See README's
 "Strict placement and fair transfers" for bounds and compatibility. This does not
 change the deferred incoming-apply rule or turn the mount into cloud read-through.
 
+For virtual WebDAV mounts, rclone waits for 60 seconds of no access after a
+file closes before writing its VFS cache back to RPool. This reduces repeated
+small NFS writes becoming separate full-file revisions, but it is not a hard
+amplification bound: allow local VFS-cache and spool space, and check pending
+writeback before assuming cloud durability. On macOS, a native NFS shutdown
+that exceeds the grace period leaves rclone running and retains the mount lease
+instead of killing the server during kernel I/O. Inspect the OS state before
+manually recovering such a workspace.
+
 ## Local workspace durability and limits
 
 - Keep **the entire workspace**, including `.rpool`, `files` and `vfs-cache`, on reliable

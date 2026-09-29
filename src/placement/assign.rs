@@ -86,13 +86,58 @@ pub(crate) fn assign_with_budget(
     Ok(assignments)
 }
 
-/// Quota-aware deterministic greedy placement, shared by admission and upload.
+/// Quota-aware two-choice placement, shared by admission and upload.
 /// Largest shards first within each group avoid stranding full-size parity behind
-/// a small final data shard. This is a feasible policy, not a global optimizer.
+/// a small final data shard. A stable candidate stream keeps capacity admission
+/// and the actual plan consistent. Fall back to the full-candidate greedy pass when
+/// a sampled path strands later shards; neither path relaxes quota/outage bounds.
 fn resilient_allocate(
     snapshot: &crate::storage::admin::budget::BudgetSnapshot,
     specs: &[PhysicalSpec],
     parity: usize,
+) -> Result<Vec<usize>> {
+    resilient_allocate_inner(snapshot, specs, parity, true)
+        .or_else(|_| resilient_allocate_inner(snapshot, specs, parity, false))
+}
+
+fn next_choice(state: &mut u64) -> u64 {
+    *state = state.wrapping_add(0x9e3779b97f4a7c15);
+    let mut value = *state;
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d049bb133111eb);
+    value ^ (value >> 31)
+}
+
+fn choice_seed(snapshot: &crate::storage::admin::budget::BudgetSnapshot) -> u64 {
+    // Stable across processes and file sizes: capacity binary search must see
+    // the same candidate stream for the common prefix of shard groups.
+    let mut seed = 0xcbf29ce484222325u64;
+    for target in &snapshot.targets {
+        for byte in target
+            .remote
+            .as_bytes()
+            .iter()
+            .chain(target.capacity_domain.as_bytes())
+        {
+            seed = (seed ^ u64::from(*byte)).wrapping_mul(0x100000001b3);
+        }
+        for byte in target
+            .free
+            .to_le_bytes()
+            .iter()
+            .chain(target.total.to_le_bytes().iter())
+        {
+            seed = (seed ^ u64::from(*byte)).wrapping_mul(0x100000001b3);
+        }
+    }
+    seed
+}
+
+fn resilient_allocate_inner(
+    snapshot: &crate::storage::admin::budget::BudgetSnapshot,
+    specs: &[PhysicalSpec],
+    parity: usize,
+    two_choice: bool,
 ) -> Result<Vec<usize>> {
     let targets = &snapshot.targets;
     let domains = targets
@@ -104,6 +149,14 @@ fn resilient_allocate(
         })
         .collect::<Result<Vec<_>>>()?;
     let mut budgets = snapshot.budgets();
+    let mut totals = BTreeMap::<String, u64>::new();
+    for target in targets {
+        totals
+            .entry(target.capacity_domain.clone())
+            .and_modify(|total| *total = (*total).min(target.total))
+            .or_insert(target.total);
+    }
+    let mut random = choice_seed(snapshot);
     let mut counts = BTreeMap::<(u32, &str), usize>::new();
     let mut order: Vec<_> = (0..specs.len()).collect();
     order.sort_by_key(|&i| (specs[i].group, std::cmp::Reverse(specs[i].size), i));
@@ -111,7 +164,7 @@ fn resilient_allocate(
     let mut cursor = 0;
     for i in order {
         let spec = &specs[i];
-        let chosen = (0..targets.len())
+        let eligible: Vec<_> = (0..targets.len())
             .map(|n| (cursor + n) % targets.len())
             .filter(|&j| {
                 budgets[&targets[j].capacity_domain] >= spec.size
@@ -122,7 +175,72 @@ fn resilient_allocate(
                             .unwrap_or(0)
                             < parity)
             })
-            .min_by_key(|&j| {
+            .collect();
+        let chosen = if two_choice {
+            // Several rclone targets can draw on one account. Sample independent
+            // quota domains, not aliases that would bias the lottery by count.
+            let mut representatives = BTreeMap::<&str, usize>::new();
+            for j in eligible {
+                let domain = targets[j].capacity_domain.as_str();
+                let count = counts
+                    .get(&(spec.group, domains[j].as_str()))
+                    .copied()
+                    .unwrap_or(0);
+                representatives
+                    .entry(domain)
+                    .and_modify(|previous| {
+                        let old = counts
+                            .get(&(spec.group, domains[*previous].as_str()))
+                            .copied()
+                            .unwrap_or(0);
+                        if count < old {
+                            *previous = j;
+                        }
+                    })
+                    .or_insert(j);
+            }
+            let mut candidates: Vec<_> = representatives.into_values().collect();
+            if candidates.is_empty() {
+                bail!(
+                    "Resilient placement cannot fit quota and outage bounds; local data retained"
+                );
+            }
+            let first = (next_choice(&mut random) % candidates.len() as u64) as usize;
+            let first = candidates.swap_remove(first);
+            let second = if candidates.is_empty() {
+                first
+            } else {
+                let index = (next_choice(&mut random) % candidates.len() as u64) as usize;
+                candidates[index]
+            };
+            [first, second].into_iter().min_by(|&a, &b| {
+                let ta = &targets[a];
+                let tb = &targets[b];
+                let free_a = budgets[&ta.capacity_domain];
+                let free_b = budgets[&tb.capacity_domain];
+                let total_a = totals[&ta.capacity_domain].max(1);
+                let total_b = totals[&tb.capacity_domain].max(1);
+                let used_a = total_a.saturating_sub(free_a).saturating_add(spec.size);
+                let used_b = total_b.saturating_sub(free_b).saturating_add(spec.size);
+                (used_a as u128 * total_b as u128)
+                    .cmp(&(used_b as u128 * total_a as u128))
+                    .then_with(|| {
+                        counts
+                            .get(&(spec.group, domains[a].as_str()))
+                            .copied()
+                            .unwrap_or(0)
+                            .cmp(
+                                &counts
+                                    .get(&(spec.group, domains[b].as_str()))
+                                    .copied()
+                                    .unwrap_or(0),
+                            )
+                    })
+                    .then_with(|| free_b.cmp(&free_a))
+                    .then_with(|| a.cmp(&b))
+            })
+        } else {
+            eligible.into_iter().min_by_key(|&j| {
                 (
                     counts
                         .get(&(spec.group, domains[j].as_str()))
@@ -131,9 +249,8 @@ fn resilient_allocate(
                     std::cmp::Reverse(budgets[&targets[j].capacity_domain]),
                 )
             })
-            .context(
-                "Resilient placement cannot fit quota and outage bounds; local data retained",
-            )?;
+        }
+        .context("Resilient placement cannot fit quota and outage bounds; local data retained")?;
         *budgets.get_mut(&targets[chosen].capacity_domain).unwrap() -= spec.size;
         *counts
             .entry((spec.group, domains[chosen].as_str()))
@@ -240,6 +357,60 @@ mod tests {
         )
         .is_err());
     }
+    #[test]
+    fn two_choice_prefers_lower_projected_utilization_not_raw_free_bytes() {
+        let mut s = snapshot(&[70, 500]);
+        s.targets[0].total = 100;
+        s.targets[1].total = 1000;
+        let specs = [PhysicalSpec { group: 0, size: 10 }];
+        assert_eq!(
+            assign_with_budget(&s, &specs, Placement::Resilient, Some(1)).unwrap(),
+            vec![0]
+        );
+    }
+
+    #[test]
+    fn two_choice_is_repeatable_and_preserves_nine_plus_three_outage_bound() {
+        let s = snapshot(&[100; 7]);
+        let specs = vec![PhysicalSpec { group: 0, size: 10 }; 12];
+        let first = assign_with_budget(&s, &specs, Placement::Resilient, Some(3)).unwrap();
+        assert_eq!(
+            first,
+            assign_with_budget(&s, &specs, Placement::Resilient, Some(3)).unwrap()
+        );
+        let mut counts = BTreeMap::new();
+        for index in first {
+            *counts
+                .entry(s.targets[index].failure_domain.as_ref().unwrap())
+                .or_insert(0) += 1;
+        }
+        assert!(counts.values().all(|count| *count <= 3));
+    }
+
+    #[test]
+    fn two_choice_samples_distinct_quota_domains_and_keeps_group_prefix() {
+        let mut aliases = snapshot(&[20, 20, 20, 90]);
+        for target in &mut aliases.targets {
+            target.total = 100;
+        }
+        for target in &mut aliases.targets[..3] {
+            target.capacity_domain = "shared-account".into();
+        }
+        let one = [PhysicalSpec { group: 0, size: 10 }];
+        assert_eq!(
+            assign_with_budget(&aliases, &one, Placement::Resilient, Some(1)).unwrap(),
+            vec![3]
+        );
+
+        let s = snapshot(&[100; 7]);
+        let first_group = vec![PhysicalSpec { group: 0, size: 10 }; 3];
+        let mut two_groups = first_group.clone();
+        two_groups.extend(vec![PhysicalSpec { group: 1, size: 10 }; 3]);
+        let prefix = assign_with_budget(&s, &first_group, Placement::Resilient, Some(1)).unwrap();
+        let whole = assign_with_budget(&s, &two_groups, Placement::Resilient, Some(1)).unwrap();
+        assert_eq!(prefix, whole[..3]);
+    }
+
     #[test]
     fn resilient_shares_account_budget_and_outage_counts_across_aliases() {
         let specs = vec![PhysicalSpec { group: 0, size: 10 }; 3];

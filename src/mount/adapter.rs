@@ -33,12 +33,16 @@ pub(crate) struct MountProcess {
     credential: String,
     logs: Arc<Mutex<VecDeque<String>>>,
     stopped: bool,
+    graceful_quit_requested: bool,
+    shutdown_uncertain: bool,
     lease: MountLease,
 }
 
 impl MountProcess {
     pub(crate) fn start(config: MountConfig) -> Result<Self> {
         validate_mountpoint(&config)?;
+        #[cfg(target_os = "macos")]
+        check_nfsmount_version(&config.rclone)?;
         #[cfg(target_os = "macos")]
         let target = config.target.canonicalize()?;
         #[cfg(not(target_os = "macos"))]
@@ -76,7 +80,7 @@ impl MountProcess {
                 "--vfs-cache-mode",
                 cache_mode,
                 "--vfs-write-back",
-                "0s",
+                if config.webdav.is_some() { "60s" } else { "0s" },
                 "--cache-dir",
             ])
             .arg(cache)
@@ -165,14 +169,24 @@ impl MountProcess {
             credential,
             logs,
             stopped: false,
+            graceful_quit_requested: false,
+            shutdown_uncertain: false,
             lease,
         })
     }
 
     pub(crate) fn poll(&mut self) -> Result<Option<ExitStatus>> {
         let status = self.child.try_wait()?;
-        if status.is_some() {
+        if let Some(_exit) = &status {
             self.stopped = true;
+            #[cfg(target_os = "macos")]
+            if !self.graceful_quit_requested || !_exit.success() {
+                self.lease.record(&LeaseState::ShutdownUncertain {
+                    pid: self.child.id(),
+                })?;
+                self.shutdown_uncertain = true;
+                bail!("macOS NFS process exited without a confirmed graceful unmount ({_exit}); mount lease retained for OS I/O inspection");
+            }
             self.lease.clear_if_unmounted(&self.target)?;
         }
         Ok(status)
@@ -217,6 +231,17 @@ impl MountProcess {
     }
 
     pub(crate) fn stop(&mut self) -> Result<StopReport> {
+        self.stop_with_grace(Duration::from_secs(if cfg!(target_os = "macos") {
+            12
+        } else {
+            3
+        }))
+    }
+
+    fn stop_with_grace(&mut self, grace: Duration) -> Result<StopReport> {
+        if self.shutdown_uncertain {
+            bail!("macOS NFS shutdown remains uncertain; rclone was not killed and mount lease is retained");
+        }
         if self.stopped {
             self.lease.clear_if_unmounted(&self.target)?;
             return Ok(StopReport {
@@ -230,11 +255,10 @@ impl MountProcess {
                 cache_preserved: true,
             });
         }
-        let _ = self.rc("core/quit");
+        self.graceful_quit_requested = self.rc("core/quit").is_ok();
         // macOS nfsmount must also tear down its loopback NFS server and native
         // mount. Allow its exit callback to complete before a forced kill.
-        let deadline =
-            Instant::now() + Duration::from_secs(if cfg!(target_os = "macos") { 12 } else { 3 });
+        let deadline = Instant::now() + grace;
         while Instant::now() < deadline {
             if self.poll()?.is_some() {
                 return Ok(StopReport {
@@ -244,16 +268,27 @@ impl MountProcess {
             }
             thread::sleep(Duration::from_millis(50));
         }
-        self.child
-            .kill()
-            .context("cannot stop mount process; mount may still be active")?;
-        self.child.wait().context("cannot reap mount process")?;
-        self.stopped = true;
-        self.lease.clear_if_unmounted(&self.target)?;
-        Ok(StopReport {
-            forced: true,
-            cache_preserved: true,
-        })
+        #[cfg(target_os = "macos")]
+        {
+            self.lease.record(&LeaseState::ShutdownUncertain {
+                pid: self.child.id(),
+            })?;
+            self.shutdown_uncertain = true;
+            bail!("macOS NFS unmount did not finish within the grace period; rclone was left alive to finish kernel I/O, mount lease retained. Do not reuse this workspace until the OS mount and I/O state are verified");
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            self.child
+                .kill()
+                .context("cannot stop mount process; mount may still be active")?;
+            self.child.wait().context("cannot reap mount process")?;
+            self.stopped = true;
+            self.lease.clear_if_unmounted(&self.target)?;
+            Ok(StopReport {
+                forced: true,
+                cache_preserved: true,
+            })
+        }
     }
 
     fn rc(&self, endpoint: &str) -> Result<Vec<u8>> {
@@ -288,6 +323,36 @@ fn native_mount_command() -> &'static str {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn check_nfsmount_version(rclone: &str) -> Result<()> {
+    let output = Command::new(rclone)
+        .arg("version")
+        .output()
+        .context("cannot run rclone; macOS NFS mounting requires rclone v1.65 or newer")?;
+    let first = String::from_utf8_lossy(&output.stdout);
+    let version = first
+        .lines()
+        .next()
+        .unwrap_or("")
+        .strip_prefix("rclone v")
+        .and_then(|v| {
+            let mut parts = v.split('.');
+            Some((
+                parts.next()?.parse::<u32>().ok()?,
+                parts.next()?.parse::<u32>().ok()?,
+            ))
+        });
+    if !output.status.success()
+        || !version.is_some_and(|(major, minor)| major > 1 || (major == 1 && minor >= 65))
+    {
+        bail!(
+            "macOS NFS mounting requires rclone v1.65 or newer with nfsmount support; detected {}",
+            first.lines().next().unwrap_or("unknown version")
+        );
+    }
+    Ok(())
+}
+
 impl Drop for MountProcess {
     fn drop(&mut self) {
         let _ = self.stop();
@@ -310,6 +375,7 @@ struct MountIdentity {
 enum LeaseState {
     Launching,
     Running { pid: u32 },
+    ShutdownUncertain { pid: u32 },
 }
 
 struct MountLease {
@@ -364,11 +430,15 @@ impl MountLease {
                 .context("invalid mount lease; inspect surviving mount before manual recovery")?;
             match previous {
                 LeaseState::Launching => bail!("mount launch outcome is uncertain; confirm no rclone process or driver mount uses this workspace before manually removing {} (retain all files/cache)", lease.path.display()),
+                LeaseState::ShutdownUncertain { pid } => bail!("macOS NFS shutdown for PID {pid} is uncertain; inspect kernel I/O and mount state before manually clearing {} (retain all files/cache)", lease.path.display()),
                 LeaseState::Running { pid } => {
                     if process_alive(pid).context("cannot prove previous mount process exited; lease retained")? {
                         bail!("previous mount process PID {pid} may still be active; stop it before restarting this workspace");
                     }
+                    #[cfg(target_os = "macos")]
+                    bail!("previous macOS NFS mount process PID {pid} exited without a confirmed clean shutdown; inspect kernel I/O and mount state before manually clearing {} (retain all files/cache)", lease.path.display());
                     // The recorded PID does not exist. Never signal/kill a possibly reused PID.
+                    #[cfg(not(target_os = "macos"))]
                     lease.clear_if_unmounted(target)?;
                 }
             }
@@ -807,6 +877,87 @@ mod tests {
         assert!(process_alive(0).is_err());
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn uncertain_nfs_shutdown_never_kills_child_or_clears_lease() {
+        let (_root, _other, files, cache, target) = lease_fixture();
+        let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
+        let child = Command::new("/bin/sleep").arg("60").spawn().unwrap();
+        let pid = child.id();
+        lease.record(&LeaseState::Running { pid }).unwrap();
+        let lease_path = lease.path.clone();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let mut process = MountProcess {
+            child,
+            target: target.clone(),
+            address,
+            credential: "synthetic".into(),
+            logs: Arc::new(Mutex::new(VecDeque::new())),
+            stopped: false,
+            graceful_quit_requested: false,
+            shutdown_uncertain: false,
+            lease,
+        };
+        assert!(process.stop_with_grace(Duration::from_millis(1)).is_err());
+        assert!(process.shutdown_uncertain);
+        assert!(process.child.try_wait().unwrap().is_none());
+        drop(process);
+        assert!(process_alive(pid).unwrap());
+        assert!(lease_path.exists());
+        assert!(MountLease::prepare(&files, &cache, &target, None).is_err());
+        unsafe {
+            libc::kill(pid as i32, libc::SIGKILL);
+            libc::waitpid(pid as i32, std::ptr::null_mut(), 0);
+        }
+        assert!(MountLease::prepare(&files, &cache, &target, None).is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn unexpected_nfs_child_exit_retains_lease_even_without_mount_table_entry() {
+        let (_root, _other, files, cache, target) = lease_fixture();
+        let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
+        let child = Command::new("/usr/bin/true").spawn().unwrap();
+        lease
+            .record(&LeaseState::Running { pid: child.id() })
+            .unwrap();
+        let path = lease.path.clone();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let mut process = MountProcess {
+            child,
+            target: target.clone(),
+            address,
+            credential: "synthetic".into(),
+            logs: Arc::new(Mutex::new(VecDeque::new())),
+            stopped: false,
+            graceful_quit_requested: false,
+            shutdown_uncertain: false,
+            lease,
+        };
+        process.child.wait().unwrap();
+        assert!(process.poll().is_err());
+        drop(process);
+        assert!(path.exists());
+        assert!(MountLease::prepare(&files, &cache, &target, None).is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn nfsmount_minimum_version_is_reported() {
+        let root = tempfile::tempdir().unwrap();
+        let script = root.path().join("old-rclone");
+        std::fs::write(&script, "#!/bin/sh\necho 'rclone v1.64.0'\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(check_nfsmount_version(script.to_str().unwrap()).is_err());
+        std::fs::write(&script, "#!/bin/sh\necho 'rclone v1.65.0'\n").unwrap();
+        assert!(check_nfsmount_version(script.to_str().unwrap()).is_ok());
+    }
+
     #[test]
     fn dropping_lease_unlocks_even_with_an_inherited_description() {
         let (_root, _other, files, cache, target) = lease_fixture();
@@ -844,7 +995,7 @@ mod tests {
         assert!(MountLease::prepare(&files, &cache, different_target_path, None).is_err());
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn forced_stop_reaps_owned_child_and_preserves_cache() {
         let (_root, _other, files, cache, target) = lease_fixture();
@@ -870,6 +1021,8 @@ mod tests {
             credential: "synthetic".into(),
             logs: Arc::new(Mutex::new(VecDeque::new())),
             stopped: false,
+            graceful_quit_requested: false,
+            shutdown_uncertain: false,
             lease,
         };
         let report = process.stop().unwrap();

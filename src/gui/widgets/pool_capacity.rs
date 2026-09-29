@@ -108,6 +108,9 @@ pub(crate) fn summary(ui: &mut egui::Ui, c: &CapacityStatus) {
             ""
         }
     ));
+    if c.additional_estimate == 0 {
+        ui.colored_label(egui::Color32::YELLOW, &c.note);
+    }
     if c.pending_physical_reservation > 0 {
         ui.small(format!(
             "Pending upload reservation: {} physical",

@@ -527,8 +527,15 @@ A coding layout cannot protect against a provider outage if too many shards from
 Choose **Resilient (parity-bound)** in Upload/Pool/Reprocess/Settings, or
 `--placement resilient`, with `--parity-shards 2` for a two-parity layout.
 Known crypt/alias/chunker chains are resolved to backing configuration sections.
-A planned coding group may place **at most M physical shards on one resolved
-backing section**. If impossible, planning fails before shard writes. An 8+2
+A planned coding group may place **at most M physical shards in one declared
+failure domain**. Among quota- and outage-eligible independent quota domains,
+the planner samples two and chooses the lower projected utilization
+(used bytes plus this shard, divided by total quota). The candidate stream is
+repeatable for the same quota snapshot so capacity checks and uploads agree;
+if sampled choices strand later shards, a full-candidate deterministic greedy pass retries
+without weakening the safety bounds. This makes larger and smaller accounts
+contribute according to available capacity, not equal shard counts. If no safe
+plan exists, planning fails before shard writes. An 8+2
 layout therefore requires at least five distinct resolved targets for this bound.
 This protects against one target's loss within the coding budget; it does NOT
 promise tolerance of two entire cloud outages, and distinct account/config names
