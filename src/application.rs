@@ -137,6 +137,7 @@ fn dispatch(cli: Cli) -> Result<()> {
                 placement,
                 data_shards,
                 parity_shards,
+                max_object_bytes,
             } => commands::pool::set(
                 &cli.rclone,
                 name,
@@ -147,6 +148,7 @@ fn dispatch(cli: Cli) -> Result<()> {
                 placement,
                 data_shards,
                 parity_shards,
+                max_object_bytes,
             ),
             PoolCommands::Remove { name } => commands::pool::remove(&name),
         },

@@ -66,6 +66,10 @@ pub(crate) enum PoolCommands {
 
         #[arg(long, default_value_t = crate::config::constants::DEFAULT_PARITY_SHARDS)]
         parity_shards: usize,
+
+        /// Provider per-object limit in bytes; encrypted shard objects must fit.
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+        max_object_bytes: Option<u64>,
     },
 
     /// Remove a storage pool definition. Stored shards are not touched.

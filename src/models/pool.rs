@@ -14,6 +14,10 @@ pub(crate) struct PoolDefinition {
     pub(crate) placement: Placement,
     pub(crate) data_shards: usize,
     pub(crate) parity_shards: usize,
+    /// Optional provider per-object limit in bytes, checked against the encrypted
+    /// (rclone crypt) shard size. Omitted from JSON when unset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) max_object_bytes: Option<u64>,
 }
 
 impl PoolDefinition {
@@ -38,6 +42,7 @@ impl Default for PoolDefinition {
             placement: Placement::RoundRobin,
             data_shards: crate::config::constants::DEFAULT_DATA_SHARDS,
             parity_shards: crate::config::constants::DEFAULT_PARITY_SHARDS,
+            max_object_bytes: None,
         }
     }
 }

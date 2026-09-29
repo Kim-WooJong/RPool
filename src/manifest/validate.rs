@@ -87,6 +87,16 @@ pub(crate) fn validate_manifest_v2(manifest: &Manifest) -> Result<()> {
         }
 
         for (position, shard) in data.iter().enumerate() {
+            // Parity math pads data shards up to shard_size; a larger data shard cannot be
+            // encoded or reconstructed. Short non-final shards are tolerated for old archives.
+            if shard.size > manifest.shard_size {
+                bail!(
+                    "data shard {} is larger than manifest shard_size ({} > {})",
+                    shard.index,
+                    shard.size,
+                    manifest.shard_size
+                );
+            }
             let expected_group = position / coding.data_shards;
             let expected_slot = position % coding.data_shards;
             if shard.group as usize != expected_group || shard.slot as usize != expected_slot {

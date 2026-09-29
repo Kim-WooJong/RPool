@@ -19,6 +19,7 @@ pub(super) fn fixture() -> (tempfile::TempDir, Workspace) {
         version: 1,
         pool: "test".into(),
         policy: PoolDefinition {
+            max_object_bytes: None,
             remotes: vec!["synthetic:".into()],
             ..Default::default()
         },

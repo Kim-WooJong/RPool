@@ -14,6 +14,8 @@ pub(crate) struct PoolForm {
     pub(crate) remotes: Vec<String>,
     pub(crate) manual_remote: String,
     pub(crate) shard_mib: u64,
+    /// Provider per-object limit in bytes; 0 means no limit.
+    pub(crate) max_object_bytes: u64,
     pub(crate) workers: usize,
     pub(crate) retries: u32,
     pub(crate) placement: Placement,
@@ -37,6 +39,7 @@ impl PoolForm {
             remotes: settings.remotes.clone(),
             manual_remote: String::new(),
             shard_mib: settings.shard_mib,
+            max_object_bytes: 0,
             workers: settings.workers,
             retries: settings.retries,
             placement: settings.placement,
@@ -54,12 +57,17 @@ impl PoolForm {
         self.name = name;
         self.remotes = pool.remotes;
         self.shard_mib = pool.shard_size.mib_ceil();
+        self.max_object_bytes = pool.max_object_bytes.unwrap_or(0);
         self.workers = pool.workers;
         self.retries = pool.retries;
         self.placement = pool.placement;
         self.data_shards = pool.data_shards;
         self.parity_shards = pool.parity_shards;
         self.notice = Some("Pool loaded.".to_string());
+    }
+
+    fn object_limit(&self) -> Option<u64> {
+        (self.max_object_bytes > 0).then_some(self.max_object_bytes)
     }
 }
 
@@ -146,6 +154,10 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                         );
                         ui.end_row();
 
+                        ui.label("Provider object limit (bytes, 0 = none)");
+                        ui.add(egui::DragValue::new(&mut state.pools.max_object_bytes));
+                        ui.end_row();
+
                         ui.label("Workers");
                         ui.add(egui::DragValue::new(&mut state.pools.workers).range(1..=256));
                         ui.end_row();
@@ -204,7 +216,14 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                     placement: state.pools.placement,
                     data_shards: state.pools.data_shards,
                     parity_shards: state.pools.parity_shards,
+                    max_object_bytes: state.pools.object_limit(),
                 };
+                if let Err(error) = crate::models::shard_size::check_object_limit(
+                    shard_size.bytes(),
+                    draft.max_object_bytes,
+                ) {
+                    ui.colored_label(ui.visuals().warn_fg_color, error.to_string());
+                }
                 if state
                     .pools
                     .capacity
@@ -312,6 +331,7 @@ fn save_current(state: &mut GuiState, task: &mut TaskRunner) {
         placement: state.pools.placement,
         data_shards: state.pools.data_shards,
         parity_shards: state.pools.parity_shards,
+        max_object_bytes: state.pools.object_limit(),
     };
 
     let args = pool_save_args(&name, &definition);
@@ -335,6 +355,9 @@ fn pool_save_args(name: &str, pool: &PoolDefinition) -> Vec<OsString> {
         ("--parity-shards", pool.parity_shards.to_string()),
     ] {
         args.extend([flag.into(), value.into()]);
+    }
+    if let Some(limit) = pool.max_object_bytes {
+        args.extend(["--max-object-bytes".into(), limit.to_string().into()]);
     }
     args.extend(["--placement".into(), pool.placement.cli_value().into()]);
     args.extend(["--".into(), name.into()]);
@@ -516,6 +539,7 @@ mod tests {
             placement: Placement::RoundRobin,
             data_shards: 3,
             parity_shards: 2,
+            max_object_bytes: Some(250_000_000),
         };
         form.load_definition("existing".into(), existing.clone());
         settings.shard_mib = 91;
@@ -532,8 +556,10 @@ mod tests {
             (29, 2, 1, 3, 2)
         );
         assert_eq!(form.placement, Placement::RoundRobin);
+        assert_eq!(form.object_limit(), Some(250_000_000));
         let reset = PoolForm::from_settings(&settings);
         assert_eq!((reset.shard_mib, reset.workers), (91, 6));
+        assert_eq!(reset.object_limit(), None);
         assert!(reset.name.is_empty() && reset.selected.is_empty());
     }
 
@@ -547,6 +573,7 @@ mod tests {
             placement: Placement::FreeRatio,
             data_shards: 4,
             parity_shards: 2,
+            max_object_bytes: Some(250_000_000),
         };
         let mut args = vec![
             OsString::from("rpool"),
@@ -567,8 +594,10 @@ mod tests {
                     placement,
                     data_shards,
                     parity_shards,
+                    max_object_bytes,
                 } => {
                     assert_eq!(name, "-pool name");
+                    assert_eq!(max_object_bytes, Some(250_000_000));
                     assert_eq!(remotes, definition.remotes);
                     assert_eq!(
                         (shard_mib, workers, retries, data_shards, parity_shards),

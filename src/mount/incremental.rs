@@ -461,6 +461,7 @@ mod tests {
     }
     fn policy(parity: bool) -> PoolDefinition {
         PoolDefinition {
+            max_object_bytes: None,
             remotes: vec!["crypt:".into()],
             shard_size: crate::models::shard_size::ShardSize::from_mib(1).unwrap(),
             data_shards: 2,

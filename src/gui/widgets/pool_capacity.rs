@@ -214,6 +214,7 @@ mod tests {
     #[test]
     fn edited_draft_discards_late_capacity_response_without_starting_io() {
         let policy = PoolDefinition {
+            max_object_bytes: None,
             remotes: vec!["a:".into()],
             ..Default::default()
         };

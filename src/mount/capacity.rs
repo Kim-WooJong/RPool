@@ -535,6 +535,7 @@ mod tests {
     }
     fn policy() -> PoolDefinition {
         PoolDefinition {
+            max_object_bytes: None,
             remotes: vec!["x:".into(), "y:".into(), "z:".into(), "unknown:".into()],
             shard_size: crate::models::shard_size::ShardSize::from_mib(1).unwrap(),
             data_shards: 8,
@@ -563,6 +564,7 @@ mod tests {
             ..Default::default()
         };
         let p = PoolDefinition {
+            max_object_bytes: None,
             shard_size: crate::models::shard_size::ShardSize::from_mib(1).unwrap(),
             data_shards: 2,
             parity_shards: 1,
@@ -836,6 +838,7 @@ mod tests {
             ..Default::default()
         };
         let p = PoolDefinition {
+            max_object_bytes: None,
             data_shards: 3,
             parity_shards: 1,
             shard_size: crate::models::shard_size::ShardSize::from_mib(1024).unwrap(),
@@ -853,6 +856,7 @@ mod tests {
         assert!(status.remaining_logical_upper > 6 * gib);
         assert!(status.check_upload(&p, 9 * gib).is_err());
         let relaxed = PoolDefinition {
+            max_object_bytes: None,
             placement: Placement::CapacityFirst,
             ..p.clone()
         };

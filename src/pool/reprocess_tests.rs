@@ -26,6 +26,7 @@ fn recovery_lookup_requires_exact_completed_source_and_replacement_receipts() {
         operation_id: "test-operation".into(),
         plan_path: path.clone(),
         target: PoolDefinition {
+            max_object_bytes: None,
             remotes: vec!["healthy:".into()],
             ..Default::default()
         },
@@ -63,6 +64,7 @@ fn recovery_lookup_requires_exact_completed_source_and_replacement_receipts() {
 #[test]
 fn estimate_includes_full_parity_for_partial_group() {
     let target = PoolDefinition {
+        max_object_bytes: None,
         shard_size: crate::models::shard_size::ShardSize::from_mib(1).unwrap(),
         data_shards: 3,
         parity_shards: 2,
@@ -75,6 +77,7 @@ fn estimate_includes_full_parity_for_partial_group() {
     );
     assert!(storage_bytes(0, &target).is_err());
     let plain = PoolDefinition {
+        max_object_bytes: None,
         parity_shards: 0,
         ..target.clone()
     };
@@ -221,6 +224,7 @@ impl ConversionFixture {
     }
     fn target(coded: bool) -> PoolDefinition {
         PoolDefinition {
+            max_object_bytes: None,
             remotes: vec!["a:".into()],
             shard_size: crate::models::shard_size::ShardSize::from_mib(1).unwrap(),
             workers: 1,

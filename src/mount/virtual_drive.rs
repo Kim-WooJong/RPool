@@ -1665,6 +1665,7 @@ mod policy_refresh_tests {
 
     fn policy() -> PoolDefinition {
         PoolDefinition {
+            max_object_bytes: None,
             remotes: vec!["one:explicit".into()],
             ..PoolDefinition::default()
         }

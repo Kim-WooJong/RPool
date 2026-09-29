@@ -28,6 +28,49 @@ pub(crate) fn validate_shard_mib(mib: u64) -> Result<()> {
     Ok(())
 }
 
+/// rclone crypt file header: 8-byte magic + 24-byte nonce.
+const CRYPT_HEADER: u64 = 32;
+/// rclone crypt plaintext block size.
+const CRYPT_BLOCK_DATA: u64 = 64 * 1024;
+/// Poly1305 tag added to every (including a trailing partial) crypt block.
+const CRYPT_BLOCK_TAG: u64 = 16;
+
+/// Size of the object a crypt remote stores for `plain` bytes (rclone `EncryptedSize`).
+pub(crate) fn crypt_size(plain: u64) -> u64 {
+    let blocks = plain / CRYPT_BLOCK_DATA;
+    let residue = plain % CRYPT_BLOCK_DATA;
+    let mut size = CRYPT_HEADER + blocks * (CRYPT_BLOCK_TAG + CRYPT_BLOCK_DATA);
+    if residue != 0 {
+        size += CRYPT_BLOCK_TAG + residue;
+    }
+    size
+}
+
+/// Largest whole-MiB shard whose crypt object fits in `limit` bytes (0 if none fits).
+pub(crate) fn max_shard_mib_for_object_limit(limit: u64) -> u64 {
+    let per_mib = (MIB / CRYPT_BLOCK_DATA) * (CRYPT_BLOCK_TAG + CRYPT_BLOCK_DATA);
+    limit.saturating_sub(CRYPT_HEADER) / per_mib
+}
+
+/// Rejects shard sizes whose encrypted provider object would exceed `max_object_bytes`.
+/// Data and parity shards share the same plaintext size, so one check covers both.
+pub(crate) fn check_object_limit(shard_bytes: u64, max_object_bytes: Option<u64>) -> Result<()> {
+    let Some(limit) = max_object_bytes else {
+        return Ok(());
+    };
+    if limit == 0 {
+        bail!("max_object_bytes must be greater than zero");
+    }
+    let object = crypt_size(shard_bytes);
+    if object > limit {
+        bail!(
+            "encrypted shard object is {object} bytes ({shard_bytes} plaintext), exceeding max_object_bytes {limit}; use a shard size of at most {} MiB",
+            max_shard_mib_for_object_limit(limit)
+        );
+    }
+    Ok(())
+}
+
 /// In-memory plaintext shard size, stored in bytes.
 ///
 /// Serde compatibility: MiB-aligned sizes serialize as a bare integer MiB value (the
@@ -159,6 +202,45 @@ mod tests {
         assert!(shard_bytes(0).is_err());
         assert!(shard_bytes(MAX_SHARD_MIB + 1).is_err());
         assert!(shard_bytes(u64::MAX).is_err());
+    }
+
+    #[test]
+    fn crypt_size_matches_rclone_framing() {
+        assert_eq!(crypt_size(0), 32);
+        assert_eq!(crypt_size(1), 32 + 16 + 1);
+        assert_eq!(crypt_size(CRYPT_BLOCK_DATA), 32 + 16 + CRYPT_BLOCK_DATA);
+        assert_eq!(
+            crypt_size(CRYPT_BLOCK_DATA + 1),
+            32 + 2 * 16 + CRYPT_BLOCK_DATA + 1
+        );
+        assert_eq!(crypt_size(64 * MIB), 67_125_280);
+        assert_eq!(crypt_size(220 * MIB), 230_743_072);
+    }
+
+    #[test]
+    fn object_limit_rejects_oversized_encrypted_shards() {
+        // Box Free style 250 MB (decimal) and 250 MiB limits both accept 64 and 220 MiB.
+        for limit in [250_000_000u64, 250 * MIB] {
+            check_object_limit(64 * MIB, Some(limit)).unwrap();
+            check_object_limit(220 * MIB, Some(limit)).unwrap();
+        }
+        check_object_limit(4096 * MIB, None).unwrap();
+        // Exact boundary: the encrypted size itself fits, one byte less does not.
+        let exact = crypt_size(64 * MIB);
+        check_object_limit(64 * MIB, Some(exact)).unwrap();
+        let error = check_object_limit(64 * MIB, Some(exact - 1))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("at most 63 MiB"), "{error}");
+        assert!(check_object_limit(MIB, Some(0)).is_err());
+        assert_eq!(max_shard_mib_for_object_limit(250_000_000), 238);
+        assert_eq!(max_shard_mib_for_object_limit(exact), 64);
+        assert_eq!(max_shard_mib_for_object_limit(10), 0);
+        for limit in [250_000_000u64, exact, 5 * 1024 * MIB] {
+            let mib = max_shard_mib_for_object_limit(limit);
+            assert!(crypt_size(mib * MIB) <= limit);
+            assert!(crypt_size((mib + 1) * MIB) > limit);
+        }
     }
 
     #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]

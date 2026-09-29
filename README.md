@@ -771,6 +771,8 @@ The default `64 MiB` value is the plaintext **data-shard** size. When a data sha
 
 Parity objects use the same plaintext `shard_size`, so the same provider object-size consideration applies to parity.
 
+The provider limit can be enforced instead of relying on this note: set a per-pool `max_object_bytes` (`rpool pool set ... --max-object-bytes 250000000`, or "Provider object limit" in the GUI pool form). Pool validation, `put --pool` (including a `--shard-mib` override), mount uploads and reprocess targets then reject shard sizes whose encrypted object would not fit. The check uses rclone crypt framing: 32-byte header plus 16 bytes per 64 KiB block (a trailing partial block included). For example 64 MiB → 67,125,280 bytes and 220 MiB → 230,743,072 bytes; a 250,000,000-byte limit allows at most 238 MiB. Pools without `max_object_bytes` are unchanged, and the field is omitted from `pools.json` when unset. Manual `put --remote` uploads have no pool and are not checked.
+
 Shard sizes are limited to 1–4096 MiB in the CLI, GUI and pool validation. Local staging grows roughly with `(workers + 2·M) × shard_size`, so larger values are almost always a unit mistake.
 
 ## Resume behavior

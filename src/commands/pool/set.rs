@@ -13,6 +13,7 @@ pub(crate) fn run(
     placement: Placement,
     data_shards: usize,
     parity_shards: usize,
+    max_object_bytes: Option<u64>,
 ) -> Result<()> {
     let pool = PoolDefinition {
         remotes,
@@ -22,6 +23,7 @@ pub(crate) fn run(
         placement,
         data_shards,
         parity_shards,
+        max_object_bytes,
     };
     let path = upsert_pool(rclone, &name, pool)?;
     println!("pool={name}");

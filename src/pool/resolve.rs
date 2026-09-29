@@ -44,7 +44,14 @@ pub(crate) fn resolve_put_options(
     Ok(ResolvedPutOptions {
         remotes,
         shard_mib: match shard_mib {
-            Some(mib) => mib,
+            Some(mib) => {
+                // A --shard-mib override must still fit the pool's provider object limit.
+                if let Some(p) = &pool {
+                    let bytes = crate::models::shard_size::shard_bytes(mib)?;
+                    crate::models::shard_size::check_object_limit(bytes.get(), p.max_object_bytes)?;
+                }
+                mib
+            }
             None => match pool.as_ref() {
                 Some(p) => p.shard_mib()?,
                 None => DEFAULT_SHARD_MIB,

@@ -9,6 +9,11 @@
   262,144 physical shards, so multi-TiB pools are not under-reported with the
   smaller shards.
 
+- Pools accept an optional `max_object_bytes` provider object limit
+  (`pool set --max-object-bytes`, GUI "Provider object limit"). Encrypted
+  (rclone crypt) shard object size is checked before upload; coded manifests
+  reject data shards larger than `shard_size`.
+
 - Pool capacity now foregrounds summed independent account storage after
   data/parity overhead. Unverified backing accounts get a separately labelled
   independence what-if estimate; actual admission/OS free space remains

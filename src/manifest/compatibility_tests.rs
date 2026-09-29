@@ -150,3 +150,15 @@ fn content_root_domains_and_exact_hash_bytes_are_stable() {
         assert!(validate_manifest(&m).is_err());
     }
 }
+#[test]
+fn coded_manifest_rejects_data_shard_larger_than_shard_size() {
+    let mut m: Manifest = serde_json::from_slice(FIXTURES[2]).unwrap();
+    validate_manifest(&m).unwrap();
+    m.shard_size = 2;
+    for shard in m.shards.iter_mut().filter(|s| s.kind == ShardKind::Parity) {
+        shard.size = 2;
+    }
+    m.content_root_blake3 = content_root_v2(m.original_size, m.shard_size, &m.coding, &m.shards);
+    let error = validate_manifest(&m).unwrap_err().to_string();
+    assert!(error.contains("larger than manifest shard_size"), "{error}");
+}
