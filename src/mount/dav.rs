@@ -6,7 +6,21 @@ use super::{
 use crate::prelude::*;
 use bytes::{Buf, Bytes};
 use dav_server::{davpath::DavPath, fs::*, DavHandler};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+#[derive(Default)]
+struct WriteStats {
+    put_attempts: AtomicU64,
+    put_successes: AtomicU64,
+    patch_attempts: AtomicU64,
+    ranged_attempts: AtomicU64,
+    write_opens: AtomicU64,
+    truncating_opens: AtomicU64,
+    body_bytes: AtomicU64,
+    baseline_copy_bytes: AtomicU64,
+    seals: AtomicU64,
+    incomplete: AtomicU64,
+}
 
 fn failure(e: impl std::fmt::Display) -> FsError {
     eprintln!("Virtual filesystem: {e}");
@@ -63,6 +77,7 @@ impl DavDirEntry for Entry {
 struct VirtualFs {
     drive: Arc<VirtualDrive>,
     quota_unavailable: Arc<AtomicBool>,
+    write_stats: Arc<WriteStats>,
 }
 impl VirtualFs {
     fn stat(&self, path: &str) -> FsResult<Meta> {
@@ -160,12 +175,17 @@ impl DavFileSystem for VirtualFs {
                 return Err(FsError::Forbidden);
             }
             let drive = self.drive.clone();
+            let stats = self.write_stats.clone();
             tokio::task::spawn_blocking(move || {
                 let revision = drive.view().map_err(failure)?.get(&p).cloned();
                 if options.create_new && revision.is_some() {
                     return Err(FsError::Exists);
                 }
                 if options.write {
+                    stats.write_opens.fetch_add(1, Ordering::Relaxed);
+                    if options.truncate {
+                        stats.truncating_opens.fetch_add(1, Ordering::Relaxed);
+                    }
                     if !options.create && revision.is_none() {
                         return Err(FsError::NotFound);
                     }
@@ -186,6 +206,9 @@ impl DavFileSystem for VirtualFs {
                                 drive
                                     .write_spool_bytes(&mut file, &bytes)
                                     .map_err(failure)?;
+                                stats
+                                    .baseline_copy_bytes
+                                    .fetch_add(bytes.len() as u64, Ordering::Relaxed);
                                 offset += bytes.len() as u64;
                             }
                             file.seek(SeekFrom::Start(0)).map_err(failure)?;
@@ -203,7 +226,9 @@ impl DavFileSystem for VirtualFs {
                         file: Some(file),
                         offset: 0,
                         expected: options.size,
+                        received: 0,
                         sealed: false,
+                        write_stats: stats,
                     }) as Box<dyn DavFile>)
                 } else {
                     let revision = revision.ok_or(FsError::NotFound)?;
@@ -217,7 +242,9 @@ impl DavFileSystem for VirtualFs {
                         file: None,
                         offset: 0,
                         expected: None,
+                        received: 0,
                         sealed: false,
+                        write_stats: stats,
                     }) as Box<dyn DavFile>)
                 }
             })
@@ -329,7 +356,9 @@ struct Handle {
     file: Option<File>,
     offset: u64,
     expected: Option<u64>,
+    received: u64,
     sealed: bool,
+    write_stats: Arc<WriteStats>,
 }
 impl std::fmt::Debug for Handle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -366,7 +395,15 @@ impl DavFile for Handle {
             while buf.has_remaining() {
                 let chunk = buf.chunk();
                 let n = chunk.len();
+                let received = self
+                    .received
+                    .checked_add(n as u64)
+                    .ok_or(FsError::GeneralFailure)?;
                 self.drive.write_spool_bytes(f, chunk).map_err(failure)?;
+                self.received = received;
+                self.write_stats
+                    .body_bytes
+                    .fetch_add(n as u64, Ordering::Relaxed);
                 buf.advance(n);
             }
             Ok(())
@@ -377,9 +414,18 @@ impl DavFile for Handle {
             if self.sealed {
                 return Err(FsError::Forbidden);
             }
+            let received = self
+                .received
+                .checked_add(bytes.len() as u64)
+                .ok_or(FsError::GeneralFailure)?;
             self.drive
                 .write_spool_bytes(self.file.as_mut().ok_or(FsError::Forbidden)?, &bytes)
-                .map_err(failure)
+                .map_err(failure)?;
+            self.received = received;
+            self.write_stats
+                .body_bytes
+                .fetch_add(bytes.len() as u64, Ordering::Relaxed);
+            Ok(())
         })
     }
     fn read_bytes(&mut self, count: usize) -> FsFuture<'_, Bytes> {
@@ -426,10 +472,11 @@ impl DavFile for Handle {
             }
             let file = self.file.as_ref().unwrap();
             file.sync_all().map_err(failure)?;
-            if self
-                .expected
-                .is_some_and(|n| file.metadata().map(|m| m.len() != n).unwrap_or(true))
-            {
+            // OpenOptions::size is the request body length, not the resulting
+            // file length for PATCH and Content-Range writes. dav-server calls
+            // flush before its own premature-EOF check, so verify before seal.
+            if self.expected.is_some_and(|n| self.received != n) {
+                self.write_stats.incomplete.fetch_add(1, Ordering::Relaxed);
                 return Err(FsError::GeneralFailure);
             }
             let drive = self.drive.clone();
@@ -439,6 +486,17 @@ impl DavFile for Handle {
                 .map_err(failure)?
                 .map_err(failure)?;
             self.sealed = true;
+            let seals = self.write_stats.seals.fetch_add(1, Ordering::Relaxed) + 1;
+            // Keep a bounded trace if an actual NFS run cannot reach clean stop.
+            if seals % 64 == 0 {
+                eprintln!(
+                    "RPool DAV write progress: seals={} write_opens={} body_bytes={} baseline_copy_bytes={}",
+                    seals,
+                    self.write_stats.write_opens.load(Ordering::Relaxed),
+                    self.write_stats.body_bytes.load(Ordering::Relaxed),
+                    self.write_stats.baseline_copy_bytes.load(Ordering::Relaxed),
+                );
+            }
             Ok(())
         })
     }
@@ -449,6 +507,7 @@ pub(crate) struct Server {
     pub token: String,
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
+    write_stats: Arc<WriteStats>,
 }
 impl Server {
     pub(crate) fn start(drive: Arc<VirtualDrive>, read_only: bool) -> Result<Self> {
@@ -459,6 +518,8 @@ impl Server {
         let auth = format!("Bearer {token}");
         let stop = Arc::new(AtomicBool::new(false));
         let flag = stop.clone();
+        let write_stats = Arc::new(WriteStats::default());
+        let thread_stats = write_stats.clone();
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
@@ -473,6 +534,7 @@ impl Server {
                     .filesystem(Box::new(VirtualFs {
                         drive,
                         quota_unavailable: Arc::new(AtomicBool::new(false)),
+                        write_stats: thread_stats.clone(),
                     }))
                     .locksystem(dav_server::memls::MemLs::new())
                     .build_handler();
@@ -491,15 +553,26 @@ impl Server {
                     };
                     let handler = handler.clone();
                     let auth = auth.clone();
+                    let stats = thread_stats.clone();
                     tokio::spawn(async move {
                         let _permit = permit;
                         let service = hyper::service::service_fn(
                             move |req: hyper::Request<hyper::body::Incoming>| {
                                 let handler = handler.clone();
+                                let stats = stats.clone();
                                 let allowed = req
                                     .headers()
                                     .get("authorization")
                                     .is_some_and(|h| h.as_bytes() == auth.as_bytes());
+                                let is_put = allowed && req.method().as_str() == "PUT";
+                                if is_put {
+                                    stats.put_attempts.fetch_add(1, Ordering::Relaxed);
+                                } else if allowed && req.method().as_str() == "PATCH" {
+                                    stats.patch_attempts.fetch_add(1, Ordering::Relaxed);
+                                }
+                                if allowed && req.headers().contains_key("content-range") {
+                                    stats.ranged_attempts.fetch_add(1, Ordering::Relaxed);
+                                }
                                 async move {
                                     let response = if !allowed {
                                         hyper::Response::builder()
@@ -521,6 +594,9 @@ impl Server {
                                     } else {
                                         handler.handle(req).await
                                     };
+                                    if is_put && response.status().is_success() {
+                                        stats.put_successes.fetch_add(1, Ordering::Relaxed);
+                                    }
                                     Ok::<_, std::convert::Infallible>(response)
                                 }
                             },
@@ -541,6 +617,7 @@ impl Server {
             token,
             stop,
             thread: Some(thread),
+            write_stats,
         })
     }
 }
@@ -549,6 +626,22 @@ impl Drop for Server {
         self.stop.store(true, Ordering::Release);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
+        }
+        let s = &self.write_stats;
+        if s.write_opens.load(Ordering::Relaxed) > 0 {
+            eprintln!(
+                "RPool DAV write summary: put_attempts={} put_successes={} patch_attempts={} ranged_attempts={} write_opens={} truncating_opens={} body_bytes={} baseline_copy_bytes={} seals={} incomplete={}",
+                s.put_attempts.load(Ordering::Relaxed),
+                s.put_successes.load(Ordering::Relaxed),
+                s.patch_attempts.load(Ordering::Relaxed),
+                s.ranged_attempts.load(Ordering::Relaxed),
+                s.write_opens.load(Ordering::Relaxed),
+                s.truncating_opens.load(Ordering::Relaxed),
+                s.body_bytes.load(Ordering::Relaxed),
+                s.baseline_copy_bytes.load(Ordering::Relaxed),
+                s.seals.load(Ordering::Relaxed),
+                s.incomplete.load(Ordering::Relaxed),
+            );
         }
     }
 }
@@ -616,6 +709,124 @@ mod tests {
         let mut bytes = vec![];
         socket.read_to_end(&mut bytes).unwrap();
         String::from_utf8(bytes).unwrap()
+    }
+    #[test]
+    fn fragmented_write_is_one_seal_and_short_body_is_not_sealed() {
+        let temp = tempfile::tempdir().unwrap();
+        let drive = Arc::new(super::super::virtual_drive::fixture(temp.path()));
+        let stats = Arc::new(WriteStats::default());
+        let fs = VirtualFs {
+            drive: drive.clone(),
+            quota_unavailable: Arc::new(AtomicBool::new(false)),
+            write_stats: stats.clone(),
+        };
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let path = DavPath::new("/file").unwrap();
+            let mut file = DavFileSystem::open(
+                &fs,
+                &path,
+                dav_server::fs::OpenOptions {
+                    write: true,
+                    create: true,
+                    truncate: true,
+                    size: Some(64 * 4096),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            for _ in 0..64 {
+                file.write_bytes(Bytes::from(vec![b'x'; 4096]))
+                    .await
+                    .unwrap();
+            }
+            assert!(drive.state.lock().unwrap().pending.is_empty());
+            file.flush().await.unwrap();
+            file.flush().await.unwrap();
+            assert_eq!(drive.state.lock().unwrap().pending.len(), 1);
+            assert_eq!(drive.spool_bytes().unwrap(), 64 * 4096);
+            assert_eq!(stats.seals.load(Ordering::Relaxed), 1);
+
+            let short = DavPath::new("/short").unwrap();
+            let mut incomplete = DavFileSystem::open(
+                &fs,
+                &short,
+                dav_server::fs::OpenOptions {
+                    write: true,
+                    create: true,
+                    truncate: true,
+                    size: Some(6),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            incomplete
+                .write_bytes(Bytes::from_static(b"abc"))
+                .await
+                .unwrap();
+            assert!(incomplete.flush().await.is_err());
+            assert_eq!(drive.state.lock().unwrap().pending.len(), 1);
+            assert_eq!(stats.incomplete.load(Ordering::Relaxed), 1);
+        });
+    }
+    #[test]
+    fn range_put_checks_body_length_not_resulting_file_length() {
+        let temp = tempfile::tempdir().unwrap();
+        let drive = Arc::new(super::super::virtual_drive::fixture(temp.path()));
+        let server = Server::start(drive.clone(), false).unwrap();
+        assert!(request(&server, "PUT", "/file", "", b"abcdef", true).starts_with("HTTP/1.1 201"));
+        let response = request(
+            &server,
+            "PUT",
+            "/file",
+            "Content-Range: bytes 2-3/6\r\n",
+            b"XY",
+            true,
+        );
+        assert!(response.starts_with("HTTP/1.1 204"), "{response}");
+        let content = request(&server, "GET", "/file", "", b"", true);
+        assert!(content.ends_with("abXYef"), "{content}");
+        assert_eq!(
+            server.write_stats.ranged_attempts.load(Ordering::Relaxed),
+            1
+        );
+        assert_eq!(
+            server
+                .write_stats
+                .baseline_copy_bytes
+                .load(Ordering::Relaxed),
+            6
+        );
+    }
+    #[test]
+    fn repeated_full_prefix_puts_have_distinct_acknowledged_revisions() {
+        let temp = tempfile::tempdir().unwrap();
+        let drive = Arc::new(super::super::virtual_drive::fixture(temp.path()));
+        let server = Server::start(drive.clone(), false).unwrap();
+        for prefix in 1..=16 {
+            let body = vec![b'x'; prefix * 32768];
+            let response = request(&server, "PUT", "/file", "", &body, true);
+            assert!(
+                response.starts_with("HTTP/1.1 201") || response.starts_with("HTTP/1.1 204"),
+                "{response}"
+            );
+        }
+        assert_eq!(drive.state.lock().unwrap().pending.len(), 16);
+        assert_eq!(drive.spool_bytes().unwrap(), 32768 * (1..=16).sum::<u64>());
+        assert_eq!(server.write_stats.put_successes.load(Ordering::Relaxed), 16);
+        assert_eq!(server.write_stats.seals.load(Ordering::Relaxed), 16);
+        assert_eq!(
+            server
+                .write_stats
+                .baseline_copy_bytes
+                .load(Ordering::Relaxed),
+            0
+        );
     }
     #[test]
     fn real_http_auth_put_range_listing_and_quota() {

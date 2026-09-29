@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Documented the phased online-write/native-frontend plan and added aggregate
+  DAV write diagnostics. Content-Range now validates received body length before
+  sealing; local tests distinguish one fragmented write from repeated full PUTs.
+
 - Per-pool machine-local mount profiles restore workspace, automatic history deletion, cache and other options on pool selection. Save explicitly or on launch; legacy global cache settings remain safe defaults.
 - Existing online workspaces use validated current upload policy for compatible configuration edits. Explicit source-preserving Apply pool changes stages a fresh metadata generation for changed membership and keeps the selected pool/workspace path. Current known files and sealed writes are verified before activation; historical/native recovery data stay in a retained backup, not silently discarded or claimed migrated.
 

@@ -6,6 +6,8 @@ The online drive lists the shared metadata namespace without
 restoring all files, then downloads/verifies only intersecting shards on reads.
 Both modes keep writes on local disk before asynchronous verified cloud publication.
 An application save is **not** a completed-cloud-replication acknowledgment.
+For the current online-write path and native frontend plan, see
+[Online drive write path and native frontend plan](MOUNT_WRITE_ROADMAP.md).
 
 ## Account failure / removing accounts while keeping a writable drive
 
@@ -468,8 +470,11 @@ successful sync also reclaims committed spool, but shared writes wait for verifi
 metadata publication. Read handles and in-progress writers hold leases; cleanup
 advances the recovery checkpoint before removing any file.
 
-Virtual DAV write growth (including local moves) is bounded by `--spool-gib`
-(default **64 GiB**). Existing bytes are preserved when the limit rejects a write.
+Top-level DAV spool `content` writes (including local moves) are limited by
+`--spool-gib` (default **64 GiB**). V7 captured originals under each intent's
+`captured/` directory are currently outside that accounting, so this is **not**
+a hard bound on total spool usage. Existing bytes are preserved when the limit
+rejects a content write.
 This is not a reservation of free disk: VFS cache, staging snapshots, recovery
 exports and other applications need additional space. `--cache-gib` remains the
 separate clean-shard cache limit (default 10 GiB). CLI status JSON exposes

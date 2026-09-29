@@ -1489,7 +1489,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
             if !ready && mount.ready() {
                 ready = true;
                 println!(
-                    "Virtual filesystem ready after {:.3}s native startup. Save acknowledges local spool, not completed cloud replication.",
+                    "Virtual filesystem ready after {:.3}s native startup. Native saves may remain in rclone VFS cache before reaching RPool spool; cloud replication is asynchronous.",
                     start.elapsed().as_secs_f64()
                 );
             }

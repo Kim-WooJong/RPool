@@ -11,6 +11,20 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
+Write-path follow-up (2026-09-29): `docs/MOUNT_WRITE_ROADMAP.md` defines the
+measured DAV mitigation and phase-gated native frontend plan. Aggregate DAV
+PUT/PATCH/range, write-open, body/copy-byte, seal and incomplete counters now
+report on server stop, with bounded progress every 64 seals, without paths or
+credentials. Synthetic DAV tests show
+64 body writes in one open make one revision, whereas 16 acknowledged growing
+full PUTs make 16 revisions and 4,456,448 content-spool bytes for a 524,288-byte
+final file. Content-Range verifies request-body bytes before sealing, rather
+than comparing with total resulting file size. Default suite in the isolated
+`projects/rpool/write-path-check` copy: 447 passed / 12 ignored. The exact
+old NFS request trace, 60-second VFS replay/power-loss behavior, recursive v7
+captured-original accounting and 4GiB cloud roundtrip remain unverified. No
+same-path blind PUT coalescing was enabled.
+
 Mac 4GiB real-file follow-up is **blocked**, not validated end-to-end. An
 isolated seven-provider v7 resilient 9+3 NFS write reached only about 25MiB
 in native VFS before WebDAV write-open revision amplification grew local spool
@@ -251,8 +265,10 @@ Implemented the bounded five-lane integration batch (virtual mode opt-in/experim
 
 - Recover the old macOS NFS OS state without deleting its lease/spool. Then use a
   NEW isolated workspace for bounded small-write DAV PUT/spool and clean-unmount
-  measurement before retrying 4GiB upload/remote readback. The write-back delay
-  is a mitigation, not a proven hard bound on amplification.
+  measurement, including new aggregate counters and recursive spool accounting,
+  before retrying 4GiB upload/remote readback. The write-back delay is a
+  mitigation, not a proven hard bound on amplification. Follow the gates in
+  `docs/MOUNT_WRITE_ROADMAP.md` before any server-side coalescing or native write.
 - Validate actual Windows/WinFsp and Linux/FUSE with rclone and two PCs; the
   macOS Homebrew rclone is available, but the old NFS test OS state is unsafe
   for a new live mount until recovered.
@@ -416,7 +432,8 @@ unverified. Read `projects/rpool/fix-20260929/REPORT.md` and the prior
 `projects/rpool/4g-e2e-fdb991f6/REPORT.md`; preserve the old test lease,
 spool and remote objects. Do not access/reuse its stuck mountpoint or sync
 partial intents before OS recovery. Then use a NEW isolated workspace for a
-small bounded NFS write test, inspect PUT/revision count and spool ratio,
+small bounded NFS write test, inspect DAV summary, PUT/revision count and
+recursive spool/VFS-cache ratios,
 verify clean unmount, and only afterward retry 4GiB and hash readback. Keep
 unrelated config-sync/path Git changes untouched. Windows/WinFsp and Linux/FUSE
 runtime validation is still outstanding.
