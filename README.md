@@ -1,4 +1,4 @@
-# rpool v0.7.0
+# rpool v0.7.1
 
 ## Read/write Pool drive
 
@@ -201,7 +201,12 @@ rpool provider health --pool archive
 rpool provider health --json
 ```
 
-Health checks provider accessibility and latency and appends quota information where `rclone about` is supported. The GUI exposes the same workflow on the **Providers** page.
+Health checks each selected provider at its encrypted remote root (`name:`), not
+the Pool/archive prefix (`name:rpool`). `--pool` selects which providers to check;
+it does not change their saved storage paths. Empty reachable roots are healthy;
+a missing root or inaccessible provider still fails. Quota information is added
+where `rclone about` is supported. The GUI exposes the same workflow on the
+**Providers** page.
 
 ### Provider drain / migration
 

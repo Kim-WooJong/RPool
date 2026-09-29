@@ -92,6 +92,8 @@ fn completion_valid(drive: &VirtualDrive, path: &str, intent: &Intent) -> Result
 fn sync_parent(path: &Path) -> Result<()> {
     #[cfg(unix)]
     File::open(path.parent().context("workspace parent missing")?)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = path;
     Ok(())
 }
 

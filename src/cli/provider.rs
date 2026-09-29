@@ -45,6 +45,7 @@ pub(crate) enum ProviderCommands {
     },
     /// Check provider accessibility, latency, and quota information.
     Health {
+        /// Select remotes by name/path; accessibility is checked at each remote root.
         #[arg(long = "remote")]
         remotes: Vec<String>,
 

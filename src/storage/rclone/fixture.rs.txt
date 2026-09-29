@@ -12,7 +12,7 @@ fn main() {
     if address.contains("badconfig") {eprintln!("config section not found");std::process::exit(1)}
     match verb {
         "version"=>println!("rclone v1.fixture"),
-        "lsf"=>println!("synthetic-object"),
+        "lsf"=>{if !address.contains("empty") {println!("synthetic-object")}},
         "lsjson" => {if address.contains("malformed"){print!("not json")}else{print!("{{\"Size\":6,\"IsDir\":false}}")}},
         "cat" => {
             if address.contains("flood") {let data=vec![b'x';128*1024];for _ in 0..20{io::stderr().write_all(&data).unwrap();}print!("abcdef");return}

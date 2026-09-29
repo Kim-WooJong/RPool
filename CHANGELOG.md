@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Provider health now probes encrypted remote roots rather than appending Pool
+  storage prefixes, preventing false missing-directory failures. A Windows-only
+  unused-argument build warning in pool transition durability handling is fixed.
+
 - Added selectable `capacity-first` placement for heterogeneous account quotas.
   It prioritizes the largest remaining account budget without Resilient's
   provider-outage bound; parity remains but a provider outage may be unrecoverable.

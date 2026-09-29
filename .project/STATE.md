@@ -250,6 +250,19 @@ Windows x64 GNU release cross-build passed with existing Windows-only
 The initial parallel test run had one unrelated occupied-DAV-port failure;
 serial rerun passed. Real Windows/cloud mount and GUI click-path remain untested.
 
+Provider-health follow-up (v0.7.1): health checks selected crypt remote roots
+(`name:`), not Pool/default storage prefixes (`name:rpool`), and deduplicates
+the same provider under several paths. Pool/upload roots are unchanged. The
+previous `not found: rclone object` display was rclone `lsf` exit 3/4 after
+probing missing `rpool` subfolders; an actually missing crypt root still fails.
+Windows `sync_parent` no longer warns about its Unix-only `path` argument.
+Isolated `projects/rpool/provider-health-check` validation: macOS all-target
+serial suite **455 passed / 13 ignored**, fmt/diff checks and macOS plus Windows
+x64 GNU release builds passed with `-D warnings -A deprecated`. A fake-rclone
+CLI smoke check of `provider health --remote crypt:rpool --json` reported
+`crypt:` healthy and retained backing quota. The seven real Windows providers
+have not been retested.
+
 ## Working
 
 - Quota-aware mount writes: runtime exclusions, alias accounting and conservative parity-aware capacity status in GUI/CLI.
@@ -322,6 +335,9 @@ Implemented the bounded five-lane integration batch (virtual mode opt-in/experim
 - Validate actual Windows/WinFsp and Linux/FUSE with rclone and two PCs; the
   macOS Homebrew rclone is available, but the old NFS test OS state is unsafe
   for a new live mount until recovered.
+- On Windows, rerun Providers → Check health for the seven crypt remotes and
+  confirm the displayed addresses are `*_crypt:`; investigate any root that
+  still fails without treating a missing crypt backing directory as healthy.
 - On Windows, declare truthful independent account-budget and correlated
   outage-group IDs, refresh Pool and Mount capacity, then check nonzero DAV/
   Explorer free space and actual shard distribution on a new small test file.

@@ -467,6 +467,8 @@ fn admin_and_tool_adapter_use_bounded_process_owner() {
     assert_eq!(admin.version().unwrap(), "rclone v1.fixture");
     assert_eq!(admin.discover().unwrap(), vec!["crypt:"]);
     assert!(admin.probe("crypt:object").is_ok());
+    assert!(admin.probe("crypt:empty").is_ok());
+    assert!(admin.probe("crypt:missing").is_err());
     let error = admin.probe("crypt:auth").unwrap_err();
     assert!(!format!("{error:#}").contains("secret-marker"));
     let binding = admin.catalog().unwrap().capacity("crypt:path").unwrap();
