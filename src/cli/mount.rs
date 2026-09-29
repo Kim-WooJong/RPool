@@ -21,6 +21,9 @@ pub(crate) struct MountArgs {
     /// V7 independently owned snapshots with automatic history collection (NEW workspace; legacy data untouched).
     #[arg(long, requires = "pool_sync")]
     pub(crate) pool_retention: bool,
+    /// Mount an existing v7 pool for read-only diagnostics: no background sync, upload or GC.
+    #[arg(long, requires_all = ["virtual_drive", "pool_sync", "pool_retention"], conflicts_with_all = ["sync_only", "capacity_only", "cleanup_cache", "recover_spool", "retention_report", "apply_retention", "migrate_excluded", "account_recovery_from", "apply_pool_changes", "manifests"])]
+    pub(crate) diagnostic_read_only: bool,
     /// Display name in pool-sync conflicts; defaults to a persistent generated PC name.
     #[arg(long, requires = "pool_sync")]
     pub(crate) pool_worker: Option<String>,
@@ -117,6 +120,31 @@ pub(crate) struct MountArgs {
 #[cfg(test)]
 mod tests {
     use clap::Parser;
+
+    #[test]
+    fn diagnostic_mount_requires_v7_and_rejects_mutating_actions() {
+        let base = [
+            "rpool",
+            "mount",
+            "--pool=p",
+            "--workspace=/persistent",
+            "--mountpoint=/mount",
+            "--diagnostic-read-only",
+        ];
+        assert!(crate::cli::Cli::try_parse_from(base).is_err());
+        let valid = ["--virtual-drive", "--pool-sync", "--pool-retention"];
+        assert!(crate::cli::Cli::try_parse_from(base.into_iter().chain(valid)).is_ok());
+        assert!(crate::cli::Cli::try_parse_from(
+            base.into_iter().chain(valid).chain(["--sync-only"])
+        )
+        .is_err());
+        assert!(crate::cli::Cli::try_parse_from(
+            base.into_iter()
+                .chain(valid)
+                .chain(["--manifest=crypt:file"])
+        )
+        .is_err());
+    }
 
     #[test]
     fn pool_transition_requires_online_sync_and_excludes_other_actions() {

@@ -15,6 +15,7 @@ pub(crate) struct MountConfig {
     pub(crate) cache_dir: PathBuf,
     pub(crate) target: PathBuf,
     pub(crate) shared: bool,
+    pub(crate) read_only: bool,
     pub(crate) vfs_cache_gib: u64,
     pub(crate) cache_min_free_gib: u64,
     pub(crate) webdav: Option<(String, String)>,
@@ -91,6 +92,9 @@ impl MountProcess {
                 .env("RCLONE_WEBDAV_PASS", "")
                 .env("RCLONE_WEBDAV_BEARER_TOKEN_COMMAND", "")
                 .args(["--dir-cache-time", "2s", "--vfs-read-chunk-size", "0"]);
+        }
+        if config.read_only {
+            command.arg("--read-only");
         }
         configure_cache(
             &mut command,
@@ -808,6 +812,7 @@ mod tests {
             cache_dir: root.join("cache"),
             target: target.clone(),
             shared: false,
+            read_only: false,
             vfs_cache_gib: 10,
             cache_min_free_gib: 2,
             webdav: None,

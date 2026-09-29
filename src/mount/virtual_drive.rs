@@ -1289,6 +1289,7 @@ impl VirtualDrive {
 }
 
 pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
+    let workspace_started = std::time::Instant::now();
     if args.recover_spool {
         let paths = recover_spool(&args.workspace)?;
         println!("Exported {} local writes under recovered-writes; partial uploads are explicitly labelled. Checkpoints, spool and remote history unchanged.", paths.len());
@@ -1346,6 +1347,10 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         .checked_mul(1073741824)
         .context("spool limit overflow")?;
     let drive = Arc::new(drive);
+    println!(
+        "Virtual workspace opened in {:.3}s",
+        workspace_started.elapsed().as_secs_f64()
+    );
     if args.apply_retention {
         let report = drive.apply_retention(args.keep_previous, args.exclusive_archive_ownership)?;
         println!("Retention completed: {} obsolete tracked archives, {} exact objects removed ({} logical data bytes; backend trash/versioning may delay quota recovery).", report.obsolete_archives, report.objects.len(), report.reclaimable_bytes);
@@ -1372,6 +1377,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         return Ok(());
     }
     println!("Synchronizing cloud metadata before mount; account failures retain local data");
+    let cloud_started = std::time::Instant::now();
     if args.capacity_only {
         drive.pull()?;
     } else if args.sync_only {
@@ -1390,6 +1396,10 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     } else if let Err(e) = drive.pull() {
         eprintln!("Virtual metadata refresh pending, durable local state retained: {e:#}");
     }
+    println!(
+        "Cloud pre-mount phase completed in {:.3}s",
+        cloud_started.elapsed().as_secs_f64()
+    );
     let report_drive = drive.clone();
     let status_file = args.status_file.clone();
     let report = Arc::new(move || {
@@ -1441,7 +1451,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         drive.isolate_previous_native_cache()?;
     }
     println!("Starting virtual filesystem and native mount");
-    let server = super::dav::Server::start(drive.clone())?;
+    let server = super::dav::Server::start(drive.clone(), args.diagnostic_read_only)?;
     let mut mount = super::adapter::MountProcess::start(super::adapter::MountConfig {
         rclone: rclone.into(),
         files_dir: drive.root.join("anchor"),
@@ -1450,6 +1460,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         cache_min_free_gib: args.cache_min_free_gib,
         target: args.mountpoint.context("mountpoint required")?,
         shared: true,
+        read_only: args.diagnostic_read_only,
         webdav: Some((format!("http://{}/", server.address), server.token.clone())),
     })?;
     if !drive.pool_sync_roots.is_empty() {
@@ -1477,7 +1488,10 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
             }
             if !ready && mount.ready() {
                 ready = true;
-                println!("Virtual filesystem ready. Save acknowledges local spool, not completed cloud replication.");
+                println!(
+                    "Virtual filesystem ready after {:.3}s native startup. Save acknowledges local spool, not completed cloud replication.",
+                    start.elapsed().as_secs_f64()
+                );
             }
             if !ready && start.elapsed() > std::time::Duration::from_secs(30) {
                 bail!("virtual mount readiness timeout; state retained");
@@ -1488,7 +1502,8 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
                     .join()
                     .map_err(|_| anyhow!("background maintenance panicked; local data retained"))?;
             }
-            if ready
+            if !args.diagnostic_read_only
+                && ready
                 && job.is_none()
                 && (first_job
                     || last.elapsed() >= std::time::Duration::from_secs(args.interval_seconds))

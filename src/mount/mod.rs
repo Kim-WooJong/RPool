@@ -104,6 +104,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         cache_min_free_gib: args.cache_min_free_gib,
         target,
         shared: workspace.is_shared(),
+        read_only: false,
         webdav: None,
     })?;
     println!("Mount process started. Waiting for filesystem readiness; close files before requesting unmount.");

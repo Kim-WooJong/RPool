@@ -451,7 +451,7 @@ pub(crate) struct Server {
     thread: Option<std::thread::JoinHandle<()>>,
 }
 impl Server {
-    pub(crate) fn start(drive: Arc<VirtualDrive>) -> Result<Self> {
+    pub(crate) fn start(drive: Arc<VirtualDrive>, read_only: bool) -> Result<Self> {
         super::adapter::preflight_virtual(&drive.root)?;
         let (listener, token) = endpoint(&drive.root)?;
         listener.set_nonblocking(true)?;
@@ -501,13 +501,25 @@ impl Server {
                                     .get("authorization")
                                     .is_some_and(|h| h.as_bytes() == auth.as_bytes());
                                 async move {
-                                    let response = if allowed {
-                                        handler.handle(req).await
-                                    } else {
+                                    let response = if !allowed {
                                         hyper::Response::builder()
                                             .status(401)
                                             .body(dav_server::body::Body::from("Unauthorized"))
                                             .unwrap()
+                                    } else if read_only
+                                        && !matches!(
+                                            req.method().as_str(),
+                                            "GET" | "HEAD" | "PROPFIND" | "OPTIONS"
+                                        )
+                                    {
+                                        hyper::Response::builder()
+                                            .status(403)
+                                            .body(dav_server::body::Body::from(
+                                                "Read-only diagnostic mount",
+                                            ))
+                                            .unwrap()
+                                    } else {
+                                        handler.handle(req).await
                                     };
                                     Ok::<_, std::convert::Infallible>(response)
                                 }
@@ -619,7 +631,7 @@ mod tests {
                 .as_secs(),
             ..Default::default()
         });
-        let server = Server::start(drive.clone()).unwrap();
+        let server = Server::start(drive.clone(), false).unwrap();
         assert!(request(&server, "GET", "/file", "", b"", false).starts_with("HTTP/1.1 401"));
         assert!(request(&server, "PUT", "/file", "", b"hello", true).starts_with("HTTP/1.1 201"));
         assert_eq!(drive.state.lock().unwrap().pending.len(), 1);
@@ -720,13 +732,37 @@ mod tests {
         assert!(!bad.starts_with("HTTP/1.1 201"));
     }
     #[test]
+    fn diagnostic_http_rejects_writes_before_spool_mutation() {
+        let temp = tempfile::tempdir().unwrap();
+        let drive = Arc::new(super::super::virtual_drive::fixture(temp.path()));
+        let server = Server::start(drive.clone(), true).unwrap();
+        assert!(request(&server, "PROPFIND", "/", "Depth: 0\r\n", b"", true)
+            .starts_with("HTTP/1.1 207"));
+        for method in [
+            "PUT",
+            "MKCOL",
+            "DELETE",
+            "MOVE",
+            "COPY",
+            "LOCK",
+            "PROPPATCH",
+        ] {
+            assert!(
+                request(&server, method, "/file", "", b"data", true).starts_with("HTTP/1.1 403"),
+                "{method} was not rejected"
+            );
+        }
+        assert!(drive.state.lock().unwrap().pending.is_empty());
+        assert!(drive.state.lock().unwrap().directories.is_empty());
+    }
+    #[test]
     fn pool_sync_http_range_requests_never_mix_replaced_revisions() {
         let temp = tempfile::tempdir().unwrap();
         let mut fixture = super::super::virtual_drive::fixture(temp.path());
         fixture.pool_sync_roots = vec!["crypt:pool".into()];
         fixture.state.lock().unwrap().version = 6;
         let drive = Arc::new(fixture);
-        let server = Server::start(drive.clone()).unwrap();
+        let server = Server::start(drive.clone(), false).unwrap();
         assert!(request(&server, "PUT", "/file", "", b"abcdef", true).starts_with("HTTP/1.1 201"));
         let first = request(&server, "GET", "/file", "Range: bytes=0-2\r\n", b"", true);
         assert!(
