@@ -51,7 +51,7 @@ frontend. Each layer ships and is verified separately.
 | M1 ✅ | `src/crypt`: format library (keys, reveal, streaming data, names, sizes, ranged reads) | Two-way rclone oracle tests pass (rclone 1.75.1, 2026-09-29). No production caller yet. |
 | M2 ✅ | Native-crypt storage backend over the base remote. Opt-in per pool. | Objects are interchangeable with the rclone crypt remote. Ranged reads verified. Fault tests pass. |
 | M3 ✅ | Protocol-independent filesystem core (roadmap Phase 2) | The Phase 2 exit gate in `MOUNT_WRITE_ROADMAP.md` |
-| M4 | Windows WinFsp frontend (`winfsp_wrs`, MIT). Read-only first, then writable. | Windows machine: listing, reads, stop, and small writes with remount and recovery |
+| M4 (built, not run) | Windows WinFsp frontend (`winfsp_wrs`, MIT). Read-only first, then writable. | Windows machine: listing, reads, stop, and small writes with remount and recovery |
 | M5 ✅ | Linux FUSE (`fuser`) | Linux machine (Docker Linux VM: kernel tests pass) |
 | M6 | macOS frontend, only after the wedged test mount is cleared by a reboot | New workspace. Clean and uncertain stop measured. |
 
@@ -221,4 +221,54 @@ The whole Linux suite passes (505 passed, 26 ignored).
 Not yet verified: mmap-heavy applications, a mount through the CLI with real
 rclone sync, very large files (cloud hydration while locks are held), and
 multi-user `allow_other`.
+
+## M4 status (2026-09-30): Windows WinFsp, compiled but not run
+
+`src/mount/frontend/winfsp/` implements `winfsp_wrs::FileSystemInterface`
+(winfsp_wrs 0.4.1, MIT) over `FsCore`. It is built only with `--features
+winfsp` on Windows, because linking needs WinFsp and its SDK import library
+installed; `build.rs` delay-loads `winfsp-x64.dll`, and `winfsp_wrs::init()`
+loads it from WinFsp's install directory at mount time. Default builds,
+including the existing Windows CI job, are unchanged.
+Usage: `rpool mount --virtual-drive --frontend winfsp --mountpoint R: ...`.
+
+- **Contexts.** A per-open integer key (Descriptor mode) is used, never a
+  pointer, so a volume-level Flush (NULL context) is safe.
+- **Durability.** The volume flushes and purges on Cleanup, so cached writes
+  reach RPool first. Cleanup and Flush seal the file, and Close releases the
+  core handle. Cleanup cannot report errors: they are logged, and the bytes
+  stay in the spool.
+- **Delete.** `set_delete` vetoes non-empty directories; Cleanup with the
+  DELETE flag unlinks.
+- **Rename.** Rename honours `replace_if_exists`, refuses to replace a
+  directory, allows case-only renames, and moves open contexts along.
+- **Case.** The volume is case-insensitive and case-preserving: names resolve
+  onto existing entries regardless of case (`frontend/names.rs`), and the
+  drive itself refuses names that differ only in case.
+- **Writes and allocation.** `WriteToEOF` appends. `ConstrainedIO` (paging)
+  writes are clipped at EOF. An allocation below the file size truncates.
+  Attributes and times are not stored.
+- **Security.** One security descriptor gives full access to SYSTEM,
+  Administrators and Everyone.
+
+Verified on macOS only:
+
+- `cargo check`/`clippy --target x86_64-pc-windows-gnu --features winfsp`
+  pass with no warnings in the frontend.
+- The platform-independent rules pass unit tests: case-insensitive
+  resolution, resuming a listing after a marker in one bytewise order, and
+  paging-write clipping.
+- `FsCore::stat` (per-handle attributes, including after unlink) is covered
+  by core tests.
+
+**Not verified:** any WinFsp runtime behaviour on Windows (mount, Explorer,
+Office-style save patterns, cached/paging I/O, delete-on-close, stop). The
+new `winfsp-frontend` CI job (continue-on-error) will build it on
+windows-latest after a push. The M4 exit gate is still open: a Windows machine
+must pass listing, reads, stop and small writes with remount and recovery.
+
+Testing also found and fixed a core defect: when the final seal at
+last-handle close failed, a phantom unsealed file stayed visible. The
+generation is now dropped from memory and its spool remains on disk for
+recovery.
 

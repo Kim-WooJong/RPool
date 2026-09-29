@@ -777,7 +777,7 @@ A pool can also opt in to native crypt writes (`rpool pool set ... --native-cryp
 
 ### Native mount frontends (opt-in)
 
-For a local `--virtual-drive` workspace (no `--pool-sync` or shared modes), `rpool mount ... --virtual-drive --frontend fuse` on Linux mounts the drive with RPool's own FUSE frontend instead of rclone mount plus the loopback WebDAV server. Add `--native-read-only` for a read-only mount. `close` and `fsync` are the local durability points; cloud replication stays asynchronous. The default frontend is still `dav`. See `docs/NATIVE_MOUNT_CRYPT_PLAN.md`.
+For a local `--virtual-drive` workspace (no `--pool-sync` or shared modes), `rpool mount ... --virtual-drive --frontend fuse` on Linux mounts the drive with RPool's own FUSE frontend instead of rclone mount plus the loopback WebDAV server. Add `--native-read-only` for a read-only mount. `close` and `fsync` are the local durability points; cloud replication stays asynchronous. The default frontend is still `dav`. On Windows, a build with `--features winfsp` (WinFsp installed) adds `--frontend winfsp`; it has not been run on Windows yet. See `docs/NATIVE_MOUNT_CRYPT_PLAN.md`.
 
 Shard sizes are limited to 1–4096 MiB in the CLI, GUI and pool validation. Local staging grows roughly with `(workers + 2·M) × shard_size`, so larger values are almost always a unit mistake.
 

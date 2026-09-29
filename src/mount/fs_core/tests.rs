@@ -433,3 +433,35 @@ fn a_stalled_uploader_never_blocks_acknowledgement_or_namespace_changes() {
     assert!(matches!(core.lookup("c"), Err(FsError::NotFound)));
     assert_published_unchanged(&core.drive);
 }
+
+#[test]
+fn stat_follows_the_handle_through_writes_and_unlink() {
+    let root = tempfile::tempdir().unwrap();
+    let core = core(root.path());
+    put(&core, "a", b"12345");
+    let reader = core.open("a", Access::Read, false, false).unwrap();
+    let writer = core.open("a", W, false, false).unwrap();
+    core.write_at(writer, 5, b"678").unwrap();
+    assert_eq!(core.stat(writer).unwrap().size, 8);
+    assert_eq!(core.stat(reader).unwrap().size, 5, "snapshot");
+    core.release(writer).unwrap();
+    core.delete("a").unwrap();
+    assert_eq!(core.stat(reader).unwrap().size, 5);
+    assert!(matches!(core.stat(HandleId(9999)), Err(FsError::BadHandle)));
+}
+
+#[test]
+fn a_failed_final_seal_leaves_no_phantom_file() {
+    let root = tempfile::tempdir().unwrap();
+    let core = core(root.path());
+    put(&core, "twin", b"first");
+    // The drive refuses names that differ only in case at seal time.
+    let handle = core.open("Twin", TRUNC, true, false).unwrap();
+    core.write_at(handle, 0, b"second").unwrap();
+    assert!(matches!(core.release(handle), Err(FsError::Io(_))));
+    assert!(matches!(core.lookup("Twin"), Err(FsError::NotFound)));
+    let names: Vec<String> = core.readdir("").unwrap().into_iter().map(|e| e.0).collect();
+    assert_eq!(names, ["twin"]);
+    assert_eq!(content(&core, "twin"), b"first");
+    assert_published_unchanged(&core.drive);
+}

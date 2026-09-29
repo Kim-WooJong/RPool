@@ -16,7 +16,11 @@ VirtualDrive (handles, shared write generations, fsync = local seal ack,
 depends_on continuation). 16 fixture traces pass; default suite 505 passed /
 21 ignored (non-symlink TMPDIR). No frontend uses it yet. M3b done 2026-09-30
 (crash matrix, randomized model traces, stalled uploader; suite 508 passed /
-21 ignored). DAV intentionally stays off FsCore. Next: M4 WinFsp, M5 FUSE. Details:
+21 ignored). DAV intentionally stays off FsCore. M5 FUSE done and kernel-tested in a
+Linux Docker VM (`projects/rpool/docker-linux/run-tests.sh`). M4 WinFsp is built
+behind `--features winfsp` and cross-checked only; its Windows runtime gate is
+open. The `shard_cache` reuse test failed once in the parallel Linux suite and
+passed 8/8 alone (pre-existing, unrelated). Details:
 `docs/NATIVE_MOUNT_CRYPT_PLAN.md` "M3a status".
 
 Native crypt M2 (2026-09-29): per-pool `native_crypt` routes `put`/reprocess

@@ -28,3 +28,18 @@ jobs:
         run: cargo build --locked --features opendal-prototype --bin rpool
       - name: Test optional synthetic OpenDAL configuration
         run: cargo test --locked --features opendal-prototype --bin rpool
+  winfsp-frontend:
+    name: windows-latest (WinFsp frontend)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    # Not yet qualified on a real Windows host; must not block the main matrix.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Install WinFsp (runtime and developer import library)
+        run: choco install winfsp -y
+      - name: Build with the native WinFsp frontend
+        run: cargo build --locked --features winfsp --bin rpool
+      - name: Run tests with the WinFsp frontend compiled in
+        run: cargo test --locked --features winfsp --bin rpool

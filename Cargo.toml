@@ -18,6 +18,9 @@ path = "src/main.rs"
 default = []
 # Synthetic Memory adapter only; does not enable production native writes.
 opendal-prototype = ["dep:opendal"]
+# Native WinFsp frontend (mount milestone M4). Needs WinFsp (with its SDK
+# import library) installed on the Windows build machine; see build.rs.
+winfsp = ["dep:winfsp_wrs", "dep:winfsp_wrs_build"]
 
 [dependencies]
 opendal = { version = "=0.59.3", default-features = false, optional = true }
@@ -51,6 +54,12 @@ data-encoding = "2.11"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+winfsp_wrs = { version = "0.4.1", optional = true }
+
+[build-dependencies]
+winfsp_wrs_build = { version = "0.4.1", optional = true }
 
 # Native FUSE frontend (mount milestone M5); pure-Rust mount, no libfuse.
 [target.'cfg(target_os = "linux")'.dependencies]

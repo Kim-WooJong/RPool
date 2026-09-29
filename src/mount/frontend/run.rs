@@ -29,7 +29,12 @@ fn start(
         Frontend::Fuse => super::fuse::mount(core, mountpoint, read_only),
         #[cfg(not(target_os = "linux"))]
         Frontend::Fuse => bail!("the FUSE frontend is available on Linux only"),
-        Frontend::Winfsp => bail!("the WinFsp frontend is not built yet"),
+        #[cfg(all(windows, feature = "winfsp"))]
+        Frontend::Winfsp => super::winfsp::mount(core, mountpoint, read_only),
+        #[cfg(not(all(windows, feature = "winfsp")))]
+        Frontend::Winfsp => bail!(
+            "the WinFsp frontend needs a Windows build with `--features winfsp` and WinFsp installed"
+        ),
     }
 }
 

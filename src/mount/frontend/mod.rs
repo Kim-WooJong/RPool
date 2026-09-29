@@ -3,6 +3,13 @@
 //! workspaces. DAV stays the default frontend.
 #[cfg(target_os = "linux")]
 mod fuse;
+#[cfg_attr(
+    not(all(windows, feature = "winfsp")),
+    allow(dead_code, reason = "used by the WinFsp frontend; tested everywhere")
+)]
+mod names;
 mod run;
+#[cfg(all(windows, feature = "winfsp"))]
+mod winfsp;
 
 pub(crate) use run::{run_native, NativeRun};

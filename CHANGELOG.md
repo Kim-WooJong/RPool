@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Native Windows WinFsp frontend (opt-in build `--features winfsp`, WinFsp
+  installed): `rpool mount --virtual-drive --frontend winfsp`. It is compiled
+  and statically checked but not yet run on Windows; see
+  `docs/NATIVE_MOUNT_CRYPT_PLAN.md` "M4 status". Also fixes a phantom file
+  in the filesystem core after a failed final seal.
+
 - Native Linux FUSE frontend (opt-in): `rpool mount --virtual-drive --frontend
   fuse [--native-read-only]` mounts a local virtual-drive workspace through the
   filesystem core, with no rclone mount or WebDAV loopback. `close`/`fsync` are

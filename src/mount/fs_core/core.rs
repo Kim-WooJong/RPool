@@ -162,6 +162,37 @@ impl FsCore {
         }
     }
 
+    /// Attributes of an open handle's file as that handle sees it, including
+    /// after an unlink (for fstat-style queries).
+    pub(crate) fn stat(&self, handle: HandleId) -> FsResult<Attr> {
+        let handle = lock(&self.handles)?.get(handle)?;
+        let unsealed = match handle.view {
+            View::Snapshot(_) => None,
+            View::Attached { .. } => self.unsealed_size(handle.file)?,
+        };
+        if let Some((size, tag)) = unsealed {
+            return Ok(Attr {
+                id: Some(handle.file),
+                size,
+                directory: false,
+                tag,
+            });
+        }
+        let revision = match handle.view {
+            View::Snapshot(revision) => Some(revision),
+            View::Attached { base } => match lock(&self.ids)?.path(handle.file) {
+                Some(path) => self.visible(&path)?,
+                None => base,
+            },
+        };
+        Ok(Attr {
+            id: Some(handle.file),
+            size: revision.as_ref().map_or(0, |r| r.size()),
+            directory: false,
+            tag: revision.map(|r| r.id().to_string()).unwrap_or_default(),
+        })
+    }
+
     /// Runs `change` on the file's generation, starting one with the first
     /// `keep` bytes of the file's current revision when there is none. The
     /// revision is read under the slot lock, after any concurrent seal.
@@ -239,7 +270,16 @@ impl FsCore {
     fn finish(&self, file: FileId) -> FsResult<()> {
         let linked = lock(&self.ids)?.path(file).is_some();
         if linked {
-            return self.seal_file(file);
+            let sealed = self.seal_file(file);
+            if sealed.is_err() {
+                // No writer is left to retry. Forget the unacknowledged
+                // generation; its spool stays on disk for recovery.
+                let slot = lock(&self.slots)?.get(&file).cloned();
+                if let Some(slot) = slot {
+                    drop(lock(&slot)?.take());
+                }
+            }
+            return sealed;
         }
         let slot = lock(&self.slots)?.get(&file).cloned();
         if let Some(slot) = slot {
