@@ -11,6 +11,12 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
+Pool change migration (2026-09-30): DESIGN ONLY, see docs/POOL_MIGRATION_DESIGN.md
+(`pool migrate plan|run|status|lost|salvage`, cloud journal under
+.rpool-sync/migrations-v1, lost-file list, drive via a new epoch). Waiting for
+the user's decisions before implementing; the work packages there are meant
+for parallel agents.
+
 v7 native (2026-09-30):
 - Native frontends serve v7 too (`peer_snapshot_native.rs`). Renames keep
   file identity: an atomic save becomes the next revision. Moves v7 cannot
