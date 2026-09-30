@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Import files stored with plain rclone** into a drive: `rpool mount
+  --virtual-drive … --import-from remote:path [--import-to folder]
+  [--import-batch-gib N] [--import-conflict skip|rename]`, and in the GUI
+  (Mount → Advanced).
+  - The source is only read.
+  - Uploads run in batches, so local disk holds one batch.
+  - A journal resumes an interrupted run without duplicates.
+  - Existing drive files are never overwritten.
+  - Progress is written to `import-status.json` for the GUI.
+  - Checked end to end in Docker (`scripts/linux-docker/rclone-import-e2e.sh`,
+    single PC and v6 with a second PC).
+
 - **Unsaved WebDAV writes are recovered, not stranded.** When a WebDAV
   mount stopped before rclone wrote its cache back (a crash or kill), the
   next native mount, or the next pool-sync mount, imports those writes

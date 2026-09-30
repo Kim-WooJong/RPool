@@ -17,6 +17,7 @@ mod peer_snapshot_model;
 mod peer_snapshot_transport;
 pub(crate) mod pool_sync;
 mod pool_transition;
+pub(crate) mod rclone_import;
 mod retention;
 mod shard_cache;
 mod shared_checkpoint;

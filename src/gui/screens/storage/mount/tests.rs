@@ -393,3 +393,39 @@ fn diagnostic_read_only_mount_is_only_for_v7_pool_sync() {
     form.manifests.push("crypt:a.json".into());
     assert!(parse_action(&form, 0).is_err());
 }
+#[test]
+fn rclone_import_action_reaches_the_cli_without_mounting() {
+    use clap::Parser;
+    let control = tempfile::tempdir().unwrap();
+    let mut form = super::MountForm::default();
+    form.pool = "p".into();
+    form.workspace = control.path().join("ws").display().to_string();
+    form.virtual_drive = true;
+    form.pool_sync = true;
+    assert!(
+        form.action_args(9, control.path()).is_err(),
+        "source required"
+    );
+    form.import_source = "old-crypt:photos".into();
+    form.import_destination = "/Imported/old/".into();
+    form.import_batch_gib = 2;
+    form.import_rename = true;
+    let args = form.action_args(9, control.path()).unwrap();
+    let parsed =
+        crate::cli::Cli::try_parse_from(std::iter::once(OsString::from("rpool")).chain(args))
+            .unwrap();
+    let Some(crate::cli::Commands::Mount(args)) = parsed.command else {
+        panic!("mount")
+    };
+    assert_eq!(args.import_from.as_deref(), Some("old-crypt:photos"));
+    assert_eq!(args.import_to.as_deref(), Some("Imported/old"));
+    assert_eq!(args.import_batch_gib, 2);
+    assert_eq!(
+        args.import_conflict,
+        crate::mount::rclone_import::OnConflict::Rename
+    );
+    assert!(args.mountpoint.is_none() && !args.sync_only && args.pool_sync);
+    form.bounded_shared = true;
+    form.pool_sync = false;
+    assert!(form.action_args(9, control.path()).is_err());
+}

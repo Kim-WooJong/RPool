@@ -35,6 +35,13 @@ pub(crate) struct MountForm {
     pub(super) cache_min_free_gib: u64,
     pub(super) spool_gib: u64,
     pub(super) recovery_source: String,
+    /// Plain rclone `remote:path` to import into the drive.
+    pub(super) import_source: String,
+    /// Drive folder the import lands in; empty for the root.
+    pub(super) import_destination: String,
+    pub(super) import_batch_gib: u64,
+    pub(super) import_rename: bool,
+    pub(super) import_status: Option<crate::mount::rclone_import::Status>,
     pub(super) recovery_skip_remotes: String,
     pub(super) recovery_reprocess_plan: String,
     pub(super) recovering_accounts: bool,
@@ -82,6 +89,11 @@ impl Default for MountForm {
             cache_min_free_gib: 2,
             spool_gib: 64,
             recovery_source: String::new(),
+            import_source: String::new(),
+            import_destination: String::new(),
+            import_batch_gib: 4,
+            import_rename: false,
+            import_status: None,
             recovery_skip_remotes: String::new(),
             recovery_reprocess_plan: String::new(),
             recovering_accounts: false,
@@ -278,6 +290,9 @@ impl MountForm {
                 self.pool_status = std::fs::read(control.path().join("pool-sync-status.json"))
                     .ok()
                     .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+                self.import_status = std::fs::read(control.path().join("import-status.json"))
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice(&bytes).ok());
                 self.capacity = std::fs::read(control.path().join("capacity.json"))
                     .ok()
                     .and_then(|bytes| serde_json::from_slice(&bytes).ok());
@@ -404,7 +419,7 @@ impl MountForm {
 
     /// Validated `rpool mount` arguments for `action`: 0 mount, 1 sync, 2
     /// capacity, 3 migrate, 4 trim cache, 5 export spool, 6 apply pool
-    /// changes, 7 retention preview, 8 apply retention.
+    /// changes, 7 retention preview, 8 apply retention, 9 import from rclone.
     pub(super) fn action_args(&self, action: u8, control: &Path) -> Result<Vec<OsString>, String> {
         let sync_only = action != 0;
         let automatic = self.virtual_drive && self.pool_sync;
@@ -413,6 +428,22 @@ impl MountForm {
         }
         if matches!(action, 7 | 8) && !self.retention_allowed() {
             return Err("History cleanup needs an online drive with Sync = This PC only (no pool sync or shared root).".into());
+        }
+        if action == 9 {
+            if !self.virtual_drive
+                || self.bounded_shared
+                || (!automatic && !self.shared_root.trim().is_empty())
+            {
+                return Err(
+                    "Importing needs an online drive with This PC only or Automatic pool sync."
+                        .into(),
+                );
+            }
+            if !self.import_source.trim().contains(':') {
+                return Err(
+                    "Enter the rclone source as remote:path (for example old-crypt:photos).".into(),
+                );
+            }
         }
         if action == 8 && !self.retention_ready() {
             return Err("Preview obsolete versions for this pool, workspace and limit, and confirm exclusive ownership, before deleting.".into());
@@ -504,10 +535,22 @@ impl MountForm {
                     6 => "--apply-pool-changes",
                     7 => "--retention-report",
                     8 => "--apply-retention",
+                    9 => "--import-from",
                     _ => "--migrate-excluded",
                 }
                 .into(),
             );
+        }
+        if action == 9 {
+            args.push(self.import_source.trim().into());
+            let destination = self.import_destination.trim().trim_matches('/');
+            if !destination.is_empty() {
+                args.push(format!("--import-to={destination}").into());
+            }
+            args.push(format!("--import-batch-gib={}", self.import_batch_gib.max(1)).into());
+            if self.import_rename {
+                args.push("--import-conflict=rename".into());
+            }
         }
         if matches!(action, 7 | 8) {
             args.push(format!("--keep-previous={}", self.keep_previous).into());
@@ -531,6 +574,7 @@ impl MountForm {
         let args = self.action_args(action, control.path())?;
         self.capacity = None;
         self.pool_status = None;
+        self.import_status = None;
         self.runner.start_rpool(
             match action {
                 2 => "Check pool capacity",
@@ -540,6 +584,7 @@ impl MountForm {
                 6 => "Apply pool changes (preserve original workspace)",
                 7 => "Preview obsolete versions",
                 8 => "Delete obsolete versions",
+                9 => "Import from rclone",
                 _ if sync_only => "Sync local workspace",
                 _ if self.diagnostic_read_only && self.pool_retention && self.pool_sync => {
                     "Diagnostic read-only mount"
@@ -560,6 +605,7 @@ impl MountForm {
         self.notice = Some(match action {
             7 => "Previewing obsolete versions; nothing is uploaded or deleted. Check the log for the list.",
             8 => "Deleting obsolete versions. The operation is resumable; do not remove the retention journal.",
+            9 => "Importing. The source is only read; imported files upload in batches. Stop anytime and start again to resume.",
             2.. => "Maintenance running. See log for capacity, cleanup or recovery results.",
             1 => "Synchronizing local workspace. See log for verified archive results.",
             0 => "Mount process started; this is not yet proof that the drive is mounted or cloud changes are committed. See log for readiness and sync status.",

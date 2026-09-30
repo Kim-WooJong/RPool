@@ -1435,7 +1435,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     }
     println!("Synchronizing cloud metadata before mount; account failures retain local data");
     let cloud_started = std::time::Instant::now();
-    if args.capacity_only {
+    if args.capacity_only || args.import_from.is_some() {
         drive.pull()?;
     } else if args.sync_only {
         drive.sync()?;
@@ -1495,6 +1495,11 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
             }
         }
     });
+    if args.import_from.is_some() {
+        super::rclone_import::run(&drive, &args, &|| stop.requested())?;
+        report();
+        return Ok(());
+    }
     if args.capacity_only || args.sync_only {
         report();
         return Ok(());

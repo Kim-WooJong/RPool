@@ -27,9 +27,12 @@ v7 native (2026-09-30):
   a read base, an own unsynced head or a single PC; recovered copies
   otherwise; the rest kept). GUI panel `mount/cache_recovery.rs`. Suite
   554/554, Docker e2e local and v6 pass.
-- Next: task 3b, importing plain rclone data into a drive: an offline mount
-  action with a journal, batching and skip/rename conflicts, following
-  account_recovery.rs. CLI and GUI.
+- Task 3b done: `src/mount/rclone_import.rs` (`--import-from`), an offline
+  mount action with an append-only journal, batched sync and skip/rename
+  conflicts. GUI action 9 plus a panel. Suite 562/562; Docker e2e local and
+  v6 pass.
+- Open: Mac mount test (needs a reboot, stuck NFS); Windows runtime
+  (user); v7 sync speed; mtimes are not stored in the drive format.
 
 Native by default (2026-09-30, commits a3541e9 and 5d91e49):
 - The frontend is `auto` by default: native on Linux, and on Windows in

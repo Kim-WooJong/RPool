@@ -783,6 +783,16 @@ A pool can also opt in to native crypt writes (`rpool pool set ... --native-cryp
 
 `rpool mount --virtual-drive` uses `--frontend auto` by default: RPool's own filesystem frontend where this build and workspace support it (Linux FUSE; Windows WinFsp in builds with `--features winfsp`), otherwise rclone mount plus the loopback WebDAV server. Native frontends serve online drives in local and automatic pool-sync (v6 and v7) mode; bounded shared and shared-root workspaces use WebDAV. The last `close` and `fsync` are the local durability points and cloud replication stays asynchronous. Add `--native-read-only` for a read-only native mount, or `--frontend dav` for the previous behaviour. macOS has no native frontend yet. See `docs/NATIVE_MOUNT_CRYPT_PLAN.md`.
 
+### Importing files stored with plain rclone
+
+`rpool mount --virtual-drive --pool P --workspace W [--pool-sync] --import-from old-crypt:photos [--import-to Imported/photos] [--import-batch-gib 4] [--import-conflict skip|rename]` copies an rclone tree into the drive and uploads it as pool shards. It does not mount; unmount the workspace first.
+- The source is only listed and read.
+- Uploads run every `--import-batch-gib`, so local disk holds only one batch.
+- A file that already exists in the drive is skipped (`rename` imports it as `name (imported N).ext`). Names the drive cannot store are skipped and listed.
+- An append-only journal in `.rpool/imports/` lets an interrupted import resume without duplicates. Failed files are retried on the next run.
+- Modification times are not kept. Empty folders are local to this PC.
+- In the GUI: Mount → Advanced → "Import files stored with rclone".
+
 Shard sizes are limited to 1–4096 MiB in the CLI, GUI and pool validation. Local staging grows roughly with `(workers + 2·M) × shard_size`, so larger values are almost always a unit mistake.
 
 ## Resume behavior

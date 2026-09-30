@@ -76,6 +76,18 @@ pub(crate) struct MountArgs {
     /// Copy locally known recoverable files into a NEW differently named pool/workspace, preserving the source. Does not mount.
     #[arg(long, requires_all = ["virtual_drive", "pool_sync"], conflicts_with_all = ["pool_retention", "shared_root", "worker_name", "bounded_shared", "shared_coordinator", "sync_only", "capacity_only", "migrate_excluded", "cleanup_cache", "recover_spool", "retention_report", "apply_retention", "manifests", "mountpoint"])]
     pub(crate) account_recovery_from: Option<PathBuf>,
+    /// Import files stored with plain rclone from this `remote:path` into the drive, then upload them. The source is only read. Does not mount; rerun to resume.
+    #[arg(long, requires = "virtual_drive", conflicts_with_all = ["account_recovery_from", "apply_pool_changes", "shared_root", "bounded_shared", "diagnostic_read_only", "sync_only", "capacity_only", "migrate_excluded", "cleanup_cache", "recover_spool", "retention_report", "apply_retention", "manifests", "mountpoint"])]
+    pub(crate) import_from: Option<String>,
+    /// Drive folder to import into (default: the drive root).
+    #[arg(long, requires = "import_from")]
+    pub(crate) import_to: Option<String>,
+    /// Upload after this many GiB were copied, so the local spool never holds the whole import.
+    #[arg(long, default_value_t = 4, value_parser = clap::value_parser!(u64).range(1..=1048576), requires = "import_from")]
+    pub(crate) import_batch_gib: u64,
+    /// When the drive already has a file at the destination path.
+    #[arg(long, value_enum, default_value_t = crate::mount::rclone_import::OnConflict::Skip, requires = "import_from")]
+    pub(crate) import_conflict: crate::mount::rclone_import::OnConflict,
     /// Explicitly skip this rclone remote alias while reading recovery data (repeatable, alias only).
     #[arg(long, requires = "account_recovery_from")]
     pub(crate) recovery_skip_remote: Vec<String>,
@@ -153,7 +165,7 @@ pub(crate) struct MountArgs {
     #[arg(long, requires = "shared_root")]
     pub(crate) worker_name: Option<String>,
     /// Unused Windows drive letter, or an existing empty Unix mount directory.
-    #[arg(long, required_unless_present_any = ["sync_only", "capacity_only", "migrate_excluded", "cleanup_cache", "recover_spool", "retention_report", "apply_retention", "account_recovery_from", "apply_pool_changes"])]
+    #[arg(long, required_unless_present_any = ["sync_only", "capacity_only", "migrate_excluded", "cleanup_cache", "recover_spool", "retention_report", "apply_retention", "account_recovery_from", "apply_pool_changes", "import_from"])]
     pub(crate) mountpoint: Option<PathBuf>,
     /// Explicit existing archives to import; pool membership is not inferred.
     #[arg(long = "manifest")]
@@ -521,6 +533,44 @@ mod cache_tests {
             "--spool-gib=0",
         ] {
             assert!(crate::cli::Cli::try_parse_from(base.into_iter().chain([invalid])).is_err());
+        }
+    }
+}
+
+#[cfg(test)]
+mod rclone_import_tests {
+    use clap::Parser;
+
+    #[test]
+    fn import_needs_a_virtual_drive_and_excludes_mounting() {
+        let base = [
+            "rpool",
+            "mount",
+            "--pool=p",
+            "--workspace=/w",
+            "--import-from=old:x",
+        ];
+        assert!(
+            crate::cli::Cli::try_parse_from(base).is_err(),
+            "virtual drive required"
+        );
+        let ok =
+            crate::cli::Cli::try_parse_from(base.into_iter().chain(["--virtual-drive"])).unwrap();
+        let Some(crate::cli::Commands::Mount(args)) = ok.command else {
+            panic!("mount")
+        };
+        assert_eq!((args.import_to, args.import_batch_gib), (None, 4));
+        for extra in [
+            "--mountpoint=/m",
+            "--sync-only",
+            "--bounded-shared",
+            "--import-batch-gib=0",
+        ] {
+            assert!(
+                crate::cli::Cli::try_parse_from(base.into_iter().chain(["--virtual-drive", extra]))
+                    .is_err(),
+                "{extra}"
+            );
         }
     }
 }

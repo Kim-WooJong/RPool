@@ -123,6 +123,27 @@ impl RcloneContext {
         )?;
         Ok(sink.bytes)
     }
+    /// Recursive `lsjson` of a user tree, which may be far larger than admin
+    /// output. Still bounded so a runaway listing cannot exhaust memory.
+    pub(crate) fn list_recursive(
+        &self,
+        ctx: &OperationContext,
+        address: &str,
+    ) -> Result<Vec<u8>, StorageError> {
+        let mut sink = BoundedVec {
+            bytes: Vec::new(),
+            limit: 1 << 30,
+        };
+        let args = ["lsjson", "-R", "--no-mimetype", "--", address];
+        process::run(
+            &mut self.command(&args.iter().map(OsString::from).collect::<Vec<_>>()),
+            ctx,
+            None,
+            &mut sink,
+            false,
+        )?;
+        Ok(sink.bytes)
+    }
     pub(crate) fn config_dump(&self, ctx: &OperationContext) -> Result<Value, StorageError> {
         let bytes = self.capture(ctx, &["config", "dump"])?;
         let value: Value =

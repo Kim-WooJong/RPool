@@ -255,6 +255,33 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
                         }
                     });
                 }
+                if form.virtual_drive && !form.bounded_shared {
+                    ui.collapsing("Import files stored with rclone", |ui| {
+                        ui.label("Copies files from any rclone path (for example an old crypt remote) into this drive and uploads them as pool shards. Unmount first. The source is only read, never changed.");
+                        ui.horizontal(|ui| {
+                            ui.label("Source");
+                            ui.add(egui::TextEdit::singleline(&mut form.import_source).desired_width(260.0).hint_text("old-crypt:photos"));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Drive folder");
+                            ui.add(egui::TextEdit::singleline(&mut form.import_destination).desired_width(200.0).hint_text("(drive root)"));
+                        });
+                        ui.horizontal(|ui| {
+                            gib(ui, "Upload every", &mut form.import_batch_gib, 1, "Uploads after this much was copied, so local disk only holds one batch.");
+                            ui.checkbox(&mut form.import_rename, "Import name clashes as \"name (imported N)\"").on_hover_text("Off: a file that already exists in the drive is skipped and listed.");
+                        });
+                        if ui.button("Import").clicked() {
+                            run(form, settings, |form, rclone| form.start_action(rclone, 9));
+                        }
+                        if let Some(status) = &form.import_status {
+                            ui.label(format!("{}: {}/{} files · {} imported · {} skipped · {} failed", status.phase, status.files_done, status.files_total, status.imported, status.skipped.len(), status.failed.len()));
+                            for (path, reason) in status.skipped.iter().chain(&status.failed).take(50) {
+                                ui.small(format!("  {path}: {reason}"));
+                            }
+                        }
+                        ui.small("Modification times are not kept. Names the drive cannot store are skipped and listed. Many small files upload slowly (each becomes its own set of shards).");
+                    });
+                }
                 ui.collapsing("Recover after removing an account", |ui| {
                     ui.label("1. In Pools, save the remaining accounts as a NEW pool, select it above with a NEW empty workspace, and turn history deletion off.");
                     ui.label("2. Choose the original workspace (unmount it first). Its data is kept; verified contents are copied and uploaded.");
