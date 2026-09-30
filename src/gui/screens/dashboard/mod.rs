@@ -73,15 +73,15 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, usage: &mut UsageRef
                     &state.crypt_remotes,
                 );
             });
-            crate::gui::theme::fixed_pane(ui, "dashboard-providers-scroll", cell, |ui| {
+            theme::fixed_pane_wide(ui, "dashboard-providers-scroll", cell, |ui| {
                 providers::show(ui, state)
             });
         });
         ui.with_layout(row, |ui| {
-            crate::gui::theme::fixed_pane(ui, "dashboard-pools-scroll", cell, |ui| {
+            theme::fixed_pane_wide(ui, "dashboard-pools-scroll", cell, |ui| {
                 pools::show(ui, state)
             });
-            crate::gui::theme::fixed_pane(ui, "dashboard-jobs-scroll", cell, |ui| {
+            theme::fixed_pane_wide(ui, "dashboard-jobs-scroll", cell, |ui| {
                 recent_jobs::show(ui, state)
             });
         });

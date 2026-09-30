@@ -80,183 +80,64 @@ impl PoolForm {
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     ui.add_enabled_ui(!state.pools.picker.is_open(), |ui| {
-        theme::page_header(ui, "Storage pools", Some("Group encrypted providers and set the upload policy. Account identities decide how much space is really usable."));
+        theme::page_body(ui, "pools", |ui| {
+            theme::page_header(ui, "Storage pools", Some("Group encrypted providers and set the upload policy. Account identities decide how much space is really usable."));
 
-        ui.horizontal_wrapped(|ui| {
-            ui.label("Existing pool");
-            egui::ComboBox::from_id_salt("pool-existing")
-                .selected_text(if state.pools.selected.is_empty() {
-                    "Select pool"
-                } else {
-                    state.pools.selected.as_str()
-                })
-                .show_ui(ui, |ui| {
-                    for name in &state.pool_names {
-                        ui.selectable_value(&mut state.pools.selected, name.clone(), name.as_str());
-                    }
-                });
-            if ui.button("Load").clicked() {
-                load_selected(state);
-            }
-            if ui.button("Reload list").clicked() {
-                refresh_pool_names(state);
-            }
-        });
-
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            ui.label("Pool name");
-            ui.add(egui::TextEdit::singleline(&mut state.pools.name).desired_width(280.0));
-        });
-
-        let height = theme::pane_height(ui);
-        theme::split_panes(ui, "pool", height, |ui, side| {
-            if side == 0 {
-                ui.add_space(8.0);
-                ui.heading("Encrypted providers");
-                ui.small("Only selected destinations belong to this pool.");
-                if ui.button("Choose encrypted providers…").clicked() {
-                    state.pools.picker.open(&state.pools.remotes);
-                }
-                ui.small(format!("{} selected", state.pools.remotes.len()));
-                for remote in &state.pools.remotes {
-                    ui.monospace(remote);
-                }
-                ui.collapsing("Advanced: custom destination", |ui| {
-                    ui.text_edit_singleline(&mut state.pools.manual_remote);
-                    if ui.button("Add custom destination").clicked() {
-                        let target = state.pools.manual_remote.trim().to_string();
-                        if !target.is_empty() && !state.pools.remotes.contains(&target) {
-                            state.pools.remotes.push(target);
-                            state.pools.manual_remote.clear();
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Existing pool");
+                egui::ComboBox::from_id_salt("pool-existing")
+                    .selected_text(if state.pools.selected.is_empty() {
+                        "Select pool"
+                    } else {
+                        state.pools.selected.as_str()
+                    })
+                    .show_ui(ui, |ui| {
+                        for name in &state.pool_names {
+                            ui.selectable_value(&mut state.pools.selected, name.clone(), name.as_str());
                         }
-                    }
-                });
-            } else {
-                ui.heading("Pool policy");
-                ui.label(
-                    "Saving affects future uploads. Existing data stays readable and unchanged.",
-                );
-                if ui.button("Reprocess existing data…").clicked() {
-                    state.storage_section = StorageSection::Changes;
-                }
-
-                ui.add_space(8.0);
-                egui::Grid::new("pool-options")
-                    .num_columns(2)
-                    .spacing([16.0, 8.0])
-                    .show(ui, |ui| {
-                        ui.label("Shard size (MiB)");
-                        ui.add(
-                            egui::DragValue::new(&mut state.pools.shard_mib)
-                                .range(1..=crate::config::constants::MAX_SHARD_MIB),
-                        );
-                        ui.end_row();
-
-                        ui.label("Provider object limit (bytes, 0 = none)");
-                        ui.add(egui::DragValue::new(&mut state.pools.max_object_bytes));
-                        ui.end_row();
-
-                        ui.label("Native crypt")
-                            .on_hover_text("RPool itself encrypts file contents and names in rclone crypt format for uploads, reprocessing and mounted drives, writing to each crypt remote's base. Readback goes through the rclone crypt remote, so rclone can always read the data. Crypt remotes with settings RPool does not support are refused.");
-                        ui.checkbox(&mut state.pools.native_crypt, "Encrypt in RPool");
-                        ui.end_row();
-
-                        ui.label("Workers");
-                        ui.add(egui::DragValue::new(&mut state.pools.workers).range(1..=256));
-                        ui.end_row();
-
-                        ui.label("Retries");
-                        ui.add(egui::DragValue::new(&mut state.pools.retries).range(0..=100));
-                        ui.end_row();
-
-                        ui.label("Placement");
-                        egui::ComboBox::from_id_salt("pool-placement")
-                            .selected_text(state.pools.placement.label())
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(
-                                    &mut state.pools.placement,
-                                    Placement::RoundRobin,
-                                    Placement::RoundRobin.label(),
-                                );
-                                ui.selectable_value(
-                                    &mut state.pools.placement,
-                                    Placement::FreeRatio,
-                                    Placement::FreeRatio.label(),
-                                );
-                                ui.selectable_value(
-                                    &mut state.pools.placement,
-                                    Placement::Resilient,
-                                    Placement::Resilient.label(),
-                                );
-                                ui.selectable_value(
-                                    &mut state.pools.placement,
-                                    Placement::CapacityFirst,
-                                    Placement::CapacityFirst.label(),
-                                );
-                            });
-                        ui.end_row();
-
-                        ui.label("Data shards (K)");
-                        ui.add(egui::DragValue::new(&mut state.pools.data_shards).range(1..=255));
-                        ui.end_row();
-
-                        ui.label("Parity shards (M)");
-                        ui.add(egui::DragValue::new(&mut state.pools.parity_shards).range(0..=254));
-                        ui.end_row();
                     });
-                if let Some(note) = state.pools.placement.protection_note() {
-                    ui.small(note);
+                if ui.button("Load").clicked() {
+                    load_selected(state);
                 }
+                if ui.button("Reload list").clicked() {
+                    refresh_pool_names(state);
+                }
+            });
 
-                let shard_size =
-                    crate::models::shard_size::ShardSize::from_mib(state.pools.shard_mib)
-                        .unwrap_or_default();
-                let draft = PoolDefinition {
-                    remotes: state.pools.remotes.clone(),
-                    shard_size,
-                    workers: state.pools.workers,
-                    retries: state.pools.retries,
-                    placement: state.pools.placement,
-                    data_shards: state.pools.data_shards,
-                    parity_shards: state.pools.parity_shards,
-                    max_object_bytes: state.pools.object_limit(),
-                    native_crypt: state.pools.native_crypt,
-                };
-                if let Err(error) = crate::models::shard_size::check_object_limit(
-                    shard_size.bytes(),
-                    draft.max_object_bytes,
-                ) {
-                    ui.colored_label(ui.visuals().warn_fg_color, error.to_string());
-                }
-                state.pools.capacity.show(ui, &state.settings.rclone, &draft);
-                identities(ui, state, &draft, !task.is_running());
-                if let Some(notice) = &state.pools.notice {
-                    ui.label(notice);
-                }
-            }
-        });
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.label("Pool name");
+                ui.add(egui::TextEdit::singleline(&mut state.pools.name).desired_width(280.0));
+            });
 
-        ui.add_space(8.0);
-        ui.horizontal_wrapped(|ui| {
-            if ui
-                .add_enabled(!task.is_running(), egui::Button::new("Save pool"))
-                .clicked()
-            {
-                save_current(state, task);
-            }
-            if ui
-                .add_enabled(!task.is_running(), egui::Button::new("Remove selected"))
-                .clicked()
-            {
-                remove_selected(state);
-            }
-            if ui
-                .add_enabled(!task.is_running(), egui::Button::new("New / clear"))
-                .clicked()
-            {
-                state.pools = PoolForm::from_settings(&state.settings);
-            }
+            ui.add_space(8.0);
+            theme::two_up(
+                ui,
+                &mut (&mut *state, &mut *task),
+                |ui, s| providers_card(ui, s.0),
+                |ui, s| policy_card(ui, s.0, s.1),
+            );
+            ui.add_space(8.0);
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add_enabled(!task.is_running(), egui::Button::new("Save pool"))
+                    .clicked()
+                {
+                    save_current(state, task);
+                }
+                if ui
+                    .add_enabled(!task.is_running(), egui::Button::new("Remove selected"))
+                    .clicked()
+                {
+                    remove_selected(state);
+                }
+                if ui
+                    .add_enabled(!task.is_running(), egui::Button::new("New / clear"))
+                    .clicked()
+                {
+                    state.pools = PoolForm::from_settings(&state.settings);
+                }
+            });
         });
     });
     let action = state
@@ -267,6 +148,144 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     if action.setup {
         state.storage_section = StorageSection::Providers;
     }
+}
+
+fn providers_card(ui: &mut egui::Ui, state: &mut GuiState) {
+    theme::card_section(
+        ui,
+        "Encrypted providers",
+        Some("Only selected destinations belong to this pool."),
+        |_| {},
+        |ui| {
+            if ui.button("Choose encrypted providers…").clicked() {
+                state.pools.picker.open(&state.pools.remotes);
+            }
+            ui.small(format!("{} selected", state.pools.remotes.len()));
+            for remote in &state.pools.remotes {
+                ui.monospace(remote);
+            }
+            ui.collapsing("Advanced: custom destination", |ui| {
+                ui.text_edit_singleline(&mut state.pools.manual_remote);
+                if ui.button("Add custom destination").clicked() {
+                    let target = state.pools.manual_remote.trim().to_string();
+                    if !target.is_empty() && !state.pools.remotes.contains(&target) {
+                        state.pools.remotes.push(target);
+                        state.pools.manual_remote.clear();
+                    }
+                }
+            });
+        },
+    );
+}
+
+fn policy_card(ui: &mut egui::Ui, state: &mut GuiState, task: &TaskRunner) {
+    theme::card_section(
+        ui,
+        "Pool policy",
+        Some("Saving affects future uploads. Existing data stays readable and unchanged."),
+        |_| {},
+        |ui| {
+            if ui.button("Reprocess existing data…").clicked() {
+                state.storage_section = StorageSection::Changes;
+            }
+
+            ui.add_space(8.0);
+            egui::Grid::new("pool-options")
+                .num_columns(2)
+                .spacing([16.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label("Shard size (MiB)");
+                    ui.add(
+                        egui::DragValue::new(&mut state.pools.shard_mib)
+                            .range(1..=crate::config::constants::MAX_SHARD_MIB),
+                    );
+                    ui.end_row();
+
+                    ui.label("Provider object limit (bytes, 0 = none)");
+                    ui.add(egui::DragValue::new(&mut state.pools.max_object_bytes));
+                    ui.end_row();
+
+                    ui.label("Native crypt")
+                        .on_hover_text("RPool itself encrypts file contents and names in rclone crypt format for uploads, reprocessing and mounted drives, writing to each crypt remote's base. Readback goes through the rclone crypt remote, so rclone can always read the data. Crypt remotes with settings RPool does not support are refused.");
+                    ui.checkbox(&mut state.pools.native_crypt, "Encrypt in RPool");
+                    ui.end_row();
+
+                    ui.label("Workers");
+                    ui.add(egui::DragValue::new(&mut state.pools.workers).range(1..=256));
+                    ui.end_row();
+
+                    ui.label("Retries");
+                    ui.add(egui::DragValue::new(&mut state.pools.retries).range(0..=100));
+                    ui.end_row();
+
+                    ui.label("Placement");
+                    egui::ComboBox::from_id_salt("pool-placement")
+                        .selected_text(state.pools.placement.label())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut state.pools.placement,
+                                Placement::RoundRobin,
+                                Placement::RoundRobin.label(),
+                            );
+                            ui.selectable_value(
+                                &mut state.pools.placement,
+                                Placement::FreeRatio,
+                                Placement::FreeRatio.label(),
+                            );
+                            ui.selectable_value(
+                                &mut state.pools.placement,
+                                Placement::Resilient,
+                                Placement::Resilient.label(),
+                            );
+                            ui.selectable_value(
+                                &mut state.pools.placement,
+                                Placement::CapacityFirst,
+                                Placement::CapacityFirst.label(),
+                            );
+                        });
+                    ui.end_row();
+
+                    ui.label("Data shards (K)");
+                    ui.add(egui::DragValue::new(&mut state.pools.data_shards).range(1..=255));
+                    ui.end_row();
+
+                    ui.label("Parity shards (M)");
+                    ui.add(egui::DragValue::new(&mut state.pools.parity_shards).range(0..=254));
+                    ui.end_row();
+                });
+            if let Some(note) = state.pools.placement.protection_note() {
+                ui.small(note);
+            }
+
+            let shard_size = crate::models::shard_size::ShardSize::from_mib(state.pools.shard_mib)
+                .unwrap_or_default();
+            let draft = PoolDefinition {
+                remotes: state.pools.remotes.clone(),
+                shard_size,
+                workers: state.pools.workers,
+                retries: state.pools.retries,
+                placement: state.pools.placement,
+                data_shards: state.pools.data_shards,
+                parity_shards: state.pools.parity_shards,
+                max_object_bytes: state.pools.object_limit(),
+                native_crypt: state.pools.native_crypt,
+            };
+            if let Err(error) = crate::models::shard_size::check_object_limit(
+                shard_size.bytes(),
+                draft.max_object_bytes,
+            ) {
+                ui.colored_label(ui.visuals().warn_fg_color, error.to_string());
+            }
+            state
+                .pools
+                .capacity
+                .show(ui, &state.settings.rclone, &draft);
+            identities(ui, state, &draft, !task.is_running());
+            if let Some(notice) = &state.pools.notice {
+                ui.label(notice);
+            }
+        },
+    );
 }
 
 /// Account identities of this pool's backing accounts, right under the

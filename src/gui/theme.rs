@@ -400,6 +400,27 @@ pub(crate) fn fixed_pane(
     size: egui::Vec2,
     content: impl FnOnce(&mut egui::Ui),
 ) {
+    fixed_pane_with(ui, id, size, false, content);
+}
+
+/// Like [`fixed_pane`], but also scrolls horizontally when the content
+/// (e.g. a wide table) is wider than the pane.
+pub(crate) fn fixed_pane_wide(
+    ui: &mut egui::Ui,
+    id: &str,
+    size: egui::Vec2,
+    content: impl FnOnce(&mut egui::Ui),
+) {
+    fixed_pane_with(ui, id, size, true, content);
+}
+
+fn fixed_pane_with(
+    ui: &mut egui::Ui,
+    id: &str,
+    size: egui::Vec2,
+    horizontal: bool,
+    content: impl FnOnce(&mut egui::Ui),
+) {
     let p = pal(ui);
     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
     ui.painter().rect(
@@ -417,7 +438,12 @@ pub(crate) fn fixed_pane(
             .layout(egui::Layout::top_down(egui::Align::Min)),
     );
     child.set_clip_rect(inner.intersect(ui.clip_rect()));
-    egui::ScrollArea::vertical()
+    let scroll = if horizontal {
+        egui::ScrollArea::both().max_width(inner.width())
+    } else {
+        egui::ScrollArea::vertical()
+    };
+    scroll
         .id_salt(id)
         .auto_shrink([false, false])
         .max_height(inner.height())
