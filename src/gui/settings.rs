@@ -58,6 +58,9 @@ pub(crate) struct MountProfile {
     pub(crate) shared_coordinator: bool,
     pub(crate) shared_keep_previous: usize,
     pub(crate) cache: MountCacheSettings,
+    /// Filesystem frontend; native ones apply to local online drives only.
+    pub(crate) frontend: crate::cli::Frontend,
+    pub(crate) native_read_only: bool,
 }
 
 impl Default for MountProfile {
@@ -81,6 +84,8 @@ impl Default for MountProfile {
             shared_coordinator: Default::default(),
             shared_keep_previous: Default::default(),
             cache: Default::default(),
+            frontend: Default::default(),
+            native_read_only: Default::default(),
         }
     }
 }

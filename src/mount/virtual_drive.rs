@@ -1113,8 +1113,10 @@ impl VirtualDrive {
         }
         Ok(())
     }
+    /// Uploads pending intents. The capacity snapshot is not cleared here:
+    /// it already reserves pending sizes, and `quota` reports no additional
+    /// space as soon as pending intents or namespace events differ from it.
     pub(crate) fn sync(&self) -> Result<()> {
-        *self.capacity.lock().unwrap() = None;
         if self.peer_retention {
             return self.sync_snapshots();
         }
@@ -1269,13 +1271,16 @@ impl VirtualDrive {
             };
         Some((used, Some(used.saturating_add(free))))
     }
+    /// Re-measure capacity. It runs beside `sync` rather than behind its lock,
+    /// so a long upload cannot leave the snapshot stale. The previous snapshot
+    /// keeps serving (and still expires after 120 s) until this one is complete.
+    /// A failed refresh clears it, so a failure never looks like a fresh success.
     pub(crate) fn refresh_capacity(&self) -> Result<CapacityStatus> {
-        let _gate = self
-            .sync_gate
-            .lock()
-            .map_err(|_| anyhow!("sync lock poisoned"))?;
-        // Never leave a failed quota refresh looking like a fresh successful one.
-        *self.capacity.lock().unwrap() = None;
+        let refreshed = self.measure_capacity();
+        *self.capacity.lock().unwrap() = refreshed.as_ref().ok().cloned();
+        refreshed
+    }
+    fn measure_capacity(&self) -> Result<CapacityStatus> {
         let mut status = CapacityStatus::inspect(
             &crate::storage::admin::RcloneAdmin::inherited(&self.rclone),
             &self.policy,
@@ -1322,7 +1327,6 @@ impl VirtualDrive {
             status.note.push_str(" Local spool budget reached: new growth is rejected; sync or recover retained writes.");
         }
         status.note.push_str(" Virtual mode usage is the known shared namespace plus local pending writes, not the local cache. Other unimported archives are not counted.");
-        *self.capacity.lock().unwrap() = Some(status.clone());
         Ok(status)
     }
 }
@@ -1517,6 +1521,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         shared: true,
         read_only: args.diagnostic_read_only,
         webdav: Some((format!("http://{}/", server.address), server.token.clone())),
+        volume_name: Some(args.pool.clone()),
     })?;
     if !drive.pool_sync_roots.is_empty() {
         println!("Pool sync ready: metadata inside {} pool roots; no coordinator. Previous versions={}, automatic private-snapshot collection={}. Legacy v6 data is untouched.", drive.pool_sync_roots.len(), drive.pool_history_limit, drive.peer_retention);
@@ -1527,9 +1532,9 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     }
     let start = std::time::Instant::now();
     let mut ready = false;
-    let mut last = std::time::Instant::now();
-    let mut first_job = true;
-    let mut job: Option<std::thread::JoinHandle<()>> = None;
+    let mut maintenance =
+        super::maintenance::Maintenance::new(std::time::Duration::from_secs(args.interval_seconds));
+    let report: Arc<dyn Fn() + Send + Sync> = report;
     let outcome: Result<()> = (|| {
         loop {
             for line in mount.logs() {
@@ -1551,40 +1556,8 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
             if !ready && start.elapsed() > std::time::Duration::from_secs(30) {
                 bail!("virtual mount readiness timeout; state retained");
             }
-            if job.as_ref().is_some_and(|j| j.is_finished()) {
-                job.take()
-                    .unwrap()
-                    .join()
-                    .map_err(|_| anyhow!("background maintenance panicked; local data retained"))?;
-            }
-            if !args.diagnostic_read_only
-                && ready
-                && job.is_none()
-                && (first_job
-                    || last.elapsed() >= std::time::Duration::from_secs(args.interval_seconds))
-            {
-                let drive = drive.clone();
-                let report = report.clone();
-                let initial_report = first_job;
-                let cancelled = stop.flag.clone();
-                first_job = false;
-                job = Some(std::thread::spawn(move || {
-                    // Quota is optional for reads and must never block the mount
-                    // control loop. Keep reporting and sync in one serialized worker.
-                    if initial_report && !cancelled.load(std::sync::atomic::Ordering::Acquire) {
-                        report();
-                    }
-                    if cancelled.load(std::sync::atomic::Ordering::Acquire) {
-                        return;
-                    }
-                    if let Err(e) = drive.sync() {
-                        eprintln!("Virtual sync pending: {e:#}");
-                    }
-                    if !cancelled.load(std::sync::atomic::Ordering::Acquire) {
-                        report();
-                    }
-                }));
-                last = std::time::Instant::now();
+            if !args.diagnostic_read_only && ready {
+                maintenance.poll(&drive, &report, &stop.flag)?;
             }
             std::thread::sleep(std::time::Duration::from_millis(250));
         }
@@ -1623,10 +1596,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
             }
         }
     }
-    let joined = job
-        .map(|job| job.join())
-        .transpose()
-        .map_err(|_| anyhow!("background maintenance panicked during stop; local data retained"));
+    let joined = maintenance.join();
     let stopped = stopped?;
     println!(
         "Virtual mount stopped; forced={} pending spool/cache/history retained. Cloud replication was not drained; use sync-only separately or resume this workspace.",

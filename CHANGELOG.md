@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Mounted drives no longer report 0 bytes free for long stretches:
+  - `sync` no longer clears the capacity snapshot.
+  - Capacity refreshes in its own worker, at least every 60 s, instead of
+    waiting behind uploads.
+  - The last snapshot keeps serving until the next one completes.
+  - Account quotas are queried concurrently.
+  - Reporting stays conservative: a snapshot expires after 120 s, reports no
+    additional space once pending writes or namespace events change, and a
+    failed refresh reports none.
+- The mounted volume is labelled with the pool name (`--volname`) instead of
+  rclone's generated `webdav{…}` name.
+- GUI: the Mount screen offers the native frontend (FUSE on Linux; WinFsp in
+  `winfsp` builds) and a read-only option for local online drives, saved per
+  pool.
+
 ## 0.8.0 — 2026-09-30
 
 - Native Windows WinFsp frontend (opt-in build `--features winfsp`, WinFsp

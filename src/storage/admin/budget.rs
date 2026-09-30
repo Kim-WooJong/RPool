@@ -19,13 +19,49 @@ pub(crate) struct BudgetSnapshot {
     pub observed_targets: Vec<TargetBudget>,
 }
 impl BudgetSnapshot {
+    /// Quota reports for each distinct backing target, queried concurrently so a
+    /// refresh takes about as long as the slowest account, not the sum of all.
+    fn quotas(
+        admin: &dyn BackendAdmin,
+        catalog: &RemoteCatalog,
+        remotes: &[String],
+    ) -> BTreeMap<String, QuotaReport> {
+        const CONCURRENT: usize = 8;
+        let targets: BTreeSet<String> = remotes
+            .iter()
+            .filter_map(|remote| catalog.capacity(remote).ok())
+            .map(|binding| binding.target)
+            .collect();
+        let targets: Vec<String> = targets.into_iter().collect();
+        let mut reports = BTreeMap::new();
+        for batch in targets.chunks(CONCURRENT) {
+            let answers: Vec<QuotaReport> = std::thread::scope(|scope| {
+                let workers: Vec<_> = batch
+                    .iter()
+                    .map(|target| scope.spawn(move || admin.quota(target)))
+                    .collect();
+                workers
+                    .into_iter()
+                    .zip(batch)
+                    .map(|(worker, target)| {
+                        worker.join().unwrap_or_else(|_| {
+                            super::unavailable_quota(target, "quota query panicked".into())
+                        })
+                    })
+                    .collect()
+            });
+            reports.extend(batch.iter().cloned().zip(answers));
+        }
+        reports
+    }
+
     pub(crate) fn query(
         admin: &dyn BackendAdmin,
         catalog: &RemoteCatalog,
         remotes: &[String],
     ) -> Self {
         let mut result = Self::default();
-        let mut reports = BTreeMap::new();
+        let mut reports = Self::quotas(admin, catalog, remotes);
         for remote in remotes {
             let binding = match catalog.capacity(remote) {
                 Ok(b) => b,
@@ -152,6 +188,50 @@ mod tests {
         fn ensure_encrypted(&self, _: &str) -> Result<()> {
             unreachable!()
         }
+    }
+    /// Seven accounts whose quota query takes 300 ms each.
+    struct SlowAdmin(std::sync::atomic::AtomicUsize);
+    impl BackendAdmin for SlowAdmin {
+        fn catalog(&self) -> Result<RemoteCatalog> {
+            let sections: serde_json::Map<String, Value> = (1..=7)
+                .map(|i| (format!("p{i}"), serde_json::json!({"type": "webdav"})))
+                .collect();
+            RemoteCatalog::parse(&Value::Object(sections))
+        }
+        fn quota(&self, remote: &str) -> QuotaReport {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            Admin.quota(remote)
+        }
+        fn discover(&self) -> Result<Vec<String>> {
+            unreachable!()
+        }
+        fn probe(&self, _: &str) -> Result<()> {
+            unreachable!()
+        }
+        fn ensure_encrypted(&self, _: &str) -> Result<()> {
+            unreachable!()
+        }
+    }
+    #[test]
+    fn account_quotas_are_queried_concurrently_once_each() {
+        let admin = SlowAdmin(Default::default());
+        let catalog = admin.catalog().unwrap();
+        let mut remotes: Vec<String> = (1..=7).map(|i| format!("p{i}:")).collect();
+        remotes.push("p1:".into());
+        let started = std::time::Instant::now();
+        let snapshot = BudgetSnapshot::query(&admin, &catalog, &remotes);
+        let elapsed = started.elapsed();
+        assert_eq!(snapshot.targets.len(), 8);
+        assert_eq!(
+            admin.0.load(std::sync::atomic::Ordering::SeqCst),
+            7,
+            "one query per account"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_millis(1500),
+            "took {elapsed:?}"
+        );
     }
     #[test]
     fn unresolved_account_is_not_additive_with_declared_account() {

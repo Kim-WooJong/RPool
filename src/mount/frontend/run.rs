@@ -5,8 +5,7 @@ use super::super::lifecycle::StopControl;
 use super::super::virtual_drive::VirtualDrive;
 use crate::cli::Frontend;
 use crate::prelude::*;
-use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// A mounted native filesystem.
 pub(super) trait NativeMount {
@@ -56,8 +55,7 @@ pub(crate) fn run_native(drive: Arc<VirtualDrive>, run: NativeRun<'_>) -> Result
         run.mountpoint.display(),
         run.read_only
     );
-    let mut job: Option<std::thread::JoinHandle<()>> = None;
-    let mut last: Option<Instant> = None;
+    let mut maintenance = super::super::maintenance::Maintenance::new(run.interval);
     let outcome: Result<()> = (|| loop {
         if run.stop.requested() {
             return Ok(());
@@ -65,39 +63,15 @@ pub(crate) fn run_native(drive: Arc<VirtualDrive>, run: NativeRun<'_>) -> Result
         if !mount.alive() {
             bail!("native filesystem was unmounted externally; local data retained");
         }
-        if job.as_ref().is_some_and(|j| j.is_finished()) {
-            job.take()
-                .expect("checked above")
-                .join()
-                .map_err(|_| anyhow!("background maintenance panicked; local data retained"))?;
-        }
-        let due = last.is_none_or(|t| t.elapsed() >= run.interval);
-        if !run.read_only && job.is_none() && due {
-            let drive = drive.clone();
-            let report = run.report.clone();
-            let cancelled = run.stop.flag.clone();
-            job = Some(std::thread::spawn(move || {
-                if cancelled.load(Ordering::Acquire) {
-                    return;
-                }
-                if let Err(e) = drive.sync() {
-                    eprintln!("Virtual sync pending: {e:#}");
-                }
-                if !cancelled.load(Ordering::Acquire) {
-                    report();
-                }
-            }));
-            last = Some(Instant::now());
+        if !run.read_only {
+            maintenance.poll(&drive, &run.report, &run.stop.flag)?;
         }
         std::thread::sleep(Duration::from_millis(250));
     })();
     run.stop.cancel();
     println!("Unmounting native filesystem; pending local data will be retained");
     let stopped = mount.stop();
-    let joined = job
-        .map(|job| job.join())
-        .transpose()
-        .map_err(|_| anyhow!("background maintenance panicked during stop; local data retained"));
+    let joined = maintenance.join();
     stopped?;
     joined?;
     println!("Native mount stopped; pending spool/cache/history retained. Cloud replication was not drained.");

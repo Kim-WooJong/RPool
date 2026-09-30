@@ -25,6 +25,8 @@ pub(crate) struct MountConfig {
     pub(crate) vfs_cache_gib: u64,
     pub(crate) cache_min_free_gib: u64,
     pub(crate) webdav: Option<(String, String)>,
+    /// OS volume label (Explorer/Finder name); `None` keeps rclone's default.
+    pub(crate) volume_name: Option<String>,
 }
 
 pub(crate) struct StopReport {
@@ -113,6 +115,9 @@ impl MountProcess {
         }
         if config.read_only {
             command.arg("--read-only");
+        }
+        if let Some(name) = config.volume_name.as_deref().map(volume_label) {
+            command.arg("--volname").arg(name);
         }
         configure_cache(
             &mut command,
@@ -528,6 +533,28 @@ impl MountLog {
             text = text.replace(secret, "[redacted]");
         }
         text.trim_end().to_string()
+    }
+}
+
+/// A volume label from a pool name: Windows labels hold at most 32 characters,
+/// and separators or quotes could break the mount option string.
+pub(super) fn volume_label(pool: &str) -> String {
+    let label: String = pool
+        .chars()
+        .filter(|c| {
+            !c.is_control()
+                && !matches!(
+                    c,
+                    ',' | '\\' | '/' | ':' | '"' | '=' | '*' | '?' | '<' | '>' | '|'
+                )
+        })
+        .take(32)
+        .collect();
+    let label = label.trim().to_string();
+    if label.is_empty() {
+        "RPool".into()
+    } else {
+        label
     }
 }
 
@@ -1447,6 +1474,7 @@ mod tests {
             &script,
             "#!/bin/sh\nif [ \"$1\" = version ]; then echo 'rclone v1.75.1'; exit 0; fi\n\
              echo \"stdout pass=$RCLONE_RC_PASS\"\n\
+             for a in \"$@\"; do [ \"$prev\" = --volname ] && echo \"volname=$a\"; prev=\"$a\"; done\n\
              echo \"stderr token=$RCLONE_WEBDAV_BEARER_TOKEN\" >&2\n\
              [ -p /dev/stdout ] && echo 'stdout is a pipe'\n\
              exec sleep 30\n",
@@ -1463,11 +1491,12 @@ mod tests {
             vfs_cache_gib: 1,
             cache_min_free_gib: 0,
             webdav: Some(("http://127.0.0.1:9/".into(), "bearer-secret-token".into())),
+            volume_name: Some("My Pool".into()),
         })
         .unwrap();
         let mut lines = Vec::new();
         let deadline = Instant::now() + Duration::from_secs(10);
-        while lines.len() < 2 && Instant::now() < deadline {
+        while lines.len() < 3 && Instant::now() < deadline {
             lines.extend(process.logs());
             thread::sleep(Duration::from_millis(50));
         }
@@ -1488,6 +1517,17 @@ mod tests {
         );
         assert!(!lines.iter().any(|l| l.contains("pipe")), "{lines:?}");
         assert!(!lines.iter().any(|l| l.contains("bearer-secret-token")));
+        assert!(lines.contains(&"volname=My Pool".to_string()), "{lines:?}");
+    }
+
+    #[test]
+    fn volume_labels_are_the_pool_name_made_safe() {
+        assert_eq!(volume_label("archive"), "archive");
+        assert_eq!(volume_label("My Pool"), "My Pool");
+        assert_eq!(volume_label("a,b:c/d\\e\"f"), "abcdef");
+        assert_eq!(volume_label(&"x".repeat(40)).len(), 32);
+        assert_eq!(volume_label("사진 보관"), "사진 보관");
+        assert_eq!(volume_label(",,,"), "RPool");
     }
 
     #[test]
@@ -1518,6 +1558,7 @@ mod tests {
             vfs_cache_gib: 10,
             cache_min_free_gib: 2,
             webdav: None,
+            volume_name: None,
         };
         assert!(validate_mountpoint(&config).is_ok());
         let metadata = root.join(".rpool/archives");

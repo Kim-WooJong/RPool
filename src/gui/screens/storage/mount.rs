@@ -37,6 +37,8 @@ pub(crate) struct MountForm {
     recovery_skip_remotes: String,
     recovery_reprocess_plan: String,
     recovering_accounts: bool,
+    frontend: crate::cli::Frontend,
+    native_read_only: bool,
 }
 
 impl Default for MountForm {
@@ -76,6 +78,8 @@ impl Default for MountForm {
             recovery_skip_remotes: String::new(),
             recovery_reprocess_plan: String::new(),
             recovering_accounts: false,
+            frontend: Default::default(),
+            native_read_only: false,
             capacity_read: std::time::Instant::now(),
             identity_editor: crate::storage::admin::domains::DomainStore::load()
                 .map(|s| {
@@ -148,6 +152,8 @@ impl MountForm {
             shared_coordinator: self.shared_coordinator,
             shared_keep_previous: self.shared_keep_previous,
             cache: self.cache_settings(),
+            frontend: self.frontend,
+            native_read_only: self.native_read_only,
         }
     }
 
@@ -182,6 +188,8 @@ impl MountForm {
         self.pool_history_override = profile.pool_history_override;
         self.shared_coordinator = profile.shared_coordinator;
         self.shared_keep_previous = profile.shared_keep_previous;
+        self.frontend = profile.frontend;
+        self.native_read_only = profile.native_read_only;
         self.virtual_drive = profile.cache.online_drive;
         self.cache_gib = profile.cache.shard_gib;
         self.vfs_cache_gib = profile.cache.native_gib;
@@ -194,6 +202,28 @@ impl MountForm {
         self.capacity = None;
         self.pool_status = None;
         self.notice = None;
+    }
+
+    /// A native frontend needs a local online drive: no pool sync or shared root.
+    fn native_allowed(&self) -> bool {
+        self.virtual_drive
+            && !self.pool_sync
+            && !self.bounded_shared
+            && self.shared_root.trim().is_empty()
+    }
+    /// `--frontend` arguments for a mount (never for sync or maintenance actions).
+    fn frontend_args(&self, sync_only: bool) -> Vec<OsString> {
+        if sync_only || !self.native_allowed() || self.frontend == crate::cli::Frontend::Dav {
+            return vec![];
+        }
+        let mut args = vec![OsString::from(format!(
+            "--frontend={}",
+            self.frontend.cli_value()
+        ))];
+        if self.native_read_only {
+            args.push("--native-read-only".into());
+        }
+        args
     }
 
     fn append_cache_args(&self, args: &mut Vec<OsString>) {
@@ -383,6 +413,7 @@ impl MountForm {
                 }
             }
         }
+        args.extend(self.frontend_args(sync_only));
         args.push("--status-file".into());
         args.push(control.path().join("capacity.json").into_os_string());
         if action >= 2 {
@@ -524,6 +555,7 @@ fn show_inner(ui: &mut egui::Ui, state: &mut GuiState) {
                 ui.label("Legacy virtual namespace uses shared-root/virtual-v3. Served files stay pinned for this mount; incoming changes appear as named revision copies. Dirty writes and history are retained. Empty directories currently remain local.");
             }
             ui.horizontal(|ui| {ui.label("Clean shard cache budget (GiB)");ui.add(egui::DragValue::new(&mut form.cache_gib).range(1..=1048576));});
+            frontend_section(ui, form);
         }
         ui.horizontal(|ui| { ui.label("Native OS cache target (GiB)"); ui.add(egui::DragValue::new(&mut form.vfs_cache_gib).range(1..=1048576)); });
         ui.horizontal(|ui| { ui.label("Keep disk free (GiB, native cache target)"); ui.add(egui::DragValue::new(&mut form.cache_min_free_gib).range(0..=1048576)); });
@@ -838,6 +870,49 @@ fn directory_field(ui: &mut egui::Ui, label: &str, value: &mut String) {
     });
 }
 
+/// Filesystem frontend choice: DAV everywhere, the native one where it exists.
+fn frontend_section(ui: &mut egui::Ui, form: &mut MountForm) {
+    use crate::cli::Frontend;
+    ui.horizontal(|ui| {
+        ui.label("Filesystem frontend");
+        egui::ComboBox::from_id_salt("mount-frontend")
+            .selected_text(match form.frontend {
+                Frontend::Dav => "WebDAV via rclone mount (default)",
+                Frontend::Fuse => "Native FUSE (Linux)",
+                Frontend::Winfsp => "Native WinFsp (Windows)",
+            })
+            .show_ui(ui, |ui| {
+                ui.selectable_value(
+                    &mut form.frontend,
+                    Frontend::Dav,
+                    "WebDAV via rclone mount (default)",
+                );
+                if let Some(native) = Frontend::native_here() {
+                    let label = match native {
+                        Frontend::Fuse => "Native FUSE (Linux)",
+                        _ => "Native WinFsp (Windows)",
+                    };
+                    ui.add_enabled_ui(form.native_allowed(), |ui| {
+                        ui.selectable_value(&mut form.frontend, native, label);
+                    });
+                }
+            });
+    });
+    if Frontend::native_here().is_none() {
+        ui.small(if cfg!(windows) {
+            "The native WinFsp frontend needs a build with the `winfsp` feature and WinFsp installed."
+        } else {
+            "No native frontend is available on this OS; WebDAV is used."
+        });
+    } else if !form.native_allowed() {
+        ui.small("Native frontends need a local online drive: turn off pool sync and leave the shared root empty. WebDAV is used otherwise.");
+    }
+    if form.frontend != Frontend::Dav && form.native_allowed() {
+        ui.checkbox(&mut form.native_read_only, "Mount read-only");
+        ui.colored_label(egui::Color32::YELLOW, "Experimental: closing or fsync-ing a file is the local durability point; cloud sync stays asynchronous. Use a NEW workspace for first tests.");
+    }
+}
+
 fn build_args(
     pool: &str,
     workspace: &Path,
@@ -988,6 +1063,57 @@ mod tests {
         let mut invalid = super::MountForm::default();
         invalid.pool_retention = true;
         assert!(invalid.recovery_args(&base.join("stop")).is_err());
+    }
+    #[test]
+    fn native_frontend_choice_reaches_mount_cli_only_for_local_online_drives() {
+        use clap::Parser;
+        let parse = |form: &super::MountForm, sync_only: bool| {
+            let mut args: Vec<std::ffi::OsString> = [
+                "rpool",
+                "mount",
+                "--pool=p",
+                "--workspace=/w",
+                "--mountpoint=/m",
+            ]
+            .into_iter()
+            .map(Into::into)
+            .collect();
+            form.append_cache_args(&mut args);
+            args.extend(form.frontend_args(sync_only));
+            let parsed = crate::cli::Cli::try_parse_from(args).unwrap();
+            let Some(crate::cli::Commands::Mount(args)) = parsed.command else {
+                panic!("mount")
+            };
+            (args.frontend, args.native_read_only)
+        };
+        let mut form = super::MountForm::default();
+        form.pool_sync = false;
+        form.frontend = crate::cli::Frontend::Fuse;
+        form.native_read_only = true;
+        assert_eq!(parse(&form, false), (crate::cli::Frontend::Fuse, true));
+        assert_eq!(
+            parse(&form, true),
+            (crate::cli::Frontend::Dav, false),
+            "sync-only"
+        );
+        form.pool_sync = true;
+        assert_eq!(
+            parse(&form, false),
+            (crate::cli::Frontend::Dav, false),
+            "pool sync keeps DAV"
+        );
+        form.pool_sync = false;
+        form.shared_root = "crypt:team".into();
+        assert!(form.frontend_args(false).is_empty());
+        // The choice is saved per pool and restored.
+        form.shared_root.clear();
+        let profile = form.profile();
+        let json = serde_json::to_string(&profile).unwrap();
+        assert!(json.contains("\"frontend\":\"fuse\""), "{json}");
+        let restored: crate::gui::settings::MountProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, profile);
+        let legacy: crate::gui::settings::MountProfile = serde_json::from_str("{}").unwrap();
+        assert_eq!(legacy.frontend, crate::cli::Frontend::Dav);
     }
     #[test]
     fn saved_cache_preferences_reach_mount_cli_and_keep_explicit_replica() {

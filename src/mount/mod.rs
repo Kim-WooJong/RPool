@@ -7,6 +7,7 @@ mod frontend;
 mod fs_core;
 mod incremental;
 mod lifecycle;
+mod maintenance;
 mod namespace;
 pub(crate) mod peer_projection;
 mod peer_snapshot;
@@ -109,6 +110,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         shared: workspace.is_shared(),
         read_only: false,
         webdav: None,
+        volume_name: Some(args.pool.clone()),
     })?;
     println!("Mount process started. Waiting for filesystem readiness; close files before requesting unmount.");
     let mut last_scan = Instant::now();

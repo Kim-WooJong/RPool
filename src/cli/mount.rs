@@ -2,7 +2,18 @@ use clap::Args;
 use std::path::PathBuf;
 
 /// OS filesystem frontend for a virtual drive.
-#[derive(clap::ValueEnum, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(
+    clap::ValueEnum,
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
 pub(crate) enum Frontend {
     /// rclone mount/VFS over RPool's loopback WebDAV server (default).
     #[default]
@@ -11,6 +22,26 @@ pub(crate) enum Frontend {
     Fuse,
     /// Native WinFsp frontend (Windows) over the filesystem core; local workspaces only.
     Winfsp,
+}
+
+impl Frontend {
+    pub(crate) fn cli_value(self) -> &'static str {
+        match self {
+            Self::Dav => "dav",
+            Self::Fuse => "fuse",
+            Self::Winfsp => "winfsp",
+        }
+    }
+    /// The native frontend this build can mount on this OS, if any.
+    pub(crate) fn native_here() -> Option<Self> {
+        if cfg!(target_os = "linux") {
+            Some(Self::Fuse)
+        } else if cfg!(all(windows, feature = "winfsp")) {
+            Some(Self::Winfsp)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Args, Debug, Clone)]
