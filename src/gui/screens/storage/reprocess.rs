@@ -43,8 +43,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     if state.reprocess.target.is_empty() && !state.pools.selected.is_empty() {
         state.reprocess.target = state.pools.selected.clone();
     }
-    let height = theme::pane_height(ui);
-    theme::split_panes(ui, "reprocess", height, |ui, side| {
+    theme::split_cards(ui, |ui, side| {
         if side == 0 {
             ui.strong("Target policy and selected archives");
             egui::ComboBox::from_id_salt("reprocess-target")

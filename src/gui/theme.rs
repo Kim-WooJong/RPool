@@ -351,42 +351,28 @@ pub(crate) fn page_body<R>(
         .inner
 }
 
-/// Height for side-by-side scroll panes: most of the window, bounded so
-/// the page's own header and actions stay visible.
-pub(crate) fn pane_height(ui: &egui::Ui) -> f32 {
-    (ui.ctx().content_rect().height() - 320.0).clamp(240.0, 760.0)
-}
-
-/// Two independently scrolling panes: side by side when wide, stacked when
-/// narrow. `pane(ui, 0)` draws the left/top pane, `pane(ui, 1)` the other.
-pub(crate) fn split_panes(
-    ui: &mut egui::Ui,
-    id: &str,
-    height: f32,
-    mut pane: impl FnMut(&mut egui::Ui, usize),
-) {
-    let mut scroll = |ui: &mut egui::Ui, side: usize, height: f32, fill: bool| {
+/// Two cards that grow with their content (no inner scroll): side by side
+/// when wide, stacked when narrow. `pane(ui, 0)` draws the left/top card,
+/// `pane(ui, 1)` the other; the page itself scrolls.
+pub(crate) fn split_cards(ui: &mut egui::Ui, mut pane: impl FnMut(&mut egui::Ui, usize)) {
+    let mut draw = |ui: &mut egui::Ui, side: usize| {
         card(ui).show(ui, |ui| {
             ui.set_width(ui.available_width());
-            egui::ScrollArea::vertical()
-                .id_salt((id, side))
-                .max_height(height)
-                .auto_shrink([false, !fill])
-                .show(ui, |ui| pane(ui, side));
+            pane(ui, side);
         });
     };
     if ui.available_width() >= TWO_COLUMN_MIN {
         ui.columns(2, |columns| {
             for (side, column) in columns.iter_mut().enumerate() {
                 column.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                    scroll(ui, side, height, true)
+                    draw(ui, side)
                 });
             }
         });
     } else {
-        scroll(ui, 0, height * 0.7, false);
+        draw(ui, 0);
         ui.add_space(SUBSECTION_GAP);
-        scroll(ui, 1, height * 0.7, false);
+        draw(ui, 1);
     }
     ui.add_space(SUBSECTION_GAP);
 }
