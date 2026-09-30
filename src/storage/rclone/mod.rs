@@ -1,5 +1,8 @@
 //! Single owning rclone data/admin subprocess adapter. Legacy raw addresses and
 //! typed keys share the same primitives, classification and crypt write gate.
+#[cfg(all(test, unix))]
+#[path = "copy_tests.rs"]
+mod copy_tests;
 mod process;
 #[cfg(test)]
 mod tests;
@@ -371,6 +374,138 @@ impl RcloneContext {
         process::run(&mut self.command(&args), ctx, None, &mut io::sink(), true)?;
         Ok(())
     }
+    /// Copies one object from `source` to `destination` with `rclone copyto`,
+    /// never overwriting: an existing destination is refused before the copy,
+    /// and `--ignore-existing` closes the race window (a destination that
+    /// appears in between is left alone and fails the caller's verification).
+    /// The destination must pass the crypt write gate (`ensure_crypt`).
+    ///
+    /// - Same rclone remote name (e.g. `c1:old/x` -> `c1:new/x`): rclone uses
+    ///   the backend's server-side copy when it has one (`Features.Copy`; a
+    ///   crypt remote has it when its base has it). A crypt server-side copy
+    ///   copies the base object verbatim under the encrypted destination name,
+    ///   so no data passes through this PC and the ciphertext stays valid (the
+    ///   file nonce lives in the object header; the data key is the remote's).
+    ///   Without server-side copy rclone falls back to a streamed copy.
+    /// - Different remotes: rclone streams the object through this PC
+    ///   (decrypting and re-encrypting for crypt remotes); no temp file.
+    pub(crate) fn copy_object(
+        &self,
+        ctx: &OperationContext,
+        source: &str,
+        destination: &str,
+    ) -> Result<(), StorageError> {
+        remote_name(source)?;
+        self.ensure_crypt(ctx, destination)?;
+        // Bucket-based backends stat a missing key as a directory; copyto
+        // refuses to replace a real directory by itself.
+        match self.stat_raw(ctx, destination) {
+            Ok(metadata) if !metadata.is_dir => {
+                return Err(StorageError::AlreadyExists {
+                    path: "copy destination".into(),
+                })
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == crate::storage::error::StorageErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        let args = [
+            "copyto",
+            "--ignore-existing",
+            "--retries",
+            "1",
+            "--low-level-retries",
+            "1",
+            "--",
+            source,
+            destination,
+        ]
+        .map(OsString::from);
+        process::run(&mut self.command(&args), ctx, None, &mut io::sink(), true)?;
+        Ok(())
+    }
+    /// `rclone backend features <remote>`: server-side copy support and hashes.
+    pub(crate) fn backend_features(
+        &self,
+        ctx: &OperationContext,
+        remote: &str,
+    ) -> Result<BackendFeatures, StorageError> {
+        let bytes = self.capture(ctx, &["backend", "features", "--", remote])?;
+        parse_backend_features(&bytes)
+    }
+    /// What a copy inside the crypt remote of `address` can do: whether its
+    /// backend copies server-side and which hash (if any) the crypt's base
+    /// reports for the ciphertext objects. Refuses non-crypt remotes.
+    pub(crate) fn crypt_copy_capabilities(
+        &self,
+        ctx: &OperationContext,
+        address: &str,
+    ) -> Result<CryptCopyCapabilities, StorageError> {
+        let name = remote_name(address)?;
+        let config = self.config_dump(ctx)?;
+        let entry = config
+            .get(name)
+            .ok_or_else(|| invalid("rclone remote is not configured"))?;
+        if !entry
+            .get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|t| t.eq_ignore_ascii_case("crypt"))
+        {
+            return Err(invalid("not a crypt remote"));
+        }
+        let base = entry
+            .get("remote")
+            .and_then(Value::as_str)
+            .filter(|b| !b.is_empty())
+            .ok_or_else(|| invalid("crypt remote has no base"))?
+            .to_owned();
+        let own = self.backend_features(ctx, &format!("{name}:"))?;
+        let below = self.backend_features(ctx, &base)?;
+        Ok(CryptCopyCapabilities {
+            server_side_copy: own.copy,
+            hashes: preferred_hashes(&below.hashes),
+            base,
+        })
+    }
+    /// Address of the ciphertext object behind a crypt `address` on the crypt's
+    /// `base` (from `crypt_copy_capabilities`). rclone encrypts the name
+    /// (`cryptdecode --reverse`), so every name-encryption option is honoured.
+    pub(crate) fn crypt_base_object(
+        &self,
+        ctx: &OperationContext,
+        address: &str,
+        base: &str,
+    ) -> Result<String, StorageError> {
+        let name = remote_name(address)?;
+        let path = &address[name.len() + 1..];
+        if path.is_empty() {
+            return Err(invalid("crypt object path is empty"));
+        }
+        let remote = format!("{name}:");
+        let bytes = self.capture(ctx, &["cryptdecode", "--reverse", "--", &remote, path])?;
+        let encrypted = parse_cryptdecode(&bytes, path)?;
+        Ok(join_base(base, &encrypted))
+    }
+    /// (size, `type:value`) of one plain object for the first of `hashes` it
+    /// reports, or None when it reports none of them (backends may advertise
+    /// a hash they do not return for every object).
+    pub(crate) fn object_hash(
+        &self,
+        ctx: &OperationContext,
+        address: &str,
+        hashes: &[String],
+    ) -> Result<Option<(u64, String)>, StorageError> {
+        if hashes.is_empty() {
+            return Ok(None);
+        }
+        let mut args = vec!["lsjson", "--stat", "--hash"];
+        for hash in hashes {
+            args.extend(["--hash-type", hash.as_str()]);
+        }
+        args.extend(["--", address]);
+        let bytes = self.capture(ctx, &args)?;
+        parse_object_hash(&bytes, hashes)
+    }
     pub(crate) fn delete_raw(
         &self,
         ctx: &OperationContext,
@@ -389,6 +524,120 @@ impl RcloneContext {
         process::run(&mut self.command(&args), ctx, None, &mut io::sink(), true)?;
         Ok(())
     }
+}
+
+/// Parsed `rclone backend features` output.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct BackendFeatures {
+    /// `Features.Copy`: the backend copies objects server-side.
+    pub copy: bool,
+    /// Supported hash types, rclone names (`md5`, `sha1`, ...).
+    pub hashes: Vec<String>,
+}
+
+/// Copy abilities inside one crypt remote.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CryptCopyCapabilities {
+    pub server_side_copy: bool,
+    /// Hashes of the base's ciphertext objects, preferred first, used to
+    /// verify a server-side copy. Empty when the base reports none.
+    pub hashes: Vec<String>,
+    /// The crypt's base (`remote =` in its config section).
+    pub base: String,
+}
+
+pub(crate) fn parse_backend_features(bytes: &[u8]) -> Result<BackendFeatures, StorageError> {
+    let value: Value =
+        serde_json::from_slice(bytes).map_err(|_| invalid("invalid rclone features JSON"))?;
+    let copy = value
+        .get("Features")
+        .and_then(|f| f.get("Copy"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let hashes = value
+        .get("Hashes")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(Value::as_str)
+                .filter(|h| !h.is_empty() && *h != "none")
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(BackendFeatures { copy, hashes })
+}
+
+/// Up to three advertised hashes: strong, widely supported ones first, any
+/// other advertised hash when none of those is.
+pub(crate) fn preferred_hashes(hashes: &[String]) -> Vec<String> {
+    const ORDER: &[&str] = &["sha256", "sha1", "md5", "blake3", "sha512", "xxh128"];
+    let mut out: Vec<String> = ORDER
+        .iter()
+        .filter(|want| hashes.iter().any(|h| h == *want))
+        .take(3)
+        .map(|h| (*h).to_owned())
+        .collect();
+    if out.is_empty() {
+        out.extend(hashes.first().cloned());
+    }
+    out
+}
+
+/// `cryptdecode --reverse` prints `<input> \t <encrypted>` per argument.
+pub(crate) fn parse_cryptdecode(bytes: &[u8], path: &str) -> Result<String, StorageError> {
+    let text = std::str::from_utf8(bytes).map_err(|_| invalid("invalid cryptdecode output"))?;
+    let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+    let line = lines
+        .next()
+        .ok_or_else(|| invalid("empty cryptdecode output"))?;
+    if lines.next().is_some() {
+        return Err(invalid("unexpected cryptdecode output"));
+    }
+    let (input, encrypted) = line
+        .split_once('\t')
+        .ok_or_else(|| invalid("unexpected cryptdecode output"))?;
+    let encrypted = encrypted.trim();
+    if input.trim() != path
+        || encrypted.is_empty()
+        || encrypted.starts_with('/')
+        || encrypted.contains(':')
+        || encrypted.split('/').any(|s| matches!(s, "" | "." | ".."))
+    {
+        return Err(invalid("unexpected cryptdecode output"));
+    }
+    Ok(encrypted.to_owned())
+}
+
+pub(crate) fn join_base(base: &str, relative: &str) -> String {
+    if base.ends_with([':', '/']) {
+        format!("{base}{relative}")
+    } else {
+        format!("{base}/{relative}")
+    }
+}
+
+pub(crate) fn parse_object_hash(
+    bytes: &[u8],
+    hashes: &[String],
+) -> Result<Option<(u64, String)>, StorageError> {
+    let value: Value =
+        serde_json::from_slice(bytes).map_err(|_| invalid("invalid rclone stat JSON"))?;
+    if value.get("IsDir").and_then(Value::as_bool) != Some(false) {
+        return Err(invalid("expected object, found directory"));
+    }
+    let size = value
+        .get("Size")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| invalid("missing stat Size"))?;
+    let reported = value.get("Hashes");
+    Ok(hashes.iter().find_map(|hash| {
+        reported
+            .and_then(|h| h.get(hash))
+            .and_then(Value::as_str)
+            .filter(|h| !h.is_empty())
+            .map(|h| (size, format!("{hash}:{}", h.to_ascii_lowercase())))
+    }))
 }
 
 fn unconditional(options: &WriteOptions) -> Result<(), StorageError> {

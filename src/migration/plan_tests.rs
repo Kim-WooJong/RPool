@@ -51,10 +51,11 @@ fn removing_one_remote_relocates_without_loss_and_lists_each_remote_once() {
     assert_eq!(plan.counts.lost, 0);
     assert_eq!(plan.counts.relocate, 2);
     // f2 lost its parity, f3 a data shard: each is copied in full to the new
-    // archive (the lost shard rebuilt from K = 2), then read back twice.
+    // archive (the lost shard rebuilt from K = 2), then read back once. Copy
+    // features are unknown here, so nothing counts as server-side.
     let f2 = plan.entries.iter().find(|e| e.archive_id == "f2").unwrap();
     assert_eq!(f2.upload_bytes, 3 * MIB);
-    assert_eq!(f2.download_bytes, 2 * MIB + 2 * 3 * MIB);
+    assert_eq!(f2.download_bytes, 2 * MIB + 3 * MIB);
     assert_eq!(f2.losses[0].missing[0].reason, MissingReason::Missing);
     assert_eq!(plan.new_storage_bytes, 6 * MIB);
     assert_eq!(plan.upload_bytes, 6 * MIB);
@@ -75,10 +76,43 @@ fn readable_removed_remote_is_copied_not_rebuilt() {
     assert_eq!(f2.action, Action::Relocate);
     assert_eq!(
         f2.download_bytes,
-        3 * MIB + 2 * 3 * MIB,
-        "full copy + two readbacks"
+        3 * MIB + 3 * MIB,
+        "streamed full copy + one readback"
     );
     assert!(f2.losses.is_empty());
+    assert!(!plan
+        .notes
+        .iter()
+        .any(|n| n.contains("server-side by the provider")));
+}
+
+#[test]
+fn server_side_copy_features_cut_the_estimate_and_add_a_note() {
+    let (mut cloud, _) = fixture();
+    for remote in ["a:", "b:", "c:"] {
+        cloud.features.insert(
+            remote.into(),
+            CopyFeatures {
+                server_side_copy: true,
+                ciphertext_hash: true,
+            },
+        );
+    }
+    // d: leaves but stays readable: f2's b:/c: shards are copied server-side,
+    // its d: parity is streamed to a pool remote and read back.
+    let plan = run(&cloud, &["a:", "b:", "c:"], 2, 1);
+    let f2 = plan.entries.iter().find(|e| e.archive_id == "f2").unwrap();
+    assert_eq!((f2.download_bytes, f2.upload_bytes), (2 * MIB, MIB));
+    let f3 = plan.entries.iter().find(|e| e.archive_id == "f3").unwrap();
+    assert_eq!((f3.download_bytes, f3.upload_bytes), (2 * MIB, MIB));
+    assert_eq!(plan.new_storage_bytes, 6 * MIB, "still a full copy");
+    let note = plan
+        .notes
+        .iter()
+        .find(|n| n.contains("server-side by the provider"))
+        .unwrap();
+    assert!(note.starts_with("4 shard(s)"), "{note}");
+    assert!(note.contains("ciphertext hash"), "{note}");
 }
 
 #[test]

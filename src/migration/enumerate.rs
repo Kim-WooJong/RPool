@@ -26,6 +26,15 @@ impl RemoteListing {
     }
 }
 
+/// Copy abilities of one remote, used by the relocation estimate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CopyFeatures {
+    /// A copy within this rclone remote is done by the provider.
+    pub server_side_copy: bool,
+    /// The crypt's base reports a hash of the stored (ciphertext) objects.
+    pub ciphertext_hash: bool,
+}
+
 /// Read-only access to the cloud used by the planner (rclone in production,
 /// synthetic in tests).
 pub(crate) trait Cloud: Sync {
@@ -38,6 +47,9 @@ pub(crate) trait Cloud: Sync {
     fn probe_full(&self, manifest: &Manifest, workers: usize) -> Result<Vec<(Shard, Probe)>>;
     /// Declared outage group of a remote, if any.
     fn failure_domain(&self, remote: &str) -> Option<String>;
+    /// Server-side copy and ciphertext hash support of a remote; None when
+    /// unknown (the estimate then assumes a streamed copy).
+    fn copy_features(&self, remote: &str) -> Option<CopyFeatures>;
     /// Conservative check that the new shards fit the target's quotas.
     fn quota_ok(
         &self,

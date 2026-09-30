@@ -1,4 +1,5 @@
 //! Byte estimates per archive and the conservative quota check.
+use super::enumerate::CopyFeatures;
 use super::probe::{groups, ShardState};
 use crate::prelude::*;
 use crate::storage::admin::budget::BudgetSnapshot;
@@ -12,18 +13,33 @@ pub(crate) struct Transfer {
     pub new_storage: u64,
     /// New shards (group, size) for the quota check.
     pub specs: Vec<PhysicalSpec>,
+    /// Shards expected to be copied by the provider (server-side).
+    pub server_side_shards: usize,
+    pub server_side_bytes: u64,
+    /// Of those, shards read back because the base reports no hash.
+    pub server_side_readback_shards: usize,
 }
 
-/// Relocation, as `relocate` performs it: the replacement is a full copy
-/// under a new archive id (it never borrows the old archive's objects), so
-/// every readable shard is downloaded once and every shard (copied or
-/// rebuilt from K readable ones) is uploaded. Each written shard is then read
-/// back twice: the write readback and the final full scan. Nothing moves when
-/// no shard needs to (`moving` empty).
+/// Relocation, as `relocate` performs it. The replacement is a full copy
+/// under a new archive id (it never borrows the old archive's objects);
+/// `features` gives each remote's copy abilities (None = unknown).
+/// Per shard (all counted once in `new_storage`):
+/// - kept on its remote (readable, not moving) whose backend copies
+///   server-side: no transfer; plus a readback download when the base reports
+///   no ciphertext hash;
+/// - otherwise, in a group without unreadable shards: a streamed copy
+///   (download + upload) and a readback;
+/// - in a group with an unreadable shard: `required` readable shards are
+///   downloaded (those not copied server-side first), every non-server-side
+///   shard is uploaded and read back.
+///
+/// Unknown features count as no server-side copy. Nothing moves when no shard
+/// needs to (`moving` empty).
 pub(crate) fn relocate_transfer(
     manifest: &Manifest,
     states: &[ShardState],
     moving: &BTreeSet<u32>,
+    features: &dyn Fn(&str) -> Option<CopyFeatures>,
 ) -> Result<Transfer> {
     let mut out = Transfer::default();
     if moving.is_empty() {
@@ -31,24 +47,60 @@ pub(crate) fn relocate_transfer(
     }
     let add = |a: u64, b: u64| a.checked_add(b).context("transfer estimate overflow");
     for view in groups(manifest) {
-        for &i in &view.members {
-            let shard = &manifest.shards[i];
-            if states[i].is_ok() {
-                out.download = add(out.download, shard.size)?;
+        // Provider copy abilities of each member (None: not copied server-side).
+        let provider: Vec<Option<CopyFeatures>> = view
+            .members
+            .iter()
+            .map(|&i| {
+                let shard = &manifest.shards[i];
+                let kept = states[i].is_ok() && !moving.contains(&shard.index);
+                kept.then(|| features(shard.remote.as_str()))
+                    .flatten()
+                    .filter(|f| f.server_side_copy)
+            })
+            .collect();
+        let rebuild = view.members.iter().any(|&i| !states[i].is_ok());
+        if rebuild {
+            let need = view.required_k.saturating_sub(view.virtual_zero);
+            let mut readable: Vec<(bool, u64)> = view
+                .members
+                .iter()
+                .zip(&provider)
+                .filter(|(&i, _)| states[i].is_ok())
+                .map(|(&i, p)| (p.is_some(), manifest.shards[i].size))
+                .collect();
+            // Same order as relocate; within a class the largest shards count.
+            readable.sort_by_key(|&(server, size)| (server, std::cmp::Reverse(size)));
+            for (_, size) in readable.into_iter().take(need) {
+                out.download = add(out.download, size)?;
             }
-            out.upload = add(out.upload, shard.size)?;
+        }
+        for (&i, provider) in view.members.iter().zip(&provider) {
+            let shard = &manifest.shards[i];
             out.specs.push(PhysicalSpec {
                 group: shard.group,
                 size: shard.size,
             });
+            out.new_storage = add(out.new_storage, shard.size)?;
+            if let Some(features) = provider {
+                out.server_side_shards += 1;
+                out.server_side_bytes = add(out.server_side_bytes, shard.size)?;
+                if !features.ciphertext_hash {
+                    out.server_side_readback_shards += 1;
+                    out.download = add(out.download, shard.size)?;
+                }
+            } else if !rebuild {
+                // Streamed copy, then readback.
+                out.download = add(out.download, shard.size)?;
+                out.download = add(out.download, shard.size)?;
+                out.upload = add(out.upload, shard.size)?;
+            } else {
+                // Uploaded from the local copy or rebuild, then read back.
+                out.upload = add(out.upload, shard.size)?;
+                out.download = add(out.download, shard.size)?;
+            }
         }
     }
-    out.new_storage = out.upload;
-    let readback = out
-        .upload
-        .checked_mul(2)
-        .context("transfer estimate overflow")?;
-    out.download = add(out.download, readback)?;
     Ok(out)
 }
 
@@ -70,6 +122,7 @@ pub(crate) fn reencode_transfer(manifest: &Manifest, target: &PoolDefinition) ->
         upload,
         new_storage,
         specs,
+        ..Transfer::default()
     })
 }
 

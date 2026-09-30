@@ -1,5 +1,5 @@
 //! Synthetic manifests and an in-memory cloud for planner tests (no rclone).
-use super::enumerate::{Cloud, RemoteListing};
+use super::enumerate::{Cloud, CopyFeatures, RemoteListing};
 use crate::manifest::content_root_v2;
 use crate::prelude::*;
 use crate::utils::{relative_remote_object, remote_join};
@@ -102,6 +102,7 @@ pub(crate) struct FakeCloud {
     pub full: BTreeMap<String, Vec<(Shard, Probe)>>,
     pub domains: BTreeMap<String, String>,
     pub quota: Option<bool>,
+    pub features: BTreeMap<String, CopyFeatures>,
     pub reads: Mutex<Vec<String>>,
     pub lists: Mutex<Vec<String>>,
 }
@@ -171,5 +172,8 @@ impl Cloud for FakeCloud {
     }
     fn quota_ok(&self, _: &PoolDefinition, _: &[Vec<PhysicalSpec>]) -> Option<bool> {
         self.quota
+    }
+    fn copy_features(&self, remote: &str) -> Option<CopyFeatures> {
+        self.features.get(remote).copied()
     }
 }

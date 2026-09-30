@@ -1,6 +1,6 @@
 # Project State
 
-Updated: 2026-09-29
+Updated: 2026-10-01
 
 ## Project
 
@@ -10,6 +10,13 @@ Canonical source is this Git checkout (`artifacts/rpool`). Build outputs belong 
 GUI platform; current executed tests are macOS.
 
 ## Current Status
+
+Pool change migration phase 2 (2026-10-01): kept shards are copied
+server-side (`RcloneContext::copy_object`), verified by the base remote's
+ciphertext hash, else read back. Verified on real clouds (Dropbox, Koofr,
+Drime kept; Filen removed) with rclone and native crypt, and in Docker.
+Found, not fixed: `put` to crypt over S3-like buckets fails (missing key
+stats as a directory).
 
 Pool change migration phase 1 (2026-09-30): implemented for uploaded
 archives (`src/migration/*`, `rpool pool migrate plan|run|status|lost|abandon`,

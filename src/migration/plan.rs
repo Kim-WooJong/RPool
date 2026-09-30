@@ -1,7 +1,9 @@
 //! Planner (work package A): classify every archive of a pool against its
 //! saved policy, estimate bytes and time, and list unrecoverable archives.
 use super::classify::{reencode_reason, shards_to_move};
-use super::enumerate::{enumerate, parse_lsjson, Cloud, Found, Loaded, RemoteListing};
+use super::enumerate::{
+    enumerate, parse_lsjson, Cloud, CopyFeatures, Found, Loaded, RemoteListing,
+};
 use super::estimate::{reencode_transfer, relocate_transfer, Transfer};
 use super::model::{Action, Counts, Entry, Plan};
 use super::probe::{assess, full_states, quick_states, ShardState};
@@ -76,6 +78,8 @@ struct RcloneCloud {
     reader: StorageReader,
     admin: RcloneAdmin,
     catalog: Option<RemoteCatalog>,
+    /// Copy features per rclone remote name, queried once per plan.
+    features: Mutex<BTreeMap<String, Option<CopyFeatures>>>,
 }
 
 impl RcloneCloud {
@@ -87,6 +91,7 @@ impl RcloneCloud {
             reader: StorageReader::rclone(rclone),
             admin,
             catalog,
+            features: Mutex::new(BTreeMap::new()),
         }
     }
 }
@@ -129,6 +134,24 @@ impl Cloud for RcloneCloud {
     }
     fn quota_ok(&self, target: &PoolDefinition, specs: &[Vec<PhysicalSpec>]) -> Option<bool> {
         super::estimate::quota_ok(&self.admin, target, specs)
+    }
+    /// `rclone backend features` of the crypt remote (Copy) and of its base
+    /// (Hashes). Errors (including non-crypt remotes) mean unknown.
+    fn copy_features(&self, remote: &str) -> Option<CopyFeatures> {
+        let name = remote_name(remote).to_owned();
+        if let Some(known) = self.features.lock().ok()?.get(&name) {
+            return *known;
+        }
+        let found = self
+            .context
+            .crypt_copy_capabilities(&OperationContext::none(), &format!("{name}:"))
+            .ok()
+            .map(|c| CopyFeatures {
+                server_side_copy: c.server_side_copy,
+                ciphertext_hash: !c.hashes.is_empty(),
+            });
+        self.features.lock().ok()?.insert(name, found);
+        found
     }
 }
 
@@ -195,7 +218,7 @@ fn plan_entry(
     listings: &BTreeMap<String, RemoteListing>,
     options: &PlanOptions,
     workers: usize,
-) -> Result<(Entry, Vec<PhysicalSpec>)> {
+) -> Result<(Entry, Transfer)> {
     let manifest = &loaded.manifest;
     let reencode = reencode_reason(manifest, target);
     let (moving, move_reasons) =
@@ -225,7 +248,9 @@ fn plan_entry(
     };
     let planned = match (action, base) {
         (Action::Lost, _) | (_, Action::Unaffected) => Ok(Transfer::default()),
-        (_, Action::Relocate) => relocate_transfer(manifest, &states, &moving),
+        (_, Action::Relocate) => {
+            relocate_transfer(manifest, &states, &moving, &|r| cloud.copy_features(r))
+        }
         (_, _) => reencode_transfer(manifest, target),
     };
     let transfer = match planned {
@@ -270,7 +295,7 @@ fn plan_entry(
         losses,
         detail: (!notes.is_empty()).then(|| notes.join("; ")),
     };
-    Ok((entry, transfer.specs))
+    Ok((entry, transfer))
 }
 
 /// Planner core over an abstract cloud. `target.remotes` must be resolved.
@@ -353,7 +378,7 @@ pub(crate) fn plan_with_replaced(
         }
     }
 
-    let mut results: Vec<(Entry, Vec<PhysicalSpec>)> = Vec::new();
+    let mut results: Vec<(Entry, Transfer)> = Vec::new();
     let mut skipped_replaced = 0usize;
     for found in &enumerated.found {
         let id = match found {
@@ -393,7 +418,7 @@ pub(crate) fn plan_with_replaced(
                     losses: Vec::new(),
                     detail: Some(detail.clone()),
                 },
-                Vec::new(),
+                Transfer::default(),
             )),
         }
     }
@@ -407,7 +432,8 @@ pub(crate) fn plan_with_replaced(
     let mut counts = Counts::default();
     let (mut download, mut upload, mut new_storage) = (0u64, 0u64, 0u64);
     let add = |a: u64, b: u64| a.checked_add(b).context("transfer estimate overflow");
-    for (entry, specs) in &results {
+    let (mut server_shards, mut server_bytes, mut server_readback) = (0usize, 0u64, 0usize);
+    for (entry, transfer) in &results {
         match entry.action {
             Action::Unaffected => counts.unaffected += 1,
             Action::Relocate => counts.relocate += 1,
@@ -417,9 +443,14 @@ pub(crate) fn plan_with_replaced(
         }
         download = add(download, entry.download_bytes)?;
         upload = add(upload, entry.upload_bytes)?;
-        new_storage = add(new_storage, specs.iter().map(|s| s.size).sum())?;
+        new_storage = add(new_storage, transfer.specs.iter().map(|s| s.size).sum())?;
+        if entry.action == Action::Relocate {
+            server_shards += transfer.server_side_shards;
+            server_bytes = add(server_bytes, transfer.server_side_bytes)?;
+            server_readback += transfer.server_side_readback_shards;
+        }
     }
-    let specs: Vec<Vec<PhysicalSpec>> = results.iter().map(|(_, s)| s.clone()).collect();
+    let specs: Vec<Vec<PhysicalSpec>> = results.iter().map(|(_, t)| t.specs.clone()).collect();
     let quota_ok = cloud.quota_ok(&target, &specs);
 
     if enumerated.drive_skipped > 0 {
@@ -449,7 +480,20 @@ pub(crate) fn plan_with_replaced(
     if target.native_crypt {
         notes.push("Native crypt writes the same rclone-crypt format, so existing archives are not re-encoded for it.".into());
     }
-    notes.push("Estimates count Unknown archives as if they will move. Relocation moves only shards on removed remotes (or over the outage bound), copying readable ones and rebuilding the rest from K shards per group; every written shard is read back. Originals are kept, so new_storage_bytes is additional space.".into());
+    if server_shards > 0 {
+        let readback = if server_readback > 0 {
+            format!(
+                "; {server_readback} of them are read back because the provider reports no hash"
+            )
+        } else {
+            "; they are verified by ciphertext hash".into()
+        };
+        notes.push(format!(
+            "{server_shards} shard(s) ({}) are copied server-side by the provider (no transfer through this PC){readback}.",
+            crate::presentation::format_bytes(server_bytes)
+        ));
+    }
+    notes.push("Estimates count Unknown archives as if they will move. Relocation moves only shards on removed remotes (or over the outage bound): kept shards are copied on their remote (server-side when the provider can), readable moving shards are streamed, unreadable ones are rebuilt from K shards per group; every shard is verified by ciphertext hash or readback. Remotes whose copy features are unknown are estimated as streamed copies. Originals are kept, so new_storage_bytes is additional space.".into());
 
     let estimated_seconds = super::speed::estimate_seconds(
         download,

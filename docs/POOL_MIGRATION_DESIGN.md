@@ -15,7 +15,7 @@ the proposal:
 - A relocation writes a full copy under a new archive id. It never borrows
   the old archive's objects, because drain `--delete-source`, drive
   retention and repair could otherwise delete or overwrite them. The plan
-  estimates it that way.
+  estimates it that way. Phase 2 makes most of that copy server-side (below).
 - `run --take-over` resumes entries that a stopped PC had claimed; claims
   otherwise expire after 2 hours.
 - Originals already replaced by an earlier migration are skipped by later
@@ -25,9 +25,43 @@ the proposal:
 Verified in Docker (`scripts/linux-docker/pool-migrate-e2e.sh`, native crypt
 on and off): remove an account; kill PC A mid-run; PC B resumes with
 `--take-over`; the replacements restore byte-identical; the originals are
-unchanged; a second loss lists exactly the unrecoverable archives. Still to
-do: phase 2 (server-side copy, cheaper relocation), phase 3 (drive and
-epoch adoption), phase 4 (retire).
+unchanged; a second loss lists exactly the unrecoverable archives.
+
+Phase 2 (cheaper relocation) keeps the full-copy invariant: the replacement
+still gets its own objects under the new archive id. Only how they are made
+changed (`migration/relocate.rs`, `RcloneContext::copy_object`):
+
+- A kept shard (same remote, new path) is copied with `rclone copyto` inside
+  its crypt remote. When the backend has server-side copy (`rclone backend
+  features`: `Features.Copy`; crypt has it when its base has it), the
+  provider copies the ciphertext object as-is under the encrypted new name:
+  nothing passes through the PC, and the copy stays valid because the crypt
+  nonce is in the object header and the key belongs to the remote (native
+  crypt writes the same format). Otherwise rclone streams it.
+- A readable shard moving to another remote is streamed by rclone (download
+  and upload, no temp file).
+- A group with an unreadable shard downloads only K readable shards and
+  rebuilds and uploads the missing ones; its kept shards are still copied.
+- Copies never overwrite: an existing destination is refused, and
+  `--ignore-existing` closes the race.
+- Verification per shard replaces the unconditional final scan. A
+  server-side copy is verified by equal ciphertext size and hash of source
+  and destination on the crypt's base (`cryptdecode --reverse` for the
+  names, `lsjson --hash`). Every other shard, and any copy without a hash or
+  with differing hashes, is read back in full. The manifest is published only
+  when every shard has a verification record. Hash equality proves the copy
+  is bit-identical to the source object; it does not re-authenticate the
+  source (the old archive keeps using that object either way).
+  `RPOOL_MIGRATE_FULL_SCAN=1` adds the full plaintext scan;
+  `RPOOL_MIGRATE_NO_COPY=1` restores the phase 1 download and upload.
+- The planner asks each remote for these features once per plan and
+  estimates kept shards with copy and hash as free, with copy and no hash as
+  one readback, and unknown remotes as streamed copies. A plan note gives the
+  number of shards copied server-side.
+
+Verified in Docker (`scripts/linux-docker/migrate-server-copy-e2e.sh`,
+native crypt on and off). Still to do: phase 3 (drive and epoch adoption),
+phase 4 (retire).
 
 ## What exists today (five separate flows)
 

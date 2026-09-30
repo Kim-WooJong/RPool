@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **Pool change migration phase 2: server-side copies.** Relocation now
+  copies the shards it keeps with `rclone copyto` inside the same remote,
+  which the provider performs server-side when it supports it (Dropbox,
+  Koofr, Drime, WebDAV COPY, …); otherwise rclone streams the object. Such a
+  copy is verified by the ciphertext hash the crypt's base remote reports
+  (md5, dropbox hash, …) and read back only when the provider has no hash.
+  Shards of a removed account are streamed while readable and rebuilt from K
+  shards when not. The plan notes how much is copied server-side.
+  `RPOOL_MIGRATE_NO_COPY=1` restores phase 1 (download + upload), and
+  `RPOOL_MIGRATE_FULL_SCAN=1` re-reads every source shard before copying.
+  - Real clouds (Dropbox, Koofr and Drime kept, Filen removed; 3 archives,
+    RS 2+1): data through the PC fell from 30.6 MB to 3.9 MB (Filen
+    readable) and from 28.6 MB to 5.9 MB (Filen gone), with rclone crypt and
+    native crypt; every replacement restores byte-identical and the old
+    objects are unchanged (`scripts/cloud/migrate-server-copy-cloud-e2e.sh`).
+  - Docker (`scripts/linux-docker/migrate-server-copy-e2e.sh`, local WebDAV
+    server): 49.5 MB -> 10.5 MB and 53.1 MB -> 14.1 MB.
+  - Known: a hash match proves a faithful copy but also copies a source
+    corruption; use `RPOOL_MIGRATE_FULL_SCAN=1` when in doubt. On bucket
+    backends `put` to crypt still fails (a missing key stats as a directory).
+
 - **GUI languages:** English (default), 한국어, 日本語 and 中文（简体）, chosen
   in Settings › General › Language. The change applies immediately and is
   saved with the settings.

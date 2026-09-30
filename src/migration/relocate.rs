@@ -20,8 +20,31 @@
 //! shard on a remote that stays in the pool is copied verbatim to the new path
 //! on the SAME remote; only shards on removed/failed remotes (or that break
 //! the outage bound) go to another remote. Only shards that cannot be read are
-//! rebuilt with Reed-Solomon. The storage layer has no guaranteed server-side
-//! copy yet, so a same-remote copy is still a download plus an upload.
+//! rebuilt with Reed-Solomon.
+//!
+//! # Cheaper copies (phase 2)
+//!
+//! Copies use `rclone copyto` through the crypt remotes (`ShardCopier`), so
+//! rclone encrypts the destination name for the new plaintext path:
+//! - kept shard, same rclone remote, backend with server-side copy: the
+//!   provider copies the ciphertext object as-is (no bytes through this PC).
+//!   The copy stays valid: rclone crypt data carries its nonce in the object
+//!   header and is keyed by the remote, not by the path; RPool's native crypt
+//!   writes the same format. It is verified by equal ciphertext size and hash
+//!   of source and destination on the crypt's base, or read back in full when
+//!   the base reports no hash (or the hashes differ, e.g. rclone fell back to
+//!   a streamed copy). Hash equality proves the copy is bit-identical to the
+//!   source object; it does not re-authenticate the source itself (which the
+//!   old archive keeps using either way) — `RPOOL_MIGRATE_FULL_SCAN=1` adds a
+//!   full plaintext scan of the replacement;
+//! - readable shard moving to another remote: streamed by rclone (download +
+//!   upload, no temp file), then read back in full;
+//! - group with an unreadable shard: `required` readable shards are
+//!   downloaded, the rest is rebuilt and uploaded (read back by the write);
+//!   kept readable shards of such a group are still copied server-side.
+//!
+//! Every shard of the replacement has a verification record before the
+//! manifest is published; the old unconditional full scan is replaced by these.
 use super::model::{GroupLoss, MissingReason, MissingShard};
 use crate::maintenance::{reconstruct_group_files, scan_manifest_with_storage};
 use crate::manifest::{
@@ -32,6 +55,8 @@ use crate::placement::{assign_replacement_slots, outage_domains, ReplacementSlot
 use crate::planning::{manifest_single_provider_failure_safety, FailureSafety};
 use crate::prelude::*;
 use crate::storage::error::{StorageError, StorageErrorKind};
+use crate::storage::rclone::{remote_name, CryptCopyCapabilities, RcloneContext};
+use crate::storage::traits::OperationContext;
 use crate::storage::writer::StorageWriter;
 use crate::utils::remote_join;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -49,6 +74,12 @@ pub(crate) struct Relocated {
     /// New shard bytes written (manifest replicas not included; objects that
     /// already held the exact content from an earlier attempt are not counted).
     pub uploaded_bytes: u64,
+    /// Shard bytes copied by the provider (server-side), not through this PC.
+    pub server_side_bytes: u64,
+    /// Bytes read back to verify new objects (not in `downloaded_bytes`).
+    pub readback_bytes: u64,
+    /// Shards verified by ciphertext hash instead of a readback.
+    pub hash_verified_shards: usize,
 }
 
 /// A group has fewer than K readable shards and every missing shard is a
@@ -116,8 +147,12 @@ pub(crate) fn relocate(
 ) -> Result<Relocated> {
     let remotes = crate::remote_root::apply_remote_roots(target.remotes.clone())?;
     let domains = outage_domains(rclone, &remotes, target.placement)?;
+    // RPOOL_MIGRATE_NO_COPY=1: phase 1 behaviour (download + upload), e.g. to
+    // compare transfers or to avoid a provider whose server-side copy misbehaves.
+    let copier = (!env_flag("RPOOL_MIGRATE_NO_COPY")).then(|| RcloneCopier::new(rclone));
     relocate_with_storage(
         &pool_writer(rclone, target),
+        copier.as_ref().map(|c| c as &dyn ShardCopier),
         source,
         target,
         &remotes,
@@ -130,6 +165,223 @@ pub(crate) fn relocate(
 /// Writes go through the pool's writer, exactly like `put`.
 fn pool_writer(rclone: &str, target: &PoolDefinition) -> StorageWriter {
     StorageWriter::for_pool(rclone, target.native_crypt)
+}
+
+/// Forces the full readback scan of the replacement even when every shard
+/// already has its own verification (hash or readback).
+pub(crate) const FULL_SCAN_AFTER_RELOCATION: bool = false;
+
+fn env_flag(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|v| matches!(v.trim(), "1" | "true" | "yes"))
+}
+
+fn force_full_scan() -> bool {
+    FULL_SCAN_AFTER_RELOCATION || env_flag("RPOOL_MIGRATE_FULL_SCAN")
+}
+
+/// Object copies that do not stage bytes on this PC.
+pub(super) trait ShardCopier: Sync {
+    /// Copies `source` to `destination`. Must refuse an existing destination
+    /// (`StorageError::AlreadyExists`) and pass the crypt write gate.
+    fn copy(&self, source: &str, destination: &str) -> Result<()>;
+    /// True when the provider performs this copy (same rclone remote whose
+    /// backend copies server-side). False when unknown.
+    fn server_side(&self, source: &str, destination: &str) -> bool;
+    /// (ciphertext size, `type:value` hash) of the stored object behind `address` on the
+    /// crypt's base; None when the base reports no hash.
+    fn stored_hash(&self, address: &str) -> Result<Option<(u64, String)>>;
+}
+
+/// Production copier: `rclone copyto` over the crypt remotes. Capabilities
+/// are queried once per rclone remote name.
+pub(super) struct RcloneCopier {
+    context: RcloneContext,
+    ctx: OperationContext,
+    capabilities: Mutex<BTreeMap<String, Option<CryptCopyCapabilities>>>,
+}
+
+impl RcloneCopier {
+    pub(super) fn new(rclone: &str) -> Self {
+        Self {
+            context: RcloneContext::inherited(rclone),
+            ctx: OperationContext::none(),
+            capabilities: Mutex::new(BTreeMap::new()),
+        }
+    }
+    fn capabilities(&self, address: &str) -> Option<CryptCopyCapabilities> {
+        let name = remote_name(address).ok()?.to_owned();
+        if let Some(known) = self.capabilities.lock().ok()?.get(&name) {
+            return known.clone();
+        }
+        let found = match self.context.crypt_copy_capabilities(&self.ctx, address) {
+            Ok(found) => Some(found),
+            Err(error) => {
+                eprintln!("[relocate] copy capabilities of {name}: unknown ({error})");
+                None
+            }
+        };
+        self.capabilities.lock().ok()?.insert(name, found.clone());
+        found
+    }
+}
+
+impl ShardCopier for RcloneCopier {
+    fn copy(&self, source: &str, destination: &str) -> Result<()> {
+        Ok(self.context.copy_object(&self.ctx, source, destination)?)
+    }
+    fn server_side(&self, source: &str, destination: &str) -> bool {
+        match (remote_name(source), remote_name(destination)) {
+            (Ok(a), Ok(b)) if a == b => self
+                .capabilities(source)
+                .is_some_and(|c| c.server_side_copy),
+            _ => false,
+        }
+    }
+    fn stored_hash(&self, address: &str) -> Result<Option<(u64, String)>> {
+        let Some(capabilities) = self.capabilities(address) else {
+            return Ok(None);
+        };
+        if capabilities.hashes.is_empty() {
+            return Ok(None);
+        }
+        let base = self
+            .context
+            .crypt_base_object(&self.ctx, address, &capabilities.base)?;
+        Ok(self
+            .context
+            .object_hash(&self.ctx, &base, &capabilities.hashes)?)
+    }
+}
+
+/// How a shard of the replacement was verified.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Verified {
+    /// Existed from an earlier attempt and was read back in full.
+    Reused,
+    /// Read back in full after it was written or copied.
+    ReadBack,
+    /// Provider copy with equal ciphertext size and hash.
+    StoredHash,
+}
+
+/// Why a direct transfer failed: the source could not be read (the group
+/// falls back to reconstruction) or the destination could not be written.
+enum Failure {
+    Source(anyhow::Error),
+    Write(anyhow::Error),
+}
+
+fn is_already_exists(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<StorageError>()
+        .is_some_and(|e| e.kind() == StorageErrorKind::AlreadyExists)
+}
+
+/// Transfer primitives of one relocation, with byte counters.
+struct Work<'a> {
+    storage: &'a StorageWriter,
+    reader: &'a crate::storage::reader::StorageReader,
+    copier: Option<&'a dyn ShardCopier>,
+    source: &'a Manifest,
+    manifest: &'a Manifest,
+    retries: u32,
+    downloaded: AtomicU64,
+    uploaded: AtomicU64,
+    server_side: AtomicU64,
+    readback: AtomicU64,
+}
+
+impl Work<'_> {
+    fn counters(&self) -> (u64, u64, u64, u64) {
+        (
+            self.downloaded.load(Ordering::Relaxed),
+            self.uploaded.load(Ordering::Relaxed),
+            self.server_side.load(Ordering::Relaxed),
+            self.readback.load(Ordering::Relaxed),
+        )
+    }
+    fn server_side(&self, i: usize) -> bool {
+        self.copier.is_some_and(|c| {
+            c.server_side(
+                &self.source.shards[i].object,
+                &self.manifest.shards[i].object,
+            )
+        })
+    }
+    /// Verified download of source shard `i` into `dir`.
+    fn download(&self, i: usize, dir: &Path) -> Result<PathBuf> {
+        let shard = &self.source.shards[i];
+        let path = dir.join(format!("source-{:08}.bin", shard.index));
+        self.reader.download(shard, &path, self.retries, false)?;
+        self.downloaded.fetch_add(shard.size, Ordering::Relaxed);
+        Ok(path)
+    }
+    /// Upload of staged bytes; the write reads the object back in full.
+    fn write_local(&self, i: usize, path: &Path) -> Result<Verified> {
+        let shard = &self.manifest.shards[i];
+        self.storage
+            .write_file(path, 0, shard, self.retries.max(1))?;
+        self.uploaded.fetch_add(shard.size, Ordering::Relaxed);
+        self.readback.fetch_add(shard.size, Ordering::Relaxed);
+        Ok(Verified::ReadBack)
+    }
+    /// Copy of source shard `i` to its new object, then verification.
+    fn copy(&self, i: usize) -> Result<Verified> {
+        let copier = self.copier.context("no object copier")?;
+        let from = &self.source.shards[i];
+        let to = &self.manifest.shards[i];
+        let provider = copier.server_side(&from.object, &to.object);
+        copier.copy(&from.object, &to.object)?;
+        if provider {
+            self.server_side.fetch_add(to.size, Ordering::Relaxed);
+        } else {
+            self.downloaded.fetch_add(to.size, Ordering::Relaxed);
+            self.uploaded.fetch_add(to.size, Ordering::Relaxed);
+        }
+        if provider && self.same_ciphertext(copier, from, to) {
+            return Ok(Verified::StoredHash);
+        }
+        self.reader.verify(to, true)?;
+        self.readback.fetch_add(to.size, Ordering::Relaxed);
+        Ok(Verified::ReadBack)
+    }
+    /// Equal ciphertext size and hash on the base, and the expected plaintext
+    /// size through the crypt remote. Any doubt is `false` (read back instead).
+    fn same_ciphertext(&self, copier: &dyn ShardCopier, from: &Shard, to: &Shard) -> bool {
+        let hashes = copier
+            .stored_hash(&from.object)
+            .and_then(|a| Ok((a, copier.stored_hash(&to.object)?)));
+        match hashes {
+            Ok((Some(a), Some(b))) if a == b => self
+                .reader
+                .stat(&to.object)
+                .is_ok_and(|m| m.size == to.size),
+            Ok(_) => false,
+            Err(error) => {
+                eprintln!(
+                    "[relocate] ciphertext hash of {} unavailable, reading back: {error:#}",
+                    to.object
+                );
+                false
+            }
+        }
+    }
+    /// A pending, readable shard without reconstruction: copy it (server-side
+    /// or streamed) when a copier exists, else download and upload it.
+    fn transfer(&self, i: usize, dir: &Path) -> Result<Verified, Failure> {
+        if self.copier.is_some() {
+            match self.copy(i) {
+                Ok(how) => return Ok(how),
+                Err(error) if is_already_exists(&error) => return Err(Failure::Write(error)),
+                Err(error) => eprintln!(
+                    "[relocate] copy of shard {:08} failed, downloading instead: {error:#}",
+                    self.source.shards[i].index
+                ),
+            }
+        }
+        let path = self.download(i, dir).map_err(Failure::Source)?;
+        self.write_local(i, &path).map_err(Failure::Write)
+    }
 }
 
 /// One source shard after the quick probe.
@@ -296,8 +548,10 @@ fn failure(source: &Manifest, losses: Vec<GroupLoss>, orphans: Vec<String>) -> a
     unrecoverable(losses)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn relocate_with_storage(
     storage: &StorageWriter,
+    copier: Option<&dyn ShardCopier>,
     source: &Manifest,
     target: &PoolDefinition,
     remotes: &[String],
@@ -449,10 +703,25 @@ pub(super) fn relocate_with_storage(
         }
     }
 
-    // 5. Build each group: fetch, rebuild what is unreadable, write.
+    // 5. Build each group: copy what is readable (server-side when the
+    //    provider can), rebuild what is not, write.
     fs::create_dir_all(work_dir)?;
-    let downloaded = AtomicU64::new(0);
-    let uploaded = AtomicU64::new(0);
+    let work = Work {
+        storage,
+        reader,
+        copier,
+        source,
+        manifest: &manifest,
+        retries,
+        downloaded: AtomicU64::new(0),
+        uploaded: AtomicU64::new(0),
+        server_side: AtomicU64::new(0),
+        readback: AtomicU64::new(0),
+    };
+    let mut verified: BTreeMap<usize, Verified> = present_indexes
+        .iter()
+        .map(|&i| (i, Verified::Reused))
+        .collect();
     let mut written: Vec<String> = Vec::new();
     for (group, members, required) in &groups {
         let pending: Vec<usize> = members
@@ -466,82 +735,105 @@ pub(super) fn relocate_with_storage(
         let stage = tempfile::Builder::new()
             .prefix("relocate-")
             .tempdir_in(work_dir)?;
-        // Reconstruction needs every other shard of the group locally.
-        let rebuild = pending.iter().any(|i| problems.contains_key(i));
-        let fetch: Vec<usize> = members
+        // Direct transfers when every pending shard is readable.
+        if !pending.iter().any(|i| problems.contains_key(i)) {
+            let results: Vec<(usize, Result<Verified, Failure>)> = pool.install(|| {
+                pending
+                    .par_iter()
+                    .map(|&i| (i, work.transfer(i, stage.path())))
+                    .collect()
+            });
+            let mut first_error = None;
+            for (i, result) in results {
+                match result {
+                    Ok(how) => {
+                        verified.insert(i, how);
+                        written.push(manifest.shards[i].object.clone());
+                    }
+                    Err(Failure::Source(error)) => {
+                        let reason = reason_for_error(&error, probed[i].on_target.is_some());
+                        eprintln!(
+                            "[relocate] shard {:08} unreadable ({reason:?}): {error:#}",
+                            source.shards[i].index
+                        );
+                        problems.insert(i, reason);
+                    }
+                    Err(Failure::Write(error)) => {
+                        first_error.get_or_insert(error.context(format!(
+                            "cannot write relocated shard {}",
+                            manifest.shards[i].object
+                        )));
+                    }
+                }
+            }
+            if let Some(error) = first_error {
+                return Err(error);
+            }
+        }
+        if let Some(loss) = group_loss(source, *group, members, *required, &problems) {
+            return Err(failure(source, vec![loss], written));
+        }
+        let remaining: Vec<usize> = pending
             .iter()
             .copied()
-            .filter(|i| !problems.contains_key(i) && (rebuild || pending.contains(i)))
+            .filter(|i| !verified.contains_key(i))
             .collect();
-        let fetched: Vec<(usize, Result<PathBuf>)> = pool.install(|| {
-            fetch
-                .par_iter()
-                .map(|&i| {
-                    let shard = &source.shards[i];
-                    let path = stage.path().join(format!("source-{:08}.bin", shard.index));
-                    let result = reader.download(shard, &path, retries, false).map(|()| {
-                        downloaded.fetch_add(shard.size, Ordering::Relaxed);
-                        path
-                    });
-                    (i, result)
-                })
-                .collect()
-        });
+        if remaining.is_empty() {
+            continue;
+        }
+        // Reed-Solomon: fetch `required` readable shards, rebuild the others.
+        let coding = source
+            .coding
+            .as_ref()
+            .context("uncoded archive shard cannot be rebuilt")?;
+        let mut candidates: Vec<usize> = members
+            .iter()
+            .copied()
+            .filter(|i| !problems.contains_key(i))
+            .collect();
+        // Shards that must pass through this PC anyway come first.
+        candidates.sort_by_key(|&i| (!remaining.contains(&i) || work.server_side(i), i));
         let mut local: BTreeMap<usize, PathBuf> = BTreeMap::new();
-        let mut failed_download = false;
-        for (i, result) in fetched {
-            match result {
-                Ok(path) => {
-                    local.insert(i, path);
-                }
-                Err(error) => {
-                    failed_download = true;
-                    let reason = reason_for_error(&error, probed[i].on_target.is_some());
-                    eprintln!(
-                        "[relocate] shard {:08} unreadable ({reason:?}): {error:#}",
-                        source.shards[i].index
-                    );
-                    problems.insert(i, reason);
+        let mut next = 0usize;
+        while local.len() < *required && next < candidates.len() {
+            let take = (*required - local.len()).min(candidates.len() - next);
+            let batch = &candidates[next..next + take];
+            next += take;
+            let fetched: Vec<(usize, Result<PathBuf>)> = pool.install(|| {
+                batch
+                    .par_iter()
+                    .map(|&i| (i, work.download(i, stage.path())))
+                    .collect()
+            });
+            for (i, result) in fetched {
+                match result {
+                    Ok(path) => {
+                        local.insert(i, path);
+                    }
+                    Err(error) => {
+                        let reason = reason_for_error(&error, probed[i].on_target.is_some());
+                        eprintln!(
+                            "[relocate] shard {:08} unreadable ({reason:?}): {error:#}",
+                            source.shards[i].index
+                        );
+                        problems.insert(i, reason);
+                    }
                 }
             }
         }
         if let Some(loss) = group_loss(source, *group, members, *required, &problems) {
             return Err(failure(source, vec![loss], written));
         }
-        if failed_download && !pending.iter().all(|i| local.contains_key(i)) {
-            // A late failure turned a copy into a rebuild: fetch the rest of the group.
-            for &i in members {
-                if local.contains_key(&i) || problems.contains_key(&i) {
-                    continue;
-                }
-                let shard = &source.shards[i];
-                let path = stage.path().join(format!("source-{:08}.bin", shard.index));
-                match reader.download(shard, &path, retries, false) {
-                    Ok(()) => {
-                        downloaded.fetch_add(shard.size, Ordering::Relaxed);
-                        local.insert(i, path);
-                    }
-                    Err(error) => {
-                        problems.insert(i, reason_for_error(&error, probed[i].on_target.is_some()));
-                    }
-                }
-            }
-            if let Some(loss) = group_loss(source, *group, members, *required, &problems) {
-                return Err(failure(source, vec![loss], written));
-            }
+        if local.len() < *required {
+            bail!("relocation could not stage enough shards of group {group}");
         }
-        if pending.iter().any(|i| !local.contains_key(i)) {
-            // Every group member not staged locally is rebuilt (the decoder
-            // needs all others); only the pending ones are written.
-            let missing: Vec<Shard> = members
-                .iter()
-                .filter(|i| !local.contains_key(i))
-                .map(|&i| source.shards[i].clone())
-                .collect();
-            let coding = source
-                .coding
-                .as_ref()
-                .context("uncoded archive shard cannot be rebuilt")?;
+        // The decoder treats every member not staged locally as missing.
+        let missing: Vec<Shard> = members
+            .iter()
+            .filter(|i| !local.contains_key(i))
+            .map(|&i| source.shards[i].clone())
+            .collect();
+        if !missing.is_empty() {
             let healthy: BTreeMap<u32, PathBuf> = local
                 .iter()
                 .map(|(i, path)| (source.shards[*i].index, path.clone()))
@@ -549,24 +841,32 @@ pub(super) fn relocate_with_storage(
             let rebuilt =
                 reconstruct_group_files(source, coding, *group, &missing, &healthy, stage.path())?;
             for shard in &missing {
-                let position = shard.index as usize;
                 let path = rebuilt
                     .get(&shard.index)
                     .context("reconstruction did not produce a shard")?;
-                local.insert(position, path.clone());
+                local.insert(shard.index as usize, path.clone());
             }
         }
-        let results: Vec<(usize, Result<()>)> = pool.install(|| {
-            pending
+        let copyable = |i: usize| !problems.contains_key(&i) && work.server_side(i);
+        let results: Vec<(usize, Result<Verified>)> = pool.install(|| {
+            remaining
                 .par_iter()
                 .map(|&i| {
-                    let shard = &manifest.shards[i];
                     let result = local
                         .get(&i)
                         .context("relocation shard bytes are not staged")
-                        .and_then(|path| storage.write_file(path, 0, shard, retries.max(1)))
-                        .map(|()| {
-                            uploaded.fetch_add(shard.size, Ordering::Relaxed);
+                        .and_then(|path| {
+                            if copyable(i) {
+                                match work.copy(i) {
+                                    Ok(how) => return Ok(how),
+                                    Err(error) if is_already_exists(&error) => return Err(error),
+                                    Err(error) => eprintln!(
+                                        "[relocate] server-side copy of shard {:08} failed, uploading instead: {error:#}",
+                                        source.shards[i].index
+                                    ),
+                                }
+                            }
+                            work.write_local(i, path)
                         });
                     (i, result)
                 })
@@ -575,7 +875,10 @@ pub(super) fn relocate_with_storage(
         let mut first_error = None;
         for (i, result) in results {
             match result {
-                Ok(()) => written.push(manifest.shards[i].object.clone()),
+                Ok(how) => {
+                    verified.insert(i, how);
+                    written.push(manifest.shards[i].object.clone());
+                }
                 Err(error) => {
                     first_error.get_or_insert(error.context(format!(
                         "cannot write relocated shard {}",
@@ -590,19 +893,37 @@ pub(super) fn relocate_with_storage(
         drop(stage);
     }
 
-    // 6. Full readback of the whole replacement before publishing it.
-    let (report, _) = scan_manifest_with_storage(reader, &manifest, true, workers)?;
-    if report.healthy != report.total {
-        bail!(
-            "relocated archive {new_archive_id} failed full verification: healthy={}/{} missing={} bad_size={} corrupt={} errors={}",
-            report.healthy,
-            report.total,
-            report.missing,
-            report.bad_size,
-            report.corrupt,
-            report.errors
-        );
+    // 6. Every shard must be verified before the manifest is published: by a
+    //    full readback (writes, streamed copies, reused objects) or, for a
+    //    provider-side copy, by equal ciphertext size and hash of source and
+    //    destination on the crypt's base. A full scan is forced by
+    //    RPOOL_MIGRATE_FULL_SCAN=1 (or FULL_SCAN_AFTER_RELOCATION) and also
+    //    covers any shard that somehow has no verification record.
+    let unverified: Vec<usize> = (0..manifest.shards.len())
+        .filter(|i| !verified.contains_key(i))
+        .collect();
+    if force_full_scan() || !unverified.is_empty() {
+        let (report, _) = scan_manifest_with_storage(reader, &manifest, true, workers)?;
+        let total: u64 = manifest.shards.iter().map(|s| s.size).sum();
+        work.readback.fetch_add(total, Ordering::Relaxed);
+        if report.healthy != report.total {
+            bail!(
+                "relocated archive {new_archive_id} failed full verification: healthy={}/{} missing={} bad_size={} corrupt={} errors={}",
+                report.healthy,
+                report.total,
+                report.missing,
+                report.bad_size,
+                report.corrupt,
+                report.errors
+            );
+        }
     }
+    let hash_verified_shards = verified
+        .values()
+        .filter(|v| **v == Verified::StoredHash)
+        .count();
+
+    let counters = work.counters();
 
     // 7. Publish the manifest replicas.
     let manifest_locations =
@@ -610,19 +931,28 @@ pub(super) fn relocate_with_storage(
     if manifest_locations.is_empty() {
         bail!("relocated archive {new_archive_id} has no manifest replica");
     }
-    let downloaded_bytes = downloaded.into_inner();
-    let uploaded_bytes = uploaded.into_inner();
-    eprintln!(
-        "[relocate] {} -> {new_archive_id}: downloaded={downloaded_bytes} uploaded={uploaded_bytes} replicas={}",
-        source.archive_id,
-        manifest_locations.len()
-    );
-    Ok(Relocated {
+    let (downloaded_bytes, uploaded_bytes, server_side_bytes, readback_bytes) = counters;
+    let relocated = Relocated {
         manifest,
         manifest_locations,
         downloaded_bytes,
         uploaded_bytes,
-    })
+        server_side_bytes,
+        readback_bytes,
+        hash_verified_shards,
+    };
+    eprintln!(
+        "[relocate] {} -> {new_archive_id}: downloaded={} uploaded={} server_side={} readback={} hash_verified={}/{} replicas={}",
+        source.archive_id,
+        relocated.downloaded_bytes,
+        relocated.uploaded_bytes,
+        relocated.server_side_bytes,
+        relocated.readback_bytes,
+        relocated.hash_verified_shards,
+        relocated.manifest.shards.len(),
+        relocated.manifest_locations.len()
+    );
+    Ok(relocated)
 }
 
 #[cfg(test)]
