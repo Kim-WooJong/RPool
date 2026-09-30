@@ -11,6 +11,21 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
+Native by default (2026-09-30, commits a3541e9 and 5d91e49):
+- The frontend is `auto` by default: native on Linux, and on Windows in
+  `winfsp` builds; WebDAV on macOS and for v7, bounded or shared-root modes.
+- Pool-sync v6 is served natively with an ancestry model that follows the
+  bytes an edit was built on.
+- Native crypt covers mount uploads and pool metadata, and new GUI pools
+  default to it.
+- Verified: core, crash and trace tests (local and v6); an rclone-backed
+  native-crypt sync e2e with a routing control; suite 539 passed.
+- Not verified: kernel-level pool-sync mounts (Docker unavailable until the
+  reboot), Windows runtime, and v7 (still refused: rename blocks while
+  intents are pending).
+- Next: v7 rename model, DAV→native workspace switch and plain-rclone
+  import (roadmap item 3).
+
 Native mount M3a (2026-09-30): `src/mount/fs_core/` filesystem core over
 VirtualDrive (handles, shared write generations, fsync = local seal ack,
 depends_on continuation). 16 fixture traces pass; default suite 505 passed /
