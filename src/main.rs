@@ -12,6 +12,7 @@ mod inventory;
 mod journal;
 mod maintenance;
 mod manifest;
+mod migration;
 mod models;
 mod mount;
 mod placement;
