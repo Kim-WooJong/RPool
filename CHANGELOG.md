@@ -13,6 +13,11 @@
     failed refresh reports none.
 - The mounted volume is labelled with the pool name (`--volname`) instead of
   rclone's generated `webdav{…}` name.
+- GUI: the Mount screen is reorganized. The top shows the status and the
+  primary actions, followed by the essential drive settings and a capacity
+  verdict ("Writable" or "Not writable yet" plus reasons) with a per-account
+  table. Account identities are edited as a table, and everything else sits
+  under Advanced. CLI arguments and saved settings are unchanged.
 - GUI: the Mount screen offers the native frontend (FUSE on Linux; WinFsp in
   `winfsp` builds) and a read-only option for local online drives, saved per
   pool.

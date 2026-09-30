@@ -165,6 +165,32 @@ Persist window geometry, sidebar width, last page, last selected pool, table wid
 - Re-verify selected groups after repair and persist the resulting integrity snapshot.
 
 
+### Patch 12 — Mount screen — implemented after 0.8.0
+
+The former 1,200-line single-page Mount screen is split into
+`gui/screens/storage/mount/`, one file per part. From top to bottom:
+
+- **Status bar.** A Not mounted / Running / Stopping badge, the pool and
+  mountpoint, and the primary actions (Mount, Sync now, Check capacity;
+  Unmount and Force stop while running).
+- **Drive.** Pool, Mode (Online drive / Full local replica), Sync (Automatic
+  pool sync / This PC only / Shared root), workspace and mountpoint.
+  Explanations moved into tooltips.
+- **Capacity.** A verdict that uses the drive's own free-space rule:
+  "Writable: N can be written now", or "Not writable yet" with the reasons
+  (stale measurement, unanswered accounts, undeclared identities, missing
+  outage groups). A per-account table follows, and the notes are collapsed.
+- **Account identities.** A table editor (backing remote, capacity group,
+  outage group) pre-filled from measured accounts, replacing the free-text
+  box.
+- **Advanced** (collapsed). Cache/spool/interval, filesystem frontend,
+  history, archive imports, maintenance, apply pool changes, and account
+  recovery.
+- **Pool-sync conflicts, and the log** (open while running).
+
+Form state, per-pool persistence and CLI arguments are unchanged. A headless
+egui test draws the screen in every mode and capacity state.
+
 ## Rule for this redesign
 
 Do not start the v0.6 storage feature set until the GUI restructuring is stable enough that new backend features have a clear place in the interface.
