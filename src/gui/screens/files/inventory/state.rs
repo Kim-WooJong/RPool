@@ -1,6 +1,6 @@
 use super::data::{load_rows, InventoryRow};
+use super::drive_state::DriveForm;
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
 
 pub(crate) const UNMATCHED_POOL: &str = "Unmatched";
 
@@ -42,8 +42,19 @@ impl CodingFilter {
     }
 }
 
+/// Library sub-view: the selected pool's drive, or its uploaded archives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum LibraryView {
+    #[default]
+    Drive,
+    Archives,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct InventoryForm {
+    pub(crate) view: LibraryView,
+    /// Pool drive browser; its `pool` is also the archives' pool filter.
+    pub(crate) drive: DriveForm,
     pub(crate) manifest_directory: String,
     pub(crate) error: Option<String>,
     pub(crate) query: String,
@@ -99,21 +110,12 @@ impl InventoryForm {
         rows
     }
 
-    pub(crate) fn pool_options(&self) -> Vec<String> {
-        let mut pools = BTreeSet::new();
-        let mut has_unmatched = false;
-        for row in &self.rows {
-            if let Some(pool) = &row.pool {
-                pools.insert(pool.clone());
-            } else {
-                has_unmatched = true;
-            }
-        }
-        let mut values: Vec<_> = pools.into_iter().collect();
-        if has_unmatched {
-            values.push(UNMATCHED_POOL.to_string());
-        }
-        values
+    /// Archives outside the pool filter (other pools, or none matched).
+    pub(crate) fn outside_pool(&self) -> usize {
+        self.rows
+            .iter()
+            .filter(|row| !self.matches_pool(row))
+            .count()
     }
 
     pub(crate) fn set_sort(&mut self, sort: InventorySort) {

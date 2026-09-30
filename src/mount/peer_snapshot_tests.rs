@@ -941,3 +941,48 @@ fn native_delete_captures_the_original_it_descends_from() {
     d.sync_snapshots_with(&io).unwrap();
     assert!(visible_bytes(&d, &io).is_empty());
 }
+
+#[test]
+fn browse_adopts_recorded_history_limit_and_never_publishes() {
+    let empty = FakeIo::default();
+    let root_c = tempfile::tempdir().unwrap();
+    let c = drive(root_c.path());
+    assert!(c.seed_snapshots_with(&empty).unwrap().is_none());
+
+    let root_a = tempfile::tempdir().unwrap();
+    let mut a = drive(root_a.path());
+    a.pool_history_limit = 1;
+    let io = FakeIo::default();
+    stage(&a, &io, "docs/nested/a.txt", b"alpha");
+    stage(&a, &io, "top.bin", b"top-level");
+    a.sync_snapshots_with(&io).unwrap();
+    stage(&a, &io, "top.bin", b"top-level-2");
+    a.sync_snapshots_with(&io).unwrap();
+
+    // A fresh reader with the default limit cannot interpret the policy...
+    let root_d = tempfile::tempdir().unwrap();
+    let d = drive(root_d.path());
+    assert!(d.pull_snapshots_with(&io).is_err());
+
+    // ...but adopting the recorded one yields the writer's drive, read-only.
+    let root_b = tempfile::tempdir().unwrap();
+    let mut b = drive(root_b.path());
+    let before = io.0.borrow().publications;
+    let seeded = b.seed_snapshots_with(&io).unwrap();
+    assert_eq!(seeded, Some(Some(1)));
+    assert!(b.adopt_snapshot_policy(seeded));
+    b.pull_snapshots_with(&io).unwrap();
+    assert_eq!(io.0.borrow().publications, before);
+    let sizes = |d: &VirtualDrive| -> BTreeMap<String, u64> {
+        d.view()
+            .unwrap()
+            .into_iter()
+            .map(|(p, r)| (p, r.size()))
+            .collect()
+    };
+    assert_eq!(
+        sizes(&b),
+        BTreeMap::from([("docs/nested/a.txt".into(), 5), ("top.bin".into(), 11)])
+    );
+    assert_eq!(sizes(&b), sizes(&a));
+}

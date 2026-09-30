@@ -68,6 +68,7 @@ pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> 
                 Some(plan.display().to_string()),
             ),
             PoolCommands::List { .. } => ("pool-list".to_string(), None),
+            PoolCommands::Browse { name, .. } => ("pool-browse".to_string(), Some(name.clone())),
             PoolCommands::Show { name, .. } => ("pool-show".to_string(), Some(name.clone())),
             PoolCommands::Set { name, .. } => ("pool-set".to_string(), Some(name.clone())),
             PoolCommands::Remove { name } => ("pool-remove".to_string(), Some(name.clone())),

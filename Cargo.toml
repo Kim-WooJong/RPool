@@ -15,11 +15,15 @@ name = "rpool"
 path = "src/main.rs"
 
 [features]
-default = []
+# `winfsp` only pulls in Windows-only dependencies, so it is a no-op elsewhere.
+# On a Windows build machine without WinFsp (SDK import library), build with
+# `--no-default-features`: that binary mounts through WebDAV only.
+default = ["winfsp"]
 # Synthetic Memory adapter only; does not enable production native writes.
 opendal-prototype = ["dep:opendal"]
-# Native WinFsp frontend (mount milestone M4). Needs WinFsp (with its SDK
-# import library) installed on the Windows build machine; see build.rs.
+# Native WinFsp frontend (mount milestone M4), default on Windows. Building it
+# needs WinFsp with its SDK import library (MSVC toolchain) on the Windows build
+# machine; the DLL is delay-loaded, so PCs without WinFsp fall back to WebDAV.
 winfsp = ["dep:winfsp_wrs", "dep:winfsp_wrs_build"]
 
 [dependencies]
@@ -58,6 +62,8 @@ libc = "0.2"
 [target.'cfg(windows)'.dependencies]
 winfsp_wrs = { version = "0.4.1", optional = true }
 
+# Not target-gated: target tables on build-dependencies match the host, and
+# build.rs checks the target itself. Tiny, dependency-free crate.
 [build-dependencies]
 winfsp_wrs_build = { version = "0.4.1", optional = true }
 

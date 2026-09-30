@@ -141,6 +141,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             }
             PoolCommands::Reprocess { plan } => pool::execute_plan(&cli.rclone, &plan),
             PoolCommands::List { json } => commands::pool::list(json),
+            PoolCommands::Browse { name, json } => commands::pool::browse(&cli.rclone, &name, json),
             PoolCommands::Show { name, json } => commands::pool::show(&name, json),
             PoolCommands::Set {
                 name,

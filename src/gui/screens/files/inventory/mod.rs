@@ -1,11 +1,14 @@
 mod data;
 mod details;
+mod drive;
+mod drive_state;
 mod filters;
 mod rebuild;
 mod state;
 mod table;
 
 pub(crate) use state::InventoryForm;
+use state::LibraryView;
 
 use crate::gui::state::{FilesSection, GuiState};
 use crate::gui::task::TaskRunner;
@@ -16,41 +19,103 @@ use details::InventoryAction;
 use eframe::egui;
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
-    if !state.inventory.loaded {
-        state.inventory.refresh();
-    }
-
     section_header(
         ui,
-        "Files",
-        Some("Browse the local inventory index and open archive operations from one place."),
+        "Library",
+        Some("Browse the folders and files on a pool's drive, or the archives uploaded to it."),
     );
+    theme::tabs(
+        ui,
+        &mut state.inventory.view,
+        &[
+            (LibraryView::Drive, "Drive files"),
+            (LibraryView::Archives, "Uploaded archives"),
+        ],
+    );
+    state.inventory.drive.sync_pools(&state.pool_names);
 
+    let view = state.inventory.view;
     let mut switch_to_upload = false;
     toolbar(ui, |ui| {
-        if ui.button("Upload").clicked() {
-            switch_to_upload = true;
-        }
-        if ui.button("Refresh").clicked() {
-            state.inventory.refresh();
-        }
-        if ui.button("Rebuild…").clicked() {
-            state.inventory.show_rebuild = !state.inventory.show_rebuild;
+        pool_picker(ui, &state.pool_names, &mut state.inventory.drive);
+        match view {
+            LibraryView::Drive => {
+                drive::toolbar(ui, &mut state.inventory.drive, &state.settings.rclone)
+            }
+            LibraryView::Archives => {
+                if ui.button("Refresh").clicked() {
+                    state.inventory.refresh();
+                }
+                if ui.button("Upload").clicked() {
+                    switch_to_upload = true;
+                }
+                if ui.button("Rebuild…").clicked() {
+                    state.inventory.show_rebuild = !state.inventory.show_rebuild;
+                }
+            }
         }
     });
-
     if switch_to_upload {
         state.files_section = FilesSection::Upload;
         return;
     }
 
-    if state.inventory.show_rebuild {
-        ui.add_space(theme::SUBSECTION_GAP);
-        rebuild::show(ui, &mut state.inventory, task, &state.settings.rclone);
-    }
-
     ui.add_space(theme::SUBSECTION_GAP);
+    if state.pool_names.is_empty() {
+        theme::hint(ui, "No pools yet: create one in Storage › Pools first.");
+        return;
+    }
+    match view {
+        LibraryView::Drive => {
+            drive::body(ui, &mut state.inventory.drive, &state.settings.rclone);
+        }
+        LibraryView::Archives => archives(ui, state, task),
+    }
+}
+
+/// Required pool picker: no "All pools"; the only pool is preselected.
+fn pool_picker(ui: &mut egui::Ui, pools: &[String], form: &mut drive_state::DriveForm) {
+    let mut selected = form.pool.clone();
+    egui::ComboBox::from_id_salt("library-pool")
+        .selected_text(if selected.is_empty() {
+            "Choose a pool…"
+        } else {
+            selected.as_str()
+        })
+        .show_ui(ui, |ui| {
+            for pool in pools {
+                ui.selectable_value(&mut selected, pool.clone(), pool);
+            }
+        });
+    form.select(selected);
+}
+
+/// The uploaded-archives inventory of the selected pool.
+fn archives(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
+    if !state.inventory.loaded {
+        state.inventory.refresh();
+    }
+    if state.inventory.show_rebuild {
+        rebuild::show(ui, &mut state.inventory, task, &state.settings.rclone);
+        ui.add_space(theme::SUBSECTION_GAP);
+    }
+    if state.inventory.drive.pool.is_empty() {
+        theme::hint(ui, "Pick a pool to list the archives uploaded to it.");
+        return;
+    }
+    state.inventory.pool_filter = state.inventory.drive.pool.clone();
+
     filters::show(ui, &mut state.inventory);
+    let outside = state.inventory.outside_pool();
+    if outside > 0 {
+        theme::hint(
+            ui,
+            &format!(
+                "{outside} archive{} of other pools (or matching no pool) not shown.",
+                if outside == 1 { "" } else { "s" }
+            ),
+        );
+    }
 
     if let Some(error) = &state.inventory.error {
         ui.add_space(theme::SUBSECTION_GAP);

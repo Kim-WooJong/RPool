@@ -24,6 +24,9 @@ mod shared_checkpoint;
 mod shared_checkpoint_model;
 mod shared_checkpoint_transport;
 mod shared_model;
+/// Synthetic metadata for read-only listing tests outside `mount`.
+#[cfg(test)]
+pub(crate) use shared_model::{Content as TestContent, Event as TestEvent};
 mod shared_transport;
 mod virtual_drive;
 mod workspace;

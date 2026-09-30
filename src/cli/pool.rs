@@ -35,6 +35,14 @@ pub(crate) enum PoolCommands {
         json: bool,
     },
 
+    /// List the pool's drive (folders, files, plaintext sizes) read-only from
+    /// the pool-sync metadata in the cloud; no workspace or mount needed.
+    Browse {
+        name: String,
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Show one storage pool.
     Show {
         name: String,
@@ -140,5 +148,17 @@ mod capacity_tests {
                 }))
             ));
         }
+    }
+    #[test]
+    fn browse_parses_name_and_json_without_workspace() {
+        let cli = crate::cli::Cli::try_parse_from(["rpool", "pool", "browse", "my-pool", "--json"])
+            .unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(crate::cli::Commands::Pool(super::PoolArgs {
+                command: super::PoolCommands::Browse { ref name, json: true }
+            })) if name == "my-pool"
+        ));
+        assert!(crate::cli::Cli::try_parse_from(["rpool", "pool", "browse"]).is_err());
     }
 }

@@ -82,14 +82,21 @@ fn frontend(ui: &mut egui::Ui, form: &mut MountForm) {
                     }
                 });
             if Frontend::native_here().is_none() {
-                theme::hint(
-                    ui,
-                    if cfg!(windows) {
-                        "This build has no native frontend (needs the `winfsp` feature and WinFsp); WebDAV is used."
-                    } else {
-                        "No native frontend on this OS yet; WebDAV is used."
-                    },
-                );
+                match Frontend::native_built() {
+                    Some(Frontend::Winfsp) => {
+                        theme::hint(ui, "WinFsp not installed — install WinFsp for the native drive (then restart RPool); WebDAV is used meanwhile.");
+                        ui.hyperlink_to("Download WinFsp", "https://winfsp.dev/rel/");
+                    }
+                    Some(_) => theme::hint(
+                        ui,
+                        "The native frontend is unavailable on this PC; WebDAV is used.",
+                    ),
+                    None if cfg!(windows) => theme::hint(
+                        ui,
+                        "This build was made without WinFsp support; WebDAV is used.",
+                    ),
+                    None => theme::hint(ui, "No native frontend on this OS yet; WebDAV is used."),
+                }
             } else if !form.native_allowed() {
                 theme::hint(ui, "Native frontends serve online drives with This PC only or Automatic pool sync. WebDAV is used for shared-root and bounded shared modes.");
             } else if form.native_selected() {

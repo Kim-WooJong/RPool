@@ -9,7 +9,7 @@ retains earlier cloud versions. See [mount setup and recovery](docs/MOUNT.md).
 
 ## 0.8.0: native crypt writes and native mount frontends
 
-This batch adds several opt-in features. Each pool can have RPool encrypt its shards itself in rclone crypt format (`pool set --native-crypt`). A filesystem core with crash- and trace-tested durability rules (`fsync`/close is the local acknowledgement) backs a native Linux FUSE frontend (`mount --virtual-drive --frontend fuse`). A Windows WinFsp frontend (`--features winfsp`, not yet run on Windows) uses the same core. `config paths` is new, and portable bundles now carry encryption preferences. The DAV frontend and rclone crypt writes remain the defaults. See `docs/NATIVE_MOUNT_CRYPT_PLAN.md`.
+This batch adds several opt-in features. Each pool can have RPool encrypt its shards itself in rclone crypt format (`pool set --native-crypt`). A filesystem core with crash- and trace-tested durability rules (`fsync`/close is the local acknowledgement) backs a native Linux FUSE frontend (`mount --virtual-drive --frontend fuse`). A Windows WinFsp frontend (built into Windows builds by default, not yet run on Windows) uses the same core. `config paths` is new, and portable bundles now carry encryption preferences. The DAV frontend and rclone crypt writes remain the defaults. See `docs/NATIVE_MOUNT_CRYPT_PLAN.md`.
 
 ## 0.6.0: provider setup and encryption defaults
 
@@ -433,6 +433,8 @@ Binary:
 target/release/rpool
 ```
 
+On Windows the default `winfsp` feature builds the native WinFsp frontend; the build machine needs the MSVC toolchain and WinFsp with its developer files (import library under `lib\`). Without them, build with `cargo build --release --no-default-features` (WebDAV only). The WinFsp DLL is delay-loaded, so a PC without WinFsp still runs the binary: `--frontend auto` uses WebDAV and `--frontend winfsp` reports that WinFsp must be installed.
+
 `Cargo.toml` uses:
 
 ```text
@@ -781,7 +783,7 @@ A pool can also opt in to native crypt writes (`rpool pool set ... --native-cryp
 
 ### Native mount frontends (default where available)
 
-`rpool mount --virtual-drive` uses `--frontend auto` by default: RPool's own filesystem frontend where this build and workspace support it (Linux FUSE; Windows WinFsp in builds with `--features winfsp`), otherwise rclone mount plus the loopback WebDAV server. Native frontends serve online drives in local and automatic pool-sync (v6 and v7) mode; bounded shared and shared-root workspaces use WebDAV. The last `close` and `fsync` are the local durability points and cloud replication stays asynchronous. Add `--native-read-only` for a read-only native mount, or `--frontend dav` for the previous behaviour. macOS has no native frontend yet. See `docs/NATIVE_MOUNT_CRYPT_PLAN.md`.
+`rpool mount --virtual-drive` uses `--frontend auto` by default: RPool's own filesystem frontend where this build and workspace support it (Linux FUSE; Windows WinFsp when WinFsp is installed on the PC), otherwise rclone mount plus the loopback WebDAV server. Native frontends serve online drives in local and automatic pool-sync (v6 and v7) mode; bounded shared and shared-root workspaces use WebDAV. The last `close` and `fsync` are the local durability points and cloud replication stays asynchronous. Add `--native-read-only` for a read-only native mount, or `--frontend dav` for the previous behaviour. macOS has no native frontend yet. See `docs/NATIVE_MOUNT_CRYPT_PLAN.md`.
 
 ### Importing files stored with plain rclone
 

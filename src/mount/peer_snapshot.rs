@@ -687,6 +687,60 @@ impl VirtualDrive {
         let analysis = self.refresh_snapshots(&mut state, store)?;
         self.materialize_snapshots(&mut state, &analysis)
     }
+    /// Read-only browse of a fresh workspace: the history limit is part of the
+    /// snapshot policy identity and is chosen per mount, so adopt the one the
+    /// pool's snapshots record before pulling. Remote access is `collect` only;
+    /// state is saved solely in this (temporary) workspace. Returns whether the
+    /// pool has any v7 records.
+    pub(crate) fn pull_snapshots_adopting_policy(&mut self) -> Result<bool> {
+        let limit = {
+            let store = self.snapshot_store()?;
+            self.seed_snapshots_with(&store)?
+        };
+        if !self.adopt_snapshot_policy(limit) {
+            return Ok(false);
+        }
+        self.pull_snapshots()?;
+        Ok(true)
+    }
+    fn adopt_snapshot_policy(&mut self, seeded: Option<Option<usize>>) -> bool {
+        match seeded {
+            None => false,
+            Some(limit) => {
+                if let Some(limit) = limit {
+                    self.pool_history_limit = limit;
+                }
+                true
+            }
+        }
+    }
+    /// `None`: no v7 records at all. `Some(limit)`: the recorded snapshot limit
+    /// (`None` when only name records exist).
+    fn seed_snapshots_with(&self, store: &dyn Io) -> Result<Option<Option<usize>>> {
+        let mut state = self.snapshot_state()?;
+        for (id, bytes) in store.collect("snapshots", &state.snapshots.keys().cloned().collect())? {
+            let snapshot: Snapshot = serde_json::from_slice(&bytes)?;
+            if snapshot.id()? != id {
+                bail!("v7 snapshot identity mismatch");
+            }
+            state.snapshots.insert(id, snapshot);
+        }
+        let genesis = self.snapshot_policy()?.genesis_id;
+        let limits: BTreeSet<_> = state
+            .snapshots
+            .values()
+            .filter(|s| s.policy.genesis_id == genesis)
+            .map(|s| s.policy.history_limit)
+            .collect();
+        if limits.len() > 1 {
+            bail!("pool snapshots record different history limits; cannot browse consistently");
+        }
+        if state.snapshots.is_empty() && store.collect("names", &BTreeSet::new())?.is_empty() {
+            return Ok(None);
+        }
+        self.save_snapshot_state(&state)?;
+        Ok(Some(limits.into_iter().next()))
+    }
     fn make_plan(
         &self,
         state: &State,

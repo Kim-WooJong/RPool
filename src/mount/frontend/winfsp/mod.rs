@@ -1,6 +1,8 @@
 //! Windows WinFsp frontend (native mount M4) over `FsCore`, using
-//! `winfsp_wrs`. Built only with `--features winfsp` on Windows, because the
-//! WinFsp SDK must be installed to link. The volume is case-insensitive and
+//! `winfsp_wrs`. Built on Windows with the default `winfsp` feature (the build
+//! machine needs WinFsp's SDK import library; `--no-default-features` builds
+//! without it). The DLL is delay-loaded, so a PC without WinFsp still starts
+//! and `--frontend auto` falls back to WebDAV (`Frontend::native_here`). The volume is case-insensitive and
 //! case-preserving; names resolve onto existing entries regardless of case.
 mod filesystem;
 mod names;
@@ -33,7 +35,11 @@ pub(super) fn mount(
     mountpoint: &Path,
     read_only: bool,
 ) -> Result<Box<dyn NativeMount>> {
-    winfsp_wrs::init().map_err(|e| anyhow!("WinFsp is not installed or cannot load: {e:?}"))?;
+    // Must precede every WinFsp call: a delay-loaded DLL that is missing would
+    // otherwise fault at the first call instead of returning an error.
+    winfsp_wrs::init().map_err(|e| {
+        anyhow!("WinFsp is not installed on this PC ({e}): install WinFsp from https://winfsp.dev/rel/ or use --frontend dav")
+    })?;
     let mut volume = VolumeParams::default();
     volume
         .set_sector_size(512)

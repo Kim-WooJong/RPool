@@ -32,7 +32,7 @@ fn start(
         Frontend::Winfsp => super::winfsp::mount(core, mountpoint, read_only),
         #[cfg(not(all(windows, feature = "winfsp")))]
         Frontend::Winfsp => bail!(
-            "the WinFsp frontend needs a Windows build with `--features winfsp` and WinFsp installed"
+            "the WinFsp frontend needs a Windows build with the `winfsp` feature (on by default) and WinFsp installed"
         ),
     }
 }

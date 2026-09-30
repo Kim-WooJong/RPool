@@ -149,6 +149,54 @@ impl super::virtual_drive::VirtualDrive {
     }
 }
 
+/// Read-only access for `rpool pool browse`: the v6 replicas of `pool`, used
+/// only through `collect` (listing/reading events).
+pub(crate) fn read_stores(
+    rclone: &str,
+    pool: &str,
+    policy: &PoolDefinition,
+) -> Result<Vec<Box<dyn EventStore>>> {
+    roots(pool, &policy.remotes)?
+        .iter()
+        .map(|root| {
+            SharedTransport::new(rclone, root)
+                .map(|t| Box::new(t.with_native_crypt(policy.native_crypt)) as Box<dyn EventStore>)
+        })
+        .collect()
+}
+/// Read-only v7 listing (path -> plaintext size, conflicts) through a throwaway
+/// pool-sync workspace in a temp dir, exactly as a fresh v7 mount would see it.
+/// `open` touches only the local workspace; the pull only lists/reads records.
+/// `None` when the pool has no v7 records.
+#[allow(clippy::type_complexity)]
+pub(crate) fn browse_v7(
+    rclone: &str,
+    pool: &str,
+) -> Result<Option<(BTreeMap<String, u64>, Vec<super::peer_projection::Conflict>)>> {
+    let temp = tempfile::tempdir()?;
+    let mut drive = super::virtual_drive::VirtualDrive::open(
+        rclone,
+        pool,
+        &temp.path().join("workspace"),
+        "rpool-browse",
+        None,
+        1 << 20,
+        false,
+        true,
+        true,
+    )?;
+    if !drive.pull_snapshots_adopting_policy()? {
+        return Ok(None);
+    }
+    let files = drive
+        .view()?
+        .into_iter()
+        .map(|(path, revision)| (path, revision.size()))
+        .collect();
+    let conflicts = drive.pool_status()?.conflicts;
+    Ok(Some((files, conflicts)))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Status {
     pub roots: Vec<String>,

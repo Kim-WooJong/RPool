@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **Browse a pool's drive without mounting.** `rpool pool browse <NAME>
+  [--json]` lists the folders and files of the pool's drive (v6 or v7)
+  straight from its cloud metadata, read-only and with no workspace. In the
+  GUI, Files › Library now picks a pool (no "All pools") and shows that
+  drive as a folder tree with search and sizes. The uploaded-archive
+  inventory is the second tab, limited to the selected pool. Checked in
+  Docker for v6 and v7, with and without native crypt: remotes are
+  byte-identical before and after, and the listing equals a fresh mount.
+
+- **WinFsp is part of Windows builds by default** (`default = ["winfsp"]`;
+  its dependencies are Windows-only, so other targets are unchanged). Build
+  with `--no-default-features` on a Windows machine without the WinFsp SDK.
+  At runtime RPool probes WinFsp's DLL (registry `InstallDir`): without it
+  `--frontend auto` (CLI and GUI) uses WebDAV, an explicit `--frontend winfsp`
+  says to install WinFsp or use `--frontend dav`, and the Drive › Options hint
+  links to the WinFsp download.
+
 - **GUI redesign: grouped by task, responsive, per-section scrolling.**
   - Navigation: Overview, **Drive** (was Storage › Mount), Files, Storage,
     **Health** (was Maintenance), Activity, Settings. Below 960 px the

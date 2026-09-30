@@ -38,18 +38,26 @@ impl Frontend {
     /// The frontend a mount actually uses. Native frontends serve online
     /// drives in local, pool-sync (v6) and v7 mode; bounded shared and
     /// shared-root workspaces, replicas and platforms without one use WebDAV.
+    /// `Auto` also falls back to WebDAV when the native frontend is built in
+    /// but missing on this PC (WinFsp not installed).
     pub(crate) fn resolve(self, args: &MountArgs) -> Self {
         let supported = args.virtual_drive && !args.bounded_shared && args.shared_root.is_none();
+        self.resolve_with(supported, Self::native_here())
+    }
+    /// Pure decision behind [`Self::resolve`]: `native` is the native frontend
+    /// usable on this PC (built in and installed), if any.
+    pub(crate) fn resolve_with(self, supported: bool, native: Option<Self>) -> Self {
         match self {
-            Self::Auto => match Self::native_here() {
+            Self::Auto => match native {
                 Some(native) if supported => native,
                 _ => Self::Dav,
             },
             other => other,
         }
     }
-    /// The native frontend this build can mount on this OS, if any.
-    pub(crate) fn native_here() -> Option<Self> {
+    /// The native frontend compiled into this build for this OS, if any.
+    /// Windows builds include WinFsp by default (`winfsp` feature).
+    pub(crate) fn native_built() -> Option<Self> {
         if cfg!(target_os = "linux") {
             Some(Self::Fuse)
         } else if cfg!(all(windows, feature = "winfsp")) {
@@ -58,6 +66,61 @@ impl Frontend {
             None
         }
     }
+    /// The native frontend this build can mount on this PC right now: built
+    /// in and, for WinFsp, installed (its DLL loads).
+    pub(crate) fn native_here() -> Option<Self> {
+        Self::native_built().filter(|native| native.installed())
+    }
+    /// Whether the OS component a native frontend needs is present. Always
+    /// `true` for frontends without a runtime dependency RPool can probe.
+    pub(crate) fn installed(self) -> bool {
+        match self {
+            Self::Winfsp => winfsp_installed(),
+            Self::Auto | Self::Dav | Self::Fuse => true,
+        }
+    }
+    /// Error for an explicitly chosen frontend that cannot run on this PC.
+    pub(crate) fn ensure_available(self) -> anyhow::Result<()> {
+        match unavailable_reason(self, Self::native_built(), self.installed()) {
+            Some(reason) => anyhow::bail!("{reason}"),
+            None => Ok(()),
+        }
+    }
+}
+
+/// Why `frontend` cannot mount here, given the natively `built` frontend and
+/// whether its OS component is `installed`. Pure, so it is tested everywhere.
+pub(crate) fn unavailable_reason(
+    frontend: Frontend,
+    built: Option<Frontend>,
+    installed: bool,
+) -> Option<&'static str> {
+    match frontend {
+        Frontend::Auto | Frontend::Dav => None,
+        Frontend::Winfsp if built != Some(Frontend::Winfsp) => Some(
+            "the WinFsp frontend needs a Windows build with the `winfsp` feature (on by default); use --frontend dav",
+        ),
+        Frontend::Winfsp if !installed => Some(
+            "WinFsp is not installed on this PC (or its DLL cannot load): install WinFsp from https://winfsp.dev/rel/ and restart RPool, or use --frontend dav",
+        ),
+        Frontend::Fuse if built != Some(Frontend::Fuse) => {
+            Some("the FUSE frontend is available on Linux only; use --frontend dav")
+        }
+        Frontend::Winfsp | Frontend::Fuse => None,
+    }
+}
+
+/// OS probe: whether WinFsp's DLL (registry `InstallDir` + `bin\winfsp-*.dll`)
+/// loads. The DLL is delay-loaded, so this must succeed before any WinFsp call.
+/// Cached for the process: installing WinFsp takes effect after a restart.
+#[cfg(all(windows, feature = "winfsp"))]
+fn winfsp_installed() -> bool {
+    static LOADED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *LOADED.get_or_init(|| winfsp_wrs::init().is_ok())
+}
+#[cfg(not(all(windows, feature = "winfsp")))]
+fn winfsp_installed() -> bool {
+    false
 }
 
 #[derive(Args, Debug, Clone)]
@@ -375,6 +438,32 @@ mod tests {
                 .chain(["--virtual-drive", "--frontend=nfs"])
         )
         .is_err());
+    }
+    #[test]
+    fn auto_falls_back_to_dav_without_installed_native() {
+        use super::{unavailable_reason, Frontend};
+        let w = Some(Frontend::Winfsp);
+        // Probe true: Auto mounts natively where the workspace allows it.
+        assert_eq!(Frontend::Auto.resolve_with(true, w), Frontend::Winfsp);
+        assert_eq!(Frontend::Auto.resolve_with(false, w), Frontend::Dav);
+        // Probe false (`native_here()` is None): Auto uses WebDAV.
+        assert_eq!(Frontend::Auto.resolve_with(true, None), Frontend::Dav);
+        // Explicit choices are kept; availability is checked separately.
+        assert_eq!(Frontend::Winfsp.resolve_with(true, None), Frontend::Winfsp);
+        assert_eq!(Frontend::Dav.resolve_with(true, w), Frontend::Dav);
+        assert_eq!(unavailable_reason(Frontend::Winfsp, w, true), None);
+        let missing = unavailable_reason(Frontend::Winfsp, w, false).unwrap();
+        assert!(missing.contains("install WinFsp") && missing.contains("--frontend dav"));
+        assert!(unavailable_reason(Frontend::Winfsp, None, true)
+            .unwrap()
+            .contains("`winfsp` feature"));
+        assert_eq!(unavailable_reason(Frontend::Auto, None, false), None);
+        assert_eq!(unavailable_reason(Frontend::Dav, None, false), None);
+        assert_eq!(
+            unavailable_reason(Frontend::Fuse, Some(Frontend::Fuse), true),
+            None
+        );
+        assert!(unavailable_reason(Frontend::Fuse, None, true).is_some());
     }
     #[test]
     fn shared_mount_options_require_each_other() {
