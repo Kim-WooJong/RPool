@@ -779,9 +779,9 @@ The provider limit can be enforced instead of relying on this note: set a per-po
 
 A pool can also opt in to native crypt writes (`rpool pool set ... --native-crypt`, or "Encrypt in RPool" in the GUI pool form). `put --pool` and reprocess then encrypt shards inside RPool, in rclone crypt format, and upload them to the crypt remote's base remote; the upload is read back through the rclone crypt remote before it counts. The crypt remote must use options RPool supports (not `base32768` names, `no_data_encryption` or `pass_bad_blocks`), and its base must be a plain remote. Mounts and other commands still write through rclone crypt; the objects are interchangeable.
 
-### Native mount frontends (opt-in)
+### Native mount frontends (default where available)
 
-For a local `--virtual-drive` workspace (no `--pool-sync` or shared modes), `rpool mount ... --virtual-drive --frontend fuse` on Linux mounts the drive with RPool's own FUSE frontend instead of rclone mount plus the loopback WebDAV server. Add `--native-read-only` for a read-only mount. `close` and `fsync` are the local durability points; cloud replication stays asynchronous. The default frontend is still `dav`. On Windows, a build with `--features winfsp` (WinFsp installed) adds `--frontend winfsp`; it has not been run on Windows yet. See `docs/NATIVE_MOUNT_CRYPT_PLAN.md`.
+`rpool mount --virtual-drive` uses `--frontend auto` by default: RPool's own filesystem frontend where this build and workspace support it (Linux FUSE; Windows WinFsp in builds with `--features winfsp`), otherwise rclone mount plus the loopback WebDAV server. Native frontends serve online drives in local and automatic pool-sync (v6) mode; v7 history deletion, bounded shared and shared-root workspaces use WebDAV. `close` and `fsync` are the local durability points and cloud replication stays asynchronous. Add `--native-read-only` for a read-only native mount, or `--frontend dav` for the previous behaviour. macOS has no native frontend yet. See `docs/NATIVE_MOUNT_CRYPT_PLAN.md`.
 
 Shard sizes are limited to 1–4096 MiB in the CLI, GUI and pool validation. Local staging grows roughly with `(workers + 2·M) × shard_size`, so larger values are almost always a unit mistake.
 

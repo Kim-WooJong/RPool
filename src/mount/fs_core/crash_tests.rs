@@ -107,6 +107,20 @@ fn check(core: &FsCore, scenario: Scenario, acknowledged: bool, label: &str) {
     }
 }
 
+/// A local or pool-sync (v6) fixture core, fresh or reopened from disk.
+fn open_core(root: &Path, reopen: bool, peer: bool) -> FsCore {
+    let mut drive = if reopen {
+        fixture_reopen(root)
+    } else {
+        fixture(root)
+    };
+    if peer {
+        drive.pool_sync_roots = vec!["crypt:pool".into()];
+        drive.state.lock().unwrap().version = 6;
+    }
+    FsCore::new(Arc::new(drive)).unwrap()
+}
+
 #[test]
 fn every_crash_point_preserves_acknowledged_data_and_never_mixes_revisions() {
     let scenarios = [
@@ -116,29 +130,31 @@ fn every_crash_point_preserves_acknowledged_data_and_never_mixes_revisions() {
         Scenario::Delete,
     ];
     let mut injected = 0;
-    for &point in POINTS {
-        for scenario in scenarios {
-            let label = format!("{point} × {scenario:?}");
-            let root = tempfile::tempdir().unwrap();
-            let core = FsCore::new(Arc::new(fixture(root.path()))).unwrap();
-            put(&core, "a", b"version one").unwrap();
-            let acknowledged = run(&core, scenario, point);
-            injected += usize::from(!acknowledged);
-            if acknowledged {
-                check(&core, scenario, true, &format!("{label} (live)"));
+    for peer in [false, true] {
+        for &point in POINTS {
+            for scenario in scenarios {
+                let label = format!("{point} × {scenario:?} (pool sync: {peer})");
+                let root = tempfile::tempdir().unwrap();
+                let core = open_core(root.path(), false, peer);
+                put(&core, "a", b"version one").unwrap();
+                let acknowledged = run(&core, scenario, point);
+                injected += usize::from(!acknowledged);
+                if acknowledged {
+                    check(&core, scenario, true, &format!("{label} (live)"));
+                }
+                drop(core);
+                let core = open_core(root.path(), true, peer);
+                check(&core, scenario, acknowledged, &label);
+                assert_sealed_images_intact(&core.drive);
+                // The workspace keeps working after recovery.
+                put(&core, "after", b"recovered").unwrap();
+                assert_eq!(
+                    read(&core, "after").as_deref(),
+                    Some(&b"recovered"[..]),
+                    "{label}"
+                );
+                assert_sealed_images_intact(&core.drive);
             }
-            drop(core);
-            let core = FsCore::new(Arc::new(fixture_reopen(root.path()))).unwrap();
-            check(&core, scenario, acknowledged, &label);
-            assert_sealed_images_intact(&core.drive);
-            // The workspace keeps working after recovery.
-            put(&core, "after", b"recovered").unwrap();
-            assert_eq!(
-                read(&core, "after").as_deref(),
-                Some(&b"recovered"[..]),
-                "{label}"
-            );
-            assert_sealed_images_intact(&core.drive);
         }
     }
     // Each point fires in at least one scenario; unreachable pairs pass through.

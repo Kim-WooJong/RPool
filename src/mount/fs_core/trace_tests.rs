@@ -325,20 +325,37 @@ fn release_all(core: &FsCore, model: &mut Model) {
     }
 }
 
+/// A local or pool-sync (v6) fixture core, fresh or reopened from disk.
+fn open_core(root: &Path, reopen: bool, peer: bool) -> FsCore {
+    let mut drive = if reopen {
+        fixture_reopen(root)
+    } else {
+        fixture(root)
+    };
+    if peer {
+        drive.pool_sync_roots = vec!["crypt:pool".into()];
+        drive.state.lock().unwrap().version = 6;
+    }
+    FsCore::new(Arc::new(drive)).unwrap()
+}
+
 #[test]
 fn randomized_traces_match_the_reference_model_through_crashes() {
     let mut total_crashes = 0;
-    for seed in 0..SEEDS {
+    for (peer, seed) in (0..SEEDS)
+        .map(|s| (false, s))
+        .chain((0..SEEDS / 2).map(|s| (true, s)))
+    {
         let root = tempfile::tempdir().unwrap();
-        let mut core = FsCore::new(Arc::new(fixture(root.path()))).unwrap();
+        let mut core = open_core(root.path(), false, peer);
         let mut crashes = 0;
         let mut model = Model::default();
         let mut rng = Rng(seed);
         for index in 0..STEPS {
-            let context = format!("seed {seed} step {index}");
+            let context = format!("seed {seed} (pool sync: {peer}) step {index}");
             if step(&core, &mut model, &mut rng, &context) {
                 drop(core);
-                core = FsCore::new(Arc::new(fixture_reopen(root.path()))).unwrap();
+                core = open_core(root.path(), true, peer);
                 crashes += 1;
             }
             check_paths(&core, &model, &context);

@@ -41,7 +41,8 @@ impl PoolForm {
             manual_remote: String::new(),
             shard_mib: settings.shard_mib,
             max_object_bytes: 0,
-            native_crypt: false,
+            // New pools encrypt in RPool (rclone crypt format); loaded pools keep theirs.
+            native_crypt: true,
             workers: settings.workers,
             retries: settings.retries,
             placement: settings.placement,
@@ -163,8 +164,8 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                         ui.add(egui::DragValue::new(&mut state.pools.max_object_bytes));
                         ui.end_row();
 
-                        ui.label("Native crypt (experimental)")
-                            .on_hover_text("RPool encrypts shards in rclone crypt format and writes them to each crypt remote's base. Uploads and reprocessing only; mounts still use rclone crypt.");
+                        ui.label("Native crypt")
+                            .on_hover_text("RPool itself encrypts file contents and names in rclone crypt format for uploads, reprocessing and mounted drives, writing to each crypt remote's base. Readback goes through the rclone crypt remote, so rclone can always read the data. Crypt remotes with settings RPool does not support are refused.");
                         ui.checkbox(&mut state.pools.native_crypt, "Encrypt in RPool");
                         ui.end_row();
 
@@ -613,7 +614,7 @@ mod tests {
         let reset = PoolForm::from_settings(&settings);
         assert_eq!((reset.shard_mib, reset.workers), (91, 6));
         assert_eq!(reset.object_limit(), None);
-        assert!(!reset.native_crypt);
+        assert!(reset.native_crypt, "new pools encrypt in RPool by default");
         assert!(reset.name.is_empty() && reset.selected.is_empty());
     }
 

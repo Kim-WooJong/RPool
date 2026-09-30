@@ -51,6 +51,13 @@ impl HandleTable {
     pub(super) fn any(&self, file: FileId) -> bool {
         self.open.values().any(|h| h.file == file)
     }
+    /// The base shared by the file's open attached handles, if any.
+    pub(super) fn attached_base(&self, file: FileId) -> Option<Option<Revision>> {
+        self.open.values().find_map(|h| match &h.view {
+            View::Attached { base } if h.file == file => Some(base.clone()),
+            _ => None,
+        })
+    }
     /// After a seal, attached handles of the file read the sealed revision.
     pub(super) fn rebase(&mut self, file: FileId, revision: Option<Revision>) {
         for handle in self.open.values_mut().filter(|h| h.file == file) {

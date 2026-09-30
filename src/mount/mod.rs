@@ -9,6 +9,7 @@ mod incremental;
 mod lifecycle;
 mod maintenance;
 mod namespace;
+mod native_ancestry;
 pub(crate) mod peer_projection;
 mod peer_snapshot;
 mod peer_snapshot_model;

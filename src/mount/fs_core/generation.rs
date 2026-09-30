@@ -2,6 +2,7 @@
 //! All write handles of the file share it. Its bytes are not acknowledged
 //! until `seal` succeeds.
 use crate::mount::namespace::Intent;
+use crate::mount::native_ancestry::Ancestry;
 use crate::mount::virtual_drive::{Revision, VirtualDrive};
 use crate::prelude::*;
 
@@ -21,7 +22,12 @@ impl Generation {
         path: &str,
         visible: Option<&Revision>,
         keep: u64,
+        ancestry: Option<&Ancestry>,
     ) -> Result<Self> {
+        if let Some(ancestry) = ancestry {
+            let intent = drive.begin_based(path, visible, ancestry)?;
+            return Self::open_spool(drive, intent, visible, keep);
+        }
         let mut intent = drive.begin_observed(path, visible)?;
         // The latest pending intent at this path (a seal or deletion made
         // earlier in this workspace) is what the caller sees, so this
@@ -38,6 +44,14 @@ impl Generation {
                 intent.parents.clear();
             }
         }
+        Self::open_spool(drive, intent, visible, keep)
+    }
+    fn open_spool(
+        drive: &VirtualDrive,
+        intent: Intent,
+        visible: Option<&Revision>,
+        keep: u64,
+    ) -> Result<Self> {
         let file = OpenOptions::new()
             .create_new(true)
             .read(true)

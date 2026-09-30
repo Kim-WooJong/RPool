@@ -40,6 +40,9 @@ impl FsCore {
         // Acknowledged. Rebasing only serves reads after an unlink, so a failed
         // view refresh must not report the seal as failed.
         if let Ok(sealed) = self.visible(&path) {
+            if let Some(revision) = &sealed {
+                lock(&self.observed)?.insert(file, revision.clone());
+            }
             lock(&self.handles)?.rebase(file, sealed);
         }
         Ok(())

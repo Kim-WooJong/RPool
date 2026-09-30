@@ -23,7 +23,7 @@ fn start(
     read_only: bool,
 ) -> Result<Box<dyn NativeMount>> {
     match frontend {
-        Frontend::Dav => bail!("DAV is not a native frontend"),
+        Frontend::Dav | Frontend::Auto => bail!("not a native frontend"),
         #[cfg(target_os = "linux")]
         Frontend::Fuse => super::fuse::mount(core, mountpoint, read_only),
         #[cfg(not(target_os = "linux"))]

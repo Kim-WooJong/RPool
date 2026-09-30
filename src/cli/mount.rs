@@ -15,8 +15,10 @@ use std::path::PathBuf;
 )]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Frontend {
-    /// rclone mount/VFS over RPool's loopback WebDAV server (default).
+    /// Native where this build and workspace support it, else WebDAV (default).
     #[default]
+    Auto,
+    /// rclone mount/VFS over RPool's loopback WebDAV server.
     Dav,
     /// Native FUSE frontend (Linux) over the filesystem core; local workspaces only.
     Fuse,
@@ -27,9 +29,26 @@ pub(crate) enum Frontend {
 impl Frontend {
     pub(crate) fn cli_value(self) -> &'static str {
         match self {
+            Self::Auto => "auto",
             Self::Dav => "dav",
             Self::Fuse => "fuse",
             Self::Winfsp => "winfsp",
+        }
+    }
+    /// The frontend a mount actually uses. Native frontends serve online
+    /// drives in local or pool-sync (v6) mode; v7 history, bounded shared and
+    /// shared-root workspaces, replicas and platforms without one use WebDAV.
+    pub(crate) fn resolve(self, args: &MountArgs) -> Self {
+        let supported = args.virtual_drive
+            && !args.pool_retention
+            && !args.bounded_shared
+            && args.shared_root.is_none();
+        match self {
+            Self::Auto => match Self::native_here() {
+                Some(native) if supported => native,
+                _ => Self::Dav,
+            },
+            other => other,
         }
     }
     /// The native frontend this build can mount on this OS, if any.
@@ -46,9 +65,10 @@ impl Frontend {
 
 #[derive(Args, Debug, Clone)]
 pub(crate) struct MountArgs {
-    /// Filesystem frontend. Native frontends need a local --virtual-drive workspace
-    /// (no --pool-sync or shared modes) and make fsync/close the local durability point.
-    #[arg(long, value_enum, default_value_t = Frontend::Dav, requires = "virtual_drive", conflicts_with_all = ["pool_sync", "bounded_shared", "shared_root"])]
+    /// Filesystem frontend. `auto` (default) uses the native one where available for
+    /// online drives in local or pool-sync (v6) mode, else WebDAV. Native frontends make
+    /// fsync/close the local durability point.
+    #[arg(long, value_enum, default_value_t = Frontend::Auto)]
     pub(crate) frontend: Frontend,
     /// Mount a native frontend read-only (writes fail with a read-only error).
     #[arg(long)]
@@ -306,7 +326,8 @@ mod tests {
         .is_err());
     }
     #[test]
-    fn native_frontends_need_a_local_virtual_drive() {
+    fn frontend_defaults_to_auto_and_resolves_by_workspace_mode() {
+        use crate::cli::Frontend;
         let base = [
             "rpool",
             "mount",
@@ -315,18 +336,36 @@ mod tests {
             "--mountpoint=/m",
         ];
         let parse = |extra: &[&str]| {
-            crate::cli::Cli::try_parse_from(base.iter().copied().chain(extra.iter().copied()))
+            let cli =
+                crate::cli::Cli::try_parse_from(base.iter().copied().chain(extra.iter().copied()))
+                    .unwrap();
+            let Some(crate::cli::Commands::Mount(args)) = cli.command else {
+                panic!("mount command expected");
+            };
+            args
         };
-        assert!(parse(&["--virtual-drive", "--frontend=fuse"]).is_ok());
-        assert!(parse(&["--virtual-drive", "--frontend=winfsp", "--native-read-only"]).is_ok());
-        assert!(parse(&["--frontend=fuse"]).is_err());
-        assert!(parse(&["--virtual-drive", "--pool-sync", "--frontend=fuse"]).is_err());
-        assert!(parse(&["--virtual-drive", "--frontend=nfs"]).is_err());
-        let default = parse(&["--virtual-drive"]).unwrap();
-        let Some(crate::cli::Commands::Mount(args)) = default.command else {
-            panic!("mount command expected");
-        };
-        assert_eq!(args.frontend, super::Frontend::Dav);
+        let native = Frontend::native_here().unwrap_or(Frontend::Dav);
+        let local = parse(&["--virtual-drive"]);
+        assert_eq!(local.frontend, Frontend::Auto);
+        assert_eq!(local.frontend.resolve(&local), native);
+        let pool = parse(&["--virtual-drive", "--pool-sync"]);
+        assert_eq!(
+            pool.frontend.resolve(&pool),
+            native,
+            "v6 pool sync is served natively"
+        );
+        let v7 = parse(&["--virtual-drive", "--pool-sync", "--pool-retention"]);
+        assert_eq!(v7.frontend.resolve(&v7), Frontend::Dav);
+        let replica = parse(&[]);
+        assert_eq!(replica.frontend.resolve(&replica), Frontend::Dav);
+        let explicit = parse(&["--virtual-drive", "--frontend=dav"]);
+        assert_eq!(explicit.frontend.resolve(&explicit), Frontend::Dav);
+        assert!(crate::cli::Cli::try_parse_from(
+            base.iter()
+                .copied()
+                .chain(["--virtual-drive", "--frontend=nfs"])
+        )
+        .is_err());
     }
     #[test]
     fn shared_mount_options_require_each_other() {

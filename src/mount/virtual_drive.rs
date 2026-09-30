@@ -752,7 +752,7 @@ impl VirtualDrive {
         );
         Ok(())
     }
-    fn deletion_for(&self, path: &str, revision: &Revision) -> Result<Intent> {
+    pub(super) fn deletion_for(&self, path: &str, revision: &Revision) -> Result<Intent> {
         let mut intent = self.begin_observed(path, Some(revision))?;
         intent.spool = None;
         if self.bounded_shared {
@@ -825,6 +825,10 @@ impl VirtualDrive {
             .cloned()
             .context("delete source missing")?;
         let intent = self.deletion_for(path, &revision)?;
+        self.record_deletion(path, intent)
+    }
+    /// Durably queue a deletion intent for `path`.
+    pub(super) fn record_deletion(&self, path: &str, intent: Intent) -> Result<()> {
         let mut s = self
             .state
             .lock()
@@ -1344,8 +1348,18 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     if args.stop_file.as_ref().is_some_and(|p| p.exists()) {
         bail!("stop file already exists");
     }
-    if args.native_read_only && args.frontend == crate::cli::Frontend::Dav {
-        bail!("--native-read-only requires a native --frontend");
+    let frontend = args.frontend.resolve(&args);
+    if args.frontend != crate::cli::Frontend::Auto
+        && frontend != crate::cli::Frontend::Dav
+        && (args.pool_retention
+            || args.bounded_shared
+            || args.shared_root.is_some()
+            || !args.virtual_drive)
+    {
+        bail!("native frontends serve online drives in local or pool-sync (v6) mode; use --frontend dav for v7 history, bounded shared or shared-root workspaces");
+    }
+    if args.native_read_only && frontend == crate::cli::Frontend::Dav {
+        bail!("--native-read-only requires a native frontend");
     }
     let stop = super::lifecycle::StopControl::new(args.stop_file.clone())?;
     let generated_worker;
@@ -1496,11 +1510,14 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     if drive.bounded_shared || !drive.pool_sync_roots.is_empty() {
         drive.isolate_previous_native_cache()?;
     }
-    if args.frontend != crate::cli::Frontend::Dav {
+    if frontend != crate::cli::Frontend::Dav {
+        // A previous WebDAV session's rclone cache is never replayed natively;
+        // it is set aside (not deleted) with a warning.
+        drive.isolate_previous_native_cache()?;
         return super::frontend::run_native(
             drive,
             super::frontend::NativeRun {
-                frontend: args.frontend,
+                frontend,
                 mountpoint: args.mountpoint.as_deref().context("mountpoint required")?,
                 read_only: args.native_read_only,
                 interval: std::time::Duration::from_secs(args.interval_seconds),

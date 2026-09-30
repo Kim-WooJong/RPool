@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Native by default.**
+  - `rpool mount --frontend` now defaults to `auto`, in the CLI and the GUI.
+    It uses the native frontend where available (Linux FUSE; Windows WinFsp
+    in `winfsp` builds), otherwise WebDAV. Pass `--frontend dav` to keep the
+    previous behaviour.
+  - Native frontends now serve pool-sync (v6) workspaces. Open files keep
+    their revision while peers update them, and edits descend from the
+    bytes they were built on, so concurrent edits become preserved
+    conflicts.
+  - v7 history and bounded or shared-root workspaces stay on WebDAV.
+  - New GUI pools default to native crypt.
+
 - Native crypt now covers mounted drives. For pools with `native_crypt`,
   RPool encrypts the virtual drive's shard and manifest uploads and its
   pool-sync (v6) and v7 snapshot metadata itself: content and names, in

@@ -215,20 +215,38 @@ impl MountForm {
     /// A native frontend needs a local online drive: no pool sync or shared root.
     pub(super) fn native_allowed(&self) -> bool {
         self.virtual_drive
-            && !self.pool_sync
             && !self.bounded_shared
             && self.shared_root.trim().is_empty()
+            && !(self.pool_sync && self.pool_retention)
     }
-    /// `--frontend` arguments for a mount (never for sync or maintenance actions).
+    /// Whether this mount will use a native frontend on this build.
+    pub(super) fn native_selected(&self) -> bool {
+        use crate::cli::Frontend;
+        self.native_allowed()
+            && Frontend::native_here().is_some()
+            && matches!(
+                self.frontend,
+                Frontend::Auto | Frontend::Fuse | Frontend::Winfsp
+            )
+    }
+    /// `--frontend` for a mount (never for sync or maintenance actions). Always
+    /// explicit, so the CLI's `auto` default never picks a frontend the form
+    /// did not offer.
     pub(super) fn frontend_args(&self, sync_only: bool) -> Vec<OsString> {
-        if sync_only || !self.native_allowed() || self.frontend == crate::cli::Frontend::Dav {
+        use crate::cli::Frontend;
+        if sync_only {
             return vec![];
         }
+        let frontend = if self.native_allowed() {
+            self.frontend
+        } else {
+            Frontend::Dav
+        };
         let mut args = vec![OsString::from(format!(
             "--frontend={}",
-            self.frontend.cli_value()
+            frontend.cli_value()
         ))];
-        if self.native_read_only {
+        if self.native_read_only && self.native_selected() {
             args.push("--native-read-only".into());
         }
         args
@@ -363,7 +381,10 @@ impl MountForm {
     /// Local online drives only: retention and native frontends conflict with
     /// pool sync and shared roots.
     pub(super) fn retention_allowed(&self) -> bool {
-        self.native_allowed()
+        self.virtual_drive
+            && !self.pool_sync
+            && !self.bounded_shared
+            && self.shared_root.trim().is_empty()
     }
     pub(super) fn retention_key(&self) -> (String, String, usize) {
         (

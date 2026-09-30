@@ -398,11 +398,18 @@ fn a_new_write_starts_from_the_latest_seal_even_with_an_old_handle() {
 }
 
 #[test]
-fn shared_and_pool_sync_workspaces_are_refused() {
+fn v7_and_bounded_shared_workspaces_are_refused_but_pool_sync_is_served() {
     let root = tempfile::tempdir().unwrap();
     let mut drive = fixture(root.path());
     drive.pool_sync_roots = vec!["remote:pool".into()];
-    assert!(FsCore::new(Arc::new(drive)).is_err());
+    assert!(FsCore::new(Arc::new(drive)).is_ok());
+    for (retention, bounded) in [(true, false), (false, true)] {
+        let root = tempfile::tempdir().unwrap();
+        let mut drive = fixture(root.path());
+        drive.peer_retention = retention;
+        drive.bounded_shared = bounded;
+        assert!(FsCore::new(Arc::new(drive)).is_err());
+    }
 }
 
 #[test]

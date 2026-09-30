@@ -48,7 +48,8 @@ fn cache(ui: &mut egui::Ui, form: &mut MountForm) {
 fn frontend(ui: &mut egui::Ui, form: &mut MountForm) {
     use crate::cli::Frontend;
     let name = |f: Frontend| match f {
-        Frontend::Dav => "WebDAV via rclone mount (default)",
+        Frontend::Auto => "Automatic — native where available (default)",
+        Frontend::Dav => "WebDAV via rclone mount",
         Frontend::Fuse => "Native FUSE (Linux)",
         Frontend::Winfsp => "Native WinFsp (Windows)",
     };
@@ -57,6 +58,7 @@ fn frontend(ui: &mut egui::Ui, form: &mut MountForm) {
         egui::ComboBox::from_id_salt("mount-frontend")
             .selected_text(name(form.frontend))
             .show_ui(ui, |ui| {
+                ui.selectable_value(&mut form.frontend, Frontend::Auto, name(Frontend::Auto));
                 ui.selectable_value(&mut form.frontend, Frontend::Dav, name(Frontend::Dav));
                 if let Some(native) = Frontend::native_here() {
                     ui.add_enabled_ui(form.native_allowed(), |ui| {
@@ -67,13 +69,13 @@ fn frontend(ui: &mut egui::Ui, form: &mut MountForm) {
     });
     if Frontend::native_here().is_none() {
         ui.small(if cfg!(windows) {
-            "Native WinFsp needs a build with the `winfsp` feature and WinFsp installed."
+            "This build has no native frontend (needs the `winfsp` feature and WinFsp); WebDAV is used."
         } else {
-            "No native frontend on this OS; WebDAV is used."
+            "No native frontend on this OS yet; WebDAV is used."
         });
     } else if !form.native_allowed() {
-        ui.small("Native frontends need an online drive with Sync = This PC only. WebDAV is used otherwise.");
-    } else if form.frontend != Frontend::Dav {
+        ui.small("Native frontends serve online drives with This PC only or Automatic pool sync (without v7 history deletion). WebDAV is used here.");
+    } else if form.native_selected() {
         ui.checkbox(&mut form.native_read_only, "Mount read-only");
         ui.colored_label(ui.visuals().warn_fg_color, "Experimental: close/fsync is the local durability point; cloud sync stays asynchronous. Test with a NEW workspace first.");
     }

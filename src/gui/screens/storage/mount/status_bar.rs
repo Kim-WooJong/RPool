@@ -47,6 +47,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
             let target = if form.mountpoint.trim().is_empty() { "no mountpoint" } else { form.mountpoint.trim() };
             ui.label(egui::RichText::new(format!("{pool} → {target}")).strong());
             ui.label(egui::RichText::new(mode(form)).weak());
+            ui.label(egui::RichText::new(if form.native_selected() { "· native" } else { "· WebDAV" }).weak());
         });
         ui.add_space(theme::SUBSECTION_GAP);
         toolbar(ui, |ui| {

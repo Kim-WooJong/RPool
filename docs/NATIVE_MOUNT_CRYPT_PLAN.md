@@ -287,3 +287,41 @@ last-handle close failed, a phantom unsealed file stayed visible. The
 generation is now dropped from memory and its spool remains on disk for
 recovery.
 
+## Native by default (2026-09-30)
+
+- **Frontend `auto` is the default in the CLI and GUI.** It uses the native
+  frontend where one exists for the build and the workspace mode, otherwise
+  WebDAV:
+  - Linux: FUSE.
+  - Windows: WinFsp, in `winfsp` builds only.
+  - macOS: WebDAV (no native frontend yet).
+  - v7 history, bounded shared, shared-root and replica workspaces: WebDAV.
+- **Explicit choices still apply.** `--frontend dav|fuse|winfsp` is honoured,
+  and an explicit native choice for an unsupported mode is refused.
+- **Pool sync v6 is served natively.** Design review by an independent
+  expert. The changes:
+  - Native opens protect served revisions from retention without the DAV
+    range fence (`observe_open`).
+  - Attached handles of one file share one base. A peer revision reaches
+    them only after all of them are closed, and snapshot handles never
+    change.
+  - **An edit descends from the bytes it was built on.** A partial edit keeps
+    its base revision as ancestry. A truncating save or delete descends from
+    the revision last read (persisted with `observe_read`), else from this
+    workspace's latest pending intent at the path, else, for a recreate,
+    from the events that ended the path's history.
+  - A peer's concurrent edit therefore becomes a preserved v6 conflict
+    (original plus both named edits) instead of being overwritten.
+- **Tests.** Nine peer scenarios cover reopening own writes, handles across
+  peer updates, partial and truncating saves, own chains, deletes, a peer
+  delete while open, rename and conflict listing. The crash matrix and the
+  randomized traces also run in pool-sync mode. The traces found that
+  recreating after a pending delete started a new root; fixed.
+- **Leftover rclone cache.** A previous WebDAV session's rclone VFS cache is
+  set aside, not deleted, before a native mount; it is never replayed.
+- **Native crypt covers mounted drives.** New GUI pools default to it.
+- **Still refused:** v7 (`peer_retention`), because its rename refuses
+  whenever any intent is pending, which breaks atomic saves.
+- **Not verified at kernel level for pool sync:** Docker is unavailable
+  until the reboot. The core traces above are the evidence so far.
+

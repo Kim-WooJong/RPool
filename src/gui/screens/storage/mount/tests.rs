@@ -133,25 +133,39 @@ fn native_frontend_choice_reaches_mount_cli_only_for_local_online_drives() {
         };
         (args.frontend, args.native_read_only)
     };
+    use crate::cli::Frontend;
+    // Read-only reaches the CLI only where a native frontend exists.
+    let native_here = Frontend::native_here().is_some();
     let mut form = super::MountForm::default();
+    assert_eq!(
+        form.frontend,
+        Frontend::Auto,
+        "native where available is the default"
+    );
     form.pool_sync = false;
-    form.frontend = crate::cli::Frontend::Fuse;
+    form.frontend = Frontend::Fuse;
     form.native_read_only = true;
-    assert_eq!(parse(&form, false), (crate::cli::Frontend::Fuse, true));
+    assert_eq!(parse(&form, false), (Frontend::Fuse, native_here));
     assert_eq!(
         parse(&form, true),
-        (crate::cli::Frontend::Dav, false),
-        "sync-only"
+        (Frontend::Auto, false),
+        "sync-only passes nothing"
     );
     form.pool_sync = true;
     assert_eq!(
         parse(&form, false),
-        (crate::cli::Frontend::Dav, false),
-        "pool sync keeps DAV"
+        (Frontend::Fuse, native_here),
+        "pool sync v6 is served natively"
     );
+    form.pool_retention = true;
+    assert_eq!(parse(&form, false), (Frontend::Dav, false), "v7 keeps DAV");
+    form.pool_retention = false;
     form.pool_sync = false;
     form.shared_root = "crypt:team".into();
-    assert!(form.frontend_args(false).is_empty());
+    assert_eq!(
+        form.frontend_args(false),
+        [std::ffi::OsString::from("--frontend=dav")]
+    );
     // The choice is saved per pool and restored.
     form.shared_root.clear();
     let profile = form.profile();
@@ -160,7 +174,7 @@ fn native_frontend_choice_reaches_mount_cli_only_for_local_online_drives() {
     let restored: crate::gui::settings::MountProfile = serde_json::from_str(&json).unwrap();
     assert_eq!(restored, profile);
     let legacy: crate::gui::settings::MountProfile = serde_json::from_str("{}").unwrap();
-    assert_eq!(legacy.frontend, crate::cli::Frontend::Dav);
+    assert_eq!(legacy.frontend, Frontend::Auto);
 }
 #[test]
 fn saved_cache_preferences_reach_mount_cli_and_keep_explicit_replica() {

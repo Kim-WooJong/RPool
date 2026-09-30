@@ -155,7 +155,13 @@ impl FsCore {
             });
         }
         if visible {
-            self.drive.delete(path)?;
+            match (self.peer, lock(&self.ids)?.get(path)) {
+                (true, Some(file)) => {
+                    let ancestry = self.read_ancestry(file, path)?;
+                    self.drive.delete_based(path, &ancestry)?;
+                }
+                _ => self.drive.delete(path)?,
+            }
         }
         lock(&self.ids)?.unlink(path);
         Ok(())
@@ -198,6 +204,11 @@ impl FsCore {
         }
         self.drive.rename_file(from, to)?;
         lock(&self.ids)?.rename(from, to);
+        // Handles follow the moved file; its new revision is the moved copy.
+        if let (Some(file), Some(moved)) = (source.id, self.visible(to)?) {
+            lock(&self.observed)?.insert(file, moved.clone());
+            lock(&self.handles)?.rebase(file, Some(moved));
+        }
         Ok(())
     }
 

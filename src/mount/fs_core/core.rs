@@ -7,6 +7,7 @@ use super::generation::Generation;
 use super::handles::{Handle, HandleId, HandleTable, View};
 use super::identity::{FileId, IdTable};
 use crate::mount::namespace::valid_path;
+use crate::mount::native_ancestry::Ancestry;
 use crate::mount::virtual_drive::{Revision, VirtualDrive};
 use crate::prelude::*;
 use std::sync::RwLock;
@@ -35,6 +36,11 @@ pub(crate) struct FsCore {
     pub(super) ids: Mutex<IdTable>,
     pub(super) handles: Mutex<HandleTable>,
     pub(super) slots: Mutex<BTreeMap<FileId, Slot>>,
+    /// Pool-sync workspace: peers change files, so handles keep the revision
+    /// they started from and edits descend from what was actually read.
+    pub(super) peer: bool,
+    /// The revision each file's handles last read (or this core last sealed).
+    pub(super) observed: Mutex<BTreeMap<FileId, Revision>>,
 }
 
 pub(super) fn lock<T>(mutex: &Mutex<T>) -> FsResult<std::sync::MutexGuard<'_, T>> {
@@ -47,21 +53,50 @@ pub(super) fn checked(path: &str) -> FsResult<()> {
 }
 
 impl FsCore {
-    /// Shared-history and pool-sync workspaces stay on the DAV route until
-    /// traces cover them.
+    /// Local and pool-sync (v6) workspaces. v7 private snapshots and the
+    /// bounded shared protocol stay on the DAV route.
     pub(crate) fn new(drive: Arc<VirtualDrive>) -> FsResult<Self> {
-        if drive.peer_retention || drive.bounded_shared || !drive.pool_sync_roots.is_empty() {
+        if drive.peer_retention || drive.bounded_shared {
             return Err(FsError::Io(anyhow!(
-                "filesystem core supports local workspaces only for now"
+                "the native frontend does not support v7 history or bounded shared workspaces yet"
             )));
         }
+        let peer = !drive.pool_sync_roots.is_empty();
         Ok(Self {
             drive,
             namespace: RwLock::new(()),
             ids: Mutex::new(IdTable::default()),
             handles: Mutex::new(HandleTable::default()),
             slots: Mutex::new(BTreeMap::new()),
+            peer,
+            observed: Mutex::new(BTreeMap::new()),
         })
+    }
+    /// Records the revision a handle of `file` read; cloud reads persist it
+    /// as the path's base so later edits descend from it.
+    pub(super) fn remember(&self, file: FileId, revision: &Revision) -> FsResult<()> {
+        if !self.peer {
+            return Ok(());
+        }
+        let changed = lock(&self.observed)?
+            .insert(file, revision.clone())
+            .is_none_or(|previous| previous.id() != revision.id());
+        if let (true, Revision::Cloud { id, .. }) = (changed, revision) {
+            if let Some(path) = lock(&self.ids)?.path(file) {
+                self.drive.observe_read(&path, id)?;
+            }
+        }
+        Ok(())
+    }
+    /// Ancestry for an edit that does not keep existing bytes (truncate,
+    /// create, delete): the last revision read, else what this workspace last
+    /// did at the path (see `VirtualDrive::unread_ancestry`).
+    pub(super) fn read_ancestry(&self, file: FileId, path: &str) -> FsResult<Ancestry> {
+        if let Some(read) = lock(&self.observed)?.get(&file) {
+            return Ok(Ancestry::of(read));
+        }
+        let exists = self.visible(path)?.is_some();
+        Ok(self.drive.unread_ancestry(path, exists)?)
     }
     pub(super) fn shared(&self) -> FsResult<std::sync::RwLockReadGuard<'_, ()>> {
         self.namespace
@@ -110,9 +145,21 @@ impl FsCore {
             return Err(FsError::NotFound);
         }
         if let Some(revision) = &visible {
-            // Persist ancestry and keep cloud bytes from retention while served.
-            self.drive.pin_read(path, revision)?;
+            if self.peer {
+                // Retention protection only; ancestry comes from actual reads.
+                self.drive.observe_open(path, revision);
+            } else {
+                // Persist ancestry and keep cloud bytes from retention while served.
+                self.drive.pin_read(path, revision)?;
+            }
         }
+        // Attached handles of one file share a base; a peer revision reaches
+        // them only after all of them are closed.
+        let joined = if self.peer {
+            lock(&self.handles)?.attached_base(file)
+        } else {
+            None
+        };
         let (write, append, truncate) = match access {
             Access::Read => (false, false, false),
             Access::Write { truncate, append } => (true, append, truncate),
@@ -123,13 +170,26 @@ impl FsCore {
             match generation.as_mut() {
                 Some(g) => g.truncate(&self.drive, 0)?,
                 None => {
-                    *generation = Some(Generation::start(&self.drive, path, visible.as_ref(), 0)?)
+                    let ancestry = if self.peer {
+                        Some(self.read_ancestry(file, path)?)
+                    } else {
+                        None
+                    };
+                    *generation = Some(Generation::start(
+                        &self.drive,
+                        path,
+                        visible.as_ref(),
+                        0,
+                        ancestry.as_ref(),
+                    )?)
                 }
             }
         }
         let view = match (&visible, write || unsealed) {
             (Some(revision), false) => View::Snapshot(revision.clone()),
-            _ => View::Attached { base: visible },
+            _ => View::Attached {
+                base: joined.unwrap_or(visible),
+            },
         };
         Ok(lock(&self.handles)?.insert(Handle {
             file,
@@ -142,7 +202,10 @@ impl FsCore {
     pub(crate) fn read_at(&self, handle: HandleId, offset: u64, count: usize) -> FsResult<Vec<u8>> {
         let handle = lock(&self.handles)?.get(handle)?;
         let base = match handle.view {
-            View::Snapshot(revision) => return Ok(self.drive.read(&revision, offset, count)?),
+            View::Snapshot(revision) => {
+                self.remember(handle.file, &revision)?;
+                return Ok(self.drive.read(&revision, offset, count)?);
+            }
             View::Attached { base } => base,
         };
         let slot = lock(&self.slots)?.get(&handle.file).cloned();
@@ -151,13 +214,17 @@ impl FsCore {
                 return Ok(generation.read_at(offset, count)?);
             }
         }
-        // A linked file reads its current revision; an unlinked one its last.
-        let current = match lock(&self.ids)?.path(handle.file) {
-            Some(path) => self.visible(&path)?,
-            None => base,
+        // Local: a linked file reads its current revision, an unlinked one its
+        // last. Pool sync: the shared base, so a peer update never mixes in.
+        let current = match (self.peer, lock(&self.ids)?.path(handle.file)) {
+            (false, Some(path)) => self.visible(&path)?,
+            _ => base,
         };
         match current {
-            Some(revision) => Ok(self.drive.read(&revision, offset, count)?),
+            Some(revision) => {
+                self.remember(handle.file, &revision)?;
+                Ok(self.drive.read(&revision, offset, count)?)
+            }
             None => Ok(vec![]),
         }
     }
@@ -180,9 +247,9 @@ impl FsCore {
         }
         let revision = match handle.view {
             View::Snapshot(revision) => Some(revision),
-            View::Attached { base } => match lock(&self.ids)?.path(handle.file) {
-                Some(path) => self.visible(&path)?,
-                None => base,
+            View::Attached { base } => match (self.peer, lock(&self.ids)?.path(handle.file)) {
+                (false, Some(path)) => self.visible(&path)?,
+                _ => base,
             },
         };
         Ok(Attr {
@@ -203,16 +270,38 @@ impl FsCore {
         change: impl FnOnce(&mut Generation, &VirtualDrive) -> Result<()>,
     ) -> FsResult<()> {
         let _namespace = self.shared()?;
+        let file = lock(&self.handles)?.get(handle)?.file;
+        let slot = self.slot(file)?;
+        let mut generation = lock(&slot)?;
+        // Re-read under the slot lock: a concurrent seal has finished rebasing.
         let handle = lock(&self.handles)?.get(handle)?;
         if !handle.write {
             return Err(FsError::ReadOnly);
         }
-        let slot = self.slot(handle.file)?;
-        let mut generation = lock(&slot)?;
         if generation.is_none() {
-            let path = lock(&self.ids)?.path(handle.file).ok_or(FsError::Stale)?;
-            let base = self.visible(&path)?;
-            *generation = Some(Generation::start(&self.drive, &path, base.as_ref(), keep)?);
+            let path = lock(&self.ids)?.path(file).ok_or(FsError::Stale)?;
+            let (base, ancestry) = if self.peer {
+                // The bytes kept and the recorded ancestry are the same revision.
+                let base = match &handle.view {
+                    View::Attached { base } => base.clone(),
+                    View::Snapshot(revision) => Some(revision.clone()),
+                };
+                if keep > 0 {
+                    let ancestry = base.as_ref().map(Ancestry::of).unwrap_or(Ancestry::Default);
+                    (base, Some(ancestry))
+                } else {
+                    (self.visible(&path)?, Some(self.read_ancestry(file, &path)?))
+                }
+            } else {
+                (self.visible(&path)?, None)
+            };
+            *generation = Some(Generation::start(
+                &self.drive,
+                &path,
+                base.as_ref(),
+                keep,
+                ancestry.as_ref(),
+            )?);
         }
         let generation = generation.as_mut().expect("generation started above");
         Ok(change(generation, &self.drive)?)
