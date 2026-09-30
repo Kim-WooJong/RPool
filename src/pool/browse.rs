@@ -41,19 +41,45 @@ pub(crate) fn browse(rclone: &str, pool: &str) -> anyhow::Result<PoolBrowse> {
         .cloned()
         .with_context(|| format!("pool not found: {pool}"))?;
     super::validate_pool(&policy)?;
-    if let Some((files, conflicts)) = crate::mount::pool_sync::browse_v7(rclone, pool)? {
-        return Ok(listing(pool, "v7", files, &conflicts));
+    let generations = super::browse_generations::discover(rclone, pool, &policy.remotes)?;
+    // Newest generation first; fall back to older ones only if it cannot be
+    // interpreted as a drive (for example only name records).
+    for (index, generation) in generations.iter().enumerate() {
+        let epoch = generation.epoch.as_deref();
+        let found = if generation.v7 {
+            crate::mount::pool_sync::browse_v7(rclone, pool, epoch)?
+                .map(|(files, conflicts)| ("v7", files, conflicts))
+        } else {
+            let transports = crate::mount::pool_sync::read_stores(rclone, pool, &policy, epoch)?;
+            let stores: Vec<_> = transports.iter().map(|t| t.as_ref()).collect();
+            project_v6(&stores)?.map(|(files, conflicts)| ("v6", files, conflicts))
+        };
+        if let Some((mode, files, conflicts)) = found {
+            let mut result = listing(pool, mode, files, &conflicts);
+            if let Some(epoch) = epoch {
+                result.notes.insert(
+                    0,
+                    format!(
+                        "metadata generation {} (after Apply pool changes)",
+                        &epoch[..epoch.len().min(12)]
+                    ),
+                );
+            }
+            let older = generations.len() - index - 1;
+            if older > 0 {
+                result.notes.insert(
+                    usize::from(epoch.is_some()),
+                    format!("{older} older metadata generation(s) are not shown"),
+                );
+            }
+            return Ok(result);
+        }
     }
-    let transports = crate::mount::pool_sync::read_stores(rclone, pool, &policy)?;
-    let stores: Vec<_> = transports.iter().map(|t| t.as_ref()).collect();
-    match project_v6(&stores)? {
-        Some((files, conflicts)) => Ok(listing(pool, "v6", files, &conflicts)),
-        None => Ok(PoolBrowse {
-            pool: pool.into(),
-            mode: "none".into(),
-            ..Default::default()
-        }),
-    }
+    Ok(PoolBrowse {
+        pool: pool.into(),
+        mode: "none".into(),
+        ..Default::default()
+    })
 }
 
 type Files = std::collections::BTreeMap<String, u64>;

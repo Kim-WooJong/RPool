@@ -1,4 +1,5 @@
 pub(crate) mod browse;
+mod browse_generations;
 pub(crate) mod capacity;
 mod load;
 mod manage;

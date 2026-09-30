@@ -155,8 +155,15 @@ pub(crate) fn read_stores(
     rclone: &str,
     pool: &str,
     policy: &PoolDefinition,
+    epoch: Option<&str>,
 ) -> Result<Vec<Box<dyn EventStore>>> {
     roots(pool, &policy.remotes)?
+        .iter()
+        .map(|root| match epoch {
+            Some(epoch) => crate::utils::remote_join(root, &format!("epochs/{epoch}")),
+            None => root.clone(),
+        })
+        .collect::<Vec<_>>()
         .iter()
         .map(|root| {
             SharedTransport::new(rclone, root)
@@ -172,19 +179,36 @@ pub(crate) fn read_stores(
 pub(crate) fn browse_v7(
     rclone: &str,
     pool: &str,
+    epoch: Option<&str>,
 ) -> Result<Option<(BTreeMap<String, u64>, Vec<super::peer_projection::Conflict>)>> {
+    use super::virtual_drive::VirtualDrive;
     let temp = tempfile::tempdir()?;
-    let mut drive = super::virtual_drive::VirtualDrive::open(
-        rclone,
-        pool,
-        &temp.path().join("workspace"),
-        "rpool-browse",
-        None,
-        1 << 20,
-        false,
-        true,
-        true,
-    )?;
+    let workspace = temp.path().join("workspace");
+    let mut drive = match epoch {
+        None => VirtualDrive::open(
+            rclone,
+            pool,
+            &workspace,
+            "rpool-browse",
+            None,
+            1 << 20,
+            false,
+            true,
+            true,
+        )?,
+        Some(epoch) => VirtualDrive::open_with_epoch(
+            rclone,
+            pool,
+            &workspace,
+            "rpool-browse",
+            None,
+            1 << 20,
+            false,
+            true,
+            true,
+            epoch,
+        )?,
+    };
     if !drive.pull_snapshots_adopting_policy()? {
         return Ok(None);
     }

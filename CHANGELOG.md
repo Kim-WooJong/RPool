@@ -7,7 +7,9 @@
   straight from its cloud metadata, read-only and with no workspace. In the
   GUI, Files › Library now picks a pool (no "All pools") and shows that
   drive as a folder tree with search and sizes. The uploaded-archive
-  inventory is the second tab, limited to the selected pool. Checked in
+  inventory is the second tab, limited to the selected pool.
+  After "Apply pool changes" the listing follows the newest metadata
+  generation (`epochs/<epoch>`), found in the cloud without a workspace. Checked in
   Docker for v6 and v7, with and without native crypt: remotes are
   byte-identical before and after, and the listing equals a fresh mount.
 
