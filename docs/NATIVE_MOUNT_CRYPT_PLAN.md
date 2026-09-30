@@ -218,9 +218,24 @@ whole suite. The kernel tests cover:
 
 The whole Linux suite passes (505 passed, 26 ignored).
 
-Not yet verified: mmap-heavy applications, a mount through the CLI with real
-rclone sync, very large files (cloud hydration while locks are held), and
-multi-user `allow_other`.
+The CLI end-to-end test (`scripts/linux-docker/fuse-e2e.sh`, rclone v1.75.1)
+also passes. It uses three crypt remotes over local directories, RS 2+1, 1 MiB
+shards, and declared capacity and failure domains, and it checks the
+following:
+
+- a 3 MB file plus a renamed file in a subdirectory are readable while
+  mounted;
+- background sync uploads all 5 pending intents, leaving 22 encrypted objects
+  that contain no plaintext;
+- the stop file unmounts cleanly;
+- after a remount the data reads back through the committed cloud revisions.
+
+The Docker image and scripts are in `scripts/linux-docker/`.
+
+Not yet verified: mmap-heavy applications, very large files (cloud hydration
+while locks are held), real cloud providers, and multi-user `allow_other`.
+Without `--capacity-domain`/`--failure-domain` declarations, sync keeps the
+data local ("No quota-known upload targets"), as with the DAV route.
 
 ## M4 status (2026-09-30): Windows WinFsp, compiled but not run
 
