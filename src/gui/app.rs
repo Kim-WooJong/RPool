@@ -208,7 +208,7 @@ impl eframe::App for RpoolGui {
             Page::Storage => storage::show(ui, &mut self.state, &mut self.task),
             Page::Jobs => jobs::show(ui, &mut self.state, &mut self.task),
             Page::Maintenance => maintenance::show(ui, &mut self.state, &mut self.task),
-            Page::Settings => settings::show(ui, &mut self.state),
+            Page::Settings => settings::show(ui, &mut self.state, &mut self.task),
         });
         self.refresh_pending |= std::mem::take(&mut self.state.providers.refresh_requested);
         self.refresh_pending |= std::mem::take(&mut self.state.pools.refresh_requested);

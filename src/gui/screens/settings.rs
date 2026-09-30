@@ -4,20 +4,30 @@ use crate::models::Placement;
 use crate::remote_root::{load_remote_root_store, remove_remote_root, set_remote_root};
 use eframe::egui;
 
-pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
+pub(crate) fn show(
+    ui: &mut egui::Ui,
+    state: &mut GuiState,
+    task: &mut crate::gui::task::TaskRunner,
+) {
     ui.heading("Settings");
-    let tab_id = egui::Id::new("settings-encryption-tab");
-    let mut encryption_tab = ui
+    let tab_id = egui::Id::new("settings-tab");
+    let mut tab = ui
         .ctx()
-        .data_mut(|data| data.get_temp::<bool>(tab_id).unwrap_or(false));
+        .data_mut(|data| data.get_temp::<u8>(tab_id).unwrap_or(0));
     ui.horizontal(|ui| {
-        ui.selectable_value(&mut encryption_tab, false, "Operation defaults");
-        ui.selectable_value(&mut encryption_tab, true, "Encryption defaults");
+        ui.selectable_value(&mut tab, 0, "Operation defaults");
+        ui.selectable_value(&mut tab, 1, "Encryption defaults");
+        ui.selectable_value(&mut tab, 2, "Portable configuration");
     });
-    ui.ctx()
-        .data_mut(|data| data.insert_temp(tab_id, encryption_tab));
-    if encryption_tab {
+    ui.ctx().data_mut(|data| data.insert_temp(tab_id, tab));
+    if tab == 1 {
         show_encryption(ui, state);
+        return;
+    }
+    if tab == 2 {
+        egui::ScrollArea::vertical()
+            .id_salt("settings-portable")
+            .show(ui, |ui| super::portable_config::show(ui, state, task));
         return;
     }
     ui.heading("GUI / operation defaults");

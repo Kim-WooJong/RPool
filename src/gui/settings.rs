@@ -61,6 +61,8 @@ pub(crate) struct MountProfile {
     /// Filesystem frontend; native ones apply to local online drives only.
     pub(crate) frontend: crate::cli::Frontend,
     pub(crate) native_read_only: bool,
+    /// Previous versions kept by local history cleanup (`--keep-previous`).
+    pub(crate) keep_previous: usize,
 }
 
 impl Default for MountProfile {
@@ -86,6 +88,7 @@ impl Default for MountProfile {
             cache: Default::default(),
             frontend: Default::default(),
             native_read_only: Default::default(),
+            keep_previous: 3,
         }
     }
 }

@@ -94,11 +94,55 @@ fn history(ui: &mut egui::Ui, form: &mut MountForm) {
             ui.add(egui::DragValue::new(&mut form.pool_history_limit).range(0..=10000));
         });
     }
+    if form.pool_retention {
+        ui.checkbox(&mut form.diagnostic_read_only, "Next mount: diagnostic read-only")
+            .on_hover_text("Mounts an existing v7 pool read-only for inspection: no background sync, upload or history collection. Not saved; applies to the next Mount only.");
+    }
     ui.small(if form.pool_retention {
         "History collection needs temporary space. Keep the saved mode for an existing workspace."
     } else {
         "Without v7 the limit is stored only; nothing is deleted automatically."
     });
+}
+
+/// Preview → confirm → delete, for local online drives only.
+fn retention(
+    ui: &mut egui::Ui,
+    form: &mut MountForm,
+    settings: &mut crate::gui::settings::GuiSettings,
+) {
+    ui.label("Removes tracked obsolete versions from the cloud for this workspace. Current files, pending writes and unresolved conflicts are kept.");
+    ui.horizontal(|ui| {
+        ui.label("Keep previous versions per file");
+        ui.add(egui::DragValue::new(&mut form.keep_previous).range(0..=10000));
+    });
+    if ui
+        .button("1. Preview obsolete versions")
+        .on_hover_text("Lists what would be removed. Nothing is uploaded or deleted.")
+        .clicked()
+    {
+        run(form, settings, |form, rclone| form.start_action(rclone, 7));
+    }
+    let previewed = form.retention_previewed.as_ref() == Some(&form.retention_key());
+    ui.add_enabled_ui(previewed, |ui| {
+        ui.checkbox(
+            &mut form.retention_confirmed,
+            "2. These archives belong only to this workspace (no other PC or pool uses them)",
+        );
+    });
+    if !previewed {
+        ui.small("Run the preview for the current limit first; changing the limit, pool or workspace needs a new preview.");
+    }
+    let delete = egui::Button::new(
+        egui::RichText::new("3. Delete obsolete versions").color(ui.visuals().error_fg_color),
+    );
+    if ui
+        .add_enabled(form.retention_ready(), delete)
+        .on_hover_text("Deletes exact remote objects. Resumable; provider trash or versioning may delay quota recovery.")
+        .clicked()
+    {
+        run(form, settings, |form, rclone| form.start_action(rclone, 8));
+    }
 }
 
 fn imports(ui: &mut egui::Ui, form: &mut MountForm) {
@@ -176,6 +220,9 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
                 }
                 if form.virtual_drive && form.pool_sync {
                     ui.collapsing("History", |ui| history(ui, form));
+                }
+                if form.retention_allowed() {
+                    ui.collapsing("History cleanup", |ui| retention(ui, form, settings));
                 }
                 ui.collapsing("Import existing archives", |ui| imports(ui, form));
                 ui.collapsing("Maintenance", |ui| {

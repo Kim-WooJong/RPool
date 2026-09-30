@@ -314,3 +314,69 @@ fn mount_screen_renders_in_every_mode_and_capacity_state() {
         .push(super::identities::IdentityRow::default());
     render(&mut state);
 }
+
+fn parse_action(form: &super::MountForm, action: u8) -> Result<crate::cli::MountArgs, String> {
+    use clap::Parser;
+    let control = std::env::temp_dir().join("rpool-gui-args-test");
+    let args = form.action_args(action, &control)?;
+    let parsed =
+        crate::cli::Cli::try_parse_from(std::iter::once(OsString::from("rpool")).chain(args))
+            .map_err(|e| e.to_string())?;
+    match parsed.command {
+        Some(crate::cli::Commands::Mount(args)) => Ok(args),
+        _ => Err("not a mount command".into()),
+    }
+}
+
+fn local_online_form() -> super::MountForm {
+    let mut form = super::MountForm::default();
+    form.pool = "archive".into();
+    form.workspace = std::env::temp_dir().join("ws").display().to_string();
+    form.mountpoint = "R:".into();
+    form.pool_sync = false;
+    form
+}
+
+#[test]
+fn history_cleanup_previews_before_deleting_and_passes_cli_rules() {
+    let mut form = local_online_form();
+    form.keep_previous = 5;
+    let preview = parse_action(&form, 7).unwrap();
+    assert!(preview.retention_report && !preview.apply_retention);
+    assert_eq!(preview.keep_previous, 5);
+    assert!(preview.mountpoint.is_none());
+    assert!(parse_action(&form, 8).is_err(), "no preview yet");
+    form.retention_previewed = Some(form.retention_key());
+    assert!(parse_action(&form, 8).is_err(), "ownership not confirmed");
+    form.retention_confirmed = true;
+    let apply = parse_action(&form, 8).unwrap();
+    assert!(apply.apply_retention && apply.exclusive_archive_ownership);
+    assert_eq!(apply.keep_previous, 5);
+    form.keep_previous = 6;
+    assert!(
+        parse_action(&form, 8).is_err(),
+        "a changed limit needs a new preview"
+    );
+    form.pool_sync = true;
+    assert!(
+        parse_action(&form, 7).is_err(),
+        "pool sync conflicts with retention"
+    );
+}
+
+#[test]
+fn diagnostic_read_only_mount_is_only_for_v7_pool_sync() {
+    let mut form = local_online_form();
+    form.pool_sync = true;
+    form.pool_retention = true;
+    form.diagnostic_read_only = true;
+    let mount = parse_action(&form, 0).unwrap();
+    assert!(mount.diagnostic_read_only && mount.pool_retention && mount.pool_sync);
+    let sync = parse_action(&form, 1).unwrap();
+    assert!(!sync.diagnostic_read_only, "only mounts are diagnostic");
+    form.pool_retention = false;
+    assert!(!parse_action(&form, 0).unwrap().diagnostic_read_only);
+    form.pool_retention = true;
+    form.manifests.push("crypt:a.json".into());
+    assert!(parse_action(&form, 0).is_err());
+}

@@ -37,6 +37,11 @@ pub(crate) struct MountForm {
     pub(super) recovery_skip_remotes: String,
     pub(super) recovery_reprocess_plan: String,
     pub(super) recovering_accounts: bool,
+    pub(super) keep_previous: usize,
+    pub(super) diagnostic_read_only: bool,
+    pub(super) last_action: u8,
+    pub(super) retention_previewed: Option<(String, String, usize)>,
+    pub(super) retention_confirmed: bool,
     pub(super) frontend: crate::cli::Frontend,
     pub(super) native_read_only: bool,
 }
@@ -78,6 +83,11 @@ impl Default for MountForm {
             recovery_skip_remotes: String::new(),
             recovery_reprocess_plan: String::new(),
             recovering_accounts: false,
+            keep_previous: 3,
+            diagnostic_read_only: false,
+            last_action: 0,
+            retention_previewed: None,
+            retention_confirmed: false,
             frontend: Default::default(),
             native_read_only: false,
             capacity_read: std::time::Instant::now(),
@@ -146,6 +156,7 @@ impl MountForm {
             cache: self.cache_settings(),
             frontend: self.frontend,
             native_read_only: self.native_read_only,
+            keep_previous: self.keep_previous,
         }
     }
 
@@ -186,6 +197,9 @@ impl MountForm {
         self.shared_keep_previous = profile.shared_keep_previous;
         self.frontend = profile.frontend;
         self.native_read_only = profile.native_read_only;
+        self.keep_previous = profile.keep_previous;
+        self.retention_previewed = None;
+        self.retention_confirmed = false;
         self.virtual_drive = profile.cache.online_drive;
         self.cache_gib = profile.cache.shard_gib;
         self.vfs_cache_gib = profile.cache.native_gib;
@@ -262,6 +276,13 @@ impl MountForm {
                 _ => "Mount/sync failed. Check the log; local files and cache are retained. Windows mounts require WinFsp.".into(),
             }
             });
+            if self.last_action == 7 {
+                self.retention_previewed =
+                    (status == JobStatus::Completed).then(|| self.retention_key());
+                if status == JobStatus::Completed {
+                    self.notice = Some("Preview finished; review the list in the log. Delete obsolete versions is now available for this limit.".into());
+                }
+            }
             self.stopping = false;
             self.control = None;
         }
@@ -336,11 +357,48 @@ impl MountForm {
         Ok(())
     }
 
-    pub(super) fn start_action(&mut self, rclone: &str, action: u8) -> Result<(), String> {
+    /// Local online drives only: retention and native frontends conflict with
+    /// pool sync and shared roots.
+    pub(super) fn retention_allowed(&self) -> bool {
+        self.native_allowed()
+    }
+    pub(super) fn retention_key(&self) -> (String, String, usize) {
+        (
+            self.pool.trim().into(),
+            self.workspace.trim().into(),
+            self.keep_previous,
+        )
+    }
+    /// Deleting obsolete versions needs a successful preview of the same
+    /// pool, workspace and history limit, plus confirmed exclusive ownership.
+    pub(super) fn retention_ready(&self) -> bool {
+        self.retention_allowed()
+            && self.retention_confirmed
+            && self.retention_previewed.as_ref() == Some(&self.retention_key())
+    }
+
+    /// Validated `rpool mount` arguments for `action`: 0 mount, 1 sync, 2
+    /// capacity, 3 migrate, 4 trim cache, 5 export spool, 6 apply pool
+    /// changes, 7 retention preview, 8 apply retention.
+    pub(super) fn action_args(&self, action: u8, control: &Path) -> Result<Vec<OsString>, String> {
         let sync_only = action != 0;
         let automatic = self.virtual_drive && self.pool_sync;
         if action == 6 && (!automatic || !self.manifests.is_empty()) {
             return Err("Apply pool changes requires Online drive + Automatic pool sync and no explicit imports.".into());
+        }
+        if matches!(action, 7 | 8) && !self.retention_allowed() {
+            return Err("History cleanup needs an online drive with Sync = This PC only (no pool sync or shared root).".into());
+        }
+        if action == 8 && !self.retention_ready() {
+            return Err("Preview obsolete versions for this pool, workspace and limit, and confirm exclusive ownership, before deleting.".into());
+        }
+        let diagnostic =
+            action == 0 && automatic && self.pool_retention && self.diagnostic_read_only;
+        if diagnostic && !self.manifests.is_empty() {
+            return Err(
+                "A diagnostic read-only mount cannot import archives; remove the manifest imports."
+                    .into(),
+            );
         }
         if self.pool.trim().is_empty() || self.workspace.trim().is_empty() {
             return Err("Select an upload pool and a persistent local workspace.".into());
@@ -365,10 +423,6 @@ impl MountForm {
         if !Path::new(self.workspace.trim()).is_absolute() {
             return Err("The persistent workspace must use an absolute path.".into());
         }
-        let control = tempfile::Builder::new()
-            .prefix("rpool-mount-control-")
-            .tempdir()
-            .map_err(|error| format!("Cannot create mount control directory: {error}"))?;
         let mut args = build_args(
             self.pool.trim(),
             Path::new(self.workspace.trim()),
@@ -385,7 +439,7 @@ impl MountForm {
             },
             &self.manifests,
             self.interval_seconds,
-            &control.path().join("stop"),
+            &control.join("stop"),
             sync_only,
         );
         self.append_cache_args(&mut args);
@@ -409,9 +463,12 @@ impl MountForm {
                 }
             }
         }
+        if diagnostic {
+            args.push("--diagnostic-read-only".into());
+        }
         args.extend(self.frontend_args(sync_only));
         args.push("--status-file".into());
-        args.push(control.path().join("capacity.json").into_os_string());
+        args.push(control.join("capacity.json").into_os_string());
         if action >= 2 {
             args.retain(|arg| arg != "--sync-only");
             args.push(
@@ -420,32 +477,49 @@ impl MountForm {
                     4 => "--cleanup-cache",
                     5 => "--recover-spool",
                     6 => "--apply-pool-changes",
+                    7 => "--retention-report",
+                    8 => "--apply-retention",
                     _ => "--migrate-excluded",
                 }
                 .into(),
             );
         }
+        if matches!(action, 7 | 8) {
+            args.push(format!("--keep-previous={}", self.keep_previous).into());
+        }
+        if action == 8 {
+            args.push("--exclusive-archive-ownership".into());
+        }
         if action == 6 && !self.recovery_reprocess_plan.trim().is_empty() {
             args.push("--recovery-reprocess-plan".into());
             args.push(self.recovery_reprocess_plan.trim().into());
         }
+        Ok(args)
+    }
+
+    pub(super) fn start_action(&mut self, rclone: &str, action: u8) -> Result<(), String> {
+        let sync_only = action != 0;
+        let control = tempfile::Builder::new()
+            .prefix("rpool-mount-control-")
+            .tempdir()
+            .map_err(|error| format!("Cannot create mount control directory: {error}"))?;
+        let args = self.action_args(action, control.path())?;
         self.capacity = None;
         self.pool_status = None;
         self.runner.start_rpool(
-            if action == 2 {
-                "Check pool capacity"
-            } else if action == 3 {
-                "Migrate active archives (retain originals)"
-            } else if action == 4 {
-                "Trim clean shard cache"
-            } else if action == 5 {
-                "Export recoverable spool"
-            } else if action == 6 {
-                "Apply pool changes (preserve original workspace)"
-            } else if sync_only {
-                "Sync local workspace"
-            } else {
-                "Mount workspace"
+            match action {
+                2 => "Check pool capacity",
+                3 => "Migrate active archives (retain originals)",
+                4 => "Trim clean shard cache",
+                5 => "Export recoverable spool",
+                6 => "Apply pool changes (preserve original workspace)",
+                7 => "Preview obsolete versions",
+                8 => "Delete obsolete versions",
+                _ if sync_only => "Sync local workspace",
+                _ if self.diagnostic_read_only && self.pool_retention && self.pool_sync => {
+                    "Diagnostic read-only mount"
+                }
+                _ => "Mount workspace",
             },
             rclone,
             args,
@@ -453,8 +527,17 @@ impl MountForm {
         self.control = Some(control);
         self.recovering_accounts = false;
         self.stopping = false;
-        self.notice = Some(if action >= 2 { "Maintenance running. See log for capacity, cleanup or recovery results." } else if sync_only { "Synchronizing local workspace. See log for verified archive results." } else {
-            "Mount process started; this is not yet proof that the drive is mounted or cloud changes are committed. See log for readiness and sync status."
+        self.last_action = action;
+        if action == 8 {
+            self.retention_previewed = None;
+            self.retention_confirmed = false;
+        }
+        self.notice = Some(match action {
+            7 => "Previewing obsolete versions; nothing is uploaded or deleted. Check the log for the list.",
+            8 => "Deleting obsolete versions. The operation is resumable; do not remove the retention journal.",
+            2.. => "Maintenance running. See log for capacity, cleanup or recovery results.",
+            1 => "Synchronizing local workspace. See log for verified archive results.",
+            0 => "Mount process started; this is not yet proof that the drive is mounted or cloud changes are committed. See log for readiness and sync status.",
         }.into());
         Ok(())
     }

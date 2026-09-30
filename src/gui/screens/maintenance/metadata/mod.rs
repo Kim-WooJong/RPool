@@ -16,6 +16,7 @@ pub(crate) struct ManifestForm {
     pub(crate) recovery_remotes: Vec<String>,
     pub(crate) manual_remote: String,
     pub(crate) inventory_directory: String,
+    pub(crate) inventory_manifest: String,
     pub(crate) error: Option<String>,
     pub(crate) notice: Option<String>,
 }

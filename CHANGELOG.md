@@ -18,6 +18,18 @@
   verdict ("Writable" or "Not writable yet" plus reasons) with a per-account
   table. Account identities are edited as a table, and everything else sits
   under Advanced. CLI arguments and saved settings are unchanged.
+- GUI now covers the remaining CLI-only features:
+  - Settings › Portable configuration: package export/import (`rpool
+    export`/`import` with age, with a dry-run validation and a confirmation
+    before import), the legacy JSON `config export`/`import`, and the
+    active settings paths (`config paths`).
+  - Mount › Advanced › History cleanup: `--retention-report` preview, then
+    `--apply-retention --exclusive-archive-ownership --keep-previous`.
+    Deletion is enabled only after a successful preview for the same pool,
+    workspace and limit, plus a confirmation.
+  - Mount › Advanced › History: a one-time `--diagnostic-read-only` mount for
+    v7 pools.
+  - Maintenance › Metadata: `inventory add` for a single manifest.
 - GUI: the Mount screen offers the native frontend (FUSE on Linux; WinFsp in
   `winfsp` builds) and a read-only option for local online drives, saved per
   pool.

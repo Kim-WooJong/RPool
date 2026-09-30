@@ -188,6 +188,13 @@ The former 1,200-line single-page Mount screen is split into
   recovery.
 - **Pool-sync conflicts, and the log** (open while running).
 
+CLI parity (same release): Settings has a Portable configuration tab. Mount
+› Advanced gains History cleanup (preview → confirm → delete) and a
+diagnostic read-only option. Maintenance › Metadata gains a single-manifest
+inventory add. Every CLI command and option now has a GUI surface; for
+capacity/outage identities, the table stores the same declarations as
+`--capacity-domain`/`--failure-domain`.
+
 Form state, per-pool persistence and CLI arguments are unchanged. A headless
 egui test draws the screen in every mode and capacity state.
 
