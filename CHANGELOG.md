@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 — 2026-09-30
 
 - Native Windows WinFsp frontend (opt-in build `--features winfsp`, WinFsp
   installed): `rpool mount --virtual-drive --frontend winfsp`. It is compiled

@@ -1,4 +1,4 @@
-# rpool v0.7.1
+# rpool v0.8.0
 
 ## Read/write Pool drive
 
@@ -6,6 +6,10 @@ Storage → **Mount drive** provides a persistent local working copy with verifi
 background Pool uploads. It needs full local disk space and a native mount backend
 (WinFsp on Windows, FUSE on Linux, built-in NFS on macOS); deletion
 retains earlier cloud versions. See [mount setup and recovery](docs/MOUNT.md).
+
+## 0.8.0: native crypt writes and native mount frontends
+
+This batch adds several opt-in features. Each pool can have RPool encrypt its shards itself in rclone crypt format (`pool set --native-crypt`). A filesystem core with crash- and trace-tested durability rules (`fsync`/close is the local acknowledgement) backs a native Linux FUSE frontend (`mount --virtual-drive --frontend fuse`). A Windows WinFsp frontend (`--features winfsp`, not yet run on Windows) uses the same core. `config paths` is new, and portable bundles now carry encryption preferences. The DAV frontend and rclone crypt writes remain the defaults. See `docs/NATIVE_MOUNT_CRYPT_PLAN.md`.
 
 ## 0.6.0: provider setup and encryption defaults
 
