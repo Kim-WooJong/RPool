@@ -22,10 +22,14 @@ v7 native (2026-09-30):
 - Known: v7 sync passes are slow (per-object rclone calls); clippy 0.1.100
   reports ~100 new pre-existing lints repo-wide.
 - Mac: no native frontend; the Mac DAV mount test needs a reboot (stuck NFS).
-- Next: task 3. Recover the DAV rclone VFS cache before a native mount
-  (parse vfsMeta, import dirty complete files by base ancestry, recovered
-  copies otherwise, keep the rest). Then import plain rclone data into a
-  drive (offline mount action with a journal and batching). Both in CLI+GUI.
+- Task 3a done: `src/mount/cache_recovery*.rs` recovers dirty, complete
+  rclone VFS cache entries before native or pool-sync mounts (in place with
+  a read base, an own unsynced head or a single PC; recovered copies
+  otherwise; the rest kept). GUI panel `mount/cache_recovery.rs`. Suite
+  554/554, Docker e2e local and v6 pass.
+- Next: task 3b, importing plain rclone data into a drive: an offline mount
+  action with a journal, batching and skip/rename conflicts, following
+  account_recovery.rs. CLI and GUI.
 
 Native by default (2026-09-30, commits a3541e9 and 5d91e49):
 - The frontend is `auto` by default: native on Linux, and on Windows in

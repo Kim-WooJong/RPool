@@ -1,5 +1,6 @@
 mod account_recovery;
 pub(crate) mod adapter;
+pub(crate) mod cache_recovery;
 pub(crate) mod capacity;
 mod crash;
 mod dav;

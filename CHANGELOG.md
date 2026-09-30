@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **Unsaved WebDAV writes are recovered, not stranded.** When a WebDAV
+  mount stopped before rclone wrote its cache back (a crash or kill), the
+  next native mount, or the next pool-sync mount, imports those writes
+  itself:
+  - Only entries rclone marked dirty and holds completely are imported.
+  - A file goes back to its own path when the WebDAV session read it first,
+    when its current version is this PC's own unsynced write, or on a
+    single-PC drive. Otherwise it becomes `name (recovered <id>).ext` next
+    to the original. Nothing is overwritten, and peers' concurrent edits
+    stay v6 conflicts.
+  - Incomplete, unreadable or unnamed entries are kept in
+    `recovered-native-cache/<id>` and listed. A cache with nothing to keep
+    is removed.
+  - Recovery keeps a journal, so an interrupted run resumes without
+    duplicates.
+  - The CLI prints a summary. The GUI mount screen shows the restored files,
+    the copies to review and the kept entries.
+  - Checked end to end in Docker (`scripts/linux-docker/cache-recovery-e2e.sh`,
+    single PC and v6 with a peer edit).
+
 - **Native by default.**
   - `rpool mount --frontend` now defaults to `auto`, in the CLI and the GUI.
     It uses the native frontend where available (Linux FUSE; Windows WinFsp

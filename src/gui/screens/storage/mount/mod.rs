@@ -2,6 +2,7 @@
 //! a capacity verdict, account identities, then advanced options and the log.
 mod advanced;
 mod args;
+mod cache_recovery;
 mod capacity_panel;
 mod conflicts;
 mod drive_section;

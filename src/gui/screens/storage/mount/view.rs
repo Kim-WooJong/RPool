@@ -33,6 +33,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
             super::capacity_panel::show(ui, state);
             ui.add_space(theme::SUBSECTION_GAP);
             super::identity_summary::show(ui, state);
+            super::cache_recovery::show(ui, &mut state.mount);
             super::conflicts::show(ui, &state.mount);
             super::advanced::show(ui, state);
             super::log::show(ui, &state.mount);

@@ -26,6 +26,8 @@ pub(crate) struct MountForm {
     pub(super) pool_history_limit: u32,
     pub(super) pool_history_override: bool,
     pub(super) pool_status: Option<crate::mount::pool_sync::Status>,
+    /// Unsaved WebDAV writes the last mount recovered from rclone's cache.
+    pub(super) cache_recovery: Vec<crate::mount::cache_recovery::RecoveryReport>,
     pub(super) shared_coordinator: bool,
     pub(super) shared_keep_previous: usize,
     pub(super) cache_gib: u64,
@@ -72,6 +74,7 @@ impl Default for MountForm {
             pool_history_limit: 0,
             pool_history_override: false,
             pool_status: None,
+            cache_recovery: Vec::new(),
             shared_coordinator: false,
             shared_keep_previous: 0,
             cache_gib: 10,
@@ -279,6 +282,7 @@ impl MountForm {
                     .ok()
                     .and_then(|bytes| serde_json::from_slice(&bytes).ok());
             }
+            self.cache_recovery = super::cache_recovery::load(&self.workspace);
             self.capacity_read = std::time::Instant::now();
         }
         if let Some(status) = terminal {

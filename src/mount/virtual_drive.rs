@@ -1504,13 +1504,14 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         println!("Mount cancelled before native startup; local data retained");
         return Ok(());
     }
-    if drive.bounded_shared || !drive.pool_sync_roots.is_empty() {
+    if drive.bounded_shared {
         drive.isolate_previous_native_cache()?;
+    } else if frontend != crate::cli::Frontend::Dav || !drive.pool_sync_roots.is_empty() {
+        // rclone may not replay its cache here (native frontend, or peers may
+        // have written since), so RPool imports the unsaved writes itself.
+        drive.recover_previous_cache()?;
     }
     if frontend != crate::cli::Frontend::Dav {
-        // A previous WebDAV session's rclone cache is never replayed natively;
-        // it is set aside (not deleted) with a warning.
-        drive.isolate_previous_native_cache()?;
         return super::frontend::run_native(
             drive,
             super::frontend::NativeRun {
