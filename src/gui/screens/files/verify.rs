@@ -1,3 +1,4 @@
+use crate::gui::i18n::tr;
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 use crate::gui::widgets::local_file_field;
@@ -12,20 +13,20 @@ pub(crate) struct VerifyForm {
 }
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
-    ui.heading("Verify");
-    ui.label("Check every physical shard. Full verification streams each shard and validates its BLAKE3 hash.");
+    ui.heading(tr("Verify"));
+    ui.label(tr("Check every physical shard. Full verification streams each shard and validates its BLAKE3 hash."));
     ui.separator();
 
     local_file_field(
         ui,
-        "Manifest (local file or remote path)",
+        tr("Manifest (local file or remote path)"),
         &mut state.verify.manifest,
         Some("rpool manifest"),
         &["json"],
     );
     ui.checkbox(
         &mut state.verify.full,
-        "Full remote read + BLAKE3 verification",
+        tr("Full remote read + BLAKE3 verification"),
     );
 
     if let Some(error) = &state.verify.error {
@@ -34,7 +35,10 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
 
     ui.add_space(10.0);
     if ui
-        .add_enabled(!task.is_running(), egui::Button::new("Start verification"))
+        .add_enabled(
+            !task.is_running(),
+            egui::Button::new(tr("Start verification")),
+        )
         .clicked()
     {
         let error = start_verify(state, task).err();
@@ -44,7 +48,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
 
 fn start_verify(state: &GuiState, task: &mut TaskRunner) -> Result<(), String> {
     if state.verify.manifest.trim().is_empty() {
-        return Err("Select or enter a manifest first.".to_string());
+        return Err(tr("Select or enter a manifest first.").to_string());
     }
 
     let mut args = vec![

@@ -2,6 +2,7 @@
 //! where the pool is defined. Identities are global per backing remote: the
 //! same capacity group means one shared quota, the same outage group means
 //! accounts that can fail together.
+use crate::gui::i18n::{tr, trf};
 use crate::pool::capacity::BackingRemote;
 use crate::storage::admin::domains::{DomainIdentity, DomainStore};
 use eframe::egui;
@@ -65,10 +66,10 @@ pub(crate) fn merged(mut store: DomainStore, rows: &[IdentityRow]) -> anyhow::Re
             continue;
         }
         if capacity.is_empty() {
-            anyhow::bail!(
-                "{}: enter a capacity group (the same one for accounts that share a quota)",
-                row.remote
-            );
+            anyhow::bail!(trf(
+                "{remote}: enter a capacity group (the same one for accounts that share a quota)",
+                &[("remote", &row.remote)],
+            ));
         }
         store.remotes.insert(
             row.remote.clone(),
@@ -97,38 +98,40 @@ pub(crate) fn editor(
 ) -> EditorAction {
     let mut action = EditorAction::None;
     if rows.is_empty() {
-        ui.small("Calculate capacity to list this pool's backing accounts.");
+        ui.small(tr(
+            "Calculate capacity to list this pool's backing accounts.",
+        ));
         return action;
     }
     ui.add_enabled_ui(enabled, |ui| {
         egui::Grid::new(id).num_columns(4).striped(true).spacing([12.0, 6.0]).show(ui, |ui| {
-            ui.strong("Backing account");
-            ui.strong("Type");
-            ui.strong("Capacity group").on_hover_text("Same value = one shared quota (aliases or folders of one account). Different values = independent accounts whose free space adds up.");
-            ui.strong("Outage group").on_hover_text("Accounts that can go down together, usually one per provider. Resilient placement keeps at most parity-many shards per group.");
+            ui.strong(tr("Backing account"));
+            ui.strong(tr("Type"));
+            ui.strong(tr("Capacity group")).on_hover_text(tr("Same value = one shared quota (aliases or folders of one account). Different values = independent accounts whose free space adds up."));
+            ui.strong(tr("Outage group")).on_hover_text(tr("Accounts that can go down together, usually one per provider. Resilient placement keeps at most parity-many shards per group."));
             ui.end_row();
             for row in rows.iter_mut() {
                 ui.label(&row.remote);
                 ui.label(egui::RichText::new(&row.kind).weak());
-                ui.add(egui::TextEdit::singleline(&mut row.capacity).desired_width(150.0).hint_text("e.g. dropbox-main"));
-                ui.add(egui::TextEdit::singleline(&mut row.failure).desired_width(130.0).hint_text("e.g. dropbox"));
+                ui.add(egui::TextEdit::singleline(&mut row.capacity).desired_width(150.0).hint_text(tr("e.g. dropbox-main")));
+                ui.add(egui::TextEdit::singleline(&mut row.failure).desired_width(130.0).hint_text(tr("e.g. dropbox")));
                 ui.end_row();
             }
         });
         ui.horizontal(|ui| {
-            if ui.button("Suggest").on_hover_text("Fills empty fields: each account independent, one outage group per provider type. Review before saving.").clicked() {
+            if ui.button(tr("Suggest")).on_hover_text(tr("Fills empty fields: each account independent, one outage group per provider type. Review before saving.")).clicked() {
                 suggest(rows);
             }
-            if ui.button("Save identities").clicked() {
+            if ui.button(tr("Save identities")).clicked() {
                 action = EditorAction::Save;
             }
             let missing = rows.iter().filter(|r| !r.complete()).count();
             if missing > 0 {
-                ui.colored_label(ui.visuals().warn_fg_color, format!("{missing} account(s) not fully declared"));
+                ui.colored_label(ui.visuals().warn_fg_color, trf("{missing} account(s) not fully declared", &[("missing", &missing)]));
             }
         });
     });
-    ui.small("Identities apply to every pool that uses these accounts. Use different capacity groups only for truly separate accounts.");
+    ui.small(tr("Identities apply to every pool that uses these accounts. Use different capacity groups only for truly separate accounts."));
     action
 }
 

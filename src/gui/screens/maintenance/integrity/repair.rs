@@ -1,4 +1,5 @@
 use super::state::IntegrityForm;
+use crate::gui::i18n::tr;
 use crate::gui::task::TaskRunner;
 use crate::gui::widgets::{status_badge, StatusTone};
 use eframe::egui;
@@ -12,50 +13,50 @@ pub(crate) fn show(
     workers: usize,
     retries: u32,
 ) {
-    ui.label(egui::RichText::new("Repair").strong());
+    ui.label(egui::RichText::new(tr("Repair")).strong());
     let Some(snapshot) = form.snapshot.as_ref() else {
-        ui.label(egui::RichText::new("Run a scrub before selecting repair groups.").weak());
+        ui.label(egui::RichText::new(tr("Run a scrub before selecting repair groups.")).weak());
         return;
     };
     let groups = snapshot.groups.clone();
     let degraded_groups = snapshot.degraded_groups;
     let target_matches = snapshot.manifest_source.trim() == form.manifest.trim();
     if !target_matches {
-        ui.label(egui::RichText::new("The selected manifest does not match the last scrub snapshot. Run a new scrub before repair.").weak());
+        ui.label(egui::RichText::new(tr("The selected manifest does not match the last scrub snapshot. Run a new scrub before repair.")).weak());
         return;
     }
 
     if groups.is_empty() && degraded_groups > 0 {
         ui.label(
-            egui::RichText::new(
+            egui::RichText::new(tr(
                 "This integrity snapshot predates group-level repair data. Run a new scrub first.",
-            )
+            ))
             .weak(),
         );
         return;
     }
 
     ui.horizontal(|ui| {
-        if ui.button("Select all recoverable").clicked() {
+        if ui.button(tr("Select all recoverable")).clicked() {
             form.selected_groups = groups
                 .iter()
                 .filter(|group| group.is_recoverable())
                 .map(|group| group.group)
                 .collect();
         }
-        if ui.button("Clear").clicked() {
+        if ui.button(tr("Clear")).clicked() {
             form.selected_groups.clear();
         }
-        ui.checkbox(&mut form.repair_dry_run, "Dry run");
+        ui.checkbox(&mut form.repair_dry_run, tr("Dry run"));
     });
 
     egui::Grid::new("repair-groups-grid")
         .striped(true)
         .show(ui, |ui| {
-            ui.strong("Repair");
-            ui.strong("Group");
-            ui.strong("Status");
-            ui.strong("Bad shards");
+            ui.strong(tr("Repair"));
+            ui.strong(tr("Group"));
+            ui.strong(tr("Status"));
+            ui.strong(tr("Bad shards"));
             ui.end_row();
             for group in &groups {
                 let enabled = group.is_recoverable();
@@ -84,11 +85,11 @@ pub(crate) fn show(
             }
         });
 
-    ui.small("Repair always performs a full BLAKE3 preflight before reconstruction, even when the last scrub was Quick.");
+    ui.small(tr("Repair always performs a full BLAKE3 preflight before reconstruction, even when the last scrub was Quick."));
     let can_start =
         !task.is_running() && !form.manifest.trim().is_empty() && !form.selected_groups.is_empty();
     if ui
-        .add_enabled(can_start, egui::Button::new("Repair selected groups"))
+        .add_enabled(can_start, egui::Button::new(tr("Repair selected groups")))
         .clicked()
     {
         form.error = start(form, task, rclone, workers, retries).err();

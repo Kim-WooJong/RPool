@@ -1,20 +1,21 @@
 use super::state::UploadItemStatus;
 use super::{start, validation};
+use crate::gui::i18n::tr;
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 
 pub(crate) fn start_batch(state: &mut GuiState, task: &mut TaskRunner) -> Result<(), String> {
     if task.is_running() {
-        return Err("Another rpool operation is already running.".to_string());
+        return Err(tr("Another rpool operation is already running.").to_string());
     }
     if state.upload.batch_active {
-        return Err("This upload batch is already running.".to_string());
+        return Err(tr("This upload batch is already running.").to_string());
     }
     if state.upload.items.is_empty() {
-        return Err("Add one or more source files first.".to_string());
+        return Err(tr("Add one or more source files first.").to_string());
     }
     if state.upload.pending_count() == 0 {
-        return Err("There are no pending files to upload.".to_string());
+        return Err(tr("There are no pending files to upload.").to_string());
     }
     validation::validate_configuration(state)?;
     state.upload.error = None;
@@ -53,13 +54,13 @@ pub(crate) fn poll_batch(state: &mut GuiState, task: &mut TaskRunner) {
     if outcome.cancelled {
         state.upload.batch_active = false;
         state.upload.error =
-            Some("Upload batch cancelled. Pending files were kept in the queue.".to_string());
+            Some(tr("Upload batch cancelled. Pending files were kept in the queue.").to_string());
         return;
     }
     if !outcome.success {
         state.upload.batch_active = false;
         state.upload.error = Some(
-            "Upload batch paused after a failed file. Pending files were kept in the queue."
+            tr("Upload batch paused after a failed file. Pending files were kept in the queue.")
                 .to_string(),
         );
         return;

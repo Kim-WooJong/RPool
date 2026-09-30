@@ -2,6 +2,7 @@
 //! drive, listed from the pool's cloud metadata on a background thread.
 
 use super::drive_state::{DriveForm, DriveLoad, DriveTree};
+use crate::gui::i18n::{tr, trf};
 use crate::gui::theme;
 use crate::gui::widgets::{status_badge, StatusTone};
 use crate::presentation::format_bytes;
@@ -24,45 +25,43 @@ pub(crate) fn toolbar(ui: &mut egui::Ui, form: &mut DriveForm, rclone: &str) {
     if ui
         .add_enabled(
             !form.pool.is_empty() && !loading,
-            egui::Button::new("Refresh"),
+            egui::Button::new(tr("Refresh")),
         )
-        .on_hover_text("List the drive again from the pool's cloud metadata.")
+        .on_hover_text(tr("List the drive again from the pool's cloud metadata."))
         .clicked()
     {
         form.start(rclone);
     }
     ui.add(
         egui::TextEdit::singleline(&mut form.query)
-            .hint_text("Search names and paths…")
+            .hint_text(tr("Search names and paths…"))
             .desired_width(220.0),
     );
-    if !form.query.is_empty() && ui.button("Clear").clicked() {
+    if !form.query.is_empty() && ui.button(tr("Clear")).clicked() {
         form.query.clear();
     }
     if loading {
         ui.spinner();
-        ui.label("Loading…");
+        ui.label(tr("Loading…"));
         return;
     }
     match form.current() {
         Some(DriveLoad::Ready(tree)) if tree.mode == "none" => {
-            status_badge(ui, "No drive", StatusTone::Neutral);
+            status_badge(ui, tr("No drive"), StatusTone::Neutral);
         }
         Some(DriveLoad::Ready(tree)) => {
             status_badge(ui, &tree.mode, StatusTone::Success);
             ui.label(
                 egui::RichText::new(format!(
-                    "{} folder{} · {} file{} · {}",
-                    tree.dirs,
-                    plural(tree.dirs),
-                    tree.files,
-                    plural(tree.files),
+                    "{} · {} · {}",
+                    folders_label(tree.dirs),
+                    files_label(tree.files),
                     format_bytes(tree.bytes)
                 ))
                 .weak(),
             );
         }
-        Some(DriveLoad::Failed(_)) => status_badge(ui, "Error", StatusTone::Error),
+        Some(DriveLoad::Failed(_)) => status_badge(ui, tr("Error"), StatusTone::Error),
         None => {}
     }
 }
@@ -72,7 +71,7 @@ pub(crate) fn body(ui: &mut egui::Ui, form: &mut DriveForm, rclone: &str) {
     if form.pool.is_empty() {
         theme::hint(
             ui,
-            "Pick a pool to browse the folders and files on its drive.",
+            tr("Pick a pool to browse the folders and files on its drive."),
         );
         return;
     }
@@ -80,12 +79,15 @@ pub(crate) fn body(ui: &mut egui::Ui, form: &mut DriveForm, rclone: &str) {
     let mut collapse = false;
     let mut toggle = None;
     match form.current() {
-        None => theme::hint(ui, "Reading the pool's drive metadata…"),
+        None => theme::hint(ui, tr("Reading the pool's drive metadata…")),
         Some(DriveLoad::Failed(error)) => {
-            let error = format!("The drive could not be listed: {error}");
+            let error = trf(
+                "The drive could not be listed: {error}",
+                &[("error", error)],
+            );
             ui.colored_label(theme::error_colors(ui.visuals().dark_mode).1, error);
             retry = ui
-                .add_enabled(!form.is_loading(), egui::Button::new("Retry"))
+                .add_enabled(!form.is_loading(), egui::Button::new(tr("Retry")))
                 .clicked();
         }
         Some(DriveLoad::Ready(tree)) => {
@@ -106,11 +108,14 @@ pub(crate) fn body(ui: &mut egui::Ui, form: &mut DriveForm, rclone: &str) {
 /// Returns (collapse all, folder to toggle).
 fn tree_view(ui: &mut egui::Ui, form: &DriveForm, tree: &DriveTree) -> (bool, Option<String>) {
     if tree.mode == "none" {
-        theme::hint(ui, "This pool has no drive yet (mount it once from Drive).");
+        theme::hint(
+            ui,
+            tr("This pool has no drive yet (mount it once from Drive)."),
+        );
         return (false, None);
     }
     if !tree.notes.is_empty() {
-        egui::CollapsingHeader::new(format!("Notes ({})", tree.notes.len()))
+        egui::CollapsingHeader::new(trf("Notes ({n})", &[("n", &tree.notes.len())]))
             .id_salt(("library-drive-notes", &form.pool))
             .show(ui, |ui| {
                 for note in &tree.notes {
@@ -119,13 +124,14 @@ fn tree_view(ui: &mut egui::Ui, form: &DriveForm, tree: &DriveTree) -> (bool, Op
             });
     }
     if tree.nodes.is_empty() {
-        theme::hint(ui, "The drive is empty.");
+        theme::hint(ui, tr("The drive is empty."));
         return (false, None);
     }
 
     let query = form.query.trim();
-    let collapse =
-        query.is_empty() && !form.expanded.is_empty() && ui.small_button("Collapse all").clicked();
+    let collapse = query.is_empty()
+        && !form.expanded.is_empty()
+        && ui.small_button(tr("Collapse all")).clicked();
     let height = (ui.available_height() - 28.0).max(200.0);
     let row_height = ui.spacing().interact_size.y;
     let mut toggle = None;
@@ -147,7 +153,7 @@ fn tree_view(ui: &mut egui::Ui, form: &DriveForm, tree: &DriveTree) -> (bool, Op
         } else {
             let found = tree.search(query);
             if found.is_empty() {
-                ui.label(egui::RichText::new("No names match the search.").weak());
+                ui.label(egui::RichText::new(tr("No names match the search.")).weak());
                 return;
             }
             scroll.show_rows(ui, row_height, found.len(), |ui, range| {
@@ -179,11 +185,10 @@ fn tree_row(
                 .selectable_label(open, format!("{arrow} {}", node.name))
                 .on_hover_text(&node.path)
                 .clicked();
-            let items = node.children.len();
             ui.label(
                 egui::RichText::new(format!(
-                    "{items} item{} · {}",
-                    plural(items),
+                    "{} · {}",
+                    items_label(node.children.len()),
                     format_bytes(node.size)
                 ))
                 .weak(),
@@ -206,7 +211,7 @@ fn search_row(ui: &mut egui::Ui, tree: &DriveTree, id: usize) {
     ui.horizontal(|ui| {
         if node.is_dir {
             ui.label(format!("{}/", node.path));
-            ui.label(egui::RichText::new(format!("{} files", node.files)).weak());
+            ui.label(egui::RichText::new(files_label(node.files)).weak());
         } else {
             ui.label(&node.path);
             ui.label(
@@ -218,10 +223,26 @@ fn search_row(ui: &mut egui::Ui, tree: &DriveTree, id: usize) {
     });
 }
 
-fn plural(count: usize) -> &'static str {
-    if count == 1 {
-        ""
+fn folders_label(n: usize) -> String {
+    if n == 1 {
+        trf("{n} folder", &[("n", &n)])
     } else {
-        "s"
+        trf("{n} folders", &[("n", &n)])
+    }
+}
+
+fn files_label(n: usize) -> String {
+    if n == 1 {
+        trf("{n} file", &[("n", &n)])
+    } else {
+        trf("{n} files", &[("n", &n)])
+    }
+}
+
+fn items_label(n: usize) -> String {
+    if n == 1 {
+        trf("{n} item", &[("n", &n)])
+    } else {
+        trf("{n} items", &[("n", &n)])
     }
 }

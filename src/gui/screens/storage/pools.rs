@@ -1,4 +1,5 @@
 use super::pool_picker::PoolPicker;
+use crate::gui::i18n::{tr, trf};
 use crate::gui::settings::GuiSettings;
 use crate::gui::state::{GuiState, StorageSection};
 use crate::gui::task::{JobStatus, TaskRunner};
@@ -73,7 +74,7 @@ impl PoolForm {
         self.placement = pool.placement;
         self.data_shards = pool.data_shards;
         self.parity_shards = pool.parity_shards;
-        self.notice = Some("Pool loaded.".to_string());
+        self.notice = Some(tr("Pool loaded.").to_string());
     }
 
     fn object_limit(&self) -> Option<u64> {
@@ -84,13 +85,13 @@ impl PoolForm {
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     ui.add_enabled_ui(!state.pools.picker.is_open(), |ui| {
         theme::page_body(ui, "pools", |ui| {
-            theme::page_header(ui, "Storage pools", Some("Group encrypted providers and set the upload policy. Account identities decide how much space is really usable."));
+            theme::page_header(ui, tr("Storage pools"), Some(tr("Group encrypted providers and set the upload policy. Account identities decide how much space is really usable.")));
 
             ui.horizontal_wrapped(|ui| {
-                ui.label("Existing pool");
+                ui.label(tr("Existing pool"));
                 egui::ComboBox::from_id_salt("pool-existing")
                     .selected_text(if state.pools.selected.is_empty() {
-                        "Select pool"
+                        tr("Select pool")
                     } else {
                         state.pools.selected.as_str()
                     })
@@ -99,17 +100,17 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                             ui.selectable_value(&mut state.pools.selected, name.clone(), name.as_str());
                         }
                     });
-                if ui.button("Load").clicked() {
+                if ui.button(tr("Load")).clicked() {
                     load_selected(state);
                 }
-                if ui.button("Reload list").clicked() {
+                if ui.button(tr("Reload list")).clicked() {
                     refresh_pool_names(state);
                 }
             });
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                ui.label("Pool name");
+                ui.label(tr("Pool name"));
                 ui.add(egui::TextEdit::singleline(&mut state.pools.name).desired_width(280.0));
             });
 
@@ -123,19 +124,19 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             ui.add_space(8.0);
             ui.horizontal_wrapped(|ui| {
                 if ui
-                    .add_enabled(!task.is_running(), egui::Button::new("Save pool"))
+                    .add_enabled(!task.is_running(), egui::Button::new(tr("Save pool")))
                     .clicked()
                 {
                     save_current(state, task);
                 }
                 if ui
-                    .add_enabled(!task.is_running(), egui::Button::new("Remove selected"))
+                    .add_enabled(!task.is_running(), egui::Button::new(tr("Remove selected")))
                     .clicked()
                 {
                     remove_selected(state);
                 }
                 if ui
-                    .add_enabled(!task.is_running(), egui::Button::new("New / clear"))
+                    .add_enabled(!task.is_running(), egui::Button::new(tr("New / clear")))
                     .clicked()
                 {
                     state.pools = PoolForm::from_settings(&state.settings);
@@ -167,14 +168,14 @@ fn migration_hint(ui: &mut egui::Ui, state: &mut GuiState) {
         .inner_margin(egui::Margin::same(10))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.colored_label(fg, format!("'{name}' changed how data is stored. Existing archives still use the old accounts or coding until they are migrated."));
+            ui.colored_label(fg, trf("'{name}' changed how data is stored. Existing archives still use the old accounts or coding until they are migrated.", &[("name", &name)]));
             ui.horizontal_wrapped(|ui| {
-                if theme::primary_button(ui, true, "Plan migration now").clicked() {
+                if theme::primary_button(ui, true, tr("Plan migration now")).clicked() {
                     state.migration.select_pool(&name);
                     state.storage_section = StorageSection::Changes;
                     state.pools.migration_hint = None;
                 }
-                if ui.button("Later").clicked() {
+                if ui.button(tr("Later")).clicked() {
                     state.pools.migration_hint = None;
                 }
             });
@@ -184,20 +185,20 @@ fn migration_hint(ui: &mut egui::Ui, state: &mut GuiState) {
 fn providers_card(ui: &mut egui::Ui, state: &mut GuiState) {
     theme::card_section(
         ui,
-        "Encrypted providers",
-        Some("Only selected destinations belong to this pool."),
+        tr("Encrypted providers"),
+        Some(tr("Only selected destinations belong to this pool.")),
         |_| {},
         |ui| {
-            if ui.button("Choose encrypted providers…").clicked() {
+            if ui.button(tr("Choose encrypted providers…")).clicked() {
                 state.pools.picker.open(&state.pools.remotes);
             }
-            ui.small(format!("{} selected", state.pools.remotes.len()));
+            ui.small(trf("{n} selected", &[("n", &state.pools.remotes.len())]));
             for remote in &state.pools.remotes {
                 ui.monospace(remote);
             }
-            ui.collapsing("Advanced: custom destination", |ui| {
+            ui.collapsing(tr("Advanced: custom destination"), |ui| {
                 ui.text_edit_singleline(&mut state.pools.manual_remote);
-                if ui.button("Add custom destination").clicked() {
+                if ui.button(tr("Add custom destination")).clicked() {
                     let target = state.pools.manual_remote.trim().to_string();
                     if !target.is_empty() && !state.pools.remotes.contains(&target) {
                         state.pools.remotes.push(target);
@@ -212,11 +213,13 @@ fn providers_card(ui: &mut egui::Ui, state: &mut GuiState) {
 fn policy_card(ui: &mut egui::Ui, state: &mut GuiState, task: &TaskRunner) {
     theme::card_section(
         ui,
-        "Pool policy",
-        Some("Saving affects future uploads. Existing data stays readable and unchanged."),
+        tr("Pool policy"),
+        Some(tr(
+            "Saving affects future uploads. Existing data stays readable and unchanged.",
+        )),
         |_| {},
         |ui| {
-            if ui.button("Reprocess existing data…").clicked() {
+            if ui.button(tr("Reprocess existing data…")).clicked() {
                 state.storage_section = StorageSection::Changes;
             }
 
@@ -225,67 +228,67 @@ fn policy_card(ui: &mut egui::Ui, state: &mut GuiState, task: &TaskRunner) {
                 .num_columns(2)
                 .spacing([16.0, 8.0])
                 .show(ui, |ui| {
-                    ui.label("Shard size (MiB)");
+                    ui.label(tr("Shard size (MiB)"));
                     ui.add(
                         egui::DragValue::new(&mut state.pools.shard_mib)
                             .range(1..=crate::config::constants::MAX_SHARD_MIB),
                     );
                     ui.end_row();
 
-                    ui.label("Provider object limit (bytes, 0 = none)");
+                    ui.label(tr("Provider object limit (bytes, 0 = none)"));
                     ui.add(egui::DragValue::new(&mut state.pools.max_object_bytes));
                     ui.end_row();
 
-                    ui.label("Native crypt")
-                        .on_hover_text("RPool itself encrypts file contents and names in rclone crypt format for uploads, reprocessing and mounted drives, writing to each crypt remote's base. Readback goes through the rclone crypt remote, so rclone can always read the data. Crypt remotes with settings RPool does not support are refused.");
-                    ui.checkbox(&mut state.pools.native_crypt, "Encrypt in RPool");
+                    ui.label(tr("Native crypt"))
+                        .on_hover_text(tr("RPool itself encrypts file contents and names in rclone crypt format for uploads, reprocessing and mounted drives, writing to each crypt remote's base. Readback goes through the rclone crypt remote, so rclone can always read the data. Crypt remotes with settings RPool does not support are refused."));
+                    ui.checkbox(&mut state.pools.native_crypt, tr("Encrypt in RPool"));
                     ui.end_row();
 
-                    ui.label("Workers");
+                    ui.label(tr("Workers"));
                     ui.add(egui::DragValue::new(&mut state.pools.workers).range(1..=256));
                     ui.end_row();
 
-                    ui.label("Retries");
+                    ui.label(tr("Retries"));
                     ui.add(egui::DragValue::new(&mut state.pools.retries).range(0..=100));
                     ui.end_row();
 
-                    ui.label("Placement");
+                    ui.label(tr("Placement"));
                     egui::ComboBox::from_id_salt("pool-placement")
-                        .selected_text(state.pools.placement.label())
+                        .selected_text(crate::gui::i18n::tr(state.pools.placement.label()))
                         .show_ui(ui, |ui| {
                             ui.selectable_value(
                                 &mut state.pools.placement,
                                 Placement::RoundRobin,
-                                Placement::RoundRobin.label(),
+                                crate::gui::i18n::tr(Placement::RoundRobin.label()),
                             );
                             ui.selectable_value(
                                 &mut state.pools.placement,
                                 Placement::FreeRatio,
-                                Placement::FreeRatio.label(),
+                                crate::gui::i18n::tr(Placement::FreeRatio.label()),
                             );
                             ui.selectable_value(
                                 &mut state.pools.placement,
                                 Placement::Resilient,
-                                Placement::Resilient.label(),
+                                crate::gui::i18n::tr(Placement::Resilient.label()),
                             );
                             ui.selectable_value(
                                 &mut state.pools.placement,
                                 Placement::CapacityFirst,
-                                Placement::CapacityFirst.label(),
+                                crate::gui::i18n::tr(Placement::CapacityFirst.label()),
                             );
                         });
                     ui.end_row();
 
-                    ui.label("Data shards (K)");
+                    ui.label(tr("Data shards (K)"));
                     ui.add(egui::DragValue::new(&mut state.pools.data_shards).range(1..=255));
                     ui.end_row();
 
-                    ui.label("Parity shards (M)");
+                    ui.label(tr("Parity shards (M)"));
                     ui.add(egui::DragValue::new(&mut state.pools.parity_shards).range(0..=254));
                     ui.end_row();
                 });
             if let Some(note) = state.pools.placement.protection_note() {
-                ui.small(note);
+                ui.small(crate::gui::i18n::tr(note));
             }
 
             let shard_size = crate::models::shard_size::ShardSize::from_mib(state.pools.shard_mib)
@@ -336,8 +339,8 @@ fn identities(ui: &mut egui::Ui, state: &mut GuiState, draft: &PoolDefinition, e
         state.pools.identity_source = source;
     }
     ui.separator();
-    ui.strong("Account identities");
-    ui.small("Which accounts are independent (their free space adds up) and which can fail together. The estimate above uses these.");
+    ui.strong(tr("Account identities"));
+    ui.small(tr("Which accounts are independent (their free space adds up) and which can fail together. The estimate above uses these."));
     if editor(
         ui,
         "pool-identity-grid",
@@ -353,7 +356,7 @@ fn identities(ui: &mut egui::Ui, state: &mut GuiState, draft: &PoolDefinition, e
                 state.pools.identity_source.clear();
                 state.pools.capacity.start(&state.settings.rclone, draft);
                 state.mount.invalidate_capacity();
-                "Identities saved; recalculating capacity.".into()
+                tr("Identities saved; recalculating capacity.").into()
             }
             Err(error) => format!("{error:#}"),
         });
@@ -363,7 +366,7 @@ fn identities(ui: &mut egui::Ui, state: &mut GuiState, draft: &PoolDefinition, e
 pub(crate) fn load_selected(state: &mut GuiState) {
     let name = state.pools.selected.clone();
     if name.is_empty() {
-        state.pools.notice = Some("Select a pool first.".to_string());
+        state.pools.notice = Some(tr("Select a pool first.").to_string());
         return;
     }
 
@@ -376,7 +379,12 @@ pub(crate) fn load_selected(state: &mut GuiState) {
         Ok(pool) => {
             state.pools.load_definition(name, pool);
         }
-        Err(error) => state.pools.notice = Some(format!("Failed to load pool: {error:#}")),
+        Err(error) => {
+            state.pools.notice = Some(trf(
+                "Failed to load pool: {error}",
+                &[("error", &format!("{error:#}"))],
+            ))
+        }
     }
 }
 
@@ -404,7 +412,7 @@ fn save_current(state: &mut GuiState, task: &mut TaskRunner) {
     let args = pool_save_args(&name, &definition);
     match task.start_rpool("Save pool", &state.settings.rclone, args) {
         Ok(()) => {
-            state.pools.notice = Some("Saving pool…".into());
+            state.pools.notice = Some(tr("Saving pool…").into());
         }
         Err(error) => state.pools.notice = Some(error),
     }
@@ -445,7 +453,7 @@ pub(crate) fn handle_task_completion(state: &mut GuiState, task: &TaskRunner, st
             let before = state.pool_definitions.get(&name).cloned();
             if refresh_pool_names(state) {
                 state.pools.selected = name.clone();
-                state.pools.notice = Some(format!("Saved '{name}'."));
+                state.pools.notice = Some(trf("Saved '{name}'.", &[("name", &name)]));
                 let changed = matches!(
                     (&before, state.pool_definitions.get(&name)),
                     (Some(old), Some(new))
@@ -453,14 +461,20 @@ pub(crate) fn handle_task_completion(state: &mut GuiState, task: &TaskRunner, st
                 );
                 state.pools.migration_hint = changed.then(|| name.clone());
             } else {
-                state.pools.notice = Some(format!(
-                    "Saved '{name}', but {}",
-                    state.pools.notice.as_deref().unwrap_or("reload failed")
+                state.pools.notice = Some(trf(
+                    "Saved '{name}', but {reason}",
+                    &[
+                        ("name", &name),
+                        (
+                            "reason",
+                            &state.pools.notice.as_deref().unwrap_or(tr("reload failed")),
+                        ),
+                    ],
                 ));
             }
         } else {
             state.pools.notice =
-                Some("Pool save failed or was cancelled; inspect the task log.".into());
+                Some(tr("Pool save failed or was cancelled; inspect the task log.").into());
         }
     }
 }
@@ -472,7 +486,7 @@ fn remove_selected(state: &mut GuiState) {
         state.pools.selected.clone()
     };
     if name.is_empty() {
-        state.pools.notice = Some("Select or enter a pool name first.".to_string());
+        state.pools.notice = Some(tr("Select or enter a pool name first.").to_string());
         return;
     }
 
@@ -486,9 +500,17 @@ fn remove_selected(state: &mut GuiState) {
             }
             state.pools = PoolForm::from_settings(&state.settings);
             refresh_pool_names(state);
-            state.pools.notice = Some(format!("Removed '{name}' from {}", path.display()));
+            state.pools.notice = Some(trf(
+                "Removed '{name}' from {path}",
+                &[("name", &name), ("path", &path.display())],
+            ));
         }
-        Err(error) => state.pools.notice = Some(format!("Failed to remove pool: {error:#}")),
+        Err(error) => {
+            state.pools.notice = Some(trf(
+                "Failed to remove pool: {error}",
+                &[("error", &format!("{error:#}"))],
+            ))
+        }
     }
 }
 
@@ -500,7 +522,10 @@ pub(crate) fn refresh_pool_names(state: &mut GuiState) -> bool {
             true
         }
         Err(error) => {
-            state.pools.notice = Some(format!("Failed to reload pools: {error:#}"));
+            state.pools.notice = Some(trf(
+                "Failed to reload pools: {error}",
+                &[("error", &format!("{error:#}"))],
+            ));
             false
         }
     }

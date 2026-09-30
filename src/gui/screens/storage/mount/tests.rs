@@ -448,3 +448,64 @@ fn rclone_import_ignores_listed_archive_imports() {
             .is_ok()
     );
 }
+
+/// Every `tr(`/`trf(` literal on the Drive screens has a Korean, Japanese and
+/// Chinese translation, including templates that rustfmt moves to the next
+/// line (the crate-wide scan only sees a literal right after the parenthesis).
+#[test]
+fn drive_texts_translate() {
+    use crate::gui::i18n::{tr_in, Language};
+    let dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/gui/screens/storage/mount");
+    let mut keys = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.file_name().is_some_and(|name| name == "tests.rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(path).unwrap();
+        // Spelled with concat! so this file is not itself matched by the scans.
+        let (tr, trf) = (concat!("tr", "("), concat!("trf", "("));
+        let calls = text.match_indices(tr).chain(text.match_indices(trf));
+        for (start, marker) in calls {
+            if text[..start]
+                .chars()
+                .last()
+                .is_some_and(|c| c.is_alphanumeric() || c == '_')
+            {
+                continue;
+            }
+            let rest = text[start + marker.len()..].trim_start();
+            let Some(rest) = rest.strip_prefix('"') else {
+                continue;
+            };
+            let mut literal = String::new();
+            let mut chars = rest.chars();
+            while let Some(c) = chars.next() {
+                match c {
+                    '"' => break,
+                    '\\' => literal.extend(chars.next()),
+                    c => literal.push(c),
+                }
+            }
+            let literal: &'static str = literal.leak();
+            keys.push(literal);
+        }
+    }
+    assert!(keys.len() > 200, "{}", keys.len());
+    let untranslated: Vec<_> = keys
+        .iter()
+        .filter(|key| {
+            [Language::Korean, Language::Japanese, Language::Chinese]
+                .iter()
+                .any(|language| tr_in(*language, key) == **key)
+        })
+        .collect();
+    assert!(untranslated.is_empty(), "{untranslated:#?}");
+    assert_eq!(tr_in(Language::Korean, "Mount"), "마운트");
+    assert_eq!(
+        tr_in(Language::Japanese, "Automatic pool sync"),
+        "自動プール同期"
+    );
+    assert_eq!(tr_in(Language::Chinese, "Capacity details"), "容量详情");
+}

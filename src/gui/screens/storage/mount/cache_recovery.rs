@@ -1,6 +1,7 @@
 //! Unsaved WebDAV writes a mount recovered from rclone's cache: files put
 //! back, recovered copies to review, and entries kept in the cache folder.
 use super::form::MountForm;
+use crate::gui::i18n::{tr, trf};
 use crate::mount::cache_recovery::{RecoveryReport, REPORT};
 use eframe::egui;
 use std::path::{Path, PathBuf};
@@ -35,49 +36,59 @@ pub(super) fn show(ui: &mut egui::Ui, form: &mut MountForm) {
     let copies: usize = reports.iter().map(|r| r.copied.len()).sum();
     let kept: usize = reports.iter().map(|r| r.kept.len()).sum();
     let restored: usize = reports.iter().map(|r| r.imported.len()).sum();
-    let title = format!(
-        "Recovered unsaved files · {restored} restored · {copies} copies to review · {kept} kept"
+    let title = trf(
+        "Recovered unsaved files · {restored} restored · {copies} copies to review · {kept} kept",
+        &[
+            ("restored", &restored),
+            ("copies", &copies),
+            ("kept", &kept),
+        ],
     );
     let mut dismissed = false;
     egui::CollapsingHeader::new(title)
         .id_salt("mount-cache-recovery")
         .default_open(copies + kept > 0)
         .show(ui, |ui| {
-            ui.small("A previous WebDAV mount stopped before rclone saved these writes. Restored files are pending upload like any other save. Recovered copies sit next to a file that may have changed since; compare and keep what you need. Nothing was overwritten.");
+            ui.small(tr("A previous WebDAV mount stopped before rclone saved these writes. Restored files are pending upload like any other save. Recovered copies sit next to a file that may have changed since; compare and keep what you need. Nothing was overwritten."));
             for report in reports {
                 for path in &report.imported {
-                    ui.label(format!("Restored: {path}"));
+                    ui.label(trf("Restored: {path}", &[("path", path)]));
                 }
                 for (from, to) in &report.copied {
                     ui.horizontal(|ui| {
-                        ui.label(format!("Copy of {from}: {to}"));
-                        if ui.small_button("Copy path").clicked() {
+                        ui.label(trf("Copy of {from}: {to}", &[("from", from), ("to", to)]));
+                        if ui.small_button(tr("Copy path")).clicked() {
                             ui.ctx().copy_text(to.clone());
                         }
                     });
                 }
                 if !report.kept.is_empty() {
                     ui.horizontal(|ui| {
-                        ui.label(format!("Kept in {}", report.dir.display()));
-                        if ui.small_button("Copy folder path").clicked() {
+                        ui.label(trf("Kept in {dir}", &[("dir", &report.dir.display())]));
+                        if ui.small_button(tr("Copy folder path")).clicked() {
                             ui.ctx().copy_text(report.dir.display().to_string());
                         }
                     });
                     for (path, reason) in &report.kept {
-                        let path = if path.is_empty() { "(whole cache)" } else { path };
+                        let path = if path.is_empty() { tr("(whole cache)") } else { path };
                         ui.small(format!("  {path}: {reason}"));
                     }
-                    ui.small("Kept entries were not imported (incomplete or unreadable). Inspect the folder and delete it yourself when done.");
+                    ui.small(tr("Kept entries were not imported (incomplete or unreadable). Inspect the folder and delete it yourself when done."));
                 }
             }
-            if ui.button("Dismiss report").clicked() {
+            if ui.button(tr("Dismiss report")).clicked() {
                 dismissed = true;
             }
         });
     if dismissed {
         match dismiss(&form.workspace) {
             Ok(()) => form.cache_recovery.clear(),
-            Err(e) => form.notice = Some(format!("Cannot dismiss recovery report: {e}")),
+            Err(e) => {
+                form.notice = Some(trf(
+                    "Cannot dismiss recovery report: {error}",
+                    &[("error", &e)],
+                ))
+            }
         }
     }
 }

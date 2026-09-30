@@ -1,4 +1,5 @@
 use super::state::UploadTargetMode;
+use crate::gui::i18n::tr;
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 use std::ffi::OsString;
@@ -34,7 +35,7 @@ pub(crate) fn start_upload_path(
 fn append_pool_target(state: &GuiState, args: &mut Vec<OsString>) -> Result<(), String> {
     let pool = state.upload.pool_name.trim();
     if pool.is_empty() {
-        return Err("Select a storage pool first.".to_string());
+        return Err(tr("Select a storage pool first.").to_string());
     }
     args.push(OsString::from("--pool"));
     args.push(OsString::from(pool));
@@ -51,7 +52,7 @@ fn append_manual_target(state: &GuiState, args: &mut Vec<OsString>) -> Result<()
         .iter()
         .any(|remote| !remote.trim().is_empty())
     {
-        return Err("Add at least one cloud destination.".to_string());
+        return Err(tr("Add at least one cloud destination.").to_string());
     }
 
     for remote in &state.settings.remotes {

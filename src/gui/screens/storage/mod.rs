@@ -9,6 +9,7 @@ pub(crate) mod reprocess;
 pub(crate) use pools::PoolForm;
 pub(crate) use providers::ProviderForm;
 
+use crate::gui::i18n::tr;
 use crate::gui::state::{GuiState, StorageSection};
 use crate::gui::task::TaskRunner;
 use eframe::egui;
@@ -18,9 +19,9 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         ui,
         &mut state.storage_section,
         &[
-            (StorageSection::Providers, "Providers"),
-            (StorageSection::Pools, "Pools"),
-            (StorageSection::Changes, "Account changes"),
+            (StorageSection::Providers, tr("Providers")),
+            (StorageSection::Pools, tr("Pools")),
+            (StorageSection::Changes, tr("Account changes")),
         ],
     );
     match state.storage_section {

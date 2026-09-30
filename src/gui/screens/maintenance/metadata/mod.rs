@@ -1,6 +1,7 @@
 mod inventory;
 mod manifest;
 
+use crate::gui::i18n::tr;
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 use crate::gui::theme;
@@ -25,8 +26,8 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     theme::page_body(ui, "health-metadata", |ui| {
         section_header(
             ui,
-            "Metadata",
-            Some("Manifest replicas are what an archive is rebuilt from; the inventory is this PC's index of archives."),
+            tr("Metadata"),
+            Some(tr("Manifest replicas are what an archive is rebuilt from; the inventory is this PC's index of archives.")),
         );
         if let Some(error) = &state.manifest.error {
             let (_, color) = crate::gui::theme::error_colors(ui.visuals().dark_mode);
@@ -38,8 +39,10 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         manifest::show(ui, state, task);
         theme::card_section(
             ui,
-            "Inventory",
-            Some("Add archives to this PC's index, or rebuild it from a folder of manifests."),
+            tr("Inventory"),
+            Some(tr(
+                "Add archives to this PC's index, or rebuild it from a folder of manifests.",
+            )),
             |_| {},
             |ui| {
                 inventory::show(ui, state, task);

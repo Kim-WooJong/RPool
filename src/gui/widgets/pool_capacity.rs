@@ -1,3 +1,4 @@
+use crate::gui::i18n::{tr, trf};
 use crate::models::PoolDefinition;
 use crate::mount::capacity::CapacityStatus;
 use crate::pool::capacity::PoolCapacity;
@@ -53,18 +54,20 @@ impl CapacityPreview {
                 }
                 Err(TryRecvError::Disconnected) => {
                     self.pending = None;
-                    self.error = Some("Capacity query stopped; retry.".into());
+                    self.error = Some(tr("Capacity query stopped; retry.").into());
                 }
                 Err(TryRecvError::Empty) => {}
             }
         }
         ui.separator();
-        ui.strong("Capacity for these pool options");
-        ui.small("Read-only provider query. No save, workspace or mount required.");
+        ui.strong(tr("Capacity for these pool options"));
+        ui.small(tr(
+            "Read-only provider query. No save, workspace or mount required.",
+        ));
         if ui
             .add_enabled(
                 self.pending.is_none(),
-                egui::Button::new("Calculate / refresh capacity"),
+                egui::Button::new(tr("Calculate / refresh capacity")),
             )
             .clicked()
         {
@@ -80,38 +83,46 @@ impl CapacityPreview {
         }
         if let Some(report) = &self.report {
             if let Some(note) = report.policy.placement.protection_note() {
-                ui.colored_label(egui::Color32::YELLOW, note);
+                ui.colored_label(egui::Color32::YELLOW, tr(note));
             }
             summary(ui, &report.capacity);
-            ui.small("Logical file usage: not queried (requires workspace namespace). Account usage includes history, parity and unrelated files.");
+            ui.small(tr("Logical file usage: not queried (requires workspace namespace). Account usage includes history, parity and unrelated files."));
             if !report.capacity.quota_complete
                 || (report.capacity.required_failure_groups > 0
                     && report.capacity.resilient_remaining_upper.is_none())
             {
-                ui.small("Declare account identities below to combine independent accounts; crypt aliases share their backing account.");
+                ui.small(tr("Declare account identities below to combine independent accounts; crypt aliases share their backing account."));
             }
             for target in &report.capacity.targets {
-                ui.small(format!(
-                    "{} › {} · quota group {} · {} free / {} total · {}",
-                    target.remote,
-                    target.backing,
-                    target.capacity_domain,
-                    format_bytes(target.free),
-                    format_bytes(target.total),
-                    if target.declared {
-                        "declared"
-                    } else {
-                        "unverified account identity"
-                    }
+                ui.small(trf(
+                    "{remote} › {backing} · quota group {group} · {free} free / {total} total · {identity}",
+                    &[
+                        ("remote", &target.remote),
+                        ("backing", &target.backing),
+                        ("group", &target.capacity_domain),
+                        ("free", &format_bytes(target.free)),
+                        ("total", &format_bytes(target.total)),
+                        (
+                            "identity",
+                            &if target.declared {
+                                tr("declared")
+                            } else {
+                                tr("unverified account identity")
+                            },
+                        ),
+                    ],
                 ));
             }
             for excluded in &report.capacity.excluded {
                 ui.colored_label(
                     egui::Color32::YELLOW,
-                    format!("Excluded {}: {}", excluded.remote, excluded.reason),
+                    trf(
+                        "Excluded {remote}: {reason}",
+                        &[("remote", &excluded.remote), ("reason", &excluded.reason)],
+                    ),
                 );
             }
-            ui.collapsing("Calculation details", |ui| {
+            ui.collapsing(tr("Calculation details"), |ui| {
                 ui.small(&report.capacity.note);
             });
         }
@@ -121,81 +132,101 @@ pub(crate) fn summary(ui: &mut egui::Ui, c: &CapacityStatus) {
     if c.accounts.is_empty() {
         ui.colored_label(
             egui::Color32::YELLOW,
-            "Account capacity unknown — no usable quota response.",
+            tr("Account capacity unknown — no usable quota response."),
         );
         return;
     }
-    ui.strong(format!(
-        "Pool data capacity after parity: {} total · {} remaining{}",
-        format_bytes(c.nominal_logical_upper),
-        format_bytes(c.remaining_logical_upper),
-        if c.quota_complete {
-            ""
-        } else {
-            " (conservative reported quota; partial)"
-        }
+    ui.strong(trf(
+        "Pool data capacity after parity: {total} total · {remaining} remaining{note}",
+        &[
+            ("total", &format_bytes(c.nominal_logical_upper)),
+            ("remaining", &format_bytes(c.remaining_logical_upper)),
+            (
+                "note",
+                &if c.quota_complete {
+                    ""
+                } else {
+                    tr(" (conservative reported quota; partial)")
+                },
+            ),
+        ],
     ));
-    ui.small("Calculated from the sum of independent account quotas × data shards / (data + parity shards), not the smallest provider multiplied as RAID. This is a coding-only upper bound, not guaranteed writable space.");
-    ui.label(format!(
-        "Account storage: {} occupied / {} total · {} free{}",
-        format_bytes(c.physical_occupied),
-        format_bytes(c.physical_total),
-        format_bytes(c.physical_free),
-        if c.quota_complete {
-            ""
-        } else {
-            " (partial; not the full pool)"
-        }
+    ui.small(tr("Calculated from the sum of independent account quotas × data shards / (data + parity shards), not the smallest provider multiplied as RAID. This is a coding-only upper bound, not guaranteed writable space."));
+    ui.label(trf(
+        "Account storage: {occupied} occupied / {total} total · {free} free{note}",
+        &[
+            ("occupied", &format_bytes(c.physical_occupied)),
+            ("total", &format_bytes(c.physical_total)),
+            ("free", &format_bytes(c.physical_free)),
+            (
+                "note",
+                &if c.quota_complete {
+                    ""
+                } else {
+                    tr(" (partial; not the full pool)")
+                },
+            ),
+        ],
     ));
-    ui.small("Account occupied space includes parity, retained history and files outside RPool; it is not the visible RPool file size.");
+    ui.small(tr("Account occupied space includes parity, retained history and files outside RPool; it is not the visible RPool file size."));
     if let Some(scenario) = &c.independent_quota_scenario {
-        ui.label(format!(
-            "If unverified backing accounts are independent: {} total data · {} remaining data ({} physical total · {} physical free)",
-            format_bytes(scenario.nominal_logical_upper),
-            format_bytes(scenario.remaining_logical_upper),
-            format_bytes(scenario.physical_total),
-            format_bytes(scenario.physical_free)
+        ui.label(trf(
+            "If unverified backing accounts are independent: {total} total data · {remaining} remaining data ({physical_total} physical total · {physical_free} physical free)",
+            &[
+                ("total", &format_bytes(scenario.nominal_logical_upper)),
+                ("remaining", &format_bytes(scenario.remaining_logical_upper)),
+                ("physical_total", &format_bytes(scenario.physical_total)),
+                ("physical_free", &format_bytes(scenario.physical_free)),
+            ],
         ));
-        ui.small("What-if estimate only. Distinct remote names can share one account; declare quota identities before treating this as available capacity. It does not change upload admission or the mounted OS free-space report.");
+        ui.small(tr("What-if estimate only. Distinct remote names can share one account; declare quota identities before treating this as available capacity. It does not change upload admission or the mounted OS free-space report."));
     }
     if c.required_failure_groups > 0 {
-        ui.label(format!(
-            "Resilient outage groups: {} declared and quota-eligible / {} needed for a full K+M stripe (smaller files may still fit)",
-            c.eligible_failure_groups, c.required_failure_groups
+        ui.label(trf(
+            "Resilient outage groups: {eligible} declared and quota-eligible / {required} needed for a full K+M stripe (smaller files may still fit)",
+            &[
+                ("eligible", &c.eligible_failure_groups),
+                ("required", &c.required_failure_groups),
+            ],
         ));
         if let Some(upper) = c.resilient_remaining_upper {
-            ui.label(format!(
-                "Outage-aware remaining upper bound: {} (not guaranteed writable)",
-                format_bytes(upper)
+            ui.label(trf(
+                "Outage-aware remaining upper bound: {upper} (not guaranteed writable)",
+                &[("upper", &format_bytes(upper))],
             ));
         }
     }
-    ui.label(format!(
-        "Placement-checked next-file estimate: {}{}",
-        format_bytes(c.additional_estimate),
-        if c.estimate_limited {
-            " (simulation-capped lower bound)"
-        } else {
-            ""
-        }
+    ui.label(trf(
+        "Placement-checked next-file estimate: {estimate}{note}",
+        &[
+            ("estimate", &format_bytes(c.additional_estimate)),
+            (
+                "note",
+                &if c.estimate_limited {
+                    tr(" (simulation-capped lower bound)")
+                } else {
+                    ""
+                },
+            ),
+        ],
     ));
     if c.additional_estimate == 0 {
         ui.colored_label(egui::Color32::YELLOW, &c.note);
     }
     if c.pending_physical_reservation > 0 {
-        ui.small(format!(
-            "Pending upload reservation: {} physical",
-            format_bytes(c.pending_physical_reservation)
+        ui.small(trf(
+            "Pending upload reservation: {size} physical",
+            &[("size", &format_bytes(c.pending_physical_reservation))],
         ));
     }
     if !c.quota_complete {
-        ui.colored_label(egui::Color32::YELLOW, "Partial/conservative result: missing quota or unverified account identities. Not the full pool maximum.");
+        ui.colored_label(egui::Color32::YELLOW, tr("Partial/conservative result: missing quota or unverified account identities. Not the full pool maximum."));
     }
     let age = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs().saturating_sub(c.observed_unix))
         .unwrap_or(0);
-    ui.small(format!("Observed {age}s ago. Upper bounds exclude placement restrictions, small-file padding, metadata/encryption and temporary version copies; they are not guaranteed writable space."));
+    ui.small(trf("Observed {age}s ago. Upper bounds exclude placement restrictions, small-file padding, metadata/encryption and temporary version copies; they are not guaranteed writable space.", &[("age", &age)]));
 }
 
 #[cfg(test)]

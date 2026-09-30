@@ -10,6 +10,7 @@ mod validation;
 
 pub(crate) use state::UploadForm;
 
+use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 use crate::gui::widgets::{section_header, toolbar};
@@ -18,8 +19,8 @@ use eframe::egui;
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     section_header(
         ui,
-        "Upload",
-        Some("Archive local files using a storage pool. Files are uploaded sequentially and remain encrypted through rclone crypt destinations."),
+        tr("Upload"),
+        Some(tr("Archive local files using a storage pool. Files are uploaded sequentially and remain encrypted through rclone crypt destinations.")),
     );
 
     // Reserve the action row before dividing the remaining viewport into panes.
@@ -97,11 +98,17 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                     .unwrap_or_else(|| {
                         (state.upload.completed_count() + 1).min(state.upload.items.len())
                     });
-                format!("Uploading {position} / {}", state.upload.items.len())
+                trf(
+                    "Uploading {position} / {total}",
+                    &[
+                        ("position", &position),
+                        ("total", &state.upload.items.len()),
+                    ],
+                )
             } else if pending > 1 {
-                format!("Upload {pending} files")
+                trf("Upload {n} files", &[("n", &pending)])
             } else {
-                "Start upload".to_string()
+                tr("Start upload").to_string()
             };
             let can_start =
                 !task.is_running() && !state.upload.batch_active && pending > 0 && preflight.ready;
@@ -110,7 +117,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 response.on_hover_text(
                     preflight
                         .first_issue()
-                        .unwrap_or("Review the upload configuration before starting."),
+                        .unwrap_or(tr("Review the upload configuration before starting.")),
                 )
             } else {
                 response

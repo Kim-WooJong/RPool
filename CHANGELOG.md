@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **GUI languages:** English (default), 한국어, 日本語 and 中文（简体）, chosen
+  in Settings › General › Language. The change applies immediately and is
+  saved with the settings.
+  - Every GUI text goes through `tr()`/`trf()` and the JSON tables in
+    `src/gui/i18n/`. A test fails if any wrapped text lacks one of the three
+    translations.
+  - CJK glyphs come from installed system fonts (Malgun Gothic, Meiryo/Yu
+    Gothic and Microsoft YaHei on Windows; Apple SD Gothic Neo, Hiragino
+    and STHeiti on macOS; Noto CJK on Linux). The selected language's font
+    is tried first, so shared Han characters use its glyph forms. Korean,
+    Japanese or Chinese file names no longer render as boxes.
+  - The CLI, task names in the activity list, log lines and backend messages
+    stay in English.
+
 - **Pool change migration (archives).** `rpool pool migrate
   plan|run|status|lost|abandon` moves uploaded archives onto a pool's saved
   policy after accounts or coding change. `plan` publishes a frozen plan to a

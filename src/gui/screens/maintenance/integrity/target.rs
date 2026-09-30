@@ -1,4 +1,5 @@
 use super::state::IntegrityForm;
+use crate::gui::i18n::tr;
 use crate::gui::widgets::local_file_field;
 use crate::inventory::load_inventory;
 use eframe::egui;
@@ -17,22 +18,22 @@ pub(crate) fn show(ui: &mut egui::Ui, form: &mut IntegrityForm) {
         .unwrap_or_default();
 
     ui.horizontal(|ui| {
-        ui.label("Library");
+        ui.label(tr("Library"));
         egui::ComboBox::from_id_salt("integrity-library-target")
             .selected_text(if form.library_archive_id.is_empty() {
-                "Choose indexed archive…".to_string()
+                tr("Choose indexed archive…").to_string()
             } else {
                 entries
                     .iter()
                     .find(|entry| entry.archive_id == form.library_archive_id)
                     .map(|entry| entry.original_name.clone())
-                    .unwrap_or_else(|| "Choose indexed archive…".to_string())
+                    .unwrap_or_else(|| tr("Choose indexed archive…").to_string())
             })
             .show_ui(ui, |ui| {
                 ui.selectable_value(
                     &mut form.library_archive_id,
                     String::new(),
-                    "Manual manifest path",
+                    tr("Manual manifest path"),
                 );
                 for entry in &entries {
                     if ui
@@ -55,7 +56,7 @@ pub(crate) fn show(ui: &mut egui::Ui, form: &mut IntegrityForm) {
 
     local_file_field(
         ui,
-        "Manifest",
+        tr("Manifest"),
         &mut form.manifest,
         Some("rpool manifest"),
         &["json"],

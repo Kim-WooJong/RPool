@@ -1,3 +1,4 @@
+use crate::gui::i18n::{tr, trf};
 use eframe::egui;
 
 #[derive(Debug, Default)]
@@ -45,24 +46,24 @@ impl PoolPicker {
         let mut open = true;
         let mut apply = false;
         let mut cancel = false;
-        egui::Window::new("Choose encrypted providers")
+        egui::Window::new(tr("Choose encrypted providers"))
             .id(egui::Id::new("pool-provider-picker"))
             .open(&mut open)
             .default_width(540.0)
             .resizable(true)
             .show(ctx, |ui| {
-                ui.label("Add or remove destinations for this pool draft.");
-                ui.small("Removing a selection does not delete the provider or its cloud data.");
+                ui.label(tr("Add or remove destinations for this pool draft."));
+                ui.small(tr("Removing a selection does not delete the provider or its cloud data."));
                 ui.horizontal(|ui| {
-                    if ui.button("Refresh providers").clicked() {
+                    if ui.button(tr("Refresh providers")).clicked() {
                         action.refresh = true;
                     }
-                    if ui.button("Set up provider…").clicked() {
+                    if ui.button(tr("Set up provider…")).clicked() {
                         action.setup = true;
                     }
                 });
                 if discovered.is_empty() {
-                    ui.label("No encrypted providers discovered. Set up encryption in Providers, then refresh.");
+                    ui.label(tr("No encrypted providers discovered. Set up encryption in Providers, then refresh."));
                 }
                 egui::ScrollArea::both()
                     .id_salt("pool-provider-picker-list")
@@ -75,13 +76,13 @@ impl PoolPicker {
                             }
                         }
                         ui.separator();
-                        ui.label(format!("Selected destinations ({})", self.draft.len()));
+                        ui.label(trf("Selected destinations ({n})", &[("n", &self.draft.len())]));
                         // Includes custom paths and unavailable remotes; never silently
                         // replaces saved paths with today's provider defaults.
                         for target in self.draft.clone() {
                             ui.horizontal(|ui| {
                                 ui.monospace(&target);
-                                if ui.button("Remove").clicked() {
+                                if ui.button(tr("Remove")).clicked() {
                                     self.set_selected(&target, false);
                                 }
                             });
@@ -89,10 +90,10 @@ impl PoolPicker {
                     });
                 ui.separator();
                 ui.horizontal(|ui| {
-                    apply = ui.button("Apply selection").clicked();
-                    cancel = ui.button("Cancel").clicked();
+                    apply = ui.button(tr("Apply selection")).clicked();
+                    cancel = ui.button(tr("Cancel")).clicked();
                 });
-                ui.small("Apply updates this draft only; no cloud data is changed.");
+                ui.small(tr("Apply updates this draft only; no cloud data is changed."));
             });
         if apply {
             *selected = self.draft.clone();

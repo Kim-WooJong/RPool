@@ -1,5 +1,6 @@
 use super::state::{UploadItemStatus, UploadTargetMode};
 use crate::erasure::validate_rs_counts;
+use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
 use crate::models::PoolDefinition;
 use crate::pool::validate_pool;
@@ -55,27 +56,35 @@ pub(crate) fn evaluate(state: &GuiState) -> UploadPreflight {
         .count();
 
     if state.upload.items.is_empty() {
-        issues.push("Add one or more local files before starting the upload.".to_string());
+        issues.push(tr("Add one or more local files before starting the upload.").to_string());
     } else if pending == 0 && running == 0 {
-        issues.push("There are no pending files to upload.".to_string());
+        issues.push(tr("There are no pending files to upload.").to_string());
     }
     if missing_files > 0 {
-        issues.push(format!(
-            "{missing_files} pending file(s) are no longer available at their selected paths."
+        issues.push(trf(
+            "{n} pending file(s) are no longer available at their selected paths.",
+            &[("n", &missing_files)],
         ));
     }
 
     let files_label = if running > 0 {
-        format!(
-            "{running} uploading · {pending} pending · {}",
-            crate::presentation::format_bytes(pending_bytes)
+        trf(
+            "{running} uploading · {pending} pending · {size}",
+            &[
+                ("running", &running),
+                ("pending", &pending),
+                ("size", &crate::presentation::format_bytes(pending_bytes)),
+            ],
         )
     } else if pending == 0 {
-        "No pending files".to_string()
+        tr("No pending files").to_string()
     } else {
-        format!(
-            "{pending} pending · {}",
-            crate::presentation::format_bytes(pending_bytes)
+        trf(
+            "{pending} pending · {size}",
+            &[
+                ("pending", &pending),
+                ("size", &crate::presentation::format_bytes(pending_bytes)),
+            ],
         )
     };
 
@@ -111,30 +120,36 @@ fn validate_pool_target(
 ) -> (String, String, String) {
     let name = state.upload.pool_name.trim();
     if name.is_empty() {
-        issues.push("Select a storage pool first.".to_string());
+        issues.push(tr("Select a storage pool first.").to_string());
         return (
-            "Storage pool not selected".to_string(),
-            "Pool policy".to_string(),
-            "No destinations".to_string(),
+            tr("Storage pool not selected").to_string(),
+            tr("Pool policy").to_string(),
+            tr("No destinations").to_string(),
         );
     }
 
     let Some(pool) = state.pool_definitions.get(name) else {
-        issues.push(format!("Storage pool '{name}' no longer exists."));
+        issues.push(trf(
+            "Storage pool '{name}' no longer exists.",
+            &[("name", &name)],
+        ));
         return (
-            format!("Pool: {name}"),
-            "Unavailable".to_string(),
-            "No destinations".to_string(),
+            trf("Pool: {name}", &[("name", &name)]),
+            tr("Unavailable").to_string(),
+            tr("No destinations").to_string(),
         );
     };
 
     if let Err(error) = validate_pool(pool) {
-        issues.push(format!("Storage pool '{name}' is invalid: {error:#}"));
+        issues.push(trf(
+            "Storage pool '{name}' is invalid: {error}",
+            &[("name", &name), ("error", &format!("{error:#}"))],
+        ));
     }
     validate_crypt_destinations(pool, &state.crypt_remotes, issues, warnings);
 
     (
-        format!("Pool: {name}"),
+        trf("Pool: {name}", &[("name", &name)]),
         pool_policy_label(pool),
         destination_count_label(pool.remotes.len()),
     )
@@ -156,35 +171,45 @@ fn validate_manual_target(
         .collect();
 
     if remotes.is_empty() {
-        issues.push("Add at least one crypt destination for the manual upload.".to_string());
+        issues.push(tr("Add at least one crypt destination for the manual upload.").to_string());
     }
     if let Err(error) = crate::models::shard_size::validate_shard_mib(state.settings.shard_mib) {
         issues.push(format!("{error}."));
     }
     if state.settings.workers == 0 {
-        issues.push("Workers must be greater than zero.".to_string());
+        issues.push(tr("Workers must be greater than zero.").to_string());
     }
     if state.settings.parity_shards > 0 {
         if let Err(error) =
             validate_rs_counts(state.settings.data_shards, state.settings.parity_shards)
         {
-            issues.push(format!("Invalid Reed-Solomon policy: {error:#}"));
+            issues.push(trf(
+                "Invalid Reed-Solomon policy: {error}",
+                &[("error", &format!("{error:#}"))],
+            ));
         }
     }
 
     validate_remote_names(&remotes, &state.crypt_remotes, issues, warnings);
 
     let policy_label = if state.settings.parity_shards > 0 {
-        format!(
-            "RS {}+{} · {} MiB shards",
-            state.settings.data_shards, state.settings.parity_shards, state.settings.shard_mib
+        trf(
+            "RS {k}+{m} · {mib} MiB shards",
+            &[
+                ("k", &state.settings.data_shards),
+                ("m", &state.settings.parity_shards),
+                ("mib", &state.settings.shard_mib),
+            ],
         )
     } else {
-        format!("No EC · {} MiB shards", state.settings.shard_mib)
+        trf(
+            "No EC · {mib} MiB shards",
+            &[("mib", &state.settings.shard_mib)],
+        )
     };
 
     (
-        "Manual one-off".to_string(),
+        tr("Manual one-off").to_string(),
         policy_label,
         destination_count_label(remotes.len()),
     )
@@ -210,7 +235,7 @@ fn validate_remote_names(
     }
     if crypt_remotes.is_empty() {
         warnings.push(
-            "Crypt remote discovery is not available yet. The storage layer will still enforce encryption before any write."
+            tr("Crypt remote discovery is not available yet. The storage layer will still enforce encryption before any write.")
                 .to_string(),
         );
         return;
@@ -234,35 +259,39 @@ fn validate_remote_names(
     unsafe_remotes.dedup();
 
     if !unsafe_remotes.is_empty() {
-        issues.push(format!(
-            "These destinations are not recognized as encrypted rclone crypt remotes: {}",
-            unsafe_remotes.join(", ")
+        issues.push(trf(
+            "These destinations are not recognized as encrypted rclone crypt remotes: {remotes}",
+            &[("remotes", &unsafe_remotes.join(", "))],
         ));
     }
 }
 
 fn pool_policy_label(pool: &PoolDefinition) -> String {
     if pool.parity_shards > 0 {
-        format!(
-            "RS {}+{} · {} MiB shards · {}",
-            pool.data_shards,
-            pool.parity_shards,
-            pool.shard_size,
-            pool.placement.label()
+        trf(
+            "RS {k}+{m} · {mib} MiB shards · {placement}",
+            &[
+                ("k", &pool.data_shards),
+                ("m", &pool.parity_shards),
+                ("mib", &pool.shard_size),
+                ("placement", &pool.placement.label()),
+            ],
         )
     } else {
-        format!(
-            "No EC · {} MiB shards · {}",
-            pool.shard_size,
-            pool.placement.label()
+        trf(
+            "No EC · {mib} MiB shards · {placement}",
+            &[
+                ("mib", &pool.shard_size),
+                ("placement", &pool.placement.label()),
+            ],
         )
     }
 }
 
 fn destination_count_label(count: usize) -> String {
     match count {
-        0 => "No destinations".to_string(),
-        1 => "1 encrypted destination".to_string(),
-        value => format!("{value} encrypted destinations"),
+        0 => tr("No destinations").to_string(),
+        1 => tr("1 encrypted destination").to_string(),
+        value => trf("{n} encrypted destinations", &[("n", &value)]),
     }
 }

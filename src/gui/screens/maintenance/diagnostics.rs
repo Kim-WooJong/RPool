@@ -1,4 +1,5 @@
 use crate::doctor::{run_checks, Diagnostic};
+use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 use crate::gui::widgets::{section_header, status_badge, StatusTone};
@@ -29,8 +30,10 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, _task: &mut TaskRunn
     crate::gui::theme::page_body(ui, "health-diagnostics", |ui| {
         section_header(
             ui,
-            "Diagnostics",
-            Some("Check rclone, providers, pools, configuration, and rebuildable local metadata."),
+            tr("Diagnostics"),
+            Some(tr(
+                "Check rclone, providers, pools, configuration, and rebuildable local metadata.",
+            )),
         );
 
         if let Some(rx) = &state.system.pending {
@@ -42,7 +45,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, _task: &mut TaskRunn
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     state.system.pending = None;
                     state.system.error =
-                        Some("Diagnostics stopped unexpectedly; run them again.".into());
+                        Some(tr("Diagnostics stopped unexpectedly; run them again.").into());
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {
                     ui.ctx()
@@ -52,21 +55,21 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, _task: &mut TaskRunn
         }
         let running = state.system.pending.is_some();
         ui.horizontal_wrapped(|ui| {
-            if crate::gui::theme::primary_button(ui, !running, "Run doctor").clicked() {
+            if crate::gui::theme::primary_button(ui, !running, tr("Run doctor")).clicked() {
                 start(&mut state.system, Some(state.settings.rclone.clone()));
             }
             if ui
-                .add_enabled(!running, egui::Button::new("Local checks only"))
-                .on_hover_text(
+                .add_enabled(!running, egui::Button::new(tr("Local checks only")))
+                .on_hover_text(tr(
                     "Skips rclone and providers: configuration, pools and local metadata only.",
-                )
+                ))
                 .clicked()
             {
                 start(&mut state.system, None);
             }
             if running {
                 ui.spinner();
-                ui.label("Checking…");
+                ui.label(tr("Checking…"));
             }
         });
         if let Some(error) = &state.system.error {
@@ -74,7 +77,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, _task: &mut TaskRunn
         }
 
         if state.system.reports.is_empty() {
-            ui.label(egui::RichText::new("No diagnostic result yet.").weak());
+            ui.label(egui::RichText::new(tr("No diagnostic result yet.")).weak());
             return;
         }
 
@@ -92,11 +95,19 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, _task: &mut TaskRunn
             .count();
         ui.horizontal(|ui| {
             if failures > 0 {
-                status_badge(ui, &format!("{failures} failure(s)"), StatusTone::Error);
+                status_badge(
+                    ui,
+                    &trf("{n} failure(s)", &[("n", &failures)]),
+                    StatusTone::Error,
+                );
             } else if warnings > 0 {
-                status_badge(ui, &format!("{warnings} warning(s)"), StatusTone::Warning);
+                status_badge(
+                    ui,
+                    &trf("{n} warning(s)", &[("n", &warnings)]),
+                    StatusTone::Warning,
+                );
             } else {
-                status_badge(ui, "Checks passed", StatusTone::Success);
+                status_badge(ui, tr("Checks passed"), StatusTone::Success);
             }
         });
 
@@ -104,9 +115,9 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, _task: &mut TaskRunn
             egui::Grid::new("doctor-report-grid")
                 .striped(true)
                 .show(ui, |ui| {
-                    ui.strong("Status");
-                    ui.strong("Check");
-                    ui.strong("Result");
+                    ui.strong(tr("Status"));
+                    ui.strong(tr("Check"));
+                    ui.strong(tr("Result"));
                     ui.end_row();
                     for report in &state.system.reports {
                         let tone = match report.status.as_str() {

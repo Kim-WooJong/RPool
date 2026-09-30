@@ -1,3 +1,4 @@
+use crate::gui::i18n::{tr, trf};
 use crate::gui::navigation;
 use crate::gui::screens::{dashboard, files, jobs, maintenance, settings, storage};
 use crate::gui::state::{self, GuiState, Page};
@@ -50,8 +51,9 @@ pub(crate) fn launch(startup_rclone: &str) -> Result<()> {
         native_options,
         Box::new(move |cc| {
             theme::apply(&cc.egui_ctx);
-            super::i18n::fonts::install(&cc.egui_ctx);
-            Ok(Box::new(RpoolGui::new(&startup_rclone)))
+            let app = RpoolGui::new(&startup_rclone);
+            super::i18n::fonts::install(&cc.egui_ctx, super::i18n::language());
+            Ok(Box::new(app))
         }),
     )
     .map_err(|error| anyhow!(error.to_string()))
@@ -101,8 +103,8 @@ impl RpoolGui {
             self.state.providers.connection = None;
             self.refresh_pending = true;
             self.state.providers.setup_notice = Some(match result {
-                Ok(()) => "Connection wizard closed. Refreshing providers and checking encryption automatically.".into(),
-                Err(error) => format!("Connection watcher stopped: {error}. Refreshing provider discovery."),
+                Ok(()) => tr("Connection wizard closed. Refreshing providers and checking encryption automatically.").into(),
+                Err(error) => trf("Connection watcher stopped: {error}. Refreshing provider discovery.", &[("error", &error)]),
             });
         }
         let automatic = self.task.task_name() == Some(AUTO_ENCRYPTION_TASK);
@@ -110,7 +112,7 @@ impl RpoolGui {
         let task_finished = self.task.poll();
         if provisioning && task_finished == Some(JobStatus::Completed) {
             self.refresh_pending = true;
-            self.state.providers.setup_notice = Some("Encrypted provider created. Provider list refreshed automatically; back up your rclone configuration before uploading.".into());
+            self.state.providers.setup_notice = Some(tr("Encrypted provider created. Provider list refreshed automatically; back up your rclone configuration before uploading.").into());
         }
         if automatic && task_finished.is_some() {
             self.state.providers.encryption_failed = task_finished != Some(JobStatus::Completed);
@@ -118,9 +120,9 @@ impl RpoolGui {
             self.refresh_pending = true;
             self.state.providers.setup_notice = Some(
                 if task_finished == Some(JobStatus::Completed) {
-                    "Provider encryption checked automatically. Back up your rclone configuration to preserve the encryption keys.".into()
+                    tr("Provider encryption checked automatically. Back up your rclone configuration to preserve the encryption keys.").into()
                 } else {
-                    "Automatic encryption setup did not complete. See Jobs for details, then use Retry automatic encryption in Providers after resolving the error.".into()
+                    tr("Automatic encryption setup did not complete. See Jobs for details, then use Retry automatic encryption in Providers after resolving the error.").into()
                 },
             );
         }
@@ -231,12 +233,12 @@ impl eframe::App for RpoolGui {
                         if self.state.mount.is_running() {
                             crate::gui::widgets::status_badge(
                                 ui,
-                                "Drive mounted",
+                                tr("Drive mounted"),
                                 crate::gui::widgets::StatusTone::Success,
                             );
                         }
                         if self.task.is_running() {
-                            ui.label(self.task.task_name().unwrap_or("operation"));
+                            ui.label(self.task.task_name().unwrap_or(tr("operation")));
                             ui.spinner();
                         }
                     });
@@ -294,13 +296,13 @@ impl eframe::App for RpoolGui {
 
 fn page_title(page: Page) -> &'static str {
     match page {
-        Page::Dashboard => "Overview",
-        Page::Drive => "Drive",
-        Page::Files => "Files",
-        Page::Storage => "Storage",
-        Page::Maintenance => "Health",
-        Page::Jobs => "Activity",
-        Page::Settings => "Settings",
+        Page::Dashboard => tr("Overview"),
+        Page::Drive => tr("Drive"),
+        Page::Files => tr("Files"),
+        Page::Storage => tr("Storage"),
+        Page::Maintenance => tr("Health"),
+        Page::Jobs => tr("Activity"),
+        Page::Settings => tr("Settings"),
     }
 }
 

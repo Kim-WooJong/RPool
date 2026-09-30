@@ -1,5 +1,6 @@
 //! Top of the screen: what is mounted where, and the primary actions.
 use super::form::MountForm;
+use crate::gui::i18n::tr;
 use crate::gui::settings::GuiSettings;
 use crate::gui::state::GuiState;
 use crate::gui::theme;
@@ -22,13 +23,13 @@ pub(super) fn run(
 
 fn mode(form: &MountForm) -> &'static str {
     match (form.virtual_drive, form.pool_sync, form.bounded_shared) {
-        (false, _, _) => "full local replica",
-        (true, true, _) => "online drive · automatic pool sync",
-        (true, false, true) => "online drive · legacy shared (bounded)",
+        (false, _, _) => tr("full local replica"),
+        (true, true, _) => tr("online drive · automatic pool sync"),
+        (true, false, true) => tr("online drive · legacy shared (bounded)"),
         (true, false, false) if !form.shared_root.trim().is_empty() => {
-            "online drive · legacy shared"
+            tr("online drive · legacy shared")
         }
-        (true, false, false) => "online drive · this PC only",
+        (true, false, false) => tr("online drive · this PC only"),
     }
 }
 
@@ -38,23 +39,23 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
         ui.set_width(ui.available_width());
         ui.horizontal_wrapped(|ui| {
             let (label, tone) = match (form.runner.is_running(), form.stopping) {
-                (true, true) => ("Stopping", StatusTone::Warning),
-                (true, false) => ("Running", StatusTone::Success),
-                _ => ("Not mounted", StatusTone::Neutral),
+                (true, true) => (tr("Stopping"), StatusTone::Warning),
+                (true, false) => (tr("Running"), StatusTone::Success),
+                _ => (tr("Not mounted"), StatusTone::Neutral),
             };
             status_badge(ui, label, tone);
-            let pool = if form.pool.is_empty() { "No pool selected" } else { form.pool.as_str() };
-            let target = if form.mountpoint.trim().is_empty() { "no mountpoint" } else { form.mountpoint.trim() };
+            let pool = if form.pool.is_empty() { tr("No pool selected") } else { form.pool.as_str() };
+            let target = if form.mountpoint.trim().is_empty() { tr("no mountpoint") } else { form.mountpoint.trim() };
             ui.label(egui::RichText::new(format!("{pool} › {target}")).strong());
             ui.label(egui::RichText::new(mode(form)).weak());
-            ui.label(egui::RichText::new(if form.native_selected() { "· native" } else { "· WebDAV" }).weak());
+            ui.label(egui::RichText::new(if form.native_selected() { tr("· native") } else { "· WebDAV" }).weak());
         });
         ui.add_space(theme::SUBSECTION_GAP);
         toolbar(ui, |ui| {
             if form.runner.is_running() {
                 if ui
-                    .add_enabled(!form.stopping, egui::Button::new("Unmount"))
-                    .on_hover_text("Stops gracefully. Pending local changes are kept and upload on the next start or sync.")
+                    .add_enabled(!form.stopping, egui::Button::new(tr("Unmount")))
+                    .on_hover_text(tr("Stops gracefully. Pending local changes are kept and upload on the next start or sync."))
                     .clicked()
                 {
                     if let Err(error) = form.request_stop() {
@@ -62,27 +63,27 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
                     }
                 }
                 if ui
-                    .add_enabled(form.stopping, egui::Button::new("Force stop"))
-                    .on_hover_text("Only after Unmount hangs. Can interrupt uploads; edits stay in the local cache. Restart the same workspace to recover.")
+                    .add_enabled(form.stopping, egui::Button::new(tr("Force stop")))
+                    .on_hover_text(tr("Only after Unmount hangs. Can interrupt uploads; edits stay in the local cache. Restart the same workspace to recover."))
                     .clicked()
                 {
                     form.runner.cancel();
                 }
                 ui.spinner();
                 ui.label(if form.stopping {
-                    "Stopping; pending edits stay local."
+                    tr("Stopping; pending edits stay local.")
                 } else {
-                    "Mounted. Other jobs stay available."
+                    tr("Mounted. Other jobs stay available.")
                 });
             } else {
-                let mount = theme::primary_button(ui, true, "Mount");
-                if mount.on_hover_text("Mount read/write with the settings below.").clicked() {
+                let mount = theme::primary_button(ui, true, tr("Mount"));
+                if mount.on_hover_text(tr("Mount read/write with the settings below.")).clicked() {
                     run(form, settings, |form, rclone| form.start(rclone, false));
                 }
-                if ui.button("Sync now").on_hover_text("Upload pending changes and fetch metadata without mounting.").clicked() {
+                if ui.button(tr("Sync now")).on_hover_text(tr("Upload pending changes and fetch metadata without mounting.")).clicked() {
                     run(form, settings, |form, rclone| form.start(rclone, true));
                 }
-                if ui.button("Check capacity").on_hover_text("Measure every account's quota without mounting.").clicked() {
+                if ui.button(tr("Check capacity")).on_hover_text(tr("Measure every account's quota without mounting.")).clicked() {
                     run(form, settings, |form, rclone| form.start_action(rclone, 2));
                 }
             }

@@ -1,4 +1,5 @@
 use super::state::IntegrityForm;
+use crate::gui::i18n::{tr, trf};
 use crate::gui::task::TaskRunner;
 use crate::inventory::load_inventory;
 use crate::presentation::format_bytes;
@@ -13,15 +14,15 @@ pub(crate) fn show(
     workers: usize,
     retries: u32,
 ) {
-    ui.label(egui::RichText::new("Scrub").strong());
+    ui.label(egui::RichText::new(tr("Scrub")).strong());
     ui.horizontal(|ui| {
-        ui.selectable_value(&mut form.quick, true, "Quick");
-        ui.selectable_value(&mut form.quick, false, "Full BLAKE3");
+        ui.selectable_value(&mut form.quick, true, tr("Quick"));
+        ui.selectable_value(&mut form.quick, false, tr("Full BLAKE3"));
     });
     ui.small(if form.quick {
-        "Checks object existence and expected size."
+        tr("Checks object existence and expected size.")
     } else {
-        "Streams every shard and validates BLAKE3."
+        tr("Streams every shard and validates BLAKE3.")
     });
 
     if !form.library_archive_id.is_empty() {
@@ -31,29 +32,33 @@ pub(crate) fn show(
                     .coding
                     .as_ref()
                     .map(|coding| format!("{}+{}", coding.data_shards, coding.parity_shards))
-                    .unwrap_or_else(|| "No EC".to_string());
-                ui.small(format!(
-                    "Target {} · {} · coding {} · workers {}",
-                    entry.original_name,
-                    format_bytes(entry.original_size),
-                    coding,
-                    workers
+                    .unwrap_or_else(|| tr("No EC").to_string());
+                ui.small(trf(
+                    "Target {name} · {size} · coding {coding} · workers {workers}",
+                    &[
+                        ("name", &entry.original_name),
+                        ("size", &format_bytes(entry.original_size)),
+                        ("coding", &coding),
+                        ("workers", &workers),
+                    ],
                 ));
             }
         }
     } else if !form.manifest.trim().is_empty() {
-        ui.small(format!(
-            "Target manifest {} · workers {}",
-            form.manifest.trim(),
-            workers
+        ui.small(trf(
+            "Target manifest {manifest} · workers {workers}",
+            &[("manifest", &form.manifest.trim()), ("workers", &workers)],
         ));
     }
 
     let ready = !form.manifest.trim().is_empty() && !task.is_running();
     ui.horizontal(|ui| {
-        ui.label(format!("Workers {workers} · Retries {retries}"));
+        ui.label(trf(
+            "Workers {workers} · Retries {retries}",
+            &[("workers", &workers), ("retries", &retries)],
+        ));
         if ui
-            .add_enabled(ready, egui::Button::new("Run scrub"))
+            .add_enabled(ready, egui::Button::new(tr("Run scrub")))
             .clicked()
         {
             form.error = start(form, task, rclone, workers, retries).err();
@@ -71,7 +76,7 @@ fn start(
 ) -> Result<(), String> {
     let manifest = form.manifest.trim();
     if manifest.is_empty() {
-        return Err("Select or enter a manifest first.".to_string());
+        return Err(tr("Select or enter a manifest first.").to_string());
     }
     let mut args = vec![
         OsString::from("scrub"),

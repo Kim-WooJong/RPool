@@ -126,6 +126,38 @@ pub(crate) fn trf(template: &'static str, args: &[(&str, &dyn std::fmt::Display)
     out
 }
 
+/// A duration phrase from `migration::speed::format_estimate` ("about
+/// 12–20 min", "under 1 min", "unknown") in the current language.
+pub(crate) fn duration_text(english: &str) -> String {
+    match english {
+        "unknown" => return tr("unknown").into(),
+        "under 1 min" => return tr("under 1 min").into(),
+        _ => {}
+    }
+    let body = english.strip_prefix("about ").unwrap_or(english);
+    let words: Vec<&str> = body
+        .split(' ')
+        .map(|word| match word {
+            "min" => tr("min"),
+            "h" => tr("h"),
+            "d" => tr("d"),
+            other => other,
+        })
+        .collect();
+    trf("about {duration}", &[("duration", &words.join(" "))])
+}
+
+/// "now", "5m ago", "3h ago", "2d ago" in the current language.
+pub(crate) fn relative_age(timestamp: u64) -> String {
+    let elapsed = crate::utils::now_unix().saturating_sub(timestamp);
+    match elapsed {
+        0..=59 => tr("now").into(),
+        60..=3_599 => trf("{n}m ago", &[("n", &(elapsed / 60))]),
+        3_600..=86_399 => trf("{n}h ago", &[("n", &(elapsed / 3_600))]),
+        _ => trf("{n}d ago", &[("n", &(elapsed / 86_400))]),
+    }
+}
+
 pub(crate) mod fonts;
 
 #[cfg(test)]

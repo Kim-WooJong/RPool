@@ -1,24 +1,28 @@
+use crate::gui::i18n::tr;
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 use eframe::egui;
 use std::ffi::OsString;
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
-    ui.label(egui::RichText::new("Inventory cache").strong());
-    ui.label(egui::RichText::new("Rebuild the local inventory index from manifest files. The index is not a source of truth.").weak());
+    ui.label(egui::RichText::new(tr("Inventory cache")).strong());
+    ui.label(egui::RichText::new(tr("Rebuild the local inventory index from manifest files. The index is not a source of truth.")).weak());
     ui.horizontal_wrapped(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut state.manifest.inventory_directory)
-                .hint_text("Directory containing manifests")
+                .hint_text(tr("Directory containing manifests"))
                 .desired_width((ui.available_width() - 110.0).clamp(120.0, 360.0)),
         );
-        if ui.button("Browse…").clicked() {
+        if ui.button(tr("Browse…")).clicked() {
             if let Some(path) = rfd::FileDialog::new().pick_folder() {
                 state.manifest.inventory_directory = path.display().to_string();
             }
         }
         if ui
-            .add_enabled(!task.is_running(), egui::Button::new("Rebuild inventory"))
+            .add_enabled(
+                !task.is_running(),
+                egui::Button::new(tr("Rebuild inventory")),
+            )
             .clicked()
         {
             state.manifest.error = start(state, task).err();
@@ -27,9 +31,9 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     });
     ui.add_space(crate::gui::theme::SUBSECTION_GAP);
     ui.label(
-        egui::RichText::new(
+        egui::RichText::new(tr(
             "Add one archive to the index from its manifest (local file or remote object).",
-        )
+        ))
         .weak(),
     );
     ui.horizontal_wrapped(|ui| {
@@ -38,7 +42,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 .hint_text("file.rpool.json or crypt:path/manifest.json")
                 .desired_width((ui.available_width() - 110.0).clamp(120.0, 360.0)),
         );
-        if ui.button("Browse…").clicked() {
+        if ui.button(tr("Browse…")).clicked() {
             if let Some(path) = rfd::FileDialog::new()
                 .add_filter("Manifest JSON", &["json"])
                 .pick_file()
@@ -47,7 +51,10 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             }
         }
         if ui
-            .add_enabled(!task.is_running(), egui::Button::new("Add to inventory"))
+            .add_enabled(
+                !task.is_running(),
+                egui::Button::new(tr("Add to inventory")),
+            )
             .clicked()
         {
             state.manifest.error = add_args(&state.manifest.inventory_manifest)
@@ -62,7 +69,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
 fn add_args(manifest: &str) -> Result<Vec<OsString>, String> {
     let manifest = manifest.trim();
     if manifest.is_empty() {
-        return Err("Choose a manifest to add first.".to_string());
+        return Err(tr("Choose a manifest to add first.").to_string());
     }
     Ok(vec!["inventory".into(), "add".into(), manifest.into()])
 }
@@ -70,7 +77,7 @@ fn add_args(manifest: &str) -> Result<Vec<OsString>, String> {
 fn start(state: &GuiState, task: &mut TaskRunner) -> Result<(), String> {
     let directory = state.manifest.inventory_directory.trim();
     if directory.is_empty() {
-        return Err("Choose a directory containing manifests first.".to_string());
+        return Err(tr("Choose a directory containing manifests first.").to_string());
     }
     task.start_rpool(
         "Inventory rebuild",

@@ -1,16 +1,19 @@
 use super::state::IntegrityForm;
+use crate::gui::i18n::relative_age;
+use crate::gui::i18n::{tr, trf};
 use crate::gui::theme;
 use crate::gui::widgets::{status_badge, StatusTone};
-use crate::presentation::relative_age;
 use eframe::egui;
 
 pub(crate) fn show(ui: &mut egui::Ui, form: &IntegrityForm) {
-    ui.label(egui::RichText::new("Last integrity result").strong());
+    ui.label(egui::RichText::new(tr("Last integrity result")).strong());
     ui.add_space(theme::SUBSECTION_GAP);
 
     let Some(snapshot) = &form.snapshot else {
-        status_badge(ui, "Not checked", StatusTone::Neutral);
-        ui.label(egui::RichText::new("Run a scrub to establish current archive integrity.").weak());
+        status_badge(ui, tr("Not checked"), StatusTone::Neutral);
+        ui.label(
+            egui::RichText::new(tr("Run a scrub to establish current archive integrity.")).weak(),
+        );
         return;
     };
 
@@ -22,13 +25,13 @@ pub(crate) fn show(ui: &mut egui::Ui, form: &IntegrityForm) {
         StatusTone::Success
     };
     let label = if snapshot.errors > 0 {
-        "Provider error"
+        tr("Provider error")
     } else if snapshot.unrecoverable_groups > 0 {
-        "Unrecoverable"
+        tr("Unrecoverable")
     } else if snapshot.total != snapshot.healthy {
-        "Degraded"
+        tr("Degraded")
     } else {
-        "Healthy"
+        tr("Healthy")
     };
     status_badge(ui, label, tone);
 
@@ -36,32 +39,34 @@ pub(crate) fn show(ui: &mut egui::Ui, form: &IntegrityForm) {
         .num_columns(4)
         .spacing([18.0, 4.0])
         .show(ui, |ui| {
-            item(ui, "Healthy", snapshot.healthy);
-            item(ui, "Missing", snapshot.missing);
-            item(ui, "Bad size", snapshot.bad_size);
-            item(ui, "Corrupt", snapshot.corrupt);
+            item(ui, tr("Healthy"), snapshot.healthy);
+            item(ui, tr("Missing"), snapshot.missing);
+            item(ui, tr("Bad size"), snapshot.bad_size);
+            item(ui, tr("Corrupt"), snapshot.corrupt);
             ui.end_row();
-            item(ui, "Provider errors", snapshot.errors);
+            item(ui, tr("Provider errors"), snapshot.errors);
             item(
                 ui,
-                "Recoverable",
+                tr("Recoverable"),
                 snapshot
                     .groups
                     .iter()
                     .filter(|group| group.is_recoverable())
                     .count(),
             );
-            item(ui, "Unrecoverable", snapshot.unrecoverable_groups);
-            item(ui, "Degraded groups", snapshot.degraded_groups);
+            item(ui, tr("Unrecoverable"), snapshot.unrecoverable_groups);
+            item(ui, tr("Degraded groups"), snapshot.degraded_groups);
             ui.end_row();
-            item(ui, "Total shards", snapshot.total);
+            item(ui, tr("Total shards"), snapshot.total);
         });
 
-    ui.small(format!(
-        "Archive {} · {} · checked {}",
-        snapshot.archive_id,
-        snapshot.mode,
-        relative_age(snapshot.checked_unix)
+    ui.small(trf(
+        "Archive {id} · {mode} · checked {age}",
+        &[
+            ("id", &snapshot.archive_id),
+            ("mode", &snapshot.mode),
+            ("age", &relative_age(snapshot.checked_unix)),
+        ],
     ));
 }
 

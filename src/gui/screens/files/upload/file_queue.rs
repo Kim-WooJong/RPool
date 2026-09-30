@@ -1,4 +1,5 @@
 use super::state::{UploadForm, UploadItemStatus};
+use crate::gui::i18n::{tr, trf};
 use crate::gui::theme;
 use crate::gui::widgets::{status_badge, StatusTone};
 use crate::presentation::format_bytes;
@@ -23,20 +24,22 @@ pub(crate) fn show(ui: &mut egui::Ui, form: &mut UploadForm) {
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    ui.label(egui::RichText::new("Source files").strong());
+                    ui.label(egui::RichText::new(tr("Source files")).strong());
                     ui.label(
-                        egui::RichText::new("Drop local files here or add several files at once.")
-                            .weak(),
+                        egui::RichText::new(tr(
+                            "Drop local files here or add several files at once.",
+                        ))
+                        .weak(),
                     );
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
-                        .add_enabled(!form.batch_active, egui::Button::new("Clear"))
+                        .add_enabled(!form.batch_active, egui::Button::new(tr("Clear")))
                         .clicked()
                     {
                         form.clear_queue();
                     }
-                    if ui.button("Add files…").clicked() {
+                    if ui.button(tr("Add files…")).clicked() {
                         if let Some(paths) = rfd::FileDialog::new().pick_files() {
                             form.add_paths(paths);
                         }
@@ -47,7 +50,7 @@ pub(crate) fn show(ui: &mut egui::Ui, form: &mut UploadForm) {
 
     ui.add_space(6.0);
     if form.items.is_empty() {
-        ui.label(egui::RichText::new("No files selected.").weak());
+        ui.label(egui::RichText::new(tr("No files selected.")).weak());
         return;
     }
 
@@ -57,9 +60,9 @@ pub(crate) fn show(ui: &mut egui::Ui, form: &mut UploadForm) {
         .striped(true)
         .spacing([12.0, 6.0])
         .show(ui, |ui| {
-            ui.strong("File");
-            ui.strong("Size");
-            ui.strong("Status");
+            ui.strong(tr("File"));
+            ui.strong(tr("Size"));
+            ui.strong(tr("Status"));
             ui.label("");
             ui.end_row();
 
@@ -69,7 +72,7 @@ pub(crate) fn show(ui: &mut egui::Ui, form: &mut UploadForm) {
                 ui.monospace(
                     item.size
                         .map(format_bytes)
-                        .unwrap_or_else(|| "n/a".to_string()),
+                        .unwrap_or_else(|| tr("n/a").to_string()),
                 );
                 let tone = match item.status {
                     UploadItemStatus::Pending => StatusTone::Neutral,
@@ -79,7 +82,7 @@ pub(crate) fn show(ui: &mut egui::Ui, form: &mut UploadForm) {
                 };
                 status_badge(ui, item.status.label(), tone);
                 if ui
-                    .add_enabled(!form.batch_active, egui::Button::new("Remove"))
+                    .add_enabled(!form.batch_active, egui::Button::new(tr("Remove")))
                     .clicked()
                 {
                     remove_index = Some(index);
@@ -94,12 +97,14 @@ pub(crate) fn show(ui: &mut egui::Ui, form: &mut UploadForm) {
 
     ui.add_space(4.0);
     ui.label(
-        egui::RichText::new(format!(
-            "{} file(s) · {} · {} pending · {} completed",
-            form.items.len(),
-            format_bytes(form.total_bytes()),
-            form.pending_count(),
-            form.completed_count()
+        egui::RichText::new(trf(
+            "{n} file(s) · {size} · {pending} pending · {completed} completed",
+            &[
+                ("n", &form.items.len()),
+                ("size", &format_bytes(form.total_bytes())),
+                ("pending", &form.pending_count()),
+                ("completed", &form.completed_count()),
+            ],
         ))
         .weak(),
     );

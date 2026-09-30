@@ -1,3 +1,4 @@
+use crate::gui::i18n::trf;
 use crate::history::load_history;
 use crate::inventory::load_inventory;
 use crate::models::TaskRecord;
@@ -31,9 +32,10 @@ impl DashboardData {
                     total.saturating_add(entry.original_size)
                 });
             }
-            Err(error) => data
-                .warnings
-                .push(format!("Inventory could not be loaded: {error:#}")),
+            Err(error) => data.warnings.push(trf(
+                "Inventory could not be loaded: {error}",
+                &[("error", &format!("{error:#}"))],
+            )),
         }
 
         match load_pool_store() {
@@ -49,9 +51,10 @@ impl DashboardData {
                     })
                     .collect();
             }
-            Err(error) => data
-                .warnings
-                .push(format!("Pool configuration could not be loaded: {error:#}")),
+            Err(error) => data.warnings.push(trf(
+                "Pool configuration could not be loaded: {error}",
+                &[("error", &format!("{error:#}"))],
+            )),
         }
 
         match load_history() {
@@ -60,9 +63,10 @@ impl DashboardData {
                 records.truncate(5);
                 data.recent_jobs = records;
             }
-            Err(error) => data
-                .warnings
-                .push(format!("Task history could not be loaded: {error:#}")),
+            Err(error) => data.warnings.push(trf(
+                "Task history could not be loaded: {error}",
+                &[("error", &format!("{error:#}"))],
+            )),
         }
 
         data

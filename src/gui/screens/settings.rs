@@ -1,4 +1,4 @@
-use crate::gui::i18n::tr;
+use crate::gui::i18n::{tr, trf};
 use crate::gui::settings;
 use crate::gui::state::GuiState;
 use crate::gui::theme;
@@ -24,19 +24,19 @@ pub(crate) fn show(
         ui,
         &mut tab,
         &[
-            (GENERAL, "General"),
-            (POOL_DEFAULTS, "New-pool defaults"),
-            (ENCRYPTION, "Encryption & paths"),
-            (PORTABLE, "Portable configuration"),
+            (GENERAL, tr("General")),
+            (POOL_DEFAULTS, tr("New-pool defaults")),
+            (ENCRYPTION, tr("Encryption & paths")),
+            (PORTABLE, tr("Portable configuration")),
         ],
     );
     ui.ctx().data_mut(|data| data.insert_temp(tab_id, tab));
     theme::page_body(ui, "settings", |ui| match tab {
         ENCRYPTION => {
             theme::two_up(ui, state, show_encryption, |ui, state| {
-                theme::card_section(ui, "Remote default paths", Some("Where RPool looks on a provider when the remote root is not the right place."), |_| {}, |ui| {
+                theme::card_section(ui, tr("Remote default paths"), Some(tr("Where RPool looks on a provider when the remote root is not the right place.")), |_| {}, |ui| {
                     ui.horizontal_wrapped(|ui| {
-                        ui.label("Global crypt folder fallback");
+                        ui.label(tr("Global crypt folder fallback"));
                         ui.add(
                             egui::TextEdit::singleline(&mut state.settings.default_remote_path)
                                 .hint_text("rpool")
@@ -56,9 +56,9 @@ pub(crate) fn show(
 
 fn save_row(ui: &mut egui::Ui, state: &mut GuiState) {
     ui.horizontal_wrapped(|ui| {
-        if theme::primary_button(ui, true, "Save settings").clicked() {
+        if theme::primary_button(ui, true, tr("Save settings")).clicked() {
             state.settings_notice = Some(match settings::save(&state.settings) {
-                Ok(path) => format!("Saved to {}", path.display()),
+                Ok(path) => trf("Saved to {path}", &[("path", &path.display())]),
                 Err(error) => error,
             });
         }
@@ -71,8 +71,10 @@ fn save_row(ui: &mut egui::Ui, state: &mut GuiState) {
 fn general(ui: &mut egui::Ui, state: &mut GuiState) {
     theme::card_section(
         ui,
-        "General",
-        Some("Used by every screen. Changes stay temporary until saved."),
+        tr("General"),
+        Some(tr(
+            "Used by every screen. Changes stay temporary until saved.",
+        )),
         |_| {},
         |ui| {
             egui::Grid::new("gui-settings").num_columns(2).spacing([18.0, 10.0]).show(ui, |ui| {
@@ -89,15 +91,16 @@ fn general(ui: &mut egui::Ui, state: &mut GuiState) {
                 // Applies at once; saved with the other settings.
                 state.settings.language = language;
                 crate::gui::i18n::set_language(language);
+                crate::gui::i18n::fonts::install(ui.ctx(), language);
             }
             ui.end_row();
-            ui.label("rclone executable");
+            ui.label(tr("rclone executable"));
             ui.add(egui::TextEdit::singleline(&mut state.settings.rclone).desired_width((ui.available_width() - 20.0).clamp(160.0, 360.0)));
             ui.end_row();
-            ui.label("Workers").on_hover_text("Parallel transfers for restore, verify, scrub, repair, drain and health checks.");
+            ui.label(tr("Workers")).on_hover_text(tr("Parallel transfers for restore, verify, scrub, repair, drain and health checks."));
             ui.add(egui::DragValue::new(&mut state.settings.workers).range(1..=256));
             ui.end_row();
-            ui.label("Retries");
+            ui.label(tr("Retries"));
             ui.add(egui::DragValue::new(&mut state.settings.retries).range(0..=100));
             ui.end_row();
         });
@@ -111,29 +114,29 @@ fn pool_defaults(ui: &mut egui::Ui, state: &mut GuiState) {
         ui,
         state,
         |ui, state| {
-            theme::card_section(ui, "Defaults for new pools", Some("Pre-filled when you create a pool or upload without one. Existing pools keep their own policy."), |_| {}, |ui| {
+            theme::card_section(ui, tr("Defaults for new pools"), Some(tr("Pre-filled when you create a pool or upload without one. Existing pools keep their own policy.")), |_| {}, |ui| {
             egui::Grid::new("gui-pool-defaults").num_columns(2).spacing([18.0, 10.0]).show(ui, |ui| {
-                ui.label("Shard size (MiB)");
+                ui.label(tr("Shard size (MiB)"));
                 ui.add(egui::DragValue::new(&mut state.settings.shard_mib).range(1..=crate::config::constants::MAX_SHARD_MIB));
                 ui.end_row();
-                ui.label("Data shards (K)");
+                ui.label(tr("Data shards (K)"));
                 ui.add(egui::DragValue::new(&mut state.settings.data_shards).range(1..=255));
                 ui.end_row();
-                ui.label("Parity shards (M)");
+                ui.label(tr("Parity shards (M)"));
                 ui.add(egui::DragValue::new(&mut state.settings.parity_shards).range(0..=254));
                 ui.end_row();
-                ui.label("Placement");
+                ui.label(tr("Placement"));
                 egui::ComboBox::from_id_salt("settings-placement")
-                    .selected_text(state.settings.placement.label())
+                    .selected_text(tr(state.settings.placement.label()))
                     .show_ui(ui, |ui| {
                         for placement in [Placement::RoundRobin, Placement::FreeRatio, Placement::Resilient, Placement::CapacityFirst] {
-                            ui.selectable_value(&mut state.settings.placement, placement, placement.label());
+                            ui.selectable_value(&mut state.settings.placement, placement, tr(placement.label()));
                         }
                     });
                 ui.end_row();
             });
             if let Some(note) = state.settings.placement.protection_note() {
-                theme::hint(ui, note);
+                theme::hint(ui, tr(note));
             }
             save_row(ui, state);
         });
@@ -141,12 +144,12 @@ fn pool_defaults(ui: &mut egui::Ui, state: &mut GuiState) {
         |ui, state| {
             theme::card_section(
                 ui,
-                "Saved upload destinations",
-                Some("Used by Upload in manual mode."),
+                tr("Saved upload destinations"),
+                Some(tr("Used by Upload in manual mode.")),
                 |_| {},
                 |ui| {
                     if state.settings.remotes.is_empty() {
-                        theme::hint(ui, "No saved upload destinations.");
+                        theme::hint(ui, tr("No saved upload destinations."));
                     } else {
                         egui::ScrollArea::vertical()
                             .id_salt("settings-destinations")
@@ -165,9 +168,9 @@ fn pool_defaults(ui: &mut egui::Ui, state: &mut GuiState) {
 }
 
 fn show_remote_roots(ui: &mut egui::Ui, state: &mut GuiState) {
-    ui.label(egui::RichText::new("Per-remote default paths").strong());
-    theme::hint(ui, "Use this when the root of a remote is not the correct storage location. Explicit paths always override this default.");
-    theme::hint(ui, "Example: Instance › /data/crypt makes capacity checks use Instance:/data/crypt instead of Instance:.");
+    ui.label(egui::RichText::new(tr("Per-remote default paths")).strong());
+    theme::hint(ui, tr("Use this when the root of a remote is not the correct storage location. Explicit paths always override this default."));
+    theme::hint(ui, tr("Example: Instance › /data/crypt makes capacity checks use Instance:/data/crypt instead of Instance:."));
 
     let rows: Vec<(String, String)> = state
         .remote_roots
@@ -179,14 +182,14 @@ fn show_remote_roots(ui: &mut egui::Ui, state: &mut GuiState) {
         .num_columns(3)
         .spacing([16.0, 6.0])
         .show(ui, |ui| {
-            ui.strong("Remote");
-            ui.strong("Default path");
+            ui.strong(tr("Remote"));
+            ui.strong(tr("Default path"));
             ui.label("");
             ui.end_row();
             for (name, path) in rows {
                 ui.monospace(format!("{name}:"));
                 ui.monospace(path);
-                if ui.small_button("Remove").clicked() {
+                if ui.small_button(tr("Remove")).clicked() {
                     remove = Some(name);
                 }
                 ui.end_row();
@@ -197,9 +200,15 @@ fn show_remote_roots(ui: &mut egui::Ui, state: &mut GuiState) {
         let notice = match remove_remote_root(&name) {
             Ok(path) => {
                 reload_remote_roots(state);
-                format!("Removed {name}: default path from {}", path.display())
+                trf(
+                    "Removed {name}: default path from {path}",
+                    &[("name", &name), ("path", &path.display())],
+                )
             }
-            Err(error) => format!("Failed to remove remote default path: {error:#}"),
+            Err(error) => trf(
+                "Failed to remove remote default path: {error}",
+                &[("error", &format!("{error:#}"))],
+            ),
         };
         state.settings_notice = Some(notice);
     }
@@ -216,21 +225,31 @@ fn show_remote_roots(ui: &mut egui::Ui, state: &mut GuiState) {
                 .hint_text("/data/crypt")
                 .desired_width(260.0),
         );
-        if ui.button("Set / replace").clicked() {
+        if ui.button(tr("Set / replace")).clicked() {
             let name = state.remote_root_name.trim().to_string();
             let path = state.remote_root_path.trim().to_string();
             if name.is_empty() || path.is_empty() {
                 state.settings_notice =
-                    Some("Enter both a remote name and default path.".to_string());
+                    Some(tr("Enter both a remote name and default path.").to_string());
             } else {
                 let notice = match set_remote_root(&name, &path) {
                     Ok(config) => {
                         reload_remote_roots(state);
                         state.remote_root_name.clear();
                         state.remote_root_path.clear();
-                        format!("Saved {name}: › {path} in {}", config.display())
+                        trf(
+                            "Saved {name}: › {path} in {config}",
+                            &[
+                                ("name", &name),
+                                ("path", &path),
+                                ("config", &config.display()),
+                            ],
+                        )
                     }
-                    Err(error) => format!("Failed to save remote default path: {error:#}"),
+                    Err(error) => trf(
+                        "Failed to save remote default path: {error}",
+                        &[("error", &format!("{error:#}"))],
+                    ),
                 };
                 state.settings_notice = Some(notice);
             }
@@ -242,40 +261,42 @@ fn reload_remote_roots(state: &mut GuiState) {
     match load_remote_root_store() {
         Ok(store) => state.remote_roots = store.roots,
         Err(error) => {
-            state.settings_notice =
-                Some(format!("Failed to reload remote default paths: {error:#}"))
+            state.settings_notice = Some(trf(
+                "Failed to reload remote default paths: {error}",
+                &[("error", &format!("{error:#}"))],
+            ))
         }
     }
 }
 
 fn show_encryption(ui: &mut egui::Ui, state: &mut GuiState) {
-    theme::card_section(ui, "Encryption for new providers", Some("Used when RPool creates a crypt remote. Existing keys and encrypted folders are never changed or rotated."), |_| {}, |ui| encryption_body(ui, state));
+    theme::card_section(ui, tr("Encryption for new providers"), Some(tr("Used when RPool creates a crypt remote. Existing keys and encrypted folders are never changed or rotated.")), |_| {}, |ui| encryption_body(ui, state));
 }
 
 fn encryption_body(ui: &mut egui::Ui, state: &mut GuiState) {
     theme::hint(
         ui,
-        "Password entropy controls generated password randomness, not rclone’s cipher key size.",
+        tr("Password entropy controls generated password randomness, not rclone’s cipher key size."),
     );
     let defaults = &mut state.settings.encryption;
     egui::Grid::new("encryption-defaults")
         .num_columns(2)
         .spacing([18.0, 10.0])
         .show(ui, |ui| {
-            ui.label("Password entropy");
+            ui.label(tr("Password entropy"));
             egui::ComboBox::from_id_salt("encryption-default-entropy")
-                .selected_text(format!("{} bits", defaults.entropy_bits))
+                .selected_text(trf("{bits} bits", &[("bits", &defaults.entropy_bits)]))
                 .show_ui(ui, |ui| {
                     for bits in [128, 256, 512, 1024] {
                         ui.selectable_value(
                             &mut defaults.entropy_bits,
                             bits,
-                            format!("{bits} bits"),
+                            trf("{bits} bits", &[("bits", &bits)]),
                         );
                     }
                 });
             ui.end_row();
-            ui.label("Filename encryption");
+            ui.label(tr("Filename encryption"));
             egui::ComboBox::from_id_salt("encryption-default-filenames")
                 .selected_text(&defaults.filename_encryption)
                 .show_ui(ui, |ui| {
@@ -284,11 +305,11 @@ fn encryption_body(ui: &mut egui::Ui, state: &mut GuiState) {
                     }
                 });
             ui.end_row();
-            ui.label("Directory name encryption");
-            ui.checkbox(&mut defaults.directory_encryption, "Enabled");
+            ui.label(tr("Directory name encryption"));
+            ui.checkbox(&mut defaults.directory_encryption, tr("Enabled"));
             ui.end_row();
         });
-    theme::hint(ui, "New crypt uses the provider's remote default path exactly (Remote default paths, next to this card). No extra folder is added; existing crypt paths never move.");
+    theme::hint(ui, tr("New crypt uses the provider's remote default path exactly (Remote default paths, next to this card). No extra folder is added; existing crypt paths never move."));
     let validation = defaults.validate();
     if let Err(error) = &validation {
         ui.colored_label(egui::Color32::LIGHT_RED, error.to_string());
@@ -296,12 +317,12 @@ fn encryption_body(ui: &mut egui::Ui, state: &mut GuiState) {
     if ui
         .add_enabled(
             validation.is_ok(),
-            egui::Button::new("Save encryption defaults"),
+            egui::Button::new(tr("Save encryption defaults")),
         )
         .clicked()
     {
         state.settings_notice = Some(match settings::save(&state.settings) {
-            Ok(path) => format!("Saved to {}", path.display()),
+            Ok(path) => trf("Saved to {path}", &[("path", &path.display())]),
             Err(error) => error,
         });
     }

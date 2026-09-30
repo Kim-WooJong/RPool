@@ -1,5 +1,6 @@
 use super::progress::ProgressTracker;
 use super::{JobStatus, LogKind, LogLine, TaskInfo, TaskInvocation};
+use crate::gui::i18n::{tr, trf};
 use crate::progress::{parse_line as parse_progress_line, ProgressEvent, PROGRESS_ENV};
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read};
@@ -62,11 +63,15 @@ impl TaskRunner {
         S: Into<OsString>,
     {
         if self.running {
-            return Err("another rpool operation is already running".to_string());
+            return Err(tr("another rpool operation is already running").to_string());
         }
 
-        let executable = std::env::current_exe()
-            .map_err(|error| format!("cannot locate the current rpool executable: {error}"))?;
+        let executable = std::env::current_exe().map_err(|error| {
+            trf(
+                "cannot locate the current rpool executable: {error}",
+                &[("error", &error)],
+            )
+        })?;
         let task_name = task_name.into();
         let task_args: Vec<OsString> = args.into_iter().map(Into::into).collect();
 

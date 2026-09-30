@@ -38,34 +38,62 @@ const CANDIDATES: [(&str, &[&str]); 3] = [
     ),
 ];
 
-/// Adds the fonts that exist on this PC. Returns the ones added.
-pub(crate) fn install(ctx: &egui::Context) -> Vec<String> {
-    let mut added = Vec::new();
-    let mut loaded_paths = Vec::new();
-    for (name, paths) in CANDIDATES {
-        let Some(path) = paths.iter().find(|p| std::path::Path::new(p).is_file()) else {
-            continue;
-        };
-        if loaded_paths.contains(path) {
-            continue;
-        }
-        let Ok(bytes) = std::fs::read(path) else {
-            continue;
-        };
-        loaded_paths.push(*path);
-        let families = [egui::FontFamily::Proportional, egui::FontFamily::Monospace]
-            .into_iter()
-            .map(|family| egui::epaint::text::InsertFontFamily {
-                family,
-                priority: egui::epaint::text::FontPriority::Lowest,
-            })
-            .collect();
-        ctx.add_font(egui::epaint::text::FontInsert::new(
-            name,
-            egui::FontData::from_owned(bytes),
-            families,
-        ));
-        added.push(format!("{name}: {path}"));
+/// Script order for the fallback chain: the selected language's font first,
+/// so shared Han characters use that language's glyph forms.
+fn order(language: super::Language) -> [&'static str; 3] {
+    use super::Language;
+    match language {
+        Language::Japanese => ["cjk-jp", "cjk-sc", "cjk-kr"],
+        Language::Chinese => ["cjk-sc", "cjk-jp", "cjk-kr"],
+        Language::Korean | Language::English => ["cjk-kr", "cjk-jp", "cjk-sc"],
     }
-    added
+}
+
+/// Font files found on this PC, read once.
+fn available() -> &'static Vec<(&'static str, &'static str, std::sync::Arc<egui::FontData>)> {
+    static FOUND: std::sync::OnceLock<
+        Vec<(&'static str, &'static str, std::sync::Arc<egui::FontData>)>,
+    > = std::sync::OnceLock::new();
+    FOUND.get_or_init(|| {
+        let mut found = Vec::new();
+        for (name, paths) in CANDIDATES {
+            let Some(path) = paths.iter().find(|p| std::path::Path::new(p).is_file()) else {
+                continue;
+            };
+            if let Ok(bytes) = std::fs::read(path) {
+                found.push((
+                    name,
+                    *path,
+                    std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+                ));
+            }
+        }
+        found
+    })
+}
+
+/// Rebuilds the font set: egui's defaults, then the CJK fonts found on this
+/// PC as fallbacks, in `language`'s order. Call at start and whenever the
+/// language changes. Returns the fonts used.
+pub(crate) fn install(ctx: &egui::Context, language: super::Language) -> Vec<String> {
+    let mut definitions = egui::FontDefinitions::default();
+    let mut used = Vec::new();
+    for script in order(language) {
+        let Some((name, path, data)) = available().iter().find(|(n, ..)| *n == script) else {
+            continue;
+        };
+        definitions
+            .font_data
+            .insert((*name).to_string(), data.clone());
+        for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+            definitions
+                .families
+                .entry(family)
+                .or_default()
+                .push((*name).to_string());
+        }
+        used.push(format!("{name}: {path}"));
+    }
+    ctx.set_fonts(definitions);
+    used
 }

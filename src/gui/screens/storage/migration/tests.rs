@@ -354,3 +354,19 @@ fn pools_hint_preselects_the_pool_on_account_changes() {
     form.select_pool("work");
     assert_eq!((form.pool.as_str(), form.step), ("work", Step::Plan));
 }
+
+#[test]
+fn storage_strings_have_korean_translations() {
+    use crate::gui::i18n::{tr_in, Language};
+    assert_eq!(
+        tr_in(Language::Korean, "Pool change migration"),
+        "풀 변경 이전"
+    );
+    assert_eq!(
+        tr_in(Language::Korean, "Account identities"),
+        "계정 식별 정보"
+    );
+    assert_eq!(tr_in(Language::Japanese, "Lost files"), "損失ファイル");
+    assert_eq!(tr_in(Language::Chinese, "Storage pools"), "存储池");
+    assert_eq!(tr_in(Language::English, "Lost files"), "Lost files");
+}

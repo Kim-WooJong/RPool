@@ -12,6 +12,7 @@ pub(crate) mod tests;
 
 pub(crate) use state::MigrationForm;
 
+use crate::gui::i18n::tr;
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 use crate::gui::theme;
@@ -37,8 +38,8 @@ pub(crate) fn card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
 
     theme::card_section(
         ui,
-        "Pool change migration",
-        Some("After accounts leave or join a pool, or K / M / shard size / native crypt change: see what moves and how long it takes, then move it. Progress is kept in the cloud so any PC can resume. Nothing is deleted."),
+        tr("Pool change migration"),
+        Some(tr("After accounts leave or join a pool, or K / M / shard size / native crypt change: see what moves and how long it takes, then move it. Progress is kept in the cloud so any PC can resume. Nothing is deleted.")),
         |_| {},
         |ui| {
             steps_bar(ui, state.migration.step);
@@ -66,10 +67,10 @@ fn steps_bar(ui: &mut egui::Ui, step: Step) {
     let p = theme::pal(ui);
     ui.horizontal_wrapped(|ui| {
         for (index, (value, label)) in [
-            (Step::Plan, "Plan"),
-            (Step::Review, "Review"),
-            (Step::Run, "Run"),
-            (Step::Lost, "Lost files"),
+            (Step::Plan, tr("Plan")),
+            (Step::Review, tr("Review")),
+            (Step::Run, tr("Run")),
+            (Step::Lost, tr("Lost files")),
         ]
         .into_iter()
         .enumerate()

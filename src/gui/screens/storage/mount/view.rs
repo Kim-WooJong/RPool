@@ -1,6 +1,7 @@
 //! Drive page: status and actions first, then connection and capacity side by
 //! side, anything that needs attention, and the log. Options, history
 //! cleanup, imports and maintenance are separate tabs.
+use crate::gui::i18n::tr;
 use crate::gui::state::{DriveTab, GuiState};
 use crate::gui::theme;
 use eframe::egui;
@@ -26,19 +27,19 @@ fn inputs(state: &GuiState) -> impl PartialEq {
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let before = inputs(state);
     let history = if state.mount.retention_allowed() {
-        "History cleanup"
+        tr("History cleanup")
     } else {
-        "History"
+        tr("History")
     };
     theme::tabs(
         ui,
         &mut state.mount.tab,
         &[
-            (DriveTab::Drive, "Drive"),
-            (DriveTab::Options, "Options"),
+            (DriveTab::Drive, tr("Drive")),
+            (DriveTab::Options, tr("Options")),
             (DriveTab::History, history),
-            (DriveTab::Import, "Import"),
-            (DriveTab::Maintenance, "Maintenance"),
+            (DriveTab::Import, tr("Import")),
+            (DriveTab::Maintenance, tr("Maintenance")),
         ],
     );
     theme::page_body(ui, "drive", |ui| match state.mount.tab {

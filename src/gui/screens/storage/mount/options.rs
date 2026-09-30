@@ -1,6 +1,7 @@
 //! Drive › Options: how this PC runs the drive. Cache budgets, filesystem
 //! frontend and history, saved per pool on this PC.
 use super::form::MountForm;
+use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
 use crate::gui::theme;
 use eframe::egui;
@@ -18,8 +19,8 @@ pub(super) fn gib(ui: &mut egui::Ui, label: &str, value: &mut u64, min: u64, hin
 fn cache(ui: &mut egui::Ui, form: &mut MountForm) {
     theme::card_section(
         ui,
-        "Cache & pending writes",
-        Some("Local disk budgets. Applied on the next start."),
+        tr("Cache & pending writes"),
+        Some(tr("Local disk budgets. Applied on the next start.")),
         |_| {},
         |ui| {
             egui::Grid::new("mount-cache-grid")
@@ -27,27 +28,29 @@ fn cache(ui: &mut egui::Ui, form: &mut MountForm) {
             .spacing([16.0, 8.0])
             .show(ui, |ui| {
                 if form.virtual_drive {
-                    gib(ui, "Clean shard cache", &mut form.cache_gib, 1, "Verified cloud data kept locally; least recently used is trimmed first. A whole recovery group must fit.");
+                    gib(ui, tr("Clean shard cache"), &mut form.cache_gib, 1, tr("Verified cloud data kept locally; least recently used is trimmed first. A whole recovery group must fit."));
                 }
-                gib(ui, "OS cache target", &mut form.vfs_cache_gib, 1, "Cache of the native mount. Open files and unsaved writes may exceed it.");
-                gib(ui, "Keep disk free", &mut form.cache_min_free_gib, 0, "The OS cache tries to leave this much free disk space.");
+                gib(ui, tr("OS cache target"), &mut form.vfs_cache_gib, 1, tr("Cache of the native mount. Open files and unsaved writes may exceed it."));
+                gib(ui, tr("Keep disk free"), &mut form.cache_min_free_gib, 0, tr("The OS cache tries to leave this much free disk space."));
                 if form.virtual_drive {
-                    gib(ui, "Pending write limit", &mut form.spool_gib, 1, "Local space for saves not yet uploaded; new writes fail safely at the limit.");
+                    gib(ui, tr("Pending write limit"), &mut form.spool_gib, 1, tr("Local space for saves not yet uploaded; new writes fail safely at the limit."));
                 }
-                ui.label("Background interval").on_hover_text("How often sync runs. Capacity is measured at least every 60 s regardless.");
+                ui.label(tr("Background interval")).on_hover_text(tr("How often sync runs. Capacity is measured at least every 60 s regardless."));
                 ui.add(egui::DragValue::new(&mut form.interval_seconds).range(2..=86400).suffix(" s"));
                 ui.end_row();
             });
             theme::hint(
                 ui,
                 &if form.virtual_drive {
-                    format!(
-                "Clean caches up to {} GiB plus pending writes up to {} GiB (not preallocated).",
-                form.cache_gib.saturating_add(form.vfs_cache_gib),
-                form.spool_gib
+                    trf(
+                "Clean caches up to {cache} GiB plus pending writes up to {pending} GiB (not preallocated).",
+                &[
+                    ("cache", &form.cache_gib.saturating_add(form.vfs_cache_gib)),
+                    ("pending", &form.spool_gib),
+                ],
             )
                 } else {
-                    "A replica keeps the complete copy; the OS cache target does not limit it."
+                    tr("A replica keeps the complete copy; the OS cache target does not limit it.")
                         .into()
                 },
             );
@@ -58,15 +61,15 @@ fn cache(ui: &mut egui::Ui, form: &mut MountForm) {
 fn frontend(ui: &mut egui::Ui, form: &mut MountForm) {
     use crate::cli::Frontend;
     let name = |f: Frontend| match f {
-        Frontend::Auto => "Automatic — native where available (default)",
-        Frontend::Dav => "WebDAV via rclone mount",
-        Frontend::Fuse => "Native FUSE (Linux)",
-        Frontend::Winfsp => "Native WinFsp (Windows)",
+        Frontend::Auto => tr("Automatic — native where available (default)"),
+        Frontend::Dav => tr("WebDAV via rclone mount"),
+        Frontend::Fuse => tr("Native FUSE (Linux)"),
+        Frontend::Winfsp => tr("Native WinFsp (Windows)"),
     };
     theme::card_section(
         ui,
-        "Filesystem frontend",
-        Some("How the drive is served to the operating system."),
+        tr("Filesystem frontend"),
+        Some(tr("How the drive is served to the operating system.")),
         |_| {},
         |ui| {
             egui::ComboBox::from_id_salt("mount-frontend")
@@ -84,24 +87,26 @@ fn frontend(ui: &mut egui::Ui, form: &mut MountForm) {
             if Frontend::native_here().is_none() {
                 match Frontend::native_built() {
                     Some(Frontend::Winfsp) => {
-                        theme::hint(ui, "WinFsp not installed — install WinFsp for the native drive (then restart RPool); WebDAV is used meanwhile.");
-                        ui.hyperlink_to("Download WinFsp", "https://winfsp.dev/rel/");
+                        theme::hint(ui, tr("WinFsp not installed — install WinFsp for the native drive (then restart RPool); WebDAV is used meanwhile."));
+                        ui.hyperlink_to(tr("Download WinFsp"), "https://winfsp.dev/rel/");
                     }
                     Some(_) => theme::hint(
                         ui,
-                        "The native frontend is unavailable on this PC; WebDAV is used.",
+                        tr("The native frontend is unavailable on this PC; WebDAV is used."),
                     ),
                     None if cfg!(windows) => theme::hint(
                         ui,
-                        "This build was made without WinFsp support; WebDAV is used.",
+                        tr("This build was made without WinFsp support; WebDAV is used."),
                     ),
-                    None => theme::hint(ui, "No native frontend on this OS yet; WebDAV is used."),
+                    None => {
+                        theme::hint(ui, tr("No native frontend on this OS yet; WebDAV is used."))
+                    }
                 }
             } else if !form.native_allowed() {
-                theme::hint(ui, "Native frontends serve online drives with This PC only or Automatic pool sync. WebDAV is used for shared-root and bounded shared modes.");
+                theme::hint(ui, tr("Native frontends serve online drives with This PC only or Automatic pool sync. WebDAV is used for shared-root and bounded shared modes."));
             } else if form.native_selected() {
-                ui.checkbox(&mut form.native_read_only, "Mount read-only");
-                theme::hint(ui, "Close and fsync are the local durability points; cloud sync stays asynchronous.");
+                ui.checkbox(&mut form.native_read_only, tr("Mount read-only"));
+                theme::hint(ui, tr("Close and fsync are the local durability points; cloud sync stays asynchronous."));
             }
         },
     );
@@ -110,34 +115,36 @@ fn frontend(ui: &mut egui::Ui, form: &mut MountForm) {
 fn history(ui: &mut egui::Ui, form: &mut MountForm) {
     theme::card_section(
         ui,
-        "Version history (pool sync)",
-        Some("How many previous versions each file keeps. Every PC must use the same limit."),
+        tr("Version history (pool sync)"),
+        Some(tr(
+            "How many previous versions each file keeps. Every PC must use the same limit.",
+        )),
         |_| {},
         |ui| {
-            ui.checkbox(&mut form.pool_retention, "Automatic history deletion (v7)")
-            .on_hover_text("Keeps current files, the chosen number of previous versions and unresolved conflicts.");
+            ui.checkbox(&mut form.pool_retention, tr("Automatic history deletion (v7)"))
+            .on_hover_text(tr("Keeps current files, the chosen number of previous versions and unresolved conflicts."));
             if !form.pool_retention {
                 ui.checkbox(
                     &mut form.pool_history_override,
-                    "Save a future history limit in the workspace",
+                    tr("Save a future history limit in the workspace"),
                 );
             }
             if form.pool_history_override || form.pool_retention {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label("Previous versions per file");
+                    ui.label(tr("Previous versions per file"));
                     ui.add(egui::DragValue::new(&mut form.pool_history_limit).range(0..=10000));
                 });
             }
             if form.pool_retention {
-                ui.checkbox(&mut form.diagnostic_read_only, "Next mount: diagnostic read-only")
-                .on_hover_text("Mounts an existing v7 pool read-only for inspection: no background sync, upload or history collection. Not saved; applies to the next Mount only.");
+                ui.checkbox(&mut form.diagnostic_read_only, tr("Next mount: diagnostic read-only"))
+                .on_hover_text(tr("Mounts an existing v7 pool read-only for inspection: no background sync, upload or history collection. Not saved; applies to the next Mount only."));
             }
             theme::hint(
                 ui,
                 if form.pool_retention {
-                    "History collection needs temporary space. Keep the saved mode for an existing workspace."
+                    tr("History collection needs temporary space. Keep the saved mode for an existing workspace.")
                 } else {
-                    "Without v7 the limit is stored only; nothing is deleted automatically."
+                    tr("Without v7 the limit is stored only; nothing is deleted automatically.")
                 },
             );
         },
@@ -158,12 +165,12 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
             }
         });
         ui.horizontal_wrapped(|ui| {
-            if theme::primary_button(ui, true, "Save settings")
-                .on_hover_text("Saved per pool on this PC; also saved on every start.")
+            if theme::primary_button(ui, true, tr("Save settings"))
+                .on_hover_text(tr("Saved per pool on this PC; also saved on every start."))
                 .clicked()
             {
                 form.notice = Some(match form.save_mount_settings(settings) {
-                    Ok(()) => "Mount settings saved for this pool on this PC.".into(),
+                    Ok(()) => tr("Mount settings saved for this pool on this PC.").into(),
                     Err(error) => error,
                 });
             }

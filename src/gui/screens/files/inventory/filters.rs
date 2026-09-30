@@ -1,11 +1,12 @@
 use super::state::{CodingFilter, InventoryForm};
+use crate::gui::i18n::tr;
 use eframe::egui;
 
 pub(crate) fn show(ui: &mut egui::Ui, form: &mut InventoryForm) {
     ui.horizontal_wrapped(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut form.query)
-                .hint_text("Search files, archive IDs, remotes…")
+                .hint_text(tr("Search files, archive IDs, remotes…"))
                 .desired_width(280.0),
         );
 
@@ -22,7 +23,7 @@ pub(crate) fn show(ui: &mut egui::Ui, form: &mut InventoryForm) {
             });
 
         if (!form.query.is_empty() || form.coding_filter != CodingFilter::All)
-            && ui.button("Clear").clicked()
+            && ui.button(tr("Clear")).clicked()
         {
             form.query.clear();
             form.coding_filter = CodingFilter::All;

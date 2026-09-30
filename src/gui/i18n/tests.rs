@@ -62,7 +62,7 @@ fn every_wrapped_gui_string_is_translated() {
 /// the usual escapes; raw strings are not used for UI text).
 fn wrapped_literals(source: &str) -> Vec<String> {
     let mut out = Vec::new();
-    for marker in ["tr(\"", "trf(\""] {
+    for marker in ["tr(", "trf("] {
         let mut rest = source;
         while let Some(start) = rest.find(marker) {
             let before = &rest[..start];
@@ -75,6 +75,11 @@ fn wrapped_literals(source: &str) -> Vec<String> {
             {
                 continue;
             }
+            // rustfmt may put the literal on the next line.
+            let Some(after_quote) = rest.trim_start().strip_prefix('"') else {
+                continue;
+            };
+            rest = after_quote;
             let mut literal = String::new();
             let mut chars = rest.chars();
             while let Some(c) = chars.next() {

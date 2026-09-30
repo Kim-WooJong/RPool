@@ -1,3 +1,4 @@
+use crate::gui::i18n::trf;
 use crate::gui::task::TaskProgress;
 use crate::gui::theme;
 use crate::presentation::format_bytes;
@@ -35,7 +36,10 @@ pub(crate) fn progress_view(ui: &mut egui::Ui, progress: &TaskProgress) {
     );
 
     if let (Some(current), Some(total)) = (progress.current_item, progress.total_items) {
-        ui.small(format!("Items {current} / {total}"));
+        ui.small(trf(
+            "Items {current} / {total}",
+            &[("current", &current), ("total", &total)],
+        ));
         return;
     }
 
@@ -44,16 +48,21 @@ pub(crate) fn progress_view(ui: &mut egui::Ui, progress: &TaskProgress) {
     };
     let completed = progress.completed_bytes.unwrap_or(0).min(total_bytes);
     ui.horizontal_wrapped(|ui| {
-        ui.small(format!(
-            "Progress {} / {}",
-            format_bytes(completed),
-            format_bytes(total_bytes)
+        ui.small(trf(
+            "Progress {done} / {total}",
+            &[
+                ("done", &format_bytes(completed)),
+                ("total", &format_bytes(total_bytes)),
+            ],
         ));
 
         if let Some(transferred) = progress.transferred_bytes {
             if transferred != completed {
                 ui.separator();
-                ui.small(format!("Network {}", format_bytes(transferred)));
+                ui.small(trf(
+                    "Network {bytes}",
+                    &[("bytes", &format_bytes(transferred))],
+                ));
             }
         }
 
@@ -64,7 +73,13 @@ pub(crate) fn progress_view(ui: &mut egui::Ui, progress: &TaskProgress) {
 
         if let Some(eta) = progress.eta_seconds {
             ui.separator();
-            ui.small(format!("ETA {}m {:02}s", eta / 60, eta % 60));
+            ui.small(trf(
+                "ETA {minutes}m {seconds}s",
+                &[
+                    ("minutes", &(eta / 60)),
+                    ("seconds", &format!("{:02}", eta % 60)),
+                ],
+            ));
         }
     });
 }

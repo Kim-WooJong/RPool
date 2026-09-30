@@ -1,3 +1,4 @@
+use crate::gui::i18n::{tr, trf};
 use crate::gui::screens::dashboard::health::pools_needing_attention;
 use crate::gui::screens::dashboard::DashboardData;
 use crate::gui::theme;
@@ -27,7 +28,7 @@ pub(crate) fn show(
     ui.columns(2, |columns| {
         metric(
             &mut columns[0],
-            "Reported capacity",
+            tr("Reported capacity"),
             if known_total > 0 {
                 format!(
                     "{} / {}",
@@ -35,12 +36,15 @@ pub(crate) fn show(
                     format_bytes(known_total)
                 )
             } else {
-                "Unavailable".to_string()
+                tr("Unavailable").to_string()
             },
             if known_total > 0 {
-                Some(format!(
-                    "{:.1}% used",
-                    known_used as f64 / known_total as f64 * 100.0
+                Some(trf(
+                    "{percent}% used",
+                    &[(
+                        "percent",
+                        &format!("{:.1}", known_used as f64 / known_total as f64 * 100.0),
+                    )],
                 ))
             } else {
                 None
@@ -59,9 +63,12 @@ pub(crate) fn show(
     ui.add_space(4.0);
     metric(
         ui,
-        "Files",
+        tr("Files"),
         data.file_count.to_string(),
-        Some(format!("{} logical data", format_bytes(data.logical_bytes))),
+        Some(trf(
+            "{size} logical data",
+            &[("size", &format_bytes(data.logical_bytes))],
+        )),
     );
 
     ui.add_space(theme::SECTION_GAP);
@@ -79,31 +86,28 @@ fn health_card(
 ) {
     theme::card(ui).show(ui, |ui| {
         ui.set_min_height(92.0);
-        ui.label(egui::RichText::new("Health").weak());
+        ui.label(egui::RichText::new(tr("Health")).weak());
         ui.add_space(4.0);
         if refreshing && reports.is_empty() {
-            status_badge(ui, "Refreshing", StatusTone::Neutral);
+            status_badge(ui, tr("Refreshing"), StatusTone::Neutral);
         } else if usage_error.is_some()
             || unavailable > 0
             || pool_attention > 0
             || !data.warnings.is_empty()
         {
-            status_badge(ui, "Attention", StatusTone::Warning);
+            status_badge(ui, tr("Attention"), StatusTone::Warning);
         } else if reports.is_empty() {
-            status_badge(ui, "Unknown", StatusTone::Neutral);
+            status_badge(ui, tr("Unknown"), StatusTone::Neutral);
         } else {
-            status_badge(ui, "Healthy", StatusTone::Success);
+            status_badge(ui, tr("Healthy"), StatusTone::Success);
         }
         ui.add_space(4.0);
-        ui.small(format!(
-            "{} provider{} reporting",
-            reports.len().saturating_sub(unavailable),
-            if reports.len().saturating_sub(unavailable) == 1 {
-                ""
-            } else {
-                "s"
-            }
-        ));
+        let reporting = reports.len().saturating_sub(unavailable);
+        ui.small(if reporting == 1 {
+            trf("{n} provider reporting", &[("n", &reporting)])
+        } else {
+            trf("{n} providers reporting", &[("n", &reporting)])
+        });
     });
 }
 

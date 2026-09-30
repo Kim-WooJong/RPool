@@ -1,11 +1,12 @@
 //! Mount and write-back log, in its own bounded scroll.
 use super::form::MountForm;
+use crate::gui::i18n::{tr, trf};
 use crate::gui::theme;
 use eframe::egui;
 
 pub(super) fn show(ui: &mut egui::Ui, form: &MountForm) {
     let lines = form.runner.logs().len();
-    egui::CollapsingHeader::new(format!("Log · {lines} lines"))
+    egui::CollapsingHeader::new(trf("Log · {lines} lines", &[("lines", &lines)]))
         .id_salt("mount-log-header")
         .default_open(form.runner.is_running())
         .show(ui, |ui| {
@@ -18,7 +19,7 @@ pub(super) fn show(ui: &mut egui::Ui, form: &MountForm) {
                     .stick_to_bottom(true)
                     .show(ui, |ui| {
                         if lines == 0 {
-                            theme::hint(ui, "No output yet.");
+                            theme::hint(ui, tr("No output yet."));
                         }
                         for line in form.runner.logs() {
                             ui.monospace(&line.text);

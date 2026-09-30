@@ -1,3 +1,4 @@
+use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 use eframe::egui;
@@ -23,56 +24,56 @@ impl Default for JobsForm {
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     crate::gui::theme::page_header(
         ui,
-        "Activity",
-        Some("The current operation and the recorded task history."),
+        tr("Activity"),
+        Some(tr("The current operation and the recorded task history.")),
     );
     crate::gui::theme::card_section(
         ui,
-        "Current operation",
+        tr("Current operation"),
         None,
         |_| {},
         |ui| {
             if task.is_running() {
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.strong(task.task_name().unwrap_or("Operation"));
+                    ui.strong(task.task_name().unwrap_or(tr("Operation")));
                 });
                 if let Some(command) = task.command_preview() {
                     ui.monospace(command);
                 }
             } else if let Some(outcome) = task.last_outcome() {
                 let status = if outcome.cancelled {
-                    "Cancelled"
+                    tr("Cancelled")
                 } else if outcome.success {
-                    "Completed"
+                    tr("Completed")
                 } else {
-                    "Failed"
+                    tr("Failed")
                 };
-                ui.label(format!("Last operation: {status}"));
+                ui.label(trf("Last operation: {status}", &[("status", &status)]));
                 if let Some(code) = outcome.code {
-                    ui.small(format!("Exit code: {code}"));
+                    ui.small(trf("Exit code: {code}", &[("code", &code)]));
                 }
             } else {
-                ui.label("No operation is currently running.");
+                ui.label(tr("No operation is currently running."));
             }
             crate::gui::theme::hint(
                 ui,
-                "Raw operation output remains available in the console below.",
+                tr("Raw operation output remains available in the console below."),
             );
         },
     );
     let size = egui::vec2(ui.available_width(), ui.available_height().max(200.0));
     crate::gui::theme::fixed_pane(ui, "jobs-history-section", size, |ui| {
         ui.label(
-            egui::RichText::new("Task history")
+            egui::RichText::new(tr("Task history"))
                 .size(crate::gui::theme::CARD_TITLE_SIZE)
                 .strong(),
         );
         ui.horizontal(|ui| {
-            ui.label("Show latest");
+            ui.label(tr("Show latest"));
             ui.add(egui::DragValue::new(&mut state.jobs.history_limit).range(1..=100_000));
             if ui
-                .add_enabled(!task.is_running(), egui::Button::new("Show history"))
+                .add_enabled(!task.is_running(), egui::Button::new(tr("Show history")))
                 .clicked()
             {
                 let args = [
@@ -87,10 +88,10 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             }
         });
         ui.horizontal(|ui| {
-            ui.label("Keep newest");
+            ui.label(tr("Keep newest"));
             ui.add(egui::DragValue::new(&mut state.jobs.history_keep).range(0..=1_000_000));
             if ui
-                .add_enabled(!task.is_running(), egui::Button::new("Prune history"))
+                .add_enabled(!task.is_running(), egui::Button::new(tr("Prune history")))
                 .clicked()
             {
                 let args = [

@@ -1,3 +1,4 @@
+use crate::gui::i18n::tr;
 use crate::gui::state::{GuiState, Page, StorageSection};
 use crate::gui::theme;
 use crate::gui::widgets::{capacity_bar_sized, status_badge, StatusTone};
@@ -9,13 +10,13 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     section_title(
         ui,
         state,
-        "Providers",
-        "Open Storage",
+        tr("Providers"),
+        tr("Open Storage"),
         StorageSection::Providers,
     );
 
     if state.usage_reports.is_empty() {
-        ui.label("No provider capacity data is available yet.");
+        ui.label(tr("No provider capacity data is available yet."));
         return;
     }
 
@@ -24,11 +25,11 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
         .striped(true)
         .spacing([18.0, 7.0])
         .show(ui, |ui| {
-            ui.strong("Provider");
-            ui.strong("Usage");
-            ui.strong("Used");
-            ui.strong("Free");
-            ui.strong("Status");
+            ui.strong(tr("Provider"));
+            ui.strong(tr("Usage"));
+            ui.strong(tr("Used"));
+            ui.strong(tr("Free"));
+            ui.strong(tr("Status"));
             ui.end_row();
 
             for report in &state.usage_reports {
@@ -49,15 +50,15 @@ fn provider_row(ui: &mut egui::Ui, report: &QuotaReport) {
     let text = report
         .used_percent
         .map(|value| format!("{value:.0}%"))
-        .unwrap_or_else(|| "n/a".to_string());
+        .unwrap_or_else(|| tr("n/a").to_string());
     capacity_bar_sized(ui, ratio, &text, 180.0);
 
     ui.monospace(format_optional_bytes(report.used));
     ui.monospace(format_optional_bytes(report.free));
     if report.error.is_some() {
-        status_badge(ui, "Unavailable", StatusTone::Error);
+        status_badge(ui, tr("Unavailable"), StatusTone::Error);
     } else {
-        status_badge(ui, "Available", StatusTone::Success);
+        status_badge(ui, tr("Available"), StatusTone::Success);
     }
     ui.end_row();
 }

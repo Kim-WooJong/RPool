@@ -1,3 +1,4 @@
+use crate::gui::i18n::{tr, trf};
 use crate::gui::screens::dashboard::health::{pool_health, PoolHealth};
 use crate::gui::screens::dashboard::DashboardData;
 use crate::gui::theme;
@@ -36,28 +37,35 @@ pub(crate) fn show(
     }
 
     ui.label(
-        egui::RichText::new("Attention")
+        egui::RichText::new(tr("Attention"))
             .size(theme::SECTION_TITLE_SIZE)
             .strong(),
     );
     ui.add_space(theme::SUBSECTION_GAP);
 
     if let Some(error) = usage_error {
-        warning_line(ui, &format!("Capacity refresh failed: {error}"));
+        warning_line(
+            ui,
+            &trf("Capacity refresh failed: {error}", &[("error", &error)]),
+        );
     }
     for warning in &data.warnings {
         warning_line(ui, warning);
     }
     for pool in pool_warnings {
-        let state = match pool_health(pool, crypt_remotes) {
-            PoolHealth::Empty => "has no storage remotes",
-            PoolHealth::MissingRemote => "references an unavailable crypt remote",
+        let name: &dyn std::fmt::Display = &pool.name;
+        let text = match pool_health(pool, crypt_remotes) {
+            PoolHealth::Empty => trf("Pool {name} has no storage remotes.", &[("name", name)]),
+            PoolHealth::MissingRemote => trf(
+                "Pool {name} references an unavailable crypt remote.",
+                &[("name", name)],
+            ),
             PoolHealth::Ready | PoolHealth::Checking => continue,
         };
-        warning_line(ui, &format!("Pool {} {state}.", pool.name));
+        warning_line(ui, &text);
     }
     for report in provider_errors {
-        let detail = report.error.as_deref().unwrap_or("unknown error");
+        let detail = report.error.as_deref().unwrap_or(tr("unknown error"));
         warning_line(ui, &format!("{}: {detail}", report.remote));
     }
 

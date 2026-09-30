@@ -8,6 +8,7 @@ mod warnings;
 
 pub(crate) use data::{DashboardData, DashboardPool};
 
+use crate::gui::i18n::tr;
 use crate::gui::state::GuiState;
 use crate::gui::theme;
 use crate::gui::usage_refresh::UsageRefresh;
@@ -17,13 +18,15 @@ use eframe::egui;
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, usage: &mut UsageRefresh) {
     section_header(
         ui,
-        "Dashboard",
-        Some("Storage capacity, configured pools, and recent activity."),
+        tr("Dashboard"),
+        Some(tr(
+            "Storage capacity, configured pools, and recent activity.",
+        )),
     );
 
     toolbar(ui, |ui| {
         if ui
-            .add_enabled(!usage.is_running(), egui::Button::new("Refresh"))
+            .add_enabled(!usage.is_running(), egui::Button::new(tr("Refresh")))
             .clicked()
         {
             state.dashboard.refresh();
@@ -32,7 +35,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, usage: &mut UsageRef
         }
         if usage.is_running() {
             ui.spinner();
-            ui.label("Refreshing");
+            ui.label(tr("Refreshing"));
         }
     });
 

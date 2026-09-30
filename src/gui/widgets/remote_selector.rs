@@ -1,3 +1,4 @@
+use crate::gui::i18n::tr;
 use eframe::egui;
 use std::collections::BTreeMap;
 
@@ -9,8 +10,8 @@ pub(crate) fn remote_selector(
     remote_roots: &BTreeMap<String, String>,
     manual_remote: &mut String,
 ) {
-    ui.label("Encrypted cloud destinations");
-    ui.small("rpool accepts rclone crypt remotes only. Per-remote default paths override the global GUI default folder.");
+    ui.label(tr("Encrypted cloud destinations"));
+    ui.small(tr("rpool accepts rclone crypt remotes only. Per-remote default paths override the global GUI default folder."));
 
     let mut remove_index = None;
     for (index, remote) in selected.iter_mut().enumerate() {
@@ -19,7 +20,7 @@ pub(crate) fn remote_selector(
                 egui::TextEdit::singleline(remote)
                     .desired_width((ui.available_width() - 90.0).max(120.0)),
             );
-            if ui.button("Remove").clicked() {
+            if ui.button(tr("Remove")).clicked() {
                 remove_index = Some(index);
             }
         });
@@ -34,7 +35,7 @@ pub(crate) fn remote_selector(
                 .hint_text("crypt-remote:path")
                 .desired_width((ui.available_width() - 90.0).max(120.0)),
         );
-        if ui.button("Add").clicked() {
+        if ui.button(tr("Add")).clicked() {
             let value = manual_remote.trim();
             if !value.is_empty() && !selected.iter().any(|existing| existing == value) {
                 selected.push(value.to_string());
@@ -45,7 +46,7 @@ pub(crate) fn remote_selector(
 
     if !discovered.is_empty() {
         ui.separator();
-        ui.label("Discovered rclone crypt remotes");
+        ui.label(tr("Discovered rclone crypt remotes"));
         for remote in discovered {
             let path = configured_or_default_path(remote, default_remote_path, remote_roots);
             let target = append_default_path(remote, path);
@@ -55,7 +56,7 @@ pub(crate) fn remote_selector(
                 ui.monospace(&target);
                 let already_selected = selected.iter().any(|existing| existing == &target);
                 if ui
-                    .add_enabled(!already_selected, egui::Button::new("Add target"))
+                    .add_enabled(!already_selected, egui::Button::new(tr("Add target")))
                     .clicked()
                 {
                     selected.push(target);
@@ -63,7 +64,7 @@ pub(crate) fn remote_selector(
             });
         }
     } else {
-        ui.small("No rclone crypt remotes were discovered. Configure a crypt remote before storing data.");
+        ui.small(tr("No rclone crypt remotes were discovered. Configure a crypt remote before storing data."));
     }
 }
 

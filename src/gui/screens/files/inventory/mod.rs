@@ -7,6 +7,7 @@ mod rebuild;
 mod state;
 mod table;
 
+use crate::gui::i18n::{tr, trf};
 pub(crate) use state::InventoryForm;
 use state::LibraryView;
 
@@ -21,15 +22,17 @@ use eframe::egui;
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     section_header(
         ui,
-        "Library",
-        Some("Browse the folders and files on a pool's drive, or the archives uploaded to it."),
+        tr("Library"),
+        Some(tr(
+            "Browse the folders and files on a pool's drive, or the archives uploaded to it.",
+        )),
     );
     theme::tabs(
         ui,
         &mut state.inventory.view,
         &[
-            (LibraryView::Drive, "Drive files"),
-            (LibraryView::Archives, "Uploaded archives"),
+            (LibraryView::Drive, tr("Drive files")),
+            (LibraryView::Archives, tr("Uploaded archives")),
         ],
     );
     state.inventory.drive.sync_pools(&state.pool_names);
@@ -43,13 +46,13 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 drive::toolbar(ui, &mut state.inventory.drive, &state.settings.rclone)
             }
             LibraryView::Archives => {
-                if ui.button("Refresh").clicked() {
+                if ui.button(tr("Refresh")).clicked() {
                     state.inventory.refresh();
                 }
-                if ui.button("Upload").clicked() {
+                if ui.button(tr("Upload")).clicked() {
                     switch_to_upload = true;
                 }
-                if ui.button("Rebuild…").clicked() {
+                if ui.button(tr("Rebuild…")).clicked() {
                     state.inventory.show_rebuild = !state.inventory.show_rebuild;
                 }
             }
@@ -62,7 +65,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
 
     ui.add_space(theme::SUBSECTION_GAP);
     if state.pool_names.is_empty() {
-        theme::hint(ui, "No pools yet: create one in Storage › Pools first.");
+        theme::hint(ui, tr("No pools yet: create one in Storage › Pools first."));
         return;
     }
     match view {
@@ -78,7 +81,7 @@ fn pool_picker(ui: &mut egui::Ui, pools: &[String], form: &mut drive_state::Driv
     let mut selected = form.pool.clone();
     egui::ComboBox::from_id_salt("library-pool")
         .selected_text(if selected.is_empty() {
-            "Choose a pool…"
+            tr("Choose a pool…")
         } else {
             selected.as_str()
         })
@@ -100,7 +103,7 @@ fn archives(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
         ui.add_space(theme::SUBSECTION_GAP);
     }
     if state.inventory.drive.pool.is_empty() {
-        theme::hint(ui, "Pick a pool to list the archives uploaded to it.");
+        theme::hint(ui, tr("Pick a pool to list the archives uploaded to it."));
         return;
     }
     state.inventory.pool_filter = state.inventory.drive.pool.clone();
@@ -110,10 +113,17 @@ fn archives(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     if outside > 0 {
         theme::hint(
             ui,
-            &format!(
-                "{outside} archive{} of other pools (or matching no pool) not shown.",
-                if outside == 1 { "" } else { "s" }
-            ),
+            &if outside == 1 {
+                trf(
+                    "{n} archive of other pools (or matching no pool) not shown.",
+                    &[("n", &outside)],
+                )
+            } else {
+                trf(
+                    "{n} archives of other pools (or matching no pool) not shown.",
+                    &[("n", &outside)],
+                )
+            },
         );
     }
 
@@ -128,12 +138,14 @@ fn archives(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     });
     ui.add_space(theme::SUBSECTION_GAP);
     ui.label(
-        egui::RichText::new(format!(
-            "{} file{} · {}",
-            rows.len(),
-            if rows.len() == 1 { "" } else { "s" },
-            format_bytes(visible_bytes)
-        ))
+        egui::RichText::new({
+            let (n, size) = (rows.len(), format_bytes(visible_bytes));
+            if n == 1 {
+                trf("{n} file · {size}", &[("n", &n), ("size", &size)])
+            } else {
+                trf("{n} files · {size}", &[("n", &n), ("size", &size)])
+            }
+        })
         .weak(),
     );
 

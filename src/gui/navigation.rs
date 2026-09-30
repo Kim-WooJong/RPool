@@ -1,5 +1,6 @@
 //! Left navigation: full labels on wide windows, icons with hover text on
 //! narrow ones. The selected page gets an accent bar.
+use crate::gui::i18n::tr;
 use crate::gui::state::Page;
 use crate::gui::theme;
 use eframe::egui;
@@ -33,7 +34,7 @@ pub(crate) fn show(ui: &mut egui::Ui, page: &mut Page, compact: bool) {
         });
         ui.horizontal(|ui| {
             ui.add_space(6.0);
-            theme::hint(ui, "Sharded cloud storage");
+            theme::hint(ui, tr("Sharded cloud storage"));
         });
     }
     ui.add_space(18.0);
@@ -43,7 +44,8 @@ pub(crate) fn show(ui: &mut egui::Ui, page: &mut Page, compact: bool) {
             ui.separator();
             ui.add_space(4.0);
         }
-        nav_button(ui, page, target, icon, label, compact);
+        // The labels are the page titles, translated in `app::page_title`.
+        nav_button(ui, page, target, icon, tr(label), compact);
     }
 }
 
@@ -91,5 +93,25 @@ fn nav_button(
     }
     if response.clicked() {
         *page = target;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ITEMS;
+    use crate::gui::i18n::{tr_in, Language};
+
+    /// Checked with `tr_in` so the process-wide language (shared with tests
+    /// that render in English) is never changed.
+    #[test]
+    fn navigation_labels_have_korean_japanese_and_chinese_text() {
+        for &(_, _, label) in ITEMS {
+            for language in [Language::Korean, Language::Japanese, Language::Chinese] {
+                let text = tr_in(language, label);
+                assert_ne!(text, label, "{label} is untranslated for {language:?}");
+            }
+        }
+        assert_eq!(tr_in(Language::Korean, "Overview"), "개요");
+        assert_eq!(tr_in(Language::English, "Overview"), "Overview");
     }
 }

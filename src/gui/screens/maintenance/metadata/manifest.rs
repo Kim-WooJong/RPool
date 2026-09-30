@@ -1,3 +1,4 @@
+use crate::gui::i18n::tr;
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 use crate::gui::theme;
@@ -6,7 +7,7 @@ use eframe::egui;
 use std::ffi::OsString;
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
-    theme::card_section(ui, "Where the manifest replicas live", Some("Used by all three actions below: a pool, or explicit crypt remotes. With neither, the manifest's own providers are used."), |_| {}, |ui| {
+    theme::card_section(ui, tr("Where the manifest replicas live"), Some(tr("Used by all three actions below: a pool, or explicit crypt remotes. With neither, the manifest's own providers are used.")), |_| {}, |ui| {
         pool_selector(ui, &state.pool_names, &mut state.manifest.pool_name);
         if state.manifest.pool_name.is_empty() {
             remote_selector(
@@ -30,26 +31,29 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
 fn check_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     theme::card_section(
         ui,
-        "Check replicas",
-        Some(
+        tr("Check replicas"),
+        Some(tr(
             "Compare every replica with a reference manifest, and rewrite missing or damaged ones.",
-        ),
+        )),
         |_| {},
         |ui| {
             local_file_field(
                 ui,
-                "Reference manifest",
+                tr("Reference manifest"),
                 &mut state.manifest.reference,
                 Some("rpool manifest"),
                 &["json"],
             );
             ui.horizontal_wrapped(|ui| {
-                if theme::primary_button(ui, !task.is_running(), "Verify replicas").clicked() {
+                if theme::primary_button(ui, !task.is_running(), tr("Verify replicas")).clicked() {
                     state.manifest.error = start_reference_action(state, task, "verify").err();
                     state.manifest.notice = None;
                 }
                 if ui
-                    .add_enabled(!task.is_running(), egui::Button::new("Replicate / repair"))
+                    .add_enabled(
+                        !task.is_running(),
+                        egui::Button::new(tr("Replicate / repair")),
+                    )
                     .clicked()
                 {
                     state.manifest.error = start_reference_action(state, task, "replicate").err();
@@ -63,12 +67,14 @@ fn check_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
 fn recover_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     theme::card_section(
         ui,
-        "Recover a lost manifest",
-        Some("Finds an archive's manifest on its providers by archive ID."),
+        tr("Recover a lost manifest"),
+        Some(tr(
+            "Finds an archive's manifest on its providers by archive ID.",
+        )),
         |_| {},
         |ui| {
             ui.horizontal_wrapped(|ui| {
-                ui.label("Archive ID");
+                ui.label(tr("Archive ID"));
                 ui.add(
                     egui::TextEdit::singleline(&mut state.manifest.recovery_archive_id)
                         .desired_width(ui.available_width().min(320.0)),
@@ -76,10 +82,10 @@ fn recover_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) 
             });
             output_file_field(
                 ui,
-                "Output manifest (optional)",
+                tr("Output manifest (optional)"),
                 &mut state.manifest.recovery_output,
             );
-            if theme::primary_button(ui, !task.is_running(), "Recover manifest").clicked() {
+            if theme::primary_button(ui, !task.is_running(), tr("Recover manifest")).clicked() {
                 state.manifest.error = start_recovery(state, task).err();
                 state.manifest.notice = None;
             }
@@ -89,15 +95,15 @@ fn recover_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) 
 
 fn pool_selector(ui: &mut egui::Ui, pool_names: &[String], selected: &mut String) {
     ui.horizontal_wrapped(|ui| {
-        ui.label("Target pool (optional)");
+        ui.label(tr("Target pool (optional)"));
         egui::ComboBox::from_id_salt("manifest-pool")
             .selected_text(if selected.is_empty() {
-                "Derive from manifest"
+                tr("Derive from manifest")
             } else {
                 selected.as_str()
             })
             .show_ui(ui, |ui| {
-                ui.selectable_value(selected, String::new(), "Derive from manifest");
+                ui.selectable_value(selected, String::new(), tr("Derive from manifest"));
                 for name in pool_names {
                     ui.selectable_value(selected, name.clone(), name.as_str());
                 }
@@ -120,7 +126,7 @@ fn start_reference_action(
 fn reference_args(state: &GuiState, action: &str) -> Result<Vec<OsString>, String> {
     let reference = state.manifest.reference.trim();
     if reference.is_empty() {
-        return Err("Select or enter a reference manifest first.".to_string());
+        return Err(tr("Select or enter a reference manifest first.").to_string());
     }
 
     let mut args = vec![
@@ -149,10 +155,10 @@ fn reference_args(state: &GuiState, action: &str) -> Result<Vec<OsString>, Strin
 fn start_recovery(state: &GuiState, task: &mut TaskRunner) -> Result<(), String> {
     let archive_id = state.manifest.recovery_archive_id.trim();
     if archive_id.is_empty() {
-        return Err("Enter an archive ID first.".to_string());
+        return Err(tr("Enter an archive ID first.").to_string());
     }
     if state.manifest.pool_name.is_empty() && state.manifest.recovery_remotes.is_empty() {
-        return Err("Select a pool or add at least one recovery remote.".to_string());
+        return Err(tr("Select a pool or add at least one recovery remote.").to_string());
     }
 
     let mut args = vec![

@@ -56,7 +56,10 @@ impl IntegrityForm {
                     .retain(|group| recoverable.contains(group));
             }
             Err(error) => {
-                self.error = Some(format!("Integrity snapshot could not be loaded: {error:#}"));
+                self.error = Some(crate::gui::i18n::trf(
+                    "Integrity snapshot could not be loaded: {error}",
+                    &[("error", &format!("{error:#}"))],
+                ));
             }
         }
     }

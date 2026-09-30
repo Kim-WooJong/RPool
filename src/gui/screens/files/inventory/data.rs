@@ -1,9 +1,13 @@
+use crate::gui::i18n::tr;
 use crate::inventory::load_inventory;
 use crate::models::{InventoryEntry, PoolDefinition};
 use crate::pool::load_pool_store;
 use crate::remote_root::apply_remote_roots;
 use anyhow::Result;
 use std::collections::{BTreeMap, BTreeSet};
+
+/// Pool marker for an archive whose remotes match several pools.
+const MULTIPLE_POOLS: &str = "Multiple";
 
 #[derive(Debug, Clone)]
 pub(crate) struct InventoryRow {
@@ -13,7 +17,11 @@ pub(crate) struct InventoryRow {
 
 impl InventoryRow {
     pub(crate) fn pool_label(&self) -> &str {
-        self.pool.as_deref().unwrap_or("—")
+        match self.pool.as_deref() {
+            None => "—",
+            Some(MULTIPLE_POOLS) => tr("Multiple"),
+            Some(pool) => pool,
+        }
     }
 
     pub(crate) fn coding_label(&self) -> String {
@@ -21,7 +29,7 @@ impl InventoryRow {
             .coding
             .as_ref()
             .map(|coding| format!("{}+{}", coding.data_shards, coding.parity_shards))
-            .unwrap_or_else(|| "No EC".to_string())
+            .unwrap_or_else(|| tr("No EC").to_string())
     }
 }
 
@@ -59,7 +67,7 @@ fn match_pool(entry: &InventoryEntry, pools: &BTreeMap<String, PoolDefinition>) 
     match matches.len() {
         0 => None,
         1 => matches.into_iter().next(),
-        _ => Some("Multiple".to_string()),
+        _ => Some(MULTIPLE_POOLS.to_string()),
     }
 }
 

@@ -1,5 +1,6 @@
 //! Mount screen state, persistence per pool, and the actions it starts.
 use super::build_args;
+use crate::gui::i18n::{tr, trf};
 use crate::gui::task::{JobStatus, TaskRunner};
 use std::ffi::OsString;
 use std::path::Path;
@@ -115,7 +116,7 @@ impl Default for MountForm {
 impl MountForm {
     pub(crate) fn use_reprocess_plan(&mut self, path: &Path) {
         self.recovery_reprocess_plan = path.display().to_string();
-        self.notice = Some("Reprocess plan selected. Open Recover after account removal, choose the original workspace and a new destination pool/workspace. Only validated completed replacements will be reused.".into());
+        self.notice = Some(tr("Reprocess plan selected. Open Recover after account removal, choose the original workspace and a new destination pool/workspace. Only validated completed replacements will be reused.").into());
     }
     pub(crate) fn from_settings(settings: &crate::gui::settings::GuiSettings) -> Self {
         let cache = &settings.mount_cache;
@@ -306,21 +307,21 @@ impl MountForm {
         if let Some(status) = terminal {
             self.notice = Some(if self.recovering_accounts {
                 match status {
-                    JobStatus::Completed => "Recovery copy completed for the locally known source view. Inspect the recovery report, then mount this destination normally for reading and new writes. Original workspace retained.".into(),
-                    _ => "Recovery stopped or is incomplete. See log and destination recovery report; original data is retained. Resume with the same source/destination, or mount the destination to use already recovered files and save new files.".into(),
+                    JobStatus::Completed => tr("Recovery copy completed for the locally known source view. Inspect the recovery report, then mount this destination normally for reading and new writes. Original workspace retained.").into(),
+                    _ => tr("Recovery stopped or is incomplete. See log and destination recovery report; original data is retained. Resume with the same source/destination, or mount the destination to use already recovered files and save new files.").into(),
                 }
             } else {
                 match status {
-                JobStatus::Completed => "Mount/sync process finished. Check the log for writeback results; local workspace and VFS cache are retained.".into(),
-                JobStatus::Cancelled => "Process force-stopped. Local files and VFS cache are retained; restart the same workspace to recover pending changes.".into(),
-                _ => "Mount/sync failed. Check the log; local files and cache are retained. Windows mounts require WinFsp.".into(),
+                JobStatus::Completed => tr("Mount/sync process finished. Check the log for writeback results; local workspace and VFS cache are retained.").into(),
+                JobStatus::Cancelled => tr("Process force-stopped. Local files and VFS cache are retained; restart the same workspace to recover pending changes.").into(),
+                _ => tr("Mount/sync failed. Check the log; local files and cache are retained. Windows mounts require WinFsp.").into(),
             }
             });
             if self.last_action == 7 {
                 self.retention_previewed =
                     (status == JobStatus::Completed).then(|| self.retention_key());
                 if status == JobStatus::Completed {
-                    self.notice = Some("Preview finished; review the list in the log. Delete obsolete versions is now available for this limit.".into());
+                    self.notice = Some(tr("Preview finished; review the list in the log. Delete obsolete versions is now available for this limit.").into());
                 }
             }
             self.stopping = false;
@@ -332,9 +333,9 @@ impl MountForm {
         let control = self
             .control
             .as_ref()
-            .ok_or("No mount control directory is available")?;
+            .ok_or(tr("No mount control directory is available"))?;
         std::fs::write(control.path().join("stop"), b"stop\n")
-            .map_err(|error| format!("Could not request unmount: {error}"))?;
+            .map_err(|error| trf("Could not request unmount: {error}", &[("error", &error)]))?;
         self.stopping = true;
         Ok(())
     }
@@ -345,13 +346,13 @@ impl MountForm {
 
     pub(super) fn recovery_args(&self, stop: &Path) -> Result<Vec<OsString>, String> {
         if !self.virtual_drive || !self.pool_sync || self.pool_retention {
-            return Err("Recovery destination must use Online drive + Automatic pool sync, with automatic history deletion OFF.".into());
+            return Err(tr("Recovery destination must use Online drive + Automatic pool sync, with automatic history deletion OFF.").into());
         }
         if self.pool.trim().is_empty()
             || !Path::new(self.workspace.trim()).is_absolute()
             || !Path::new(self.recovery_source.trim()).is_absolute()
         {
-            return Err("Select a NEW differently named destination pool, an absolute destination workspace, and the original source workspace.".into());
+            return Err(tr("Select a NEW differently named destination pool, an absolute destination workspace, and the original source workspace.").into());
         }
         let mut args: Vec<OsString> = vec![
             "mount".into(),
@@ -384,7 +385,12 @@ impl MountForm {
         let control = tempfile::Builder::new()
             .prefix("rpool-recovery-control-")
             .tempdir()
-            .map_err(|e| format!("Cannot create recovery control directory: {e}"))?;
+            .map_err(|e| {
+                trf(
+                    "Cannot create recovery control directory: {error}",
+                    &[("error", &e)],
+                )
+            })?;
         let args = self.recovery_args(&control.path().join("stop"))?;
         self.runner
             .start_rpool("Recover into remaining-account pool", rclone, args)?;
@@ -393,7 +399,7 @@ impl MountForm {
         self.stopping = false;
         self.capacity = None;
         self.pool_status = None;
-        self.notice = Some("Copying the locally known file view into the new destination. This does not mount a drive or remove source data. Review unresolved files in the report before treating recovery as complete.".into());
+        self.notice = Some(tr("Copying the locally known file view into the new destination. This does not mount a drive or remove source data. Review unresolved files in the report before treating recovery as complete.").into());
         Ok(())
     }
 
@@ -427,60 +433,62 @@ impl MountForm {
         let sync_only = action != 0;
         let automatic = self.virtual_drive && self.pool_sync;
         if action == 6 && (!automatic || !self.manifests.is_empty()) {
-            return Err("Apply pool changes requires Online drive + Automatic pool sync and no explicit imports.".into());
+            return Err(tr("Apply pool changes requires Online drive + Automatic pool sync and no explicit imports.").into());
         }
         if matches!(action, 7 | 8) && !self.retention_allowed() {
-            return Err("History cleanup needs an online drive with Sync = This PC only (no pool sync or shared root).".into());
+            return Err(tr("History cleanup needs an online drive with Sync = This PC only (no pool sync or shared root).").into());
         }
         if action == 9 {
             if !self.virtual_drive
                 || self.bounded_shared
                 || (!automatic && !self.shared_root.trim().is_empty())
             {
-                return Err(
-                    "Importing needs an online drive with This PC only or Automatic pool sync."
-                        .into(),
-                );
+                return Err(tr(
+                    "Importing needs an online drive with This PC only or Automatic pool sync.",
+                )
+                .into());
             }
             if !self.import_source.trim().contains(':') {
-                return Err(
-                    "Enter the rclone source as remote:path (for example old-crypt:photos).".into(),
-                );
+                return Err(tr(
+                    "Enter the rclone source as remote:path (for example old-crypt:photos).",
+                )
+                .into());
             }
         }
         if action == 8 && !self.retention_ready() {
-            return Err("Preview obsolete versions for this pool, workspace and limit, and confirm exclusive ownership, before deleting.".into());
+            return Err(tr("Preview obsolete versions for this pool, workspace and limit, and confirm exclusive ownership, before deleting.").into());
         }
         let diagnostic =
             action == 0 && automatic && self.pool_retention && self.diagnostic_read_only;
         if diagnostic && !self.manifests.is_empty() {
-            return Err(
-                "A diagnostic read-only mount cannot import archives; remove the manifest imports."
-                    .into(),
-            );
+            return Err(tr(
+                "A diagnostic read-only mount cannot import archives; remove the manifest imports.",
+            )
+            .into());
         }
         if self.pool.trim().is_empty() || self.workspace.trim().is_empty() {
-            return Err("Select an upload pool and a persistent local workspace.".into());
+            return Err(tr("Select an upload pool and a persistent local workspace.").into());
         }
         if !automatic && self.shared_root.trim().is_empty() != self.worker_name.trim().is_empty() {
-            return Err("Enter both a shared root and a worker name, or leave both empty for local-only mode.".into());
+            return Err(tr("Enter both a shared root and a worker name, or leave both empty for local-only mode.").into());
         }
         if !automatic
             && self.bounded_shared
             && (!self.virtual_drive || self.shared_root.trim().is_empty())
         {
-            return Err(
-                "Bounded shared history requires virtual mode and a shared encrypted root.".into(),
-            );
+            return Err(tr(
+                "Bounded shared history requires virtual mode and a shared encrypted root.",
+            )
+            .into());
         }
         if !sync_only && self.mountpoint.trim().is_empty() {
-            return Err(
-                "Enter an unused Windows drive letter or an existing empty Unix mount directory."
-                    .into(),
-            );
+            return Err(tr(
+                "Enter an unused Windows drive letter or an existing empty Unix mount directory.",
+            )
+            .into());
         }
         if !Path::new(self.workspace.trim()).is_absolute() {
-            return Err("The persistent workspace must use an absolute path.".into());
+            return Err(tr("The persistent workspace must use an absolute path.").into());
         }
         let mut args = build_args(
             self.pool.trim(),
@@ -575,7 +583,12 @@ impl MountForm {
         let control = tempfile::Builder::new()
             .prefix("rpool-mount-control-")
             .tempdir()
-            .map_err(|error| format!("Cannot create mount control directory: {error}"))?;
+            .map_err(|error| {
+                trf(
+                    "Cannot create mount control directory: {error}",
+                    &[("error", &error)],
+                )
+            })?;
         let args = self.action_args(action, control.path())?;
         self.capacity = None;
         self.pool_status = None;
@@ -608,12 +621,12 @@ impl MountForm {
             self.retention_confirmed = false;
         }
         self.notice = Some(match action {
-            7 => "Previewing obsolete versions; nothing is uploaded or deleted. Check the log for the list.",
-            8 => "Deleting obsolete versions. The operation is resumable; do not remove the retention journal.",
-            9 => "Importing. The source is only read; imported files upload in batches. Stop anytime and start again to resume.",
-            2.. => "Maintenance running. See log for capacity, cleanup or recovery results.",
-            1 => "Synchronizing local workspace. See log for verified archive results.",
-            0 => "Mount process started; this is not yet proof that the drive is mounted or cloud changes are committed. See log for readiness and sync status.",
+            7 => tr("Previewing obsolete versions; nothing is uploaded or deleted. Check the log for the list."),
+            8 => tr("Deleting obsolete versions. The operation is resumable; do not remove the retention journal."),
+            9 => tr("Importing. The source is only read; imported files upload in batches. Stop anytime and start again to resume."),
+            2.. => tr("Maintenance running. See log for capacity, cleanup or recovery results."),
+            1 => tr("Synchronizing local workspace. See log for verified archive results."),
+            0 => tr("Mount process started; this is not yet proof that the drive is mounted or cloud changes are committed. See log for readiness and sync status."),
         }.into());
         Ok(())
     }

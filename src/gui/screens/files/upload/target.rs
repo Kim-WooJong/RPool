@@ -1,4 +1,5 @@
 use super::state::UploadTargetMode;
+use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
 use crate::gui::widgets::remote_selector;
 use eframe::egui;
@@ -11,11 +12,11 @@ pub(crate) fn show_primary(ui: &mut egui::Ui, state: &mut GuiState) {
 }
 
 fn show_pool_selector(ui: &mut egui::Ui, state: &mut GuiState) {
-    ui.label(egui::RichText::new("Storage pool").strong());
+    ui.label(egui::RichText::new(tr("Storage pool")).strong());
     ui.horizontal(|ui| {
         egui::ComboBox::from_id_salt("upload-pool")
             .selected_text(if state.upload.pool_name.is_empty() {
-                "Select a pool"
+                tr("Select a pool")
             } else {
                 state.upload.pool_name.as_str()
             })
@@ -29,15 +30,15 @@ fn show_pool_selector(ui: &mut egui::Ui, state: &mut GuiState) {
     if state.pool_names.is_empty() {
         ui.label(
             egui::RichText::new(
-                "No storage pool is configured. Create one under Storage > Pools, or open Advanced for a one-off manual upload.",
+                tr("No storage pool is configured. Create one under Storage > Pools, or open Advanced for a one-off manual upload."),
             )
             .weak(),
         );
     } else if !state.upload.pool_name.is_empty() {
         ui.label(
-            egui::RichText::new(
+            egui::RichText::new(tr(
                 "Destinations and redundancy settings come from the selected pool.",
-            )
+            ))
             .weak(),
         );
     }
@@ -50,10 +51,11 @@ fn show_manual_summary(ui: &mut egui::Ui, state: &GuiState) {
         .iter()
         .filter(|remote| !remote.trim().is_empty())
         .count();
-    ui.label(egui::RichText::new("Manual one-off upload").strong());
+    ui.label(egui::RichText::new(tr("Manual one-off upload")).strong());
     ui.label(
-        egui::RichText::new(format!(
-            "{count} destination(s) configured. Open Advanced to review or change the manual upload policy."
+        egui::RichText::new(trf(
+            "{n} destination(s) configured. Open Advanced to review or change the manual upload policy.",
+            &[("n", &count)],
         ))
         .weak(),
     );
@@ -62,7 +64,7 @@ fn show_manual_summary(ui: &mut egui::Ui, state: &GuiState) {
 pub(crate) fn show_manual_destinations(ui: &mut egui::Ui, state: &mut GuiState) {
     ui.label(
         egui::RichText::new(
-            "Manual destinations are intended for one-off uploads. New archive data is still restricted to safe rclone crypt remotes.",
+            tr("Manual destinations are intended for one-off uploads. New archive data is still restricted to safe rclone crypt remotes."),
         )
         .weak(),
     );

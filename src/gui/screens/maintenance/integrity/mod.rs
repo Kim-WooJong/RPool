@@ -7,6 +7,7 @@ mod target;
 
 pub(crate) use state::IntegrityForm;
 
+use crate::gui::i18n::tr;
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 use crate::gui::theme;
@@ -17,8 +18,8 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     theme::page_body(ui, "health-integrity", |ui| {
         section_header(
         ui,
-        "Integrity",
-        Some("Scrub stored shards, review degradation, and reconstruct recoverable Reed-Solomon groups."),
+        tr("Integrity"),
+        Some(tr("Scrub stored shards, review degradation, and reconstruct recoverable Reed-Solomon groups.")),
     );
 
         let card = |ui: &mut egui::Ui, body: &mut dyn FnMut(&mut egui::Ui)| {

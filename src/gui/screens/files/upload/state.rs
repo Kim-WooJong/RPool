@@ -1,3 +1,4 @@
+use crate::gui::i18n::{tr, trf};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,11 +25,11 @@ pub(crate) enum UploadItemStatus {
 impl UploadItemStatus {
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Self::Pending => "Pending",
-            Self::Running => "Uploading",
-            Self::Completed => "Completed",
-            Self::Failed => "Failed",
-            Self::Cancelled => "Cancelled",
+            Self::Pending => tr("Pending"),
+            Self::Running => tr("Uploading"),
+            Self::Completed => tr("Completed"),
+            Self::Failed => tr("Failed"),
+            Self::Cancelled => tr("Cancelled"),
         }
     }
 }
@@ -144,8 +145,9 @@ impl UploadForm {
         }
 
         if rejected > 0 {
-            self.error = Some(format!(
-                "{rejected} dropped item(s) were ignored because only local files can be uploaded."
+            self.error = Some(trf(
+                "{n} dropped item(s) were ignored because only local files can be uploaded.",
+                &[("n", &rejected)],
             ));
         } else if added > 0 {
             self.error = None;

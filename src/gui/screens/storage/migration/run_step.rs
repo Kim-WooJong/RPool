@@ -1,6 +1,7 @@
 //! Step 3: run / pause / resume a migration, and the list of migrations of
 //! the selected pool recorded in the cloud.
 use super::state::{short_id, Step, Watched};
+use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 use crate::gui::theme;
@@ -10,18 +11,21 @@ use eframe::egui;
 
 pub(super) fn state_label(status: &MigrationStatus) -> (&'static str, StatusTone) {
     if status.abandoned {
-        ("Discarded", StatusTone::Neutral)
+        (tr("Discarded"), StatusTone::Neutral)
     } else if status.complete {
-        ("Complete", StatusTone::Success)
+        (tr("Complete"), StatusTone::Success)
     } else if status.switched > 0 || status.verified > 0 {
-        ("In progress", StatusTone::Info)
+        (tr("In progress"), StatusTone::Info)
     } else {
-        ("Not started", StatusTone::Warning)
+        (tr("Not started"), StatusTone::Warning)
     }
 }
 
 pub(super) fn progress_text(status: &MigrationStatus) -> String {
-    format!("{}/{} switched", status.switched, status.to_move)
+    trf(
+        "{done}/{total} switched",
+        &[("done", &status.switched), ("total", &status.to_move)],
+    )
 }
 
 fn our_run_active(state: &GuiState, task: &TaskRunner, id: &str) -> bool {
@@ -35,14 +39,14 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     };
     let running = our_run_active(state, task, &id);
     ui.horizontal_wrapped(|ui| {
-        ui.label(egui::RichText::new(format!("Migration {}", short_id(&id))).strong());
+        ui.label(egui::RichText::new(trf("Migration {id}", &[("id", &short_id(&id))])).strong());
         if running {
             status_badge(
                 ui,
                 if state.migration.pausing {
-                    "Pausing after the current entry…"
+                    tr("Pausing after the current entry…")
                 } else {
-                    "Running"
+                    tr("Running")
                 },
                 StatusTone::Info,
             );
@@ -71,12 +75,12 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             ui.horizontal_wrapped(|ui| {
                 status_badge(
                     ui,
-                    &format!("{} verified", status.verified),
+                    &trf("{n} verified", &[("n", &status.verified)]),
                     StatusTone::Neutral,
                 );
                 status_badge(
                     ui,
-                    &format!("{} lost", status.lost.len()),
+                    &trf("{n} lost", &[("n", &status.lost.len())]),
                     if status.lost.is_empty() {
                         StatusTone::Neutral
                     } else {
@@ -86,13 +90,16 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 if status.failed_unknown > 0 {
                     status_badge(
                         ui,
-                        &format!("{} unknown (retry)", status.failed_unknown),
+                        &trf("{n} unknown (retry)", &[("n", &status.failed_unknown)]),
                         StatusTone::Warning,
                     );
                 }
             });
             if !status.pcs.is_empty() {
-                theme::hint(ui, &format!("Worked on by: {}", status.pcs.join(", ")));
+                theme::hint(
+                    ui,
+                    &trf("Worked on by: {pcs}", &[("pcs", &status.pcs.join(", "))]),
+                );
             }
         }
         None => theme::hint(
@@ -101,13 +108,13 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 .migration
                 .status_error
                 .as_deref()
-                .unwrap_or("Loading progress from the cloud journal…"),
+                .unwrap_or(tr("Loading progress from the cloud journal…")),
         ),
     }
     if running {
         if let Some(current) = task.current_task() {
             if let Some(fraction) = current.progress.fraction() {
-                ui.add(egui::ProgressBar::new(fraction).text("current entry"));
+                ui.add(egui::ProgressBar::new(fraction).text(tr("current entry")));
             }
         }
         if let Some(line) = task.logs().last() {
@@ -120,8 +127,8 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     ui.horizontal_wrapped(|ui| {
         if running {
             if ui
-                .add_enabled(!state.migration.pausing, egui::Button::new("Pause"))
-                .on_hover_text("Stops cleanly after the current entry. Resume later from any PC.")
+                .add_enabled(!state.migration.pausing, egui::Button::new(tr("Pause")))
+                .on_hover_text(tr("Stops cleanly after the current entry. Resume later from any PC."))
                 .clicked()
             {
                 if let Err(error) = state.migration.request_pause() {
@@ -129,17 +136,17 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 }
             }
         } else {
-            if theme::primary_button(ui, idle && !finished, "Resume").clicked() {
+            if theme::primary_button(ui, idle && !finished, tr("Resume")).clicked() {
                 if let Err(error) = state.migration.start_run(task, &state.settings.rclone, &id) {
                     state.migration.error = Some(error);
                 }
             }
-            ui.checkbox(&mut state.migration.take_over, "Take over work of a stopped PC")
-                .on_hover_text("Use only if the other PC crashed or was turned off. Its unfinished claims otherwise expire after 2 hours.");
+            ui.checkbox(&mut state.migration.take_over, tr("Take over work of a stopped PC"))
+                .on_hover_text(tr("Use only if the other PC crashed or was turned off. Its unfinished claims otherwise expire after 2 hours."));
         }
         let lost = status.as_ref().map_or(0, |s| s.lost.len());
         if ui
-            .add_enabled(lost > 0, egui::Button::new(format!("Lost files ({lost})")))
+            .add_enabled(lost > 0, egui::Button::new(trf("Lost files ({n})", &[("n", &lost)])))
             .clicked()
         {
             state.migration.step = Step::Lost;
@@ -147,28 +154,28 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         if ui
             .add_enabled(
                 !state.migration.status_loading(),
-                egui::Button::new("Refresh"),
+                egui::Button::new(tr("Refresh")),
             )
             .clicked()
         {
             state.migration.start_status(&state.settings.rclone);
         }
-        if ui.button("Back to plan").clicked() {
+        if ui.button(tr("Back to plan")).clicked() {
             state.migration.reset_to_plan();
         }
     });
-    theme::hint(ui, "Drive files are not included yet — use Apply pool changes (Advanced / manual) for a mounted drive.");
+    theme::hint(ui, tr("Drive files are not included yet — use Apply pool changes (Advanced / manual) for a mounted drive."));
 }
 
 /// Migrations of the selected pool found in the cloud.
 pub(super) fn existing(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     ui.horizontal_wrapped(|ui| {
-        ui.strong("Existing migrations");
+        ui.strong(tr("Existing migrations"));
         let loading = state.migration.status_loading();
         if ui
             .add_enabled(
                 !loading && !state.migration.pool.is_empty(),
-                egui::Button::new("Refresh"),
+                egui::Button::new(tr("Refresh")),
             )
             .clicked()
         {
@@ -182,7 +189,10 @@ pub(super) fn existing(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskR
         ui.colored_label(ui.visuals().warn_fg_color, error);
     }
     if state.migration.statuses.is_empty() {
-        theme::hint(ui, "No migration of this pool is recorded in the cloud.");
+        theme::hint(
+            ui,
+            tr("No migration of this pool is recorded in the cloud."),
+        );
         return;
     }
     let idle = !task.is_running();
@@ -196,7 +206,14 @@ pub(super) fn existing(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskR
             .striped(true)
             .num_columns(6)
             .show(ui, |ui| {
-                for head in ["Id", "Created", "Progress", "Lost", "State", ""] {
+                for head in [
+                    tr("Id"),
+                    tr("Created"),
+                    tr("Progress"),
+                    tr("Lost"),
+                    tr("State"),
+                    "",
+                ] {
                     ui.strong(head);
                 }
                 ui.end_row();
@@ -206,7 +223,7 @@ pub(super) fn existing(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskR
                     ui.label(format!(
                         "{} · {}",
                         status.created_by,
-                        crate::presentation::relative_age(status.created_unix)
+                        crate::gui::i18n::relative_age(status.created_unix)
                     ));
                     ui.label(progress_text(status));
                     ui.label(status.lost.len().to_string());
@@ -215,16 +232,19 @@ pub(super) fn existing(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskR
                     ui.horizontal(|ui| {
                         let open = !status.abandoned && !status.complete;
                         if ui
-                            .add_enabled(idle && open, egui::Button::new("Resume"))
+                            .add_enabled(idle && open, egui::Button::new(tr("Resume")))
                             .clicked()
                         {
                             action = Some((0, status.migration_id.clone()));
                         }
-                        if ui.button("Open").clicked() {
+                        if ui.button(tr("Open")).clicked() {
                             action = Some((1, status.migration_id.clone()));
                         }
                         if ui
-                            .add_enabled(idle && !status.abandoned, egui::Button::new("Discard"))
+                            .add_enabled(
+                                idle && !status.abandoned,
+                                egui::Button::new(tr("Discard")),
+                            )
                             .clicked()
                         {
                             action = Some((2, status.migration_id.clone()));

@@ -260,9 +260,10 @@ impl DriveForm {
         let result = match rx.try_recv() {
             Ok(result) => result,
             Err(TryRecvError::Empty) => return true,
-            Err(TryRecvError::Disconnected) => {
-                Err("Listing stopped unexpectedly; refresh to try again.".to_string())
-            }
+            Err(TryRecvError::Disconnected) => Err(crate::gui::i18n::tr(
+                "Listing stopped unexpectedly; refresh to try again.",
+            )
+            .to_string()),
         };
         let pool = pool.clone();
         self.pending = None;

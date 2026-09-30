@@ -1,3 +1,4 @@
+use crate::gui::i18n::{tr, trf};
 use crate::models::QuotaReport;
 use crate::storage::admin::{collect_quota_reports, BackendAdmin, RcloneAdmin};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -39,9 +40,12 @@ impl UsageRefresh {
         let (sender, receiver) = mpsc::channel();
         thread::spawn(move || {
             let result = (|| {
-                let catalog = admin
-                    .catalog()
-                    .map_err(|error| format!("remote discovery failed: {error:#}"))?;
+                let catalog = admin.catalog().map_err(|error| {
+                    trf(
+                        "remote discovery failed: {error}",
+                        &[("error", &format!("{error:#}"))],
+                    )
+                })?;
                 let missing_encryption = catalog.missing_encryption_remotes();
                 let needs_encryption = !missing_encryption.is_empty();
                 let catalog_signature = format!("{catalog:?}");
@@ -55,7 +59,13 @@ impl UsageRefresh {
                 })();
                 let (reports, warning) = match capacity {
                     Ok(reports) => (reports, None),
-                    Err(error) => (Vec::new(), Some(format!("Capacity unavailable: {error:#}"))),
+                    Err(error) => (
+                        Vec::new(),
+                        Some(trf(
+                            "Capacity unavailable: {error}",
+                            &[("error", &format!("{error:#}"))],
+                        )),
+                    ),
                 };
                 Ok(UsageSnapshot {
                     catalog_signature,
@@ -79,7 +89,7 @@ impl UsageRefresh {
             Ok(result) => result,
             Err(TryRecvError::Empty) => return None,
             Err(TryRecvError::Disconnected) => {
-                Err("usage refresh worker stopped unexpectedly".to_string())
+                Err(tr("usage refresh worker stopped unexpectedly").to_string())
             }
         };
         self.receiver = None;

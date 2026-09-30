@@ -1,5 +1,6 @@
 //! State of the pool change migration wizard: the selected pool, the step,
 //! background planning / status work, and the task argv the steps start.
+use crate::gui::i18n::{tr, trf};
 use crate::migration::model::{Entry, LostFile, MigrationStatus, Plan};
 use crate::migration::plan::PlanOptions;
 use crate::models::PoolDefinition;
@@ -136,8 +137,9 @@ impl MigrationForm {
                         options.upload_mib_s = report.upload_mib_s.or(options.upload_mib_s);
                     }
                     Err(error) => {
-                        speed_note = Some(format!(
-                            "Speed measurement failed ({error:#}); the manual speeds were used."
+                        speed_note = Some(trf(
+                            "Speed measurement failed ({error}); the manual speeds were used.",
+                            &[("error", &format!("{error:#}"))],
                         ))
                     }
                 }
@@ -194,7 +196,7 @@ impl MigrationForm {
                 }
                 Err(TryRecvError::Disconnected) => {
                     self.planning = None;
-                    self.error = Some("Planning stopped unexpectedly; try again.".into());
+                    self.error = Some(tr("Planning stopped unexpectedly; try again.").into());
                 }
                 Err(TryRecvError::Empty) => {}
             }
@@ -207,7 +209,7 @@ impl MigrationForm {
                 }
                 Err(TryRecvError::Disconnected) => {
                     self.status_pending = None;
-                    self.status_error = Some("Status listing stopped unexpectedly.".into());
+                    self.status_error = Some(tr("Status listing stopped unexpectedly.").into());
                 }
                 Err(TryRecvError::Empty) => {}
             }
@@ -228,12 +230,12 @@ impl MigrationForm {
                 self.last_status_at = None;
             }
             Ok(plan) => {
-                self.error = Some(format!(
-                    "A plan for '{}' arrived after switching to '{}'; it was published and is listed under Existing migrations of that pool.",
-                    plan.pool, self.pool
+                self.error = Some(trf(
+                    "A plan for '{planned}' arrived after switching to '{current}'; it was published and is listed under Existing migrations of that pool.",
+                    &[("planned", &plan.pool), ("current", &self.pool)],
                 ));
             }
-            Err(error) => self.error = Some(format!("Planning failed: {error}")),
+            Err(error) => self.error = Some(trf("Planning failed: {error}", &[("error", &error)])),
         }
     }
 
@@ -289,7 +291,12 @@ impl MigrationForm {
         let control = tempfile::Builder::new()
             .prefix("rpool-migration-control-")
             .tempdir()
-            .map_err(|e| format!("Cannot create the migration control directory: {e}"))?;
+            .map_err(|e| {
+                trf(
+                    "Cannot create the migration control directory: {error}",
+                    &[("error", &e)],
+                )
+            })?;
         let args = run_args(&self.pool, id, &control.path().join("stop"), self.take_over);
         task.start_rpool(RUN_TASK, rclone, args)?;
         self.control = Some(control);
@@ -304,9 +311,9 @@ impl MigrationForm {
         let control = self
             .control
             .as_ref()
-            .ok_or("No migration is running from this window")?;
+            .ok_or(tr("No migration is running from this window"))?;
         std::fs::write(control.path().join("stop"), b"stop\n")
-            .map_err(|error| format!("Could not request pause: {error}"))?;
+            .map_err(|error| trf("Could not request pause: {error}", &[("error", &error)]))?;
         self.pausing = true;
         Ok(())
     }
@@ -352,21 +359,21 @@ impl MigrationForm {
         match watched {
             Watched::Run(_) => {
                 self.notice = Some(match (ok, self.pausing) {
-                    (true, true) => "Paused. Resume continues where it stopped, from any PC.".into(),
-                    (true, false) => "Run finished. Check the counts below; lost files are listed separately.".into(),
-                    (false, _) => "The run stopped with an error or was cancelled; see the console. Resume retries the remaining entries.".into(),
+                    (true, true) => tr("Paused. Resume continues where it stopped, from any PC.").into(),
+                    (true, false) => tr("Run finished. Check the counts below; lost files are listed separately.").into(),
+                    (false, _) => tr("The run stopped with an error or was cancelled; see the console. Resume retries the remaining entries.").into(),
                 });
                 self.control = None;
                 self.pausing = false;
             }
             Watched::Abandon(id) => {
                 if ok {
-                    self.notice = Some(format!("Migration {} discarded.", short_id(&id)));
+                    self.notice = Some(trf("Migration {id} discarded.", &[("id", &short_id(&id))]));
                     if self.active_id.as_deref() == Some(id.as_str()) {
                         self.reset_to_plan();
                     }
                 } else {
-                    self.error = Some("Discard failed; see the console.".into());
+                    self.error = Some(tr("Discard failed; see the console.").into());
                 }
             }
         }
@@ -447,7 +454,7 @@ pub(crate) fn policy_change_affects_data(old: &PoolDefinition, new: &PoolDefinit
 
 pub(crate) fn format_eta(range: Option<(f64, f64)>) -> String {
     match range {
-        None => "unknown (no speed given)".into(),
-        some => crate::migration::speed::format_estimate(some),
+        None => tr("unknown (no speed given)").into(),
+        some => crate::gui::i18n::duration_text(&crate::migration::speed::format_estimate(some)),
     }
 }

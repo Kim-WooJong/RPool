@@ -1,7 +1,9 @@
 use super::data::InventoryRow;
+use crate::gui::i18n::relative_age;
+use crate::gui::i18n::tr;
 use crate::gui::theme;
 use crate::gui::widgets::{status_badge, StatusTone};
-use crate::presentation::{format_bytes, relative_age};
+use crate::presentation::format_bytes;
 use eframe::egui;
 
 #[derive(Debug, Clone, Copy)]
@@ -12,33 +14,33 @@ pub(crate) enum InventoryAction {
 }
 
 pub(crate) fn show(ui: &mut egui::Ui, row: Option<&InventoryRow>) -> Option<InventoryAction> {
-    ui.label(egui::RichText::new("Details").strong());
+    ui.label(egui::RichText::new(tr("Details")).strong());
     ui.add_space(theme::SUBSECTION_GAP);
 
     let Some(row) = row else {
-        ui.label(egui::RichText::new("Select a file to inspect it.").weak());
+        ui.label(egui::RichText::new(tr("Select a file to inspect it.")).weak());
         return None;
     };
 
     ui.label(egui::RichText::new(&row.entry.original_name).strong());
     ui.add_space(theme::SUBSECTION_GAP);
 
-    detail_row(ui, "Size", &format_bytes(row.entry.original_size));
-    detail_row(ui, "Pool", row.pool_label());
-    detail_row(ui, "Coding", &row.coding_label());
-    detail_row(ui, "Created", &relative_age(row.entry.created_unix));
-    detail_row(ui, "Remotes", &row.entry.remotes.len().to_string());
+    detail_row(ui, tr("Size"), &format_bytes(row.entry.original_size));
+    detail_row(ui, tr("Pool"), row.pool_label());
+    detail_row(ui, tr("Coding"), &row.coding_label());
+    detail_row(ui, tr("Created"), &relative_age(row.entry.created_unix));
+    detail_row(ui, tr("Remotes"), &row.entry.remotes.len().to_string());
 
     ui.horizontal_wrapped(|ui| {
-        ui.label("Health");
+        ui.label(tr("Health"));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            status_badge(ui, "Not checked", StatusTone::Neutral);
+            status_badge(ui, tr("Not checked"), StatusTone::Neutral);
         });
     });
     ui.label(
-        egui::RichText::new(
+        egui::RichText::new(tr(
             "Inventory stores metadata only. Run Status or Verify for current remote health.",
-        )
+        ))
         .small()
         .weak(),
     );
@@ -47,28 +49,28 @@ pub(crate) fn show(ui: &mut egui::Ui, row: Option<&InventoryRow>) -> Option<Inve
     ui.separator();
     ui.add_space(theme::SECTION_GAP);
 
-    if ui.button("Restore…").clicked() {
+    if ui.button(tr("Restore…")).clicked() {
         return Some(InventoryAction::Restore);
     }
-    if ui.button("Verify…").clicked() {
+    if ui.button(tr("Verify…")).clicked() {
         return Some(InventoryAction::Verify);
     }
-    if ui.button("Check status…").clicked() {
+    if ui.button(tr("Check status…")).clicked() {
         return Some(InventoryAction::Status);
     }
 
     ui.add_space(theme::SECTION_GAP);
     ui.separator();
     ui.add_space(theme::SUBSECTION_GAP);
-    ui.label(egui::RichText::new("Archive ID").strong());
+    ui.label(egui::RichText::new(tr("Archive ID")).strong());
     ui.monospace(&row.entry.archive_id);
     ui.add_space(theme::SUBSECTION_GAP);
-    ui.label(egui::RichText::new("Manifest").strong());
+    ui.label(egui::RichText::new(tr("Manifest")).strong());
     ui.label(&row.entry.manifest_source);
 
     if !row.entry.remotes.is_empty() {
         ui.add_space(theme::SUBSECTION_GAP);
-        ui.label(egui::RichText::new("Storage remotes").strong());
+        ui.label(egui::RichText::new(tr("Storage remotes")).strong());
         for remote in &row.entry.remotes {
             ui.monospace(remote);
         }

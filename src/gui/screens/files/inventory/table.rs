@@ -1,14 +1,16 @@
 use super::data::InventoryRow;
 use super::state::{InventoryForm, InventorySort};
+use crate::gui::i18n::relative_age;
+use crate::gui::i18n::tr;
 use crate::gui::theme;
 use crate::gui::widgets::{status_badge, StatusTone};
-use crate::presentation::{format_bytes, relative_age};
+use crate::presentation::format_bytes;
 use eframe::egui;
 
 pub(crate) fn show(ui: &mut egui::Ui, rows: &[InventoryRow], form: &mut InventoryForm) {
     if rows.is_empty() {
         ui.add_space(theme::SECTION_GAP);
-        ui.label("No files match the current filters.");
+        ui.label(tr("No files match the current filters."));
         return;
     }
 
@@ -20,12 +22,12 @@ pub(crate) fn show(ui: &mut egui::Ui, rows: &[InventoryRow], form: &mut Inventor
                 .striped(true)
                 .spacing([16.0, 7.0])
                 .show(ui, |ui| {
-                    sort_header(ui, form, InventorySort::Name, "Name");
-                    sort_header(ui, form, InventorySort::Size, "Size");
-                    sort_header(ui, form, InventorySort::Pool, "Pool");
-                    sort_header(ui, form, InventorySort::Coding, "Coding");
-                    ui.strong("Health");
-                    sort_header(ui, form, InventorySort::Created, "Created");
+                    sort_header(ui, form, InventorySort::Name, tr("Name"));
+                    sort_header(ui, form, InventorySort::Size, tr("Size"));
+                    sort_header(ui, form, InventorySort::Pool, tr("Pool"));
+                    sort_header(ui, form, InventorySort::Coding, tr("Coding"));
+                    ui.strong(tr("Health"));
+                    sort_header(ui, form, InventorySort::Created, tr("Created"));
                     ui.end_row();
 
                     for row in rows {
@@ -40,7 +42,7 @@ pub(crate) fn show(ui: &mut egui::Ui, rows: &[InventoryRow], form: &mut Inventor
                         ui.monospace(format_bytes(row.entry.original_size));
                         ui.label(row.pool_label());
                         ui.monospace(row.coding_label());
-                        status_badge(ui, "Not checked", StatusTone::Neutral);
+                        status_badge(ui, tr("Not checked"), StatusTone::Neutral);
                         ui.monospace(relative_age(row.entry.created_unix));
                         ui.end_row();
                     }

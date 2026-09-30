@@ -3,26 +3,27 @@
 use super::form::MountForm;
 use super::options::gib;
 use super::status_bar::run;
+use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
 use crate::gui::theme;
 use eframe::egui;
 
 fn manifests(ui: &mut egui::Ui, form: &mut MountForm) {
-    theme::card_section(ui, "RPool archives", Some("Adds archives made with Upload to the drive at the next Mount or Sync. Pool membership is never inferred."), |_| {}, |ui| {
+    theme::card_section(ui, tr("RPool archives"), Some(tr("Adds archives made with Upload to the drive at the next Mount or Sync. Pool membership is never inferred.")), |_| {}, |ui| {
         ui.horizontal_wrapped(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut form.manifest_input)
                     .desired_width(ui.available_width().min(320.0))
-                    .hint_text("manifest path or remote"),
+                    .hint_text(tr("manifest path or remote")),
             );
-            if ui.button("Add").clicked() && !form.manifest_input.trim().is_empty() {
+            if ui.button(tr("Add")).clicked() && !form.manifest_input.trim().is_empty() {
                 let value = form.manifest_input.trim().to_string();
                 if !form.manifests.contains(&value) {
                     form.manifests.push(value);
                 }
                 form.manifest_input.clear();
             }
-            if ui.button("Browse…").clicked() {
+            if ui.button(tr("Browse…")).clicked() {
                 if let Some(paths) = rfd::FileDialog::new()
                     .add_filter("Manifest JSON", &["json"])
                     .pick_files()
@@ -37,13 +38,13 @@ fn manifests(ui: &mut egui::Ui, form: &mut MountForm) {
             }
         });
         if form.manifests.is_empty() {
-            theme::hint(ui, "No archives listed.");
+            theme::hint(ui, tr("No archives listed."));
         }
         let mut remove = None;
         egui::ScrollArea::vertical().id_salt("mount-manifests").max_height(160.0).auto_shrink([false, true]).show(ui, |ui| {
             for (index, source) in form.manifests.iter().enumerate() {
                 ui.horizontal(|ui| {
-                    if ui.small_button("Remove").clicked() {
+                    if ui.small_button(tr("Remove")).clicked() {
                         remove = Some(index);
                     }
                     ui.label(source);
@@ -61,35 +62,35 @@ fn rclone(
     form: &mut MountForm,
     settings: &mut crate::gui::settings::GuiSettings,
 ) {
-    theme::card_section(ui, "Files stored with rclone", Some("Copies any rclone path (for example an old crypt remote) into this drive and uploads it as pool shards. Unmount first. The source is only read."), |_| {}, |ui| {
+    theme::card_section(ui, tr("Files stored with rclone"), Some(tr("Copies any rclone path (for example an old crypt remote) into this drive and uploads it as pool shards. Unmount first. The source is only read.")), |_| {}, |ui| {
         if !form.virtual_drive || form.bounded_shared {
-            theme::hint(ui, "Needs an online drive with This PC only or Automatic pool sync.");
+            theme::hint(ui, tr("Needs an online drive with This PC only or Automatic pool sync."));
             return;
         }
         egui::Grid::new("rclone-import-grid").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
             let width = (ui.available_width() - 120.0).clamp(160.0, 320.0);
-            ui.label("Source");
+            ui.label(tr("Source"));
             ui.add(egui::TextEdit::singleline(&mut form.import_source).desired_width(width).hint_text("old-crypt:photos"));
             ui.end_row();
-            ui.label("Drive folder");
-            ui.add(egui::TextEdit::singleline(&mut form.import_destination).desired_width(width).hint_text("(drive root)"));
+            ui.label(tr("Drive folder"));
+            ui.add(egui::TextEdit::singleline(&mut form.import_destination).desired_width(width).hint_text(tr("(drive root)")));
             ui.end_row();
-            gib(ui, "Upload every", &mut form.import_batch_gib, 1, "Uploads after this much was copied, so local disk only holds one batch.");
+            gib(ui, tr("Upload every"), &mut form.import_batch_gib, 1, tr("Uploads after this much was copied, so local disk only holds one batch."));
         });
-        ui.checkbox(&mut form.import_rename, "Import name clashes as \"name (imported N)\"")
-            .on_hover_text("Off: a file that already exists in the drive is skipped and listed.");
-        if theme::primary_button(ui, !form.runner.is_running(), "Import").clicked() {
+        ui.checkbox(&mut form.import_rename, tr("Import name clashes as \"name (imported N)\""))
+            .on_hover_text(tr("Off: a file that already exists in the drive is skipped and listed."));
+        if theme::primary_button(ui, !form.runner.is_running(), tr("Import")).clicked() {
             run(form, settings, |form, rclone| form.start_action(rclone, 9));
         }
         if let Some(status) = &form.import_status {
-            ui.label(format!("{}: {}/{} files · {} imported · {} skipped · {} failed", status.phase, status.files_done, status.files_total, status.imported, status.skipped.len(), status.failed.len()));
+            ui.label(trf("{phase}: {done}/{total} files · {imported} imported · {skipped} skipped · {failed} failed", &[("phase", &status.phase), ("done", &status.files_done), ("total", &status.files_total), ("imported", &status.imported), ("skipped", &status.skipped.len()), ("failed", &status.failed.len())]));
             egui::ScrollArea::vertical().id_salt("import-issues").max_height(160.0).auto_shrink([false, true]).show(ui, |ui| {
                 for (path, reason) in status.skipped.iter().chain(&status.failed) {
                     ui.small(format!("{path}: {reason}"));
                 }
             });
         }
-        theme::hint(ui, "Modification times are not kept. Names the drive cannot store are skipped and listed. Many small files upload slowly (each becomes its own set of shards).");
+        theme::hint(ui, tr("Modification times are not kept. Names the drive cannot store are skipped and listed. Many small files upload slowly (each becomes its own set of shards)."));
     });
 }
 

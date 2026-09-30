@@ -1,5 +1,6 @@
 //! Explicit, preview-first conversion of selected archives; originals are retained.
 use super::pool_picker::PoolPicker;
+use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 use crate::gui::theme;
@@ -36,7 +37,7 @@ pub(crate) struct ReprocessForm {
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     poll_save(state);
-    theme::hint(ui, "Edit a target draft, select archives, calculate, then execute. Draft changes do not save the pool policy. Originals and old provider connections are retained.");
+    theme::hint(ui, tr("Edit a target draft, select archives, calculate, then execute. Draft changes do not save the pool policy. Originals and old provider connections are retained."));
     if !state.inventory.loaded {
         state.inventory.refresh();
     }
@@ -45,10 +46,10 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     }
     theme::split_cards(ui, |ui, side| {
         if side == 0 {
-            ui.strong("Target policy and selected archives");
+            ui.strong(tr("Target policy and selected archives"));
             egui::ComboBox::from_id_salt("reprocess-target")
                 .selected_text(if state.reprocess.target.is_empty() {
-                    "Select saved pool"
+                    tr("Select saved pool")
                 } else {
                     &state.reprocess.target
                 })
@@ -63,14 +64,14 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                     state.pool_definitions.get(&state.reprocess.target).cloned();
                 state.reprocess.loaded_target = state.reprocess.target.clone();
             }
-            if ui.button("Reload saved policy into draft").clicked() {
+            if ui.button(tr("Reload saved policy into draft")).clicked() {
                 state.reprocess.picker = PoolPicker::default();
                 state.reprocess.draft =
                     state.pool_definitions.get(&state.reprocess.target).cloned();
             }
             if let Some(draft) = &mut state.reprocess.draft {
-                ui.strong("Target draft (not saved to pool)");
-                if ui.button("Add / remove encrypted providers…").clicked() {
+                ui.strong(tr("Target draft (not saved to pool)"));
+                if ui.button(tr("Add / remove encrypted providers…")).clicked() {
                     state.reprocess.picker.open(&draft.remotes);
                 }
                 for remote in &draft.remotes {
@@ -79,7 +80,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 egui::Grid::new("reprocess-draft-policy")
                     .num_columns(2)
                     .show(ui, |ui| {
-                        ui.label("Shard size (MiB)");
+                        ui.label(tr("Shard size (MiB)"));
                         let mut shard_mib = draft.shard_size.mib_ceil();
                         if ui
                             .add(
@@ -95,47 +96,47 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                             }
                         }
                         ui.end_row();
-                        ui.label("Data shards (K)");
+                        ui.label(tr("Data shards (K)"));
                         ui.add(egui::DragValue::new(&mut draft.data_shards).range(1..=255));
                         ui.end_row();
-                        ui.label("Parity shards (M)");
+                        ui.label(tr("Parity shards (M)"));
                         ui.add(egui::DragValue::new(&mut draft.parity_shards).range(0..=254));
                         ui.end_row();
-                        ui.label("Workers");
+                        ui.label(tr("Workers"));
                         ui.add(egui::DragValue::new(&mut draft.workers).range(1..=256));
                         ui.end_row();
-                        ui.label("Retries");
+                        ui.label(tr("Retries"));
                         ui.add(egui::DragValue::new(&mut draft.retries).range(0..=100));
                         ui.end_row();
-                        ui.label("Placement");
+                        ui.label(tr("Placement"));
                         egui::ComboBox::from_id_salt("reprocess-placement")
-                            .selected_text(draft.placement.label())
+                            .selected_text(crate::gui::i18n::tr(draft.placement.label()))
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(
                                     &mut draft.placement,
                                     Placement::RoundRobin,
-                                    Placement::RoundRobin.label(),
+                                    crate::gui::i18n::tr(Placement::RoundRobin.label()),
                                 );
                                 ui.selectable_value(
                                     &mut draft.placement,
                                     Placement::FreeRatio,
-                                    Placement::FreeRatio.label(),
+                                    crate::gui::i18n::tr(Placement::FreeRatio.label()),
                                 );
                                 ui.selectable_value(
                                     &mut draft.placement,
                                     Placement::Resilient,
-                                    Placement::Resilient.label(),
+                                    crate::gui::i18n::tr(Placement::Resilient.label()),
                                 );
                                 ui.selectable_value(
                                     &mut draft.placement,
                                     Placement::CapacityFirst,
-                                    Placement::CapacityFirst.label(),
+                                    crate::gui::i18n::tr(Placement::CapacityFirst.label()),
                                 );
                             });
                         ui.end_row();
                     });
                 if let Some(note) = draft.placement.protection_note() {
-                    ui.small(note);
+                    ui.small(crate::gui::i18n::tr(note));
                 }
             }
             let can_save = !task.is_running()
@@ -149,42 +150,45 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                     .as_ref()
                     .is_some_and(|draft| validate_pool(draft).is_ok());
             if ui
-                .add_enabled(can_save, egui::Button::new("Save draft as pool defaults"))
+                .add_enabled(
+                    can_save,
+                    egui::Button::new(tr("Save draft as pool defaults")),
+                )
                 .clicked()
             {
                 start_save(state);
             }
-            ui.small("Optional: save this named pool's defaults for future uploads only. Existing archives are unchanged; conversion is a separate action.");
+            ui.small(tr("Optional: save this named pool's defaults for future uploads only. Existing archives are unchanged; conversion is a separate action."));
             if state.reprocess.pending_save.is_some() {
                 ui.spinner();
-                ui.label("Saving pool defaults…");
+                ui.label(tr("Saving pool defaults…"));
             }
-            ui.label("Assumed aggregate throughput (MiB/s; 0 = unknown)");
+            ui.label(tr("Assumed aggregate throughput (MiB/s; 0 = unknown)"));
             ui.horizontal(|ui| {
-                ui.label("Download");
+                ui.label(tr("Download"));
                 ui.add(
                     egui::DragValue::new(&mut state.reprocess.download_mib_s)
                         .range(0.0..=1_000_000.0),
                 );
             });
             ui.horizontal(|ui| {
-                ui.label("Upload");
+                ui.label(tr("Upload"));
                 ui.add(
                     egui::DragValue::new(&mut state.reprocess.upload_mib_s)
                         .range(0.0..=1_000_000.0),
                 );
             });
-            ui.small("These are estimates, not measured speeds. Provider throttling, retries and encoding can add time.");
+            ui.small(tr("These are estimates, not measured speeds. Provider throttling, retries and encoding can add time."));
             ui.separator();
-            if ui.button("Refresh local library").clicked() {
+            if ui.button(tr("Refresh local library")).clicked() {
                 state.inventory.refresh();
             }
             if let Some(error) = &state.inventory.error {
                 ui.label(error);
             }
-            ui.small(
+            ui.small(tr(
                 "All indexed archives are listed; remote overlap does not prove pool ownership.",
-            );
+            ));
             for row in &state.inventory.rows {
                 let source = &row.entry.manifest_source;
                 let mut selected = state.reprocess.selected.contains(source);
@@ -208,9 +212,9 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 }
             }
             ui.separator();
-            if ui.button("Add manifest files…").clicked() {
+            if ui.button(tr("Add manifest files…")).clicked() {
                 if let Some(paths) = rfd::FileDialog::new()
-                    .add_filter("Manifest", &["json"])
+                    .add_filter(tr("Manifest"), &["json"])
                     .pick_files()
                 {
                     for path in paths {
@@ -223,21 +227,24 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             }
             ui.add(
                 egui::TextEdit::singleline(&mut state.reprocess.manual)
-                    .hint_text("Local manifest or crypt:path/manifest.json")
+                    .hint_text(tr("Local manifest or crypt:path/manifest.json"))
                     .desired_width(260.0),
             );
-            if ui.button("Add manifest path").clicked() {
+            if ui.button(tr("Add manifest path")).clicked() {
                 let source = state.reprocess.manual.trim().to_string();
                 if !source.is_empty() {
                     state.reprocess.selected.insert(source);
                     state.reprocess.manual.clear();
                 }
             }
-            ui.label(format!("{} selected", state.reprocess.selected.len()));
+            ui.label(trf(
+                "{n} selected",
+                &[("n", &state.reprocess.selected.len())],
+            ));
             let sources: Vec<_> = state.reprocess.selected.iter().cloned().collect();
             for source in sources {
                 ui.horizontal(|ui| {
-                    if ui.small_button("Remove").clicked() {
+                    if ui.small_button(tr("Remove")).clicked() {
                         state.reprocess.selected.remove(&source);
                     }
                     ui.label(source);
@@ -249,76 +256,83 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             if state.reprocess.preview_signature != signature {
                 state.reprocess.preview = None;
             }
-            ui.strong("Calculation / estimated time");
+            ui.strong(tr("Calculation / estimated time"));
             if let Some(plan) = &state.reprocess.preview {
-                ui.label(format!("Archives: {}", plan.entries.len()));
-                ui.label(format!(
-                    "Original file data: {}",
-                    format_bytes(plan.input_bytes)
+                ui.label(trf("Archives: {n}", &[("n", &plan.entries.len())]));
+                ui.label(trf(
+                    "Original file data: {size}",
+                    &[("size", &format_bytes(plan.input_bytes))],
                 ));
-                ui.label(format!(
-                    "Additional remote storage: {}",
-                    format_bytes(plan.new_storage_bytes)
+                ui.label(trf(
+                    "Additional remote storage: {size}",
+                    &[("size", &format_bytes(plan.new_storage_bytes))],
                 ));
-                ui.label(format!(
-                    "Download / verification: {}",
-                    format_bytes(plan.download_bytes)
+                ui.label(trf(
+                    "Download / verification: {size}",
+                    &[("size", &format_bytes(plan.download_bytes))],
                 ));
-                ui.label(format!("Upload: {}", format_bytes(plan.upload_bytes)));
+                ui.label(trf(
+                    "Upload: {size}",
+                    &[("size", &format_bytes(plan.upload_bytes))],
+                ));
                 ui.label(match plan.estimated_seconds {
-                    Some(seconds) => format!("Estimated time until selected verified copies are ready: {:.1} minutes ({:.2} hours)", seconds / 60.0, seconds / 3600.0),
-                    None => "Estimated time: unknown — enter both assumed transfer rates, then calculate.".into(),
+                    Some(seconds) => trf("Estimated time until selected verified copies are ready: {minutes} minutes ({hours} hours)", &[("minutes", &format!("{:.1}", seconds / 60.0)), ("hours", &format!("{:.2}", seconds / 3600.0))]),
+                    None => tr("Estimated time: unknown — enter both assumed transfer rates, then calculate.").into(),
                 });
                 ui.small(&plan.estimate_note);
                 for change in &plan.change_summary {
                     ui.label(change);
                 }
                 ui.separator();
-                ui.label(format!(
-                    "Frozen target: {} MiB shards, {}+{}, {} workers, {} retries, {}",
-                    plan.target.shard_size,
-                    plan.target.data_shards,
-                    plan.target.parity_shards,
-                    plan.target.workers,
-                    plan.target.retries,
-                    plan.target.placement.label()
+                ui.label(trf(
+                    "Frozen target: {shard} MiB shards, {k}+{m}, {workers} workers, {retries} retries, {placement}",
+                    &[
+                        ("shard", &plan.target.shard_size),
+                        ("k", &plan.target.data_shards),
+                        ("m", &plan.target.parity_shards),
+                        ("workers", &plan.target.workers),
+                        ("retries", &plan.target.retries),
+                        ("placement", &plan.target.placement.label()),
+                    ],
                 ));
                 for remote in &plan.target.remotes {
                     ui.monospace(remote);
                 }
-                ui.small("Temporary disk needs at least two copies of the largest restored file, plus parity/transfer scratch. Remote space must hold both original and new archives.");
-                ui.label(format!("Plan: {}", plan.plan_path.display()));
+                ui.small(tr("Temporary disk needs at least two copies of the largest restored file, plus parity/transfer scratch. Remote space must hold both original and new archives."));
+                ui.label(trf("Plan: {path}", &[("path", &plan.plan_path.display())]));
             } else {
-                ui.label("Select archives and calculate before starting. No existing archive is automatically assigned to a pool.");
+                ui.label(tr("Select archives and calculate before starting. No existing archive is automatically assigned to a pool."));
             }
             if let Some(plan) = &state.reprocess.active_plan {
                 ui.separator();
-                ui.strong("Saved operation / resume");
-                ui.label(format!("Plan: {}", plan.plan_path.display()));
-                ui.label(format!(
-                    "Exact saved target: {} MiB, {}+{}, {} workers, {} retries, {}",
-                    plan.target.shard_size,
-                    plan.target.data_shards,
-                    plan.target.parity_shards,
-                    plan.target.workers,
-                    plan.target.retries,
-                    plan.target.placement.label()
+                ui.strong(tr("Saved operation / resume"));
+                ui.label(trf("Plan: {path}", &[("path", &plan.plan_path.display())]));
+                ui.label(trf(
+                    "Exact saved target: {shard} MiB, {k}+{m}, {workers} workers, {retries} retries, {placement}",
+                    &[
+                        ("shard", &plan.target.shard_size),
+                        ("k", &plan.target.data_shards),
+                        ("m", &plan.target.parity_shards),
+                        ("workers", &plan.target.workers),
+                        ("retries", &plan.target.retries),
+                        ("placement", &plan.target.placement.label()),
+                    ],
                 ));
                 for remote in &plan.target.remotes {
                     ui.monospace(remote);
                 }
-                ui.label(format!(
-                    "{} explicitly selected archives",
-                    plan.entries.len()
+                ui.label(trf(
+                    "{n} explicitly selected archives",
+                    &[("n", &plan.entries.len())],
                 ));
                 for entry in &plan.entries {
                     ui.label(&entry.source);
                 }
-                ui.small("Resume uses this saved plan, not the editable draft. Verified completed copies are rechecked and reused. The preview estimate is for the full operation, not remaining time.");
+                ui.small(tr("Resume uses this saved plan, not the editable draft. Verified completed copies are rechecked and reused. The preview estimate is for the full operation, not remaining time."));
             }
             if state.reprocess.pending.is_some() {
                 ui.spinner();
-                ui.label("Reading manifests and calculating…");
+                ui.label(tr("Reading manifests and calculating…"));
             }
             if let Some(notice) = &state.reprocess.notice {
                 ui.separator();
@@ -337,7 +351,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             && state.reprocess.draft.is_some()
             && !state.reprocess.picker.is_open();
         if ui
-            .add_enabled(can_plan, egui::Button::new("Calculate / preview"))
+            .add_enabled(can_plan, egui::Button::new(tr("Calculate / preview")))
             .clicked()
         {
             start_preview(state);
@@ -348,16 +362,19 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             && state.reprocess.pending_save.is_none()
             && !state.reprocess.picker.is_open();
         if ui
-            .add_enabled(can_apply, egui::Button::new("Create reprocessed copies"))
+            .add_enabled(
+                can_apply,
+                egui::Button::new(tr("Create reprocessed copies")),
+            )
             .clicked()
         {
             if let Some(plan) = &state.reprocess.preview {
                 let args = execute_args(&plan.plan_path);
                 match task.start_rpool("Reprocess pool data", &state.settings.rclone, args) {
                     Ok(()) => {
-                        state.reprocess.notice = Some(format!(
-                            "Started. Originals retained. Plan / results: {}",
-                            plan.plan_path.display()
+                        state.reprocess.notice = Some(trf(
+                            "Started. Originals retained. Plan / results: {path}",
+                            &[("path", &plan.plan_path.display())],
                         ));
                         state.reprocess.active_plan = Some(plan.clone());
                         state.reprocess.preview = None;
@@ -369,30 +386,30 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     });
     ui.horizontal_wrapped(|ui| {
         if ui.add_enabled(!task.is_running() && state.reprocess.pending.is_none()
-            && state.reprocess.pending_save.is_none(), egui::Button::new("Open saved plan…")).clicked() {
-            if let Some(path) = rfd::FileDialog::new().add_filter("Reprocess plan", &["json"]).pick_file() {
+            && state.reprocess.pending_save.is_none(), egui::Button::new(tr("Open saved plan…"))).clicked() {
+            if let Some(path) = rfd::FileDialog::new().add_filter(tr("Reprocess plan"), &["json"]).pick_file() {
                 load_active_plan(state, path);
             }
         }
         if ui.add_enabled(!task.is_running() && state.reprocess.active_plan.is_some() && state.reprocess.pending.is_none()
-            && state.reprocess.pending_save.is_none(), egui::Button::new("Resume saved operation")).clicked() {
+            && state.reprocess.pending_save.is_none(), egui::Button::new(tr("Resume saved operation"))).clicked() {
             let path = state.reprocess.active_plan.as_ref().unwrap().plan_path.clone();
             match load_plan(&path) {
                 Ok(plan) => {
                     state.reprocess.active_plan = Some(plan);
                     match task.start_rpool("Reprocess pool data", &state.settings.rclone, execute_args(&path)) {
-                        Ok(()) => state.reprocess.notice = Some("Resuming saved operation; completed copies will be verified before reuse. Originals retained.".into()),
+                        Ok(()) => state.reprocess.notice = Some(tr("Resuming saved operation; completed copies will be verified before reuse. Originals retained.").into()),
                         Err(error) => state.reprocess.notice = Some(error),
                     }
                 }
-                Err(error) => state.reprocess.notice = Some(format!("Cannot resume: {error:#}")),
+                Err(error) => state.reprocess.notice = Some(trf("Cannot resume: {error}", &[("error", &format!("{error:#}"))])),
             }
         }
         if ui.add_enabled(!task.is_running() && !state.mount.is_running()
-            && state.reprocess.active_plan.is_some(), egui::Button::new("Use this plan below")).clicked() {
+            && state.reprocess.active_plan.is_some(), egui::Button::new(tr("Use this plan below"))).clicked() {
             let path = state.reprocess.active_plan.as_ref().unwrap().plan_path.clone();
             state.mount.use_reprocess_plan(&path);
-            state.reprocess.notice = Some("Plan selected for “Apply changed pool” and “Recover after losing an account” below.".into());
+            state.reprocess.notice = Some(tr("Plan selected for “Apply changed pool” and “Recover after losing an account” below.").into());
         }
     });
     if let Some(draft) = &mut state.reprocess.draft {
@@ -406,7 +423,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             state.storage_section = crate::gui::state::StorageSection::Providers;
         }
     }
-    ui.small("Saving a pool only changes future uploads. Saving draft defaults is optional and separate from conversion. This operation covers only selected archives, not necessarily the entire pool. No old provider data is deleted or disconnected.");
+    ui.small(tr("Saving a pool only changes future uploads. Saving draft defaults is optional and separate from conversion. This operation covers only selected archives, not necessarily the entire pool. No old provider data is deleted or disconnected."));
 }
 
 fn start_save(state: &mut GuiState) {
@@ -421,7 +438,12 @@ fn start_save(state: &mut GuiState) {
     std::thread::spawn(move || {
         let result = upsert_pool(&rclone, &name, draft)
             .map(|_| ())
-            .map_err(|error| format!("Failed to save pool defaults: {error:#}"));
+            .map_err(|error| {
+                trf(
+                    "Failed to save pool defaults: {error}",
+                    &[("error", &format!("{error:#}"))],
+                )
+            });
         let _ = tx.send(result);
     });
 }
@@ -438,15 +460,18 @@ fn poll_save(state: &mut GuiState) {
             state.reprocess.notice = Some(match result {
                 Ok(()) => {
                     if super::pools::refresh_pool_names(state) {
-                        "Pool defaults saved for future uploads. Existing archives were not changed; conversion remains a separate action.".into()
+                        tr("Pool defaults saved for future uploads. Existing archives were not changed; conversion remains a separate action.").into()
                     } else {
-                        format!(
-                            "Pool defaults saved, but {}",
-                            state
-                                .pools
-                                .notice
-                                .as_deref()
-                                .unwrap_or("pool list reload failed")
+                        trf(
+                            "Pool defaults saved, but {reason}",
+                            &[(
+                                "reason",
+                                &state
+                                    .pools
+                                    .notice
+                                    .as_deref()
+                                    .unwrap_or(tr("pool list reload failed")),
+                            )],
                         )
                     }
                 }
@@ -455,8 +480,9 @@ fn poll_save(state: &mut GuiState) {
         }
         Some(Err(mpsc::TryRecvError::Disconnected)) => {
             state.reprocess.pending_save = None;
-            state.reprocess.notice =
-                Some("Save worker stopped; reload the pool list to check the saved state.".into());
+            state.reprocess.notice = Some(
+                tr("Save worker stopped; reload the pool list to check the saved state.").into(),
+            );
         }
         _ => {}
     }
@@ -467,11 +493,16 @@ fn load_active_plan(state: &mut GuiState, path: PathBuf) {
         Ok(plan) => {
             state.reprocess.active_plan = Some(plan);
             state.reprocess.notice = Some(
-                "Saved plan loaded. Review its exact target and selected archives before resuming."
+                tr("Saved plan loaded. Review its exact target and selected archives before resuming.")
                     .into(),
             );
         }
-        Err(error) => state.reprocess.notice = Some(format!("Cannot load saved plan: {error:#}")),
+        Err(error) => {
+            state.reprocess.notice = Some(trf(
+                "Cannot load saved plan: {error}",
+                &[("error", &format!("{error:#}"))],
+            ))
+        }
     }
 }
 
@@ -523,7 +554,7 @@ fn poll(state: &mut GuiState, signature: &str) {
             state.reprocess.pending = None;
             if state.reprocess.pending_signature != signature {
                 state.reprocess.notice =
-                    Some("Selection or settings changed; calculate a new preview.".into());
+                    Some(tr("Selection or settings changed; calculate a new preview.").into());
                 return;
             }
             match result {
@@ -536,7 +567,8 @@ fn poll(state: &mut GuiState, signature: &str) {
         }
         Some(Err(mpsc::TryRecvError::Disconnected)) => {
             state.reprocess.pending = None;
-            state.reprocess.notice = Some("Calculation worker stopped; calculate again.".into());
+            state.reprocess.notice =
+                Some(tr("Calculation worker stopped; calculate again.").into());
         }
         _ => {}
     }
@@ -628,9 +660,9 @@ pub(crate) fn handle_task_completion(
     }
     state.inventory.refresh();
     let detail = match status {
-        crate::gui::task::JobStatus::Completed => "Verified new copies added to the library; originals retained.",
-        crate::gui::task::JobStatus::Cancelled => "Cancelled. Originals retained. Use Resume saved operation to continue this exact plan; see task log for completed and partial copies.",
-        _ => "Stopped with errors. Originals retained. Fix the reported problem, then Resume saved operation; see task log for details.",
+        crate::gui::task::JobStatus::Completed => tr("Verified new copies added to the library; originals retained."),
+        crate::gui::task::JobStatus::Cancelled => tr("Cancelled. Originals retained. Use Resume saved operation to continue this exact plan; see task log for completed and partial copies."),
+        _ => tr("Stopped with errors. Originals retained. Fix the reported problem, then Resume saved operation; see task log for details."),
     };
     state.reprocess.notice = Some(detail.into());
 }

@@ -1,1 +1,1102 @@
-{}
+{
+ "1 encrypted destination": {
+  "ko": "암호화된 대상 1개",
+  "ja": "暗号化された保存先 1 件",
+  "zh": "1 个加密目标"
+ },
+ "Add archives to this PC's index, or rebuild it from a folder of manifests.": {
+  "ko": "이 PC의 색인에 아카이브를 추가하거나, 매니페스트 폴더로 색인을 다시 만들어요.",
+  "ja": "この PC の索引にアーカイブを追加するか、マニフェストのフォルダから再構築します。",
+  "zh": "将归档添加到本机索引，或根据清单文件夹重建索引。"
+ },
+ "Add at least one cloud destination.": {
+  "ko": "클라우드 대상을 하나 이상 추가하세요.",
+  "ja": "クラウドの保存先を 1 つ以上追加してください。",
+  "zh": "请至少添加一个云端目标。"
+ },
+ "Add at least one crypt destination for the manual upload.": {
+  "ko": "수동 업로드용 crypt 대상을 하나 이상 추가하세요.",
+  "ja": "手動アップロード用の crypt 保存先を 1 つ以上追加してください。",
+  "zh": "请为手动上传至少添加一个 crypt 目标。"
+ },
+ "Add files…": {
+  "ko": "파일 추가…",
+  "ja": "ファイルを追加…",
+  "zh": "添加文件…"
+ },
+ "Add one archive to the index from its manifest (local file or remote object).": {
+  "ko": "매니페스트로 아카이브 하나를 색인에 추가해요 (로컬 파일 또는 원격 객체).",
+  "ja": "マニフェストからアーカイブを 1 つ索引に追加します (ローカルファイルまたはリモートオブジェクト)。",
+  "zh": "根据清单将一个归档添加到索引（本地文件或远程对象）。"
+ },
+ "Add one or more local files before starting the upload.": {
+  "ko": "업로드를 시작하기 전에 로컬 파일을 하나 이상 추가하세요.",
+  "ja": "アップロードを開始する前にローカルファイルを 1 つ以上追加してください。",
+  "zh": "开始上传前请添加一个或多个本地文件。"
+ },
+ "Add one or more source files first.": {
+  "ko": "먼저 원본 파일을 하나 이상 추가하세요.",
+  "ja": "先にソースファイルを 1 つ以上追加してください。",
+  "zh": "请先添加一个或多个源文件。"
+ },
+ "Add to inventory": {
+  "ko": "인벤토리에 추가",
+  "ja": "インベントリに追加",
+  "zh": "添加到清单库"
+ },
+ "Advanced": {
+  "ko": "고급",
+  "ja": "詳細設定",
+  "zh": "高级"
+ },
+ "All coding": {
+  "ko": "모든 코딩",
+  "ja": "すべてのコーディング",
+  "zh": "全部编码"
+ },
+ "Another rpool operation is already running.": {
+  "ko": "다른 rpool 작업이 이미 실행 중이에요.",
+  "ja": "別の rpool 操作がすでに実行中です。",
+  "zh": "另一个 rpool 操作正在运行。"
+ },
+ "Append provider usage information": {
+  "ko": "프로바이더 사용량 정보 추가",
+  "ja": "プロバイダーの使用量情報を追加",
+  "zh": "附加提供商用量信息"
+ },
+ "Archive ID": {
+  "ko": "아카이브 ID",
+  "ja": "アーカイブ ID",
+  "zh": "归档 ID"
+ },
+ "Archive IDs are generated automatically for multi-file uploads.": {
+  "ko": "여러 파일을 업로드할 때는 아카이브 ID가 자동으로 만들어져요.",
+  "ja": "複数ファイルのアップロードではアーカイブ ID が自動生成されます。",
+  "zh": "多文件上传时会自动生成归档 ID。"
+ },
+ "Archive check": {
+  "ko": "아카이브 점검",
+  "ja": "アーカイブチェック",
+  "zh": "归档检查"
+ },
+ "Archive identity": {
+  "ko": "아카이브 식별자",
+  "ja": "アーカイブ識別子",
+  "zh": "归档标识"
+ },
+ "Archive local files using a storage pool. Files are uploaded sequentially and remain encrypted through rclone crypt destinations.": {
+  "ko": "스토리지 풀로 로컬 파일을 아카이브해요. 파일은 순서대로 업로드되고 rclone crypt 대상을 통해 암호화된 상태로 유지돼요.",
+  "ja": "ストレージプールを使ってローカルファイルをアーカイブします。ファイルは順番にアップロードされ、rclone crypt の保存先で暗号化されたまま保たれます。",
+  "zh": "使用存储池归档本地文件。文件按顺序上传，并通过 rclone crypt 目标保持加密。"
+ },
+ "Archive status": {
+  "ko": "아카이브 상태",
+  "ja": "アーカイブの状態",
+  "zh": "归档状态"
+ },
+ "Archive {id} · {mode} · checked {age}": {
+  "ko": "아카이브 {id} · {mode} · 점검 {age}",
+  "ja": "アーカイブ {id} · {mode} · チェック {age}",
+  "zh": "归档 {id} · {mode} · 检查于 {age}"
+ },
+ "Bad shards": {
+  "ko": "불량 샤드",
+  "ja": "不良シャード",
+  "zh": "损坏分片"
+ },
+ "Bad size": {
+  "ko": "크기 불일치",
+  "ja": "サイズ不一致",
+  "zh": "大小不符"
+ },
+ "Browse the folders and files on a pool's drive, or the archives uploaded to it.": {
+  "ko": "풀 드라이브의 폴더와 파일, 또는 업로드된 아카이브를 살펴봐요.",
+  "ja": "プールのドライブ上のフォルダとファイル、またはアップロード済みのアーカイブを参照します。",
+  "zh": "浏览存储池驱动器上的文件夹和文件，或已上传到其中的归档。"
+ },
+ "Check": {
+  "ko": "점검 항목",
+  "ja": "チェック項目",
+  "zh": "检查项"
+ },
+ "Check every physical shard. Full verification streams each shard and validates its BLAKE3 hash.": {
+  "ko": "모든 물리 샤드를 점검해요. 전체 검증은 각 샤드를 스트리밍해 BLAKE3 해시를 확인해요.",
+  "ja": "すべての物理シャードをチェックします。完全検証では各シャードを読み込み、BLAKE3 ハッシュを検証します。",
+  "zh": "检查每个物理分片。完整校验会读取每个分片并校验其 BLAKE3 哈希。"
+ },
+ "Check rclone, providers, pools, configuration, and rebuildable local metadata.": {
+  "ko": "rclone, 프로바이더, 풀, 설정, 다시 만들 수 있는 로컬 메타데이터를 점검해요.",
+  "ja": "rclone、プロバイダー、プール、設定、再構築可能なローカルメタデータをチェックします。",
+  "zh": "检查 rclone、提供商、存储池、配置以及可重建的本地元数据。"
+ },
+ "Check replicas": {
+  "ko": "복제본 점검",
+  "ja": "レプリカのチェック",
+  "zh": "检查副本"
+ },
+ "Check status": {
+  "ko": "상태 확인",
+  "ja": "状態を確認",
+  "zh": "检查状态"
+ },
+ "Check status…": {
+  "ko": "상태 확인…",
+  "ja": "状態を確認…",
+  "zh": "检查状态…"
+ },
+ "Checking…": {
+  "ko": "점검 중…",
+  "ja": "チェック中…",
+  "zh": "检查中…"
+ },
+ "Checks object existence and expected size.": {
+  "ko": "객체 존재 여부와 예상 크기를 확인해요.",
+  "ja": "オブジェクトの存在と想定サイズを確認します。",
+  "zh": "检查对象是否存在及大小是否符合预期。"
+ },
+ "Checks passed": {
+  "ko": "점검 통과",
+  "ja": "チェック合格",
+  "zh": "检查通过"
+ },
+ "Choose a directory containing manifests first.": {
+  "ko": "먼저 매니페스트가 있는 폴더를 선택하세요.",
+  "ja": "先にマニフェストを含むフォルダを選択してください。",
+  "zh": "请先选择包含清单的目录。"
+ },
+ "Choose a manifest directory first.": {
+  "ko": "먼저 매니페스트 폴더를 선택하세요.",
+  "ja": "先にマニフェストのフォルダを選択してください。",
+  "zh": "请先选择清单目录。"
+ },
+ "Choose a manifest to add first.": {
+  "ko": "먼저 추가할 매니페스트를 선택하세요.",
+  "ja": "先に追加するマニフェストを選択してください。",
+  "zh": "请先选择要添加的清单。"
+ },
+ "Choose a pool…": {
+  "ko": "풀 선택…",
+  "ja": "プールを選択…",
+  "zh": "选择存储池…"
+ },
+ "Choose an output file first.": {
+  "ko": "먼저 출력 파일을 선택하세요.",
+  "ja": "先に出力ファイルを選択してください。",
+  "zh": "请先选择输出文件。"
+ },
+ "Choose indexed archive…": {
+  "ko": "인덱싱된 아카이브 선택…",
+  "ja": "インデックス済みアーカイブを選択…",
+  "zh": "选择已索引的归档…"
+ },
+ "Collapse all": {
+  "ko": "모두 접기",
+  "ja": "すべて折りたたむ",
+  "zh": "全部折叠"
+ },
+ "Compare every replica with a reference manifest, and rewrite missing or damaged ones.": {
+  "ko": "모든 복제본을 기준 매니페스트와 비교하고, 누락되거나 손상된 복제본을 다시 써요.",
+  "ja": "すべてのレプリカを基準マニフェストと比較し、欠落または破損したものを書き直します。",
+  "zh": "将每个副本与参考清单比较，并重写缺失或损坏的副本。"
+ },
+ "Corrupt": {
+  "ko": "손상",
+  "ja": "破損",
+  "zh": "已损坏"
+ },
+ "Crypt remote discovery is not available yet. The storage layer will still enforce encryption before any write.": {
+  "ko": "crypt 리모트 탐색을 아직 사용할 수 없어요. 저장 계층은 쓰기 전에 여전히 암호화를 강제해요.",
+  "ja": "crypt リモートの検出はまだ利用できません。ストレージ層は書き込み前に引き続き暗号化を強制します。",
+  "zh": "crypt 远程发现尚不可用。存储层仍会在任何写入前强制加密。"
+ },
+ "Degraded": {
+  "ko": "저하됨",
+  "ja": "劣化",
+  "zh": "已降级"
+ },
+ "Degraded groups": {
+  "ko": "저하된 그룹",
+  "ja": "劣化グループ",
+  "zh": "降级分组"
+ },
+ "Derive from manifest": {
+  "ko": "매니페스트에서 가져오기",
+  "ja": "マニフェストから取得",
+  "zh": "从清单推导"
+ },
+ "Destinations and redundancy settings come from the selected pool.": {
+  "ko": "대상과 중복 설정은 선택한 풀에서 가져와요.",
+  "ja": "保存先と冗長性の設定は選択したプールのものを使います。",
+  "zh": "目标和冗余设置来自所选存储池。"
+ },
+ "Detail": {
+  "ko": "세부 내용",
+  "ja": "詳細",
+  "zh": "详情"
+ },
+ "Details": {
+  "ko": "세부 정보",
+  "ja": "詳細",
+  "zh": "详细信息"
+ },
+ "Diagnostics": {
+  "ko": "진단",
+  "ja": "診断",
+  "zh": "诊断"
+ },
+ "Diagnostics stopped unexpectedly; run them again.": {
+  "ko": "진단이 예기치 않게 중단됐어요. 다시 실행하세요.",
+  "ja": "診断が予期せず停止しました。もう一度実行してください。",
+  "zh": "诊断意外停止，请重新运行。"
+ },
+ "Directory containing manifests": {
+  "ko": "매니페스트가 있는 폴더",
+  "ja": "マニフェストを含むフォルダ",
+  "zh": "包含清单的目录"
+ },
+ "Drive files": {
+  "ko": "드라이브 파일",
+  "ja": "ドライブのファイル",
+  "zh": "驱动器文件"
+ },
+ "Drop local files here or add several files at once.": {
+  "ko": "로컬 파일을 여기에 끌어 놓거나 여러 파일을 한 번에 추가하세요.",
+  "ja": "ここにローカルファイルをドロップするか、複数のファイルをまとめて追加してください。",
+  "zh": "将本地文件拖放到此处，或一次添加多个文件。"
+ },
+ "Enter an archive ID first.": {
+  "ko": "먼저 아카이브 ID를 입력하세요.",
+  "ja": "先にアーカイブ ID を入力してください。",
+  "zh": "请先输入归档 ID。"
+ },
+ "Erasure coding disabled (M = 0).": {
+  "ko": "이레이저 코딩 사용 안 함 (M = 0).",
+  "ja": "イレージャーコーディング無効 (M = 0)。",
+  "zh": "纠删码已禁用 (M = 0)。"
+ },
+ "Erasure coding: {k}+{m} · parity overhead {pct}%": {
+  "ko": "이레이저 코딩: {k}+{m} · 패리티 오버헤드 {pct}%",
+  "ja": "イレージャーコーディング: {k}+{m} · パリティのオーバーヘッド {pct}%",
+  "zh": "纠删码：{k}+{m} · 校验开销 {pct}%"
+ },
+ "Error": {
+  "ko": "오류",
+  "ja": "エラー",
+  "zh": "错误"
+ },
+ "File": {
+  "ko": "파일",
+  "ja": "ファイル",
+  "zh": "文件"
+ },
+ "Finds an archive's manifest on its providers by archive ID.": {
+  "ko": "아카이브 ID로 프로바이더에서 아카이브의 매니페스트를 찾아요.",
+  "ja": "アーカイブ ID を使ってプロバイダー上のアーカイブのマニフェストを探します。",
+  "zh": "按归档 ID 在其提供商上查找归档的清单。"
+ },
+ "Full BLAKE3": {
+  "ko": "전체 BLAKE3",
+  "ja": "完全 BLAKE3",
+  "zh": "完整 BLAKE3"
+ },
+ "Full remote read + BLAKE3 verification": {
+  "ko": "원격 전체 읽기 + BLAKE3 검증",
+  "ja": "リモート全体の読み込み + BLAKE3 検証",
+  "zh": "完整远程读取 + BLAKE3 校验"
+ },
+ "Generated automatically when empty": {
+  "ko": "비워 두면 자동 생성",
+  "ja": "空欄の場合は自動生成",
+  "zh": "留空时自动生成"
+ },
+ "Group": {
+  "ko": "그룹",
+  "ja": "グループ",
+  "zh": "分组"
+ },
+ "Inspect shard availability, degraded groups, recoverability, and provider failure-domain safety.": {
+  "ko": "샤드 가용성, 저하된 그룹, 복구 가능 여부, 프로바이더 장애 도메인 안전성을 확인해요.",
+  "ja": "シャードの可用性、劣化グループ、復元可能性、プロバイダー障害ドメインの安全性を確認します。",
+  "zh": "检查分片可用性、降级分组、可恢复性以及提供商故障域安全性。"
+ },
+ "Integrity": {
+  "ko": "무결성",
+  "ja": "整合性",
+  "zh": "完整性"
+ },
+ "Integrity snapshot could not be loaded: {error}": {
+  "ko": "무결성 스냅샷을 불러오지 못했어요: {error}",
+  "ja": "整合性スナップショットを読み込めませんでした: {error}",
+  "zh": "无法加载完整性快照：{error}"
+ },
+ "Invalid Reed-Solomon policy: {error}": {
+  "ko": "잘못된 Reed-Solomon 정책: {error}",
+  "ja": "無効な Reed-Solomon ポリシー: {error}",
+  "zh": "Reed-Solomon 策略无效：{error}"
+ },
+ "Inventory": {
+  "ko": "인벤토리",
+  "ja": "インベントリ",
+  "zh": "清单库"
+ },
+ "Inventory cache": {
+  "ko": "인벤토리 캐시",
+  "ja": "インベントリキャッシュ",
+  "zh": "清单库缓存"
+ },
+ "Inventory rebuild completed and Files was refreshed.": {
+  "ko": "인벤토리 재구성이 끝나고 파일 목록을 새로 고쳤어요.",
+  "ja": "インベントリの再構築が完了し、ファイル一覧を更新しました。",
+  "zh": "清单库重建完成，文件列表已刷新。"
+ },
+ "Inventory rebuild failed. See Jobs for details.": {
+  "ko": "인벤토리 재구성에 실패했어요. 자세한 내용은 작업에서 확인하세요.",
+  "ja": "インベントリの再構築に失敗しました。詳細はジョブを確認してください。",
+  "zh": "清单库重建失败。详情请查看任务。"
+ },
+ "Inventory rebuild updated.": {
+  "ko": "인벤토리 재구성이 갱신됐어요.",
+  "ja": "インベントリの再構築が更新されました。",
+  "zh": "清单库重建已更新。"
+ },
+ "Inventory rebuild was cancelled.": {
+  "ko": "인벤토리 재구성이 취소됐어요.",
+  "ja": "インベントリの再構築はキャンセルされました。",
+  "zh": "清单库重建已取消。"
+ },
+ "Inventory stores metadata only. Run Status or Verify for current remote health.": {
+  "ko": "인벤토리는 메타데이터만 저장해요. 현재 원격 상태는 상태 확인이나 검증을 실행하세요.",
+  "ja": "インベントリはメタデータのみを保存します。現在のリモートの状態は、状態確認または検証を実行してください。",
+  "zh": "清单库仅存储元数据。如需了解当前远程健康状况，请运行状态检查或校验。"
+ },
+ "Issues ({n})": {
+  "ko": "문제 ({n})",
+  "ja": "問題 ({n})",
+  "zh": "问题 ({n})"
+ },
+ "Last integrity result": {
+  "ko": "최근 무결성 결과",
+  "ja": "前回の整合性結果",
+  "zh": "最近的完整性结果"
+ },
+ "Library": {
+  "ko": "라이브러리",
+  "ja": "ライブラリ",
+  "zh": "资料库"
+ },
+ "List the drive again from the pool's cloud metadata.": {
+  "ko": "풀의 클라우드 메타데이터로 드라이브 목록을 다시 불러와요.",
+  "ja": "プールのクラウドメタデータからドライブを再度一覧表示します。",
+  "zh": "根据存储池的云端元数据重新列出驱动器。"
+ },
+ "Listing stopped unexpectedly; refresh to try again.": {
+  "ko": "목록 불러오기가 예기치 않게 중단됐어요. 새로 고쳐 다시 시도하세요.",
+  "ja": "一覧の取得が予期せず停止しました。更新して再試行してください。",
+  "zh": "列出过程意外停止，请刷新重试。"
+ },
+ "Loading…": {
+  "ko": "불러오는 중…",
+  "ja": "読み込み中…",
+  "zh": "加载中…"
+ },
+ "Local checks only": {
+  "ko": "로컬 점검만",
+  "ja": "ローカルチェックのみ",
+  "zh": "仅本地检查"
+ },
+ "Manifest replicas are what an archive is rebuilt from; the inventory is this PC's index of archives.": {
+  "ko": "매니페스트 복제본은 아카이브를 다시 구성하는 기준이고, 인벤토리는 이 PC의 아카이브 색인이에요.",
+  "ja": "マニフェストのレプリカはアーカイブ再構築の元になり、インベントリはこの PC のアーカイブ索引です。",
+  "zh": "清单副本是重建归档的依据；清单库是本机的归档索引。"
+ },
+ "Manual destinations are intended for one-off uploads. New archive data is still restricted to safe rclone crypt remotes.": {
+  "ko": "수동 대상은 일회성 업로드용이에요. 새 아카이브 데이터는 여전히 안전한 rclone crypt 리모트로만 저장돼요.",
+  "ja": "手動の保存先は一回限りのアップロード向けです。新しいアーカイブデータは引き続き安全な rclone crypt リモートに限定されます。",
+  "zh": "手动目标用于一次性上传。新的归档数据仍仅限写入安全的 rclone crypt 远程。"
+ },
+ "Manual manifest path": {
+  "ko": "매니페스트 경로 직접 입력",
+  "ja": "マニフェストパスを手動入力",
+  "zh": "手动输入清单路径"
+ },
+ "Manual one-off": {
+  "ko": "수동 일회성",
+  "ja": "手動（一回限り）",
+  "zh": "手动一次性"
+ },
+ "Manual one-off upload": {
+  "ko": "수동 일회성 업로드",
+  "ja": "手動の一回限りアップロード",
+  "zh": "手动一次性上传"
+ },
+ "Manual upload policy": {
+  "ko": "수동 업로드 정책",
+  "ja": "手動アップロードのポリシー",
+  "zh": "手动上传策略"
+ },
+ "Metadata": {
+  "ko": "메타데이터",
+  "ja": "メタデータ",
+  "zh": "元数据"
+ },
+ "Missing": {
+  "ko": "누락",
+  "ja": "欠落",
+  "zh": "缺失"
+ },
+ "Multiple": {
+  "ko": "여러 풀",
+  "ja": "複数",
+  "zh": "多个"
+ },
+ "Needs attention": {
+  "ko": "확인 필요",
+  "ja": "要確認",
+  "zh": "需要处理"
+ },
+ "No EC": {
+  "ko": "EC 없음",
+  "ja": "EC なし",
+  "zh": "无 EC"
+ },
+ "No EC · {mib} MiB shards": {
+  "ko": "EC 없음 · {mib} MiB 샤드",
+  "ja": "EC なし · {mib} MiB シャード",
+  "zh": "无 EC · {mib} MiB 分片"
+ },
+ "No EC · {mib} MiB shards · {placement}": {
+  "ko": "EC 없음 · {mib} MiB 샤드 · {placement}",
+  "ja": "EC なし · {mib} MiB シャード · {placement}",
+  "zh": "无 EC · {mib} MiB 分片 · {placement}"
+ },
+ "No destinations": {
+  "ko": "대상 없음",
+  "ja": "保存先なし",
+  "zh": "无目标"
+ },
+ "No diagnostic result yet.": {
+  "ko": "아직 진단 결과가 없어요.",
+  "ja": "まだ診断結果はありません。",
+  "zh": "暂无诊断结果。"
+ },
+ "No drive": {
+  "ko": "드라이브 없음",
+  "ja": "ドライブなし",
+  "zh": "无驱动器"
+ },
+ "No erasure coding": {
+  "ko": "이레이저 코딩 없음",
+  "ja": "イレージャーコーディングなし",
+  "zh": "无纠删码"
+ },
+ "No files match the current filters.": {
+  "ko": "현재 필터에 맞는 파일이 없어요.",
+  "ja": "現在のフィルターに一致するファイルはありません。",
+  "zh": "没有符合当前筛选条件的文件。"
+ },
+ "No files selected.": {
+  "ko": "선택된 파일이 없어요.",
+  "ja": "ファイルが選択されていません。",
+  "zh": "未选择文件。"
+ },
+ "No names match the search.": {
+  "ko": "검색과 일치하는 이름이 없어요.",
+  "ja": "検索に一致する名前はありません。",
+  "zh": "没有与搜索匹配的名称。"
+ },
+ "No pending files": {
+  "ko": "대기 중인 파일 없음",
+  "ja": "待機中のファイルなし",
+  "zh": "无待上传文件"
+ },
+ "No pools yet: create one in Storage › Pools first.": {
+  "ko": "아직 풀이 없어요. 먼저 스토리지 › 풀에서 만들어 주세요.",
+  "ja": "プールがまだありません。先にストレージ › プールで作成してください。",
+  "zh": "还没有存储池：请先在 存储 › 存储池 中创建。"
+ },
+ "No storage pool is configured. Create one under Storage > Pools, or open Advanced for a one-off manual upload.": {
+  "ko": "설정된 스토리지 풀이 없어요. 스토리지 > 풀에서 만들거나, 일회성 수동 업로드는 고급을 여세요.",
+  "ja": "ストレージプールが設定されていません。ストレージ > プールで作成するか、一回限りの手動アップロードには詳細設定を開いてください。",
+  "zh": "尚未配置存储池。请在 存储 > 存储池 中创建，或打开高级选项进行一次性手动上传。"
+ },
+ "Normal uploads should use a storage pool. Manual destinations and one-off policy overrides are available here.": {
+  "ko": "일반 업로드는 스토리지 풀을 사용하세요. 수동 대상과 일회성 정책 재정의는 여기에서 쓸 수 있어요.",
+  "ja": "通常のアップロードにはストレージプールを使ってください。手動の保存先と一回限りのポリシー上書きはここで使えます。",
+  "zh": "常规上传应使用存储池。手动目标和一次性策略覆盖可在此处使用。"
+ },
+ "Not checked": {
+  "ko": "미점검",
+  "ja": "未チェック",
+  "zh": "未检查"
+ },
+ "Notes ({n})": {
+  "ko": "참고 ({n})",
+  "ja": "メモ ({n})",
+  "zh": "备注 ({n})"
+ },
+ "Only this upload uses these values; the pool and your saved defaults are unchanged. Destinations still come from the pool.": {
+  "ko": "이 값은 이번 업로드에만 적용되고, 풀과 저장된 기본값은 바뀌지 않아요. 대상은 계속 풀에서 가져와요.",
+  "ja": "これらの値はこのアップロードにのみ使われ、プールと保存済みの既定値は変わりません。保存先は引き続きプールのものを使います。",
+  "zh": "这些值仅用于本次上传，存储池和已保存的默认值不变。目标仍来自存储池。"
+ },
+ "Output file": {
+  "ko": "출력 파일",
+  "ja": "出力ファイル",
+  "zh": "输出文件"
+ },
+ "Output manifest (optional)": {
+  "ko": "출력 매니페스트 (선택)",
+  "ja": "出力マニフェスト (任意)",
+  "zh": "输出清单（可选）"
+ },
+ "Override the pool's policy for this upload": {
+  "ko": "이번 업로드에 풀 정책 재정의",
+  "ja": "このアップロードでプールのポリシーを上書き",
+  "zh": "本次上传覆盖存储池策略"
+ },
+ "Pending": {
+  "ko": "대기 중",
+  "ja": "待機中",
+  "zh": "等待中"
+ },
+ "Pick a pool to browse the folders and files on its drive.": {
+  "ko": "풀을 선택하면 드라이브의 폴더와 파일을 볼 수 있어요.",
+  "ja": "プールを選ぶと、そのドライブのフォルダとファイルを参照できます。",
+  "zh": "选择一个存储池以浏览其驱动器上的文件夹和文件。"
+ },
+ "Pick a pool to list the archives uploaded to it.": {
+  "ko": "풀을 선택하면 업로드된 아카이브 목록을 볼 수 있어요.",
+  "ja": "プールを選ぶと、アップロード済みのアーカイブを一覧表示します。",
+  "zh": "选择一个存储池以列出已上传到其中的归档。"
+ },
+ "Policy": {
+  "ko": "정책",
+  "ja": "ポリシー",
+  "zh": "策略"
+ },
+ "Pool: {name}": {
+  "ko": "풀: {name}",
+  "ja": "プール: {name}",
+  "zh": "存储池：{name}"
+ },
+ "Provider error": {
+  "ko": "프로바이더 오류",
+  "ja": "プロバイダーエラー",
+  "zh": "提供商错误"
+ },
+ "Provider errors": {
+  "ko": "프로바이더 오류",
+  "ja": "プロバイダーエラー",
+  "zh": "提供商错误"
+ },
+ "Quick": {
+  "ko": "빠른 검사",
+  "ja": "クイック",
+  "zh": "快速"
+ },
+ "RS {k}+{m} · {mib} MiB shards": {
+  "ko": "RS {k}+{m} · {mib} MiB 샤드",
+  "ja": "RS {k}+{m} · {mib} MiB シャード",
+  "zh": "RS {k}+{m} · {mib} MiB 分片"
+ },
+ "RS {k}+{m} · {mib} MiB shards · {placement}": {
+  "ko": "RS {k}+{m} · {mib} MiB 샤드 · {placement}",
+  "ja": "RS {k}+{m} · {mib} MiB シャード · {placement}",
+  "zh": "RS {k}+{m} · {mib} MiB 分片 · {placement}"
+ },
+ "Reading the pool's drive metadata…": {
+  "ko": "풀의 드라이브 메타데이터를 읽는 중…",
+  "ja": "プールのドライブメタデータを読み込み中…",
+  "zh": "正在读取存储池的驱动器元数据…"
+ },
+ "Rebuild": {
+  "ko": "재구성",
+  "ja": "再構築",
+  "zh": "重建"
+ },
+ "Rebuild inventory": {
+  "ko": "인벤토리 재구성",
+  "ja": "インベントリを再構築",
+  "zh": "重建清单库"
+ },
+ "Rebuild the local inventory index from manifest files. The index is not a source of truth.": {
+  "ko": "매니페스트 파일로 로컬 인벤토리 색인을 다시 만들어요. 색인은 원본 데이터가 아니에요.",
+  "ja": "マニフェストファイルからローカルのインベントリ索引を再構築します。索引は正本ではありません。",
+  "zh": "根据清单文件重建本地清单库索引。该索引并非权威数据源。"
+ },
+ "Rebuild…": {
+  "ko": "재구성…",
+  "ja": "再構築…",
+  "zh": "重建…"
+ },
+ "Recover a lost manifest": {
+  "ko": "잃어버린 매니페스트 복구",
+  "ja": "失われたマニフェストの回復",
+  "zh": "找回丢失的清单"
+ },
+ "Recover manifest": {
+  "ko": "매니페스트 복구",
+  "ja": "マニフェストを回復",
+  "zh": "找回清单"
+ },
+ "Recoverable": {
+  "ko": "복구 가능",
+  "ja": "修復可能",
+  "zh": "可修复"
+ },
+ "Recreate the local index from manifest files.": {
+  "ko": "매니페스트 파일로 로컬 색인을 다시 만들어요.",
+  "ja": "マニフェストファイルからローカル索引を作り直します。",
+  "zh": "根据清单文件重新创建本地索引。"
+ },
+ "Reference manifest": {
+  "ko": "기준 매니페스트",
+  "ja": "基準マニフェスト",
+  "zh": "参考清单"
+ },
+ "Refresh the file list after the rebuild task completes.": {
+  "ko": "재구성 작업이 끝나면 파일 목록을 새로 고치세요.",
+  "ja": "再構築タスクの完了後にファイル一覧を更新してください。",
+  "zh": "重建任务完成后请刷新文件列表。"
+ },
+ "Remotes": {
+  "ko": "리모트",
+  "ja": "リモート",
+  "zh": "远程"
+ },
+ "Repair": {
+  "ko": "복구",
+  "ja": "修復",
+  "zh": "修复"
+ },
+ "Repair always performs a full BLAKE3 preflight before reconstruction, even when the last scrub was Quick.": {
+  "ko": "마지막 스크럽이 빠른 검사였더라도, 복구는 재구성 전에 항상 전체 BLAKE3 사전 점검을 해요.",
+  "ja": "前回のスクラブがクイックでも、修復は再構築の前に必ず完全な BLAKE3 事前チェックを行います。",
+  "zh": "即使上次巡检为快速模式，修复在重建前也始终执行完整的 BLAKE3 预检。"
+ },
+ "Repair selected groups": {
+  "ko": "선택한 그룹 복구",
+  "ja": "選択したグループを修復",
+  "zh": "修复所选分组"
+ },
+ "Replicate / repair": {
+  "ko": "복제 / 복구",
+  "ja": "複製 / 修復",
+  "zh": "复制 / 修复"
+ },
+ "Restore": {
+  "ko": "복원",
+  "ja": "復元",
+  "zh": "恢复"
+ },
+ "Restore from a local manifest or type a remote manifest path directly. Reed-Solomon recovery is automatic when possible.": {
+  "ko": "로컬 매니페스트에서 복원하거나 원격 매니페스트 경로를 직접 입력하세요. 가능하면 Reed-Solomon 복구가 자동으로 이뤄져요.",
+  "ja": "ローカルのマニフェストから復元するか、リモートのマニフェストパスを直接入力してください。可能な場合は Reed-Solomon による回復が自動で行われます。",
+  "zh": "从本地清单恢复，或直接输入远程清单路径。在可能时会自动进行 Reed-Solomon 恢复。"
+ },
+ "Restore…": {
+  "ko": "복원…",
+  "ja": "復元…",
+  "zh": "恢复…"
+ },
+ "Retry": {
+  "ko": "다시 시도",
+  "ja": "再試行",
+  "zh": "重试"
+ },
+ "Review the upload configuration before starting.": {
+  "ko": "시작하기 전에 업로드 설정을 확인하세요.",
+  "ja": "開始する前にアップロード設定を確認してください。",
+  "zh": "开始前请检查上传配置。"
+ },
+ "Run a scrub before selecting repair groups.": {
+  "ko": "복구 그룹을 선택하기 전에 스크럽을 실행하세요.",
+  "ja": "修復グループを選ぶ前にスクラブを実行してください。",
+  "zh": "选择修复分组前请先运行巡检。"
+ },
+ "Run a scrub to establish current archive integrity.": {
+  "ko": "스크럽을 실행해 현재 아카이브 무결성을 확인하세요.",
+  "ja": "スクラブを実行して現在のアーカイブの整合性を確認してください。",
+  "zh": "运行巡检以确认当前归档的完整性。"
+ },
+ "Run doctor": {
+  "ko": "진단 실행",
+  "ja": "診断を実行",
+  "zh": "运行诊断"
+ },
+ "Run scrub": {
+  "ko": "스크럽 실행",
+  "ja": "スクラブを実行",
+  "zh": "运行巡检"
+ },
+ "Scrub": {
+  "ko": "스크럽",
+  "ja": "スクラブ",
+  "zh": "巡检"
+ },
+ "Scrub stored shards, review degradation, and reconstruct recoverable Reed-Solomon groups.": {
+  "ko": "저장된 샤드를 스크럽하고, 저하 상태를 검토하고, 복구 가능한 Reed-Solomon 그룹을 재구성해요.",
+  "ja": "保存済みシャードをスクラブし、劣化を確認して、修復可能な Reed-Solomon グループを再構築します。",
+  "zh": "巡检已存储的分片，查看降级情况，并重建可修复的 Reed-Solomon 分组。"
+ },
+ "Search files, archive IDs, remotes…": {
+  "ko": "파일, 아카이브 ID, 리모트 검색…",
+  "ja": "ファイル、アーカイブ ID、リモートを検索…",
+  "zh": "搜索文件、归档 ID、远程…"
+ },
+ "Search names and paths…": {
+  "ko": "이름과 경로 검색…",
+  "ja": "名前とパスを検索…",
+  "zh": "搜索名称和路径…"
+ },
+ "Select a file to inspect it.": {
+  "ko": "파일을 선택하면 자세히 볼 수 있어요.",
+  "ja": "ファイルを選択すると詳細を表示します。",
+  "zh": "选择一个文件以查看详情。"
+ },
+ "Select a pool": {
+  "ko": "풀 선택",
+  "ja": "プールを選択",
+  "zh": "选择存储池"
+ },
+ "Select a pool or add at least one recovery remote.": {
+  "ko": "풀을 선택하거나 복구용 리모트를 하나 이상 추가하세요.",
+  "ja": "プールを選択するか、回復用リモートを 1 つ以上追加してください。",
+  "zh": "请选择存储池或至少添加一个用于找回的远程。"
+ },
+ "Select a storage pool first.": {
+  "ko": "먼저 스토리지 풀을 선택하세요.",
+  "ja": "先にストレージプールを選択してください。",
+  "zh": "请先选择存储池。"
+ },
+ "Select all recoverable": {
+  "ko": "복구 가능 항목 모두 선택",
+  "ja": "修復可能なものをすべて選択",
+  "zh": "全选可修复项"
+ },
+ "Select or enter a manifest first.": {
+  "ko": "먼저 매니페스트를 선택하거나 입력하세요.",
+  "ja": "先にマニフェストを選択または入力してください。",
+  "zh": "请先选择或输入清单。"
+ },
+ "Select or enter a reference manifest first.": {
+  "ko": "먼저 기준 매니페스트를 선택하거나 입력하세요.",
+  "ja": "先に基準マニフェストを選択または入力してください。",
+  "zh": "请先选择或输入参考清单。"
+ },
+ "Shard": {
+  "ko": "샤드",
+  "ja": "シャード",
+  "zh": "分片"
+ },
+ "Skips rclone and providers: configuration, pools and local metadata only.": {
+  "ko": "rclone과 프로바이더는 건너뛰고 설정, 풀, 로컬 메타데이터만 점검해요.",
+  "ja": "rclone とプロバイダーは省略し、設定・プール・ローカルメタデータのみをチェックします。",
+  "zh": "跳过 rclone 和提供商：仅检查配置、存储池和本地元数据。"
+ },
+ "Source files": {
+  "ko": "원본 파일",
+  "ja": "ソースファイル",
+  "zh": "源文件"
+ },
+ "Start restore": {
+  "ko": "복원 시작",
+  "ja": "復元を開始",
+  "zh": "开始恢复"
+ },
+ "Start upload": {
+  "ko": "업로드 시작",
+  "ja": "アップロードを開始",
+  "zh": "开始上传"
+ },
+ "Start verification": {
+  "ko": "검증 시작",
+  "ja": "検証を開始",
+  "zh": "开始校验"
+ },
+ "Storage pool": {
+  "ko": "스토리지 풀",
+  "ja": "ストレージプール",
+  "zh": "存储池"
+ },
+ "Storage pool '{name}' is invalid: {error}": {
+  "ko": "스토리지 풀 '{name}'이(가) 올바르지 않아요: {error}",
+  "ja": "ストレージプール '{name}' は無効です: {error}",
+  "zh": "存储池 '{name}' 无效：{error}"
+ },
+ "Storage pool '{name}' no longer exists.": {
+  "ko": "스토리지 풀 '{name}'이(가) 더 이상 없어요.",
+  "ja": "ストレージプール '{name}' はもう存在しません。",
+  "zh": "存储池 '{name}' 已不存在。"
+ },
+ "Storage pool not selected": {
+  "ko": "스토리지 풀 미선택",
+  "ja": "ストレージプール未選択",
+  "zh": "未选择存储池"
+ },
+ "Storage remotes": {
+  "ko": "스토리지 리모트",
+  "ja": "ストレージリモート",
+  "zh": "存储远程"
+ },
+ "Streams every shard and validates BLAKE3.": {
+  "ko": "모든 샤드를 스트리밍해 BLAKE3를 검증해요.",
+  "ja": "すべてのシャードを読み込み、BLAKE3 を検証します。",
+  "zh": "读取每个分片并校验 BLAKE3。"
+ },
+ "Target manifest {manifest} · workers {workers}": {
+  "ko": "대상 매니페스트 {manifest} · 워커 {workers}",
+  "ja": "対象マニフェスト {manifest} · ワーカー {workers}",
+  "zh": "目标清单 {manifest} · 工作线程 {workers}"
+ },
+ "Target pool (optional)": {
+  "ko": "대상 풀 (선택)",
+  "ja": "対象プール (任意)",
+  "zh": "目标存储池（可选）"
+ },
+ "Target {name} · {size} · coding {coding} · workers {workers}": {
+  "ko": "대상 {name} · {size} · 코딩 {coding} · 워커 {workers}",
+  "ja": "対象 {name} · {size} · コーディング {coding} · ワーカー {workers}",
+  "zh": "目标 {name} · {size} · 编码 {coding} · 工作线程 {workers}"
+ },
+ "The drive could not be listed: {error}": {
+  "ko": "드라이브 목록을 불러오지 못했어요: {error}",
+  "ja": "ドライブを一覧表示できませんでした: {error}",
+  "zh": "无法列出驱动器：{error}"
+ },
+ "The drive is empty.": {
+  "ko": "드라이브가 비어 있어요.",
+  "ja": "ドライブは空です。",
+  "zh": "驱动器为空。"
+ },
+ "The selected manifest does not match the last scrub snapshot. Run a new scrub before repair.": {
+  "ko": "선택한 매니페스트가 마지막 스크럽 스냅샷과 맞지 않아요. 복구 전에 스크럽을 새로 실행하세요.",
+  "ja": "選択したマニフェストが前回のスクラブのスナップショットと一致しません。修復の前に新しくスクラブを実行してください。",
+  "zh": "所选清单与上次巡检快照不匹配。修复前请重新运行巡检。"
+ },
+ "The selected pool owns destinations, erasure-coding policy, placement, workers and retries.": {
+  "ko": "선택한 풀이 대상, 이레이저 코딩 정책, 배치, 워커, 재시도를 관리해요.",
+  "ja": "選択したプールが保存先、イレージャーコーディングのポリシー、配置、ワーカー、リトライを管理します。",
+  "zh": "所选存储池决定目标、纠删码策略、放置策略、工作线程和重试次数。"
+ },
+ "There are no pending files to upload.": {
+  "ko": "업로드할 대기 파일이 없어요.",
+  "ja": "アップロード待ちのファイルはありません。",
+  "zh": "没有待上传的文件。"
+ },
+ "These destinations are not recognized as encrypted rclone crypt remotes: {remotes}": {
+  "ko": "다음 대상은 암호화된 rclone crypt 리모트로 인식되지 않아요: {remotes}",
+  "ja": "次の保存先は暗号化された rclone crypt リモートとして認識されません: {remotes}",
+  "zh": "以下目标未被识别为加密的 rclone crypt 远程：{remotes}"
+ },
+ "This integrity snapshot predates group-level repair data. Run a new scrub first.": {
+  "ko": "이 무결성 스냅샷은 그룹 단위 복구 데이터가 생기기 전 것이에요. 먼저 스크럽을 새로 실행하세요.",
+  "ja": "この整合性スナップショットはグループ単位の修復データより前のものです。先に新しくスクラブを実行してください。",
+  "zh": "此完整性快照早于分组级修复数据。请先重新运行巡检。"
+ },
+ "This pool has no drive yet (mount it once from Drive).": {
+  "ko": "이 풀에는 아직 드라이브가 없어요 (드라이브에서 한 번 마운트하세요).",
+  "ja": "このプールにはまだドライブがありません (ドライブから一度マウントしてください)。",
+  "zh": "此存储池还没有驱动器（请先在“驱动器”中挂载一次）。"
+ },
+ "This upload batch is already running.": {
+  "ko": "이 업로드 묶음은 이미 실행 중이에요.",
+  "ja": "このアップロードバッチはすでに実行中です。",
+  "zh": "此上传批次已在运行。"
+ },
+ "Total shards": {
+  "ko": "전체 샤드",
+  "ja": "総シャード数",
+  "zh": "分片总数"
+ },
+ "Unrecoverable": {
+  "ko": "복구 불가",
+  "ja": "修復不可",
+  "zh": "不可修复"
+ },
+ "Upload batch cancelled. Pending files were kept in the queue.": {
+  "ko": "업로드 묶음이 취소됐어요. 대기 중인 파일은 대기열에 남아 있어요.",
+  "ja": "アップロードバッチをキャンセルしました。待機中のファイルはキューに残っています。",
+  "zh": "上传批次已取消。待上传的文件仍保留在队列中。"
+ },
+ "Upload batch paused after a failed file. Pending files were kept in the queue.": {
+  "ko": "파일 하나가 실패해 업로드 묶음을 멈췄어요. 대기 중인 파일은 대기열에 남아 있어요.",
+  "ja": "失敗したファイルがあったためアップロードバッチを一時停止しました。待機中のファイルはキューに残っています。",
+  "zh": "有文件失败，上传批次已暂停。待上传的文件仍保留在队列中。"
+ },
+ "Upload summary": {
+  "ko": "업로드 요약",
+  "ja": "アップロードの概要",
+  "zh": "上传摘要"
+ },
+ "Upload target": {
+  "ko": "업로드 대상",
+  "ja": "アップロード先",
+  "zh": "上传目标"
+ },
+ "Upload {n} files": {
+  "ko": "파일 {n}개 업로드",
+  "ja": "{n} 件のファイルをアップロード",
+  "zh": "上传 {n} 个文件"
+ },
+ "Uploaded archives": {
+  "ko": "업로드된 아카이브",
+  "ja": "アップロード済みアーカイブ",
+  "zh": "已上传的归档"
+ },
+ "Uploading": {
+  "ko": "업로드 중",
+  "ja": "アップロード中",
+  "zh": "上传中"
+ },
+ "Uploading {position} / {total}": {
+  "ko": "업로드 중 {position} / {total}",
+  "ja": "アップロード中 {position} / {total}",
+  "zh": "正在上传 {position} / {total}"
+ },
+ "Used by all three actions below: a pool, or explicit crypt remotes. With neither, the manifest's own providers are used.": {
+  "ko": "아래 세 작업 모두에 쓰여요: 풀 또는 직접 지정한 crypt 리모트. 둘 다 없으면 매니페스트에 기록된 프로바이더를 사용해요.",
+  "ja": "以下の 3 つの操作すべてで使われます: プール、または明示した crypt リモート。どちらもない場合はマニフェスト自身のプロバイダーを使います。",
+  "zh": "下方三个操作都会使用：存储池或明确指定的 crypt 远程。两者都没有时，使用清单自身记录的提供商。"
+ },
+ "Verify": {
+  "ko": "검증",
+  "ja": "検証",
+  "zh": "校验"
+ },
+ "Verify replicas": {
+  "ko": "복제본 검증",
+  "ja": "レプリカを検証",
+  "zh": "校验副本"
+ },
+ "Verify…": {
+  "ko": "검증…",
+  "ja": "検証…",
+  "zh": "校验…"
+ },
+ "Where the manifest replicas live": {
+  "ko": "매니페스트 복제본 위치",
+  "ja": "マニフェストのレプリカの保存場所",
+  "zh": "清单副本所在位置"
+ },
+ "Workers must be greater than zero.": {
+  "ko": "워커 수는 0보다 커야 해요.",
+  "ja": "ワーカー数は 0 より大きくしてください。",
+  "zh": "工作线程数必须大于零。"
+ },
+ "Workers {workers} · Retries {retries}": {
+  "ko": "워커 {workers} · 재시도 {retries}",
+  "ja": "ワーカー {workers} · リトライ {retries}",
+  "zh": "工作线程 {workers} · 重试 {retries}"
+ },
+ "{n} archive of other pools (or matching no pool) not shown.": {
+  "ko": "다른 풀의 아카이브(또는 어느 풀과도 맞지 않는 아카이브) {n}개는 표시하지 않아요.",
+  "ja": "他のプールの (またはどのプールにも一致しない) アーカイブ {n} 件は表示していません。",
+  "zh": "未显示 {n} 个属于其他存储池（或不匹配任何存储池）的归档。"
+ },
+ "{n} archives of other pools (or matching no pool) not shown.": {
+  "ko": "다른 풀의 아카이브(또는 어느 풀과도 맞지 않는 아카이브) {n}개는 표시하지 않아요.",
+  "ja": "他のプールの (またはどのプールにも一致しない) アーカイブ {n} 件は表示していません。",
+  "zh": "未显示 {n} 个属于其他存储池（或不匹配任何存储池）的归档。"
+ },
+ "{n} destination(s) configured. Open Advanced to review or change the manual upload policy.": {
+  "ko": "대상 {n}개가 설정돼 있어요. 수동 업로드 정책을 확인하거나 바꾸려면 고급을 여세요.",
+  "ja": "保存先が {n} 件設定されています。手動アップロードのポリシーを確認・変更するには詳細設定を開いてください。",
+  "zh": "已配置 {n} 个目标。打开高级选项以查看或更改手动上传策略。"
+ },
+ "{n} dropped item(s) were ignored because only local files can be uploaded.": {
+  "ko": "로컬 파일만 업로드할 수 있어서 끌어 놓은 항목 {n}개는 무시했어요.",
+  "ja": "ローカルファイルのみアップロードできるため、ドロップされた {n} 件の項目は無視しました。",
+  "zh": "只能上传本地文件，已忽略拖入的 {n} 个项目。"
+ },
+ "{n} encrypted destinations": {
+  "ko": "암호화된 대상 {n}개",
+  "ja": "暗号化された保存先 {n} 件",
+  "zh": "{n} 个加密目标"
+ },
+ "{n} failure(s)": {
+  "ko": "실패 {n}건",
+  "ja": "失敗 {n} 件",
+  "zh": "{n} 项失败"
+ },
+ "{n} file": {
+  "ko": "파일 {n}개",
+  "ja": "{n} ファイル",
+  "zh": "{n} 个文件"
+ },
+ "{n} file · {size}": {
+  "ko": "파일 {n}개 · {size}",
+  "ja": "{n} ファイル · {size}",
+  "zh": "{n} 个文件 · {size}"
+ },
+ "{n} file(s) · {size} · {pending} pending · {completed} completed": {
+  "ko": "파일 {n}개 · {size} · 대기 {pending} · 완료 {completed}",
+  "ja": "{n} ファイル · {size} · 待機 {pending} · 完了 {completed}",
+  "zh": "{n} 个文件 · {size} · 等待 {pending} · 完成 {completed}"
+ },
+ "{n} files": {
+  "ko": "파일 {n}개",
+  "ja": "{n} ファイル",
+  "zh": "{n} 个文件"
+ },
+ "{n} files · {size}": {
+  "ko": "파일 {n}개 · {size}",
+  "ja": "{n} ファイル · {size}",
+  "zh": "{n} 个文件 · {size}"
+ },
+ "{n} folder": {
+  "ko": "폴더 {n}개",
+  "ja": "{n} フォルダ",
+  "zh": "{n} 个文件夹"
+ },
+ "{n} folders": {
+  "ko": "폴더 {n}개",
+  "ja": "{n} フォルダ",
+  "zh": "{n} 个文件夹"
+ },
+ "{n} item": {
+  "ko": "항목 {n}개",
+  "ja": "{n} 項目",
+  "zh": "{n} 项"
+ },
+ "{n} items": {
+  "ko": "항목 {n}개",
+  "ja": "{n} 項目",
+  "zh": "{n} 项"
+ },
+ "{n} pending file(s) are no longer available at their selected paths.": {
+  "ko": "대기 중인 파일 {n}개를 선택한 경로에서 더 이상 찾을 수 없어요.",
+  "ja": "待機中のファイル {n} 件が、選択したパスに見つからなくなりました。",
+  "zh": "{n} 个待上传文件已不在所选路径中。"
+ },
+ "{n} warning(s)": {
+  "ko": "경고 {n}건",
+  "ja": "警告 {n} 件",
+  "zh": "{n} 项警告"
+ },
+ "{pending} pending · {size}": {
+  "ko": "대기 {pending} · {size}",
+  "ja": "待機 {pending} · {size}",
+  "zh": "等待 {pending} · {size}"
+ },
+ "{running} uploading · {pending} pending · {size}": {
+  "ko": "업로드 중 {running} · 대기 {pending} · {size}",
+  "ja": "アップロード中 {running} · 待機 {pending} · {size}",
+  "zh": "上传中 {running} · 等待 {pending} · {size}"
+ },
+ "{task} completed; integrity summary refreshed.": {
+  "ko": "{task} 작업이 끝나 무결성 요약을 새로 고쳤어요.",
+  "ja": "{task} が完了し、整合性の概要を更新しました。",
+  "zh": "{task}已完成，完整性摘要已刷新。"
+ },
+ "{task} finished with errors; the latest available integrity snapshot was loaded.": {
+  "ko": "{task} 작업이 오류와 함께 끝났어요. 사용 가능한 최신 무결성 스냅샷을 불러왔어요.",
+  "ja": "{task} はエラーで終了しました。利用可能な最新の整合性スナップショットを読み込みました。",
+  "zh": "{task}已结束但有错误；已加载最新可用的完整性快照。"
+ },
+ "{task} was cancelled.": {
+  "ko": "{task} 작업이 취소됐어요.",
+  "ja": "{task} はキャンセルされました。",
+  "zh": "{task}已取消。"
+ }
+}

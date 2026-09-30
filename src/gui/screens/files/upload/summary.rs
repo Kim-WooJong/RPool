@@ -1,4 +1,5 @@
 use super::validation::UploadPreflight;
+use crate::gui::i18n::tr;
 use crate::gui::theme;
 use crate::gui::widgets::{status_badge, StatusTone};
 use eframe::egui;
@@ -11,14 +12,14 @@ pub(crate) fn show(ui: &mut egui::Ui, report: &UploadPreflight) {
         .inner_margin(egui::Margin::same(10))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Upload summary").strong());
+                ui.label(egui::RichText::new(tr("Upload summary")).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if report.in_progress {
-                        status_badge(ui, "Uploading", StatusTone::Warning);
+                        status_badge(ui, tr("Uploading"), StatusTone::Warning);
                     } else if report.ready {
-                        status_badge(ui, "Ready", StatusTone::Success);
+                        status_badge(ui, tr("Ready"), StatusTone::Success);
                     } else {
-                        status_badge(ui, "Needs attention", StatusTone::Warning);
+                        status_badge(ui, tr("Needs attention"), StatusTone::Warning);
                     }
                 });
             });
@@ -28,10 +29,10 @@ pub(crate) fn show(ui: &mut egui::Ui, report: &UploadPreflight) {
                 .num_columns(2)
                 .spacing([18.0, 5.0])
                 .show(ui, |ui| {
-                    summary_row(ui, "Files", &report.files_label);
-                    summary_row(ui, "Target", &report.target_label);
-                    summary_row(ui, "Policy", &report.policy_label);
-                    summary_row(ui, "Storage", &report.destinations_label);
+                    summary_row(ui, tr("Files"), &report.files_label);
+                    summary_row(ui, tr("Target"), &report.target_label);
+                    summary_row(ui, tr("Policy"), &report.policy_label);
+                    summary_row(ui, tr("Storage"), &report.destinations_label);
                 });
 
             if !report.issues.is_empty() {

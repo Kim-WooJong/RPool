@@ -1,5 +1,6 @@
 use super::data::{load_rows, InventoryRow};
 use super::drive_state::DriveForm;
+use crate::gui::i18n::{tr, trf};
 use std::cmp::Ordering;
 
 pub(crate) const UNMATCHED_POOL: &str = "Unmatched";
@@ -35,9 +36,9 @@ impl Default for CodingFilter {
 impl CodingFilter {
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Self::All => "All coding",
+            Self::All => tr("All coding"),
             Self::ReedSolomon => "Reed-Solomon",
-            Self::Plain => "No erasure coding",
+            Self::Plain => tr("No erasure coding"),
         }
     }
 }
@@ -84,7 +85,10 @@ impl InventoryForm {
                 }
             }
             Err(error) => {
-                self.error = Some(format!("Inventory could not be loaded: {error:#}"));
+                self.error = Some(trf(
+                    "Inventory could not be loaded: {error}",
+                    &[("error", &format!("{error:#}"))],
+                ));
                 self.rows.clear();
                 self.loaded = true;
                 self.selected_archive_id = None;
