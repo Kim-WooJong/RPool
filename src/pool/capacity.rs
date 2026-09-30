@@ -3,11 +3,23 @@ use crate::mount::capacity::CapacityStatus;
 use crate::prelude::*;
 use crate::storage::admin::{BackendAdmin, RcloneAdmin};
 
+/// A pool destination and the configured backing section it resolves to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct BackingRemote {
+    pub remote: String,
+    pub backing: String,
+    /// rclone backend type of the backing section.
+    pub kind: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct PoolCapacity {
     pub policy: PoolDefinition,
     pub namespace_used: Option<u64>,
     pub capacity: CapacityStatus,
+    /// Every resolvable destination, including ones whose quota query failed.
+    #[serde(default)]
+    pub backings: Vec<BackingRemote>,
 }
 pub(crate) fn inspect(admin: &dyn BackendAdmin, policy: &PoolDefinition) -> Result<PoolCapacity> {
     let mut capacity = CapacityStatus::inspect(admin, policy)?;
@@ -16,7 +28,32 @@ pub(crate) fn inspect(admin: &dyn BackendAdmin, policy: &PoolDefinition) -> Resu
         policy: policy.clone(),
         namespace_used: None,
         capacity,
+        backings: backings(admin, policy)?,
     })
+}
+/// Backing sections of the pool's destinations; unresolvable ones are skipped
+/// (the capacity status already reports them).
+pub(crate) fn backings(
+    admin: &dyn BackendAdmin,
+    policy: &PoolDefinition,
+) -> Result<Vec<BackingRemote>> {
+    let catalog = admin.catalog()?;
+    let remotes = crate::remote_root::apply_remote_roots(policy.remotes.clone())?;
+    Ok(remotes
+        .into_iter()
+        .filter_map(|remote| {
+            let backing = catalog.placement_target(&remote).ok()?;
+            let kind = catalog
+                .backend_kind(&backing)
+                .unwrap_or("unknown")
+                .to_owned();
+            Some(BackingRemote {
+                remote,
+                backing,
+                kind,
+            })
+        })
+        .collect())
 }
 pub(crate) fn query(rclone: &str, policy: &PoolDefinition) -> Result<PoolCapacity> {
     inspect(&RcloneAdmin::inherited(rclone), policy)
@@ -68,4 +105,53 @@ pub(crate) fn run(rclone: &str, args: crate::cli::pool::PoolCapacityArgs) -> Res
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod backing_tests {
+    use super::*;
+    use crate::storage::admin::RemoteCatalog;
+
+    struct Catalog;
+    impl BackendAdmin for Catalog {
+        fn catalog(&self) -> Result<RemoteCatalog> {
+            RemoteCatalog::parse(&serde_json::json!({
+                "dropbox": {"type": "dropbox"},
+                "dropbox_crypt": {"type": "crypt", "remote": "dropbox:rpool"},
+                "mt": {"type": "s3"},
+                "mt_crypt": {"type": "crypt", "remote": "mt:bucket"},
+                "both": {"type": "union"}
+            }))
+        }
+        fn quota(&self, _: &str) -> QuotaReport {
+            unreachable!("backings never query quotas")
+        }
+        fn discover(&self) -> Result<Vec<String>> {
+            unreachable!()
+        }
+        fn probe(&self, _: &str) -> Result<()> {
+            unreachable!()
+        }
+        fn ensure_encrypted(&self, _: &str) -> Result<()> {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn destinations_resolve_to_backing_account_and_type_without_quota() {
+        let policy = PoolDefinition {
+            remotes: vec!["dropbox_crypt:".into(), "mt_crypt:".into(), "both:".into()],
+            ..Default::default()
+        };
+        let found = backings(&Catalog, &policy).unwrap();
+        let summary: Vec<(&str, &str)> = found
+            .iter()
+            .map(|b| (b.backing.as_str(), b.kind.as_str()))
+            .collect();
+        assert_eq!(
+            summary,
+            [("dropbox", "dropbox"), ("mt", "s3")],
+            "unions are skipped"
+        );
+    }
 }

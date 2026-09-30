@@ -19,7 +19,6 @@ pub(crate) struct MountForm {
     pub(super) notice: Option<String>,
     pub(super) capacity: Option<crate::mount::capacity::CapacityStatus>,
     pub(super) capacity_read: std::time::Instant,
-    pub(super) identities: Vec<super::identities::IdentityRow>,
     pub(super) virtual_drive: bool,
     pub(super) bounded_shared: bool,
     pub(super) pool_sync: bool,
@@ -91,7 +90,6 @@ impl Default for MountForm {
             frontend: Default::default(),
             native_read_only: false,
             capacity_read: std::time::Instant::now(),
-            identities: super::identities::load(),
         }
     }
 }
@@ -244,6 +242,11 @@ impl MountForm {
             args.push(format!("--spool-gib={}", self.spool_gib).into());
             args.push(format!("--cache-gib={}", self.cache_gib).into());
         }
+    }
+
+    /// Forget the shown capacity (for example after identities changed).
+    pub(crate) fn invalidate_capacity(&mut self) {
+        self.capacity = None;
     }
 
     pub(crate) fn is_running(&self) -> bool {

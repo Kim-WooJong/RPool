@@ -6,7 +6,7 @@ mod capacity_panel;
 mod conflicts;
 mod drive_section;
 mod form;
-mod identities;
+mod identity_summary;
 mod log;
 mod status_bar;
 #[cfg(test)]

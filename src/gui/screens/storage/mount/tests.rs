@@ -308,11 +308,6 @@ fn mount_screen_renders_in_every_mode_and_capacity_state() {
         state.mount.shared_root = shared.into();
         render(&mut state);
     }
-    state
-        .mount
-        .identities
-        .push(super::identities::IdentityRow::default());
-    render(&mut state);
 }
 
 fn parse_action(form: &super::MountForm, action: u8) -> Result<crate::cli::MountArgs, String> {

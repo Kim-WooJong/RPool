@@ -1,3 +1,4 @@
+pub(crate) mod account_identities;
 mod capacity_bar;
 mod file_field;
 pub(crate) mod pool_capacity;

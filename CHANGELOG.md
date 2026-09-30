@@ -18,6 +18,13 @@
   verdict ("Writable" or "Not writable yet" plus reasons) with a per-account
   table. Account identities are edited as a table, and everything else sits
   under Advanced. CLI arguments and saved settings are unchanged.
+- GUI: account capacity/outage identities are now edited in Storage › Pools,
+  directly under the pool capacity estimate they drive. The table lists the
+  pool's backing accounts (resolved even when a quota query fails) with
+  their backend type. **Suggest** fills empty fields (each account
+  independent, one outage group per provider type) for review before
+  saving. Saving updates only those accounts and recalculates the estimate.
+  The Mount screen shows only a summary with an "Edit in Pools" link.
 - GUI now covers the remaining CLI-only features:
   - Settings › Portable configuration: package export/import (`rpool
     export`/`import` with age, with a dry-run validation and a confirmation

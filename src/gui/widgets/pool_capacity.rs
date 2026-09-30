@@ -13,20 +13,28 @@ pub(crate) struct CapacityPreview {
     error: Option<String>,
 }
 impl CapacityPreview {
-    pub(crate) fn invalidate(&mut self) {
-        self.pending = None;
-        self.signature.clear();
-        self.report = None;
-        self.error = None;
+    /// The last completed report for the current options, if any.
+    pub(crate) fn report(&self) -> Option<&PoolCapacity> {
+        self.report.as_ref()
     }
 
-    /// Returns true when the user wants to open the account identity editor.
-    pub(crate) fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        rclone: &str,
-        policy: &PoolDefinition,
-    ) -> bool {
+    /// Starts a background query for `policy` (replacing any running one).
+    pub(crate) fn start(&mut self, rclone: &str, policy: &PoolDefinition) {
+        self.signature = serde_json::to_string(&(rclone, policy)).unwrap_or_default();
+        self.report = None;
+        self.error = None;
+        let (tx, rx) = mpsc::channel();
+        self.pending = Some(rx);
+        let rclone = rclone.to_owned();
+        let policy = policy.clone();
+        std::thread::spawn(move || {
+            let result =
+                crate::pool::capacity::query(&rclone, &policy).map_err(|e| format!("{e:#}"));
+            let _ = tx.send(result);
+        });
+    }
+
+    pub(crate) fn show(&mut self, ui: &mut egui::Ui, rclone: &str, policy: &PoolDefinition) {
         let signature = serde_json::to_string(&(rclone, policy)).unwrap_or_default();
         if self.signature != signature {
             self.report = None;
@@ -60,18 +68,7 @@ impl CapacityPreview {
             )
             .clicked()
         {
-            self.signature = signature;
-            self.report = None;
-            self.error = None;
-            let (tx, rx) = mpsc::channel();
-            self.pending = Some(rx);
-            let rclone = rclone.to_owned();
-            let policy = policy.clone();
-            std::thread::spawn(move || {
-                let result =
-                    crate::pool::capacity::query(&rclone, &policy).map_err(|e| format!("{e:#}"));
-                let _ = tx.send(result);
-            });
+            self.start(rclone, policy);
         }
         if self.pending.is_some() {
             ui.spinner();
@@ -91,13 +88,7 @@ impl CapacityPreview {
                 || (report.capacity.required_failure_groups > 0
                     && report.capacity.resilient_remaining_upper.is_none())
             {
-                ui.small("Independent account budgets and outage groups must be declared explicitly; crypt aliases share their backing account.");
-                if ui
-                    .button("Set account / outage groups (no mount needed)")
-                    .clicked()
-                {
-                    return true;
-                }
+                ui.small("Declare account identities below to combine independent accounts; crypt aliases share their backing account.");
             }
             for target in &report.capacity.targets {
                 ui.small(format!(
@@ -124,7 +115,6 @@ impl CapacityPreview {
                 ui.small(&report.capacity.note);
             });
         }
-        false
     }
 }
 pub(crate) fn summary(ui: &mut egui::Ui, c: &CapacityStatus) {
@@ -222,6 +212,7 @@ mod tests {
             policy: policy.clone(),
             namespace_used: None,
             capacity: Default::default(),
+            backings: vec![],
         };
         let (tx, rx) = mpsc::channel();
         tx.send(Ok(report.clone())).unwrap();
@@ -247,30 +238,5 @@ mod tests {
         })
         .drop_without_applying_deltas();
         assert!(preview.report.is_some());
-    }
-
-    #[test]
-    fn identity_save_invalidation_discards_pending_quota_response() {
-        let policy = PoolDefinition::default();
-        let report = PoolCapacity {
-            policy: policy.clone(),
-            namespace_used: None,
-            capacity: Default::default(),
-        };
-        let (tx, rx) = mpsc::channel();
-        tx.send(Ok(report)).unwrap();
-        let mut preview = CapacityPreview {
-            pending: Some(rx),
-            signature: serde_json::to_string(&("rclone", &policy)).unwrap(),
-            ..Default::default()
-        };
-        preview.invalidate();
-        let ctx = egui::Context::default();
-        ctx.run_ui(Default::default(), |ui| {
-            preview.show(ui, "rclone", &policy);
-        })
-        .drop_without_applying_deltas();
-        assert!(preview.report.is_none());
-        assert!(preview.pending.is_none());
     }
 }

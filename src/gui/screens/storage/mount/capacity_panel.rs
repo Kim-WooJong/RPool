@@ -47,7 +47,7 @@ pub(super) fn verdict(capacity: &CapacityStatus, now: u64) -> Verdict {
     }
     let undeclared = capacity.targets.iter().filter(|t| !t.declared).count();
     if undeclared > 0 {
-        reasons.push(format!("{undeclared} account(s) have no declared identity; declare them under Account identities."));
+        reasons.push(format!("{undeclared} account(s) have no declared identity; declare them in Storage › Pools › Account identities."));
     }
     if capacity.required_failure_groups > capacity.eligible_failure_groups {
         reasons.push(format!(

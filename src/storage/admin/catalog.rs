@@ -46,6 +46,11 @@ impl RemoteCatalog {
             .is_ok_and(|name| self.domains.remotes.contains_key(&name))
     }
 
+    /// The configured backend type of a section (for example `dropbox`, `s3`).
+    pub(crate) fn backend_kind(&self, name: &str) -> Option<&str> {
+        self.entries.get(name).map(|entry| entry.kind.as_str())
+    }
+
     /// Resolve known wrappers to one configured backing section. This collapses
     /// known aliases, but is NOT proof of independent accounts/providers.
     pub(crate) fn placement_target(&self, raw: &str) -> Result<String> {

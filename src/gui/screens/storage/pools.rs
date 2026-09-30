@@ -27,13 +27,12 @@ pub(crate) struct PoolForm {
     pub(crate) refresh_requested: bool,
     picker: PoolPicker,
     capacity: crate::gui::widgets::pool_capacity::CapacityPreview,
+    identity_rows: Vec<crate::gui::widgets::account_identities::IdentityRow>,
+    /// Backings the rows were built from; rebuilt when a new report arrives.
+    identity_source: String,
 }
 
 impl PoolForm {
-    pub(crate) fn invalidate_capacity(&mut self) {
-        self.capacity.invalidate();
-    }
-
     pub(crate) fn from_settings(settings: &GuiSettings) -> Self {
         Self {
             selected: String::new(),
@@ -52,6 +51,8 @@ impl PoolForm {
             refresh_requested: false,
             picker: PoolPicker::default(),
             capacity: Default::default(),
+            identity_rows: Vec::new(),
+            identity_source: String::new(),
         }
     }
 
@@ -234,13 +235,8 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 ) {
                     ui.colored_label(ui.visuals().warn_fg_color, error.to_string());
                 }
-                if state
-                    .pools
-                    .capacity
-                    .show(ui, &state.settings.rclone, &draft)
-                {
-                    state.storage_section = StorageSection::Mount;
-                }
+                state.pools.capacity.show(ui, &state.settings.rclone, &draft);
+                identities(ui, state, &draft, !task.is_running());
                 if let Some(notice) = &state.pools.notice {
                     ui.label(notice);
                 }
@@ -304,7 +300,48 @@ pub(super) fn pane(
         .show(&mut child, content);
 }
 
-fn load_selected(state: &mut GuiState) {
+/// Account identities of this pool's backing accounts, right under the
+/// capacity estimate that depends on them. Saving recalculates the estimate.
+fn identities(ui: &mut egui::Ui, state: &mut GuiState, draft: &PoolDefinition, enabled: bool) {
+    use crate::gui::widgets::account_identities::{editor, merged, pool_rows, EditorAction};
+    use crate::storage::admin::domains::DomainStore;
+    let backings = state
+        .pools
+        .capacity
+        .report()
+        .map(|r| r.backings.clone())
+        .unwrap_or_default();
+    let source = format!("{backings:?}");
+    if source != state.pools.identity_source {
+        state.pools.identity_rows = pool_rows(&DomainStore::load().unwrap_or_default(), &backings);
+        state.pools.identity_source = source;
+    }
+    ui.separator();
+    ui.strong("Account identities");
+    ui.small("Which accounts are independent (their free space adds up) and which can fail together. The estimate above uses these.");
+    if editor(
+        ui,
+        "pool-identity-grid",
+        &mut state.pools.identity_rows,
+        enabled,
+    ) == EditorAction::Save
+    {
+        let saved = DomainStore::load()
+            .and_then(|store| merged(store, &state.pools.identity_rows))
+            .and_then(|store| store.save());
+        state.pools.notice = Some(match saved {
+            Ok(()) => {
+                state.pools.identity_source.clear();
+                state.pools.capacity.start(&state.settings.rclone, draft);
+                state.mount.invalidate_capacity();
+                "Identities saved; recalculating capacity.".into()
+            }
+            Err(error) => format!("{error:#}"),
+        });
+    }
+}
+
+pub(super) fn load_selected(state: &mut GuiState) {
     let name = state.pools.selected.clone();
     if name.is_empty() {
         state.pools.notice = Some("Select a pool first.".to_string());
