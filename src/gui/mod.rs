@@ -1,4 +1,5 @@
 mod app;
+pub(crate) mod i18n;
 #[cfg(test)]
 mod layout_tests;
 mod navigation;

@@ -50,6 +50,7 @@ pub(crate) fn launch(startup_rclone: &str) -> Result<()> {
         native_options,
         Box::new(move |cc| {
             theme::apply(&cc.egui_ctx);
+            super::i18n::fonts::install(&cc.egui_ctx);
             Ok(Box::new(RpoolGui::new(&startup_rclone)))
         }),
     )
@@ -72,6 +73,7 @@ struct RpoolGui {
 impl RpoolGui {
     fn new(startup_rclone: &str) -> Self {
         let state = state::load(startup_rclone);
+        super::i18n::set_language(state.settings.language);
         let mut usage = UsageRefresh::default();
         usage.start(state.settings.rclone.clone(), state.settings.workers);
         Self {

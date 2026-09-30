@@ -1,3 +1,4 @@
+use crate::gui::i18n::tr;
 use crate::gui::settings;
 use crate::gui::state::GuiState;
 use crate::gui::theme;
@@ -75,6 +76,21 @@ fn general(ui: &mut egui::Ui, state: &mut GuiState) {
         |_| {},
         |ui| {
             egui::Grid::new("gui-settings").num_columns(2).spacing([18.0, 10.0]).show(ui, |ui| {
+            ui.label(tr("Language"));
+            let mut language = state.settings.language;
+            egui::ComboBox::from_id_salt("settings-language")
+                .selected_text(language.native_name())
+                .show_ui(ui, |ui| {
+                    for option in crate::gui::i18n::Language::ALL {
+                        ui.selectable_value(&mut language, option, option.native_name());
+                    }
+                });
+            if language != state.settings.language {
+                // Applies at once; saved with the other settings.
+                state.settings.language = language;
+                crate::gui::i18n::set_language(language);
+            }
+            ui.end_row();
             ui.label("rclone executable");
             ui.add(egui::TextEdit::singleline(&mut state.settings.rclone).desired_width((ui.available_width() - 20.0).clamp(160.0, 360.0)));
             ui.end_row();

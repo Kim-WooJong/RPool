@@ -7,6 +7,8 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct GuiSettings {
+    /// GUI language (English by default).
+    pub(crate) language: crate::gui::i18n::Language,
     pub(crate) mount_cache: MountCacheSettings,
     pub(crate) mount_profiles: BTreeMap<String, MountProfile>,
     pub(crate) encryption: crate::config_sync::provision::EncryptionDefaults,
@@ -24,6 +26,7 @@ pub(crate) struct GuiSettings {
 impl Default for GuiSettings {
     fn default() -> Self {
         Self {
+            language: Default::default(),
             mount_cache: MountCacheSettings::default(),
             mount_profiles: BTreeMap::new(),
             encryption: Default::default(),
