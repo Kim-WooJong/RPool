@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Pool change migration (archives, in progress).** `rpool pool migrate
+- **Pool change migration (archives).** `rpool pool migrate
   plan|run|status|lost|abandon` moves uploaded archives onto a pool's saved
   policy after accounts or coding change. `plan` publishes a frozen plan to a
   cloud journal; `run --id` works lowest-margin first, builds every
