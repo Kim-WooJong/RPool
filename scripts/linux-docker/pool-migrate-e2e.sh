@@ -76,7 +76,9 @@ PY
 echo "PASS: resumed and completed on another PC"
 
 # Every replacement restores byte-identical and uses no c4 shard.
-cat $E/a/cfg/migrations/replacements.jsonl $E/b/cfg/migrations/replacements.jsonl 2>/dev/null > $E/repl.jsonl
+# PC A may be killed before its first switch (archives run in parallel),
+# so its log can be missing.
+cat $E/a/cfg/migrations/replacements.jsonl $E/b/cfg/migrations/replacements.jsonl 2>/dev/null > $E/repl.jsonl || true
 python3 - $E/repl.jsonl > $E/repl.txt <<'PY'
 import json,sys
 seen={}
