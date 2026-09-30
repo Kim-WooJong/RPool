@@ -44,7 +44,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             status_badge(
                 ui,
                 if state.migration.pausing {
-                    tr("Pausing after the current entry…")
+                    tr("Pausing after the archives in progress finish…")
                 } else {
                     tr("Running")
                 },
@@ -143,6 +143,13 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             }
             ui.checkbox(&mut state.migration.take_over, tr("Take over work of a stopped PC"))
                 .on_hover_text(tr("Use only if the other PC crashed or was turned off. Its unfinished claims otherwise expire after 2 hours."));
+            let hint = tr("How many archives migrate at the same time (1 = one after another). Each one also uses the pool's workers, so higher values mean more simultaneous transfers.");
+            ui.label(tr("Archives at once")).on_hover_text(hint);
+            ui.add(
+                egui::DragValue::new(&mut state.migration.parallel.0)
+                    .range(1..=crate::migration::execute::MAX_PARALLEL),
+            )
+            .on_hover_text(hint);
         }
         let lost = status.as_ref().map_or(0, |s| s.lost.len());
         if ui

@@ -32,6 +32,11 @@
 //!   (with a warning) if this PC has seen the migration; otherwise it errors.
 //! - `load_plan` returns the plan; it errors when readable copies disagree, or
 //!   when nothing was found and no replica could be read.
+//!
+//! Replica I/O runs concurrently (one thread per store; there are only as many
+//! stores as pool remotes), and results are merged in store order, so one slow
+//! provider no longer serialises the others. `Journal` is `Send + Sync`: appends
+//! of different records from several threads touch different objects.
 use super::model::{Plan, Record};
 use crate::prelude::*;
 use crate::storage::{
@@ -98,8 +103,8 @@ impl Journal {
         })
     }
 
-    fn all(&self) -> impl Iterator<Item = &Arc<dyn JournalStore>> {
-        self.cloud.iter().chain(self.cache.iter())
+    fn all(&self) -> Vec<&Arc<dyn JournalStore>> {
+        self.cloud.iter().chain(self.cache.iter()).collect()
     }
 
     /// Writes the frozen plan (idempotent: the same plan may be published again).
@@ -113,8 +118,10 @@ impl Journal {
         let same =
             |existing: &[u8]| serde_json::from_slice::<Value>(existing).ok() == Some(want.clone());
         // Refuse before writing anything when a readable copy already differs.
-        for store in self.all() {
-            if let Ok(Some(existing)) = store.read(id, PLAN) {
+        let stores = self.all();
+        let copies = concurrently(stores.clone(), |store| store.read(id, PLAN));
+        for (store, copy) in stores.into_iter().zip(copies) {
+            if let Ok(Some(existing)) = copy {
                 if !same(&existing) {
                     bail!(
                         "a different plan already exists for migration {id} on {}; refusing to overwrite",
@@ -125,8 +132,11 @@ impl Journal {
         }
         let mut stored = 0usize;
         let mut failures = vec![];
-        for store in &self.cloud {
-            match store.create(id, PLAN, &bytes) {
+        let created = concurrently(self.cloud.iter().collect(), |store| {
+            store.create(id, PLAN, &bytes)
+        });
+        for (store, outcome) in self.cloud.iter().zip(created) {
+            match outcome {
                 Ok(None) => stored += 1,
                 Ok(Some(existing)) if same(&existing) => stored += 1,
                 Ok(Some(_)) => bail!(
@@ -161,9 +171,11 @@ impl Journal {
         let mut reachable = false;
         let mut failures = vec![];
         let mut cloud_bytes = None;
-        let cache = self.cache.iter().map(|c| (c, true));
-        for (store, is_cache) in self.cloud.iter().map(|c| (c, false)).chain(cache) {
-            let bytes = match store.read(id, PLAN) {
+        let stores = self.all();
+        let copies = concurrently(stores.clone(), |store| store.read(id, PLAN));
+        for (index, (store, copy)) in stores.into_iter().zip(copies).enumerate() {
+            let is_cache = index >= self.cloud.len();
+            let bytes = match copy {
                 Ok(Some(bytes)) => bytes,
                 Ok(None) => {
                     // A missing cache entry says nothing about the cloud.
@@ -220,8 +232,11 @@ impl Journal {
         let rel = record_path(&blake3::hash(&bytes).to_hex());
         let mut stored = 0usize;
         let mut failures = vec![];
-        for store in &self.cloud {
-            match store.create(&self.migration_id, &rel, &bytes) {
+        let created = concurrently(self.cloud.iter().collect(), |store| {
+            store.create(&self.migration_id, &rel, &bytes)
+        });
+        for (store, outcome) in self.cloud.iter().zip(created) {
+            match outcome {
                 Ok(None) => stored += 1,
                 Ok(Some(existing)) if existing == bytes => stored += 1,
                 Ok(Some(_)) => failures.push(format!(
@@ -274,8 +289,11 @@ impl Journal {
         }
         let mut reachable = 0usize;
         let mut failures = vec![];
-        for store in &self.cloud {
-            let ids = match store.list_records(id) {
+        let listed = concurrently(self.cloud.iter().collect(), |store| store.list_records(id));
+        // Missing record id -> indexes (store order) of the stores listing it.
+        let mut holders: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        for (index, (store, ids)) in self.cloud.iter().zip(listed).enumerate() {
+            let ids = match ids {
                 Ok(ids) => ids,
                 Err(error) => {
                     failures.push(format!("{}: {error:#}", store.label()));
@@ -284,28 +302,58 @@ impl Journal {
             };
             reachable += 1;
             for rid in ids {
-                if out.contains_key(&rid) {
-                    continue;
-                }
-                let rel = record_path(&rid);
-                let bytes = match store.read(id, &rel) {
-                    Ok(Some(bytes)) => bytes,
-                    Ok(None) => continue,
-                    Err(error) => {
-                        failures.push(format!("{} record {rid}: {error:#}", store.label()));
-                        continue;
-                    }
-                };
-                let Some(record) = decode_record(&rid, &bytes, store.label()) else {
-                    continue;
-                };
-                if let Some(cache) = &self.cache {
-                    if let Err(error) = cache.create(id, &rel, &bytes) {
-                        warn(&format!("local record cache not written: {error:#}"));
+                if !out.contains_key(&rid) {
+                    let stores = holders.entry(rid).or_default();
+                    if stores.last() != Some(&index) {
+                        stores.push(index);
                     }
                 }
-                out.insert(rid, record);
             }
+        }
+        // Each missing record is downloaded once, from the least-loaded store
+        // listing it, all stores at once; a missing, failed or invalid copy is
+        // retried on the next store listing it (records are content-addressed,
+        // so any valid copy is the same record).
+        while !holders.is_empty() {
+            let mut batches: Vec<Vec<String>> = vec![vec![]; self.cloud.len()];
+            for (rid, stores) in &mut holders {
+                let pick = (0..stores.len())
+                    .min_by_key(|&p| batches[stores[p]].len())
+                    .unwrap_or_default();
+                batches[stores.remove(pick)].push(rid.clone());
+            }
+            let work: Vec<_> = self.cloud.iter().zip(batches).collect();
+            let reads = concurrently(work, |(store, rids)| {
+                rids.into_iter()
+                    .map(|rid| {
+                        let read = store.read(id, &record_path(&rid));
+                        (rid, read)
+                    })
+                    .collect::<Vec<_>>()
+            });
+            for (store, results) in self.cloud.iter().zip(reads) {
+                for (rid, read) in results {
+                    let bytes = match read {
+                        Ok(Some(bytes)) => bytes,
+                        Ok(None) => continue,
+                        Err(error) => {
+                            failures.push(format!("{} record {rid}: {error:#}", store.label()));
+                            continue;
+                        }
+                    };
+                    let Some(record) = decode_record(&rid, &bytes, store.label()) else {
+                        continue;
+                    };
+                    if let Some(cache) = &self.cache {
+                        if let Err(error) = cache.create(id, &record_path(&rid), &bytes) {
+                            warn(&format!("local record cache not written: {error:#}"));
+                        }
+                    }
+                    holders.remove(&rid);
+                    out.insert(rid, record);
+                }
+            }
+            holders.retain(|_, stores| !stores.is_empty());
         }
         if reachable == 0 {
             if !seen_locally {
@@ -337,8 +385,10 @@ pub(crate) fn discover_in(
     let mut ids = BTreeSet::new();
     let mut reachable = 0usize;
     let mut failures = vec![];
-    for store in cloud.iter().chain(cache.iter()) {
-        match store.list_migrations() {
+    let stores: Vec<_> = cloud.iter().chain(cache.iter()).collect();
+    let listed = concurrently(stores.clone(), |store| store.list_migrations());
+    for (store, found) in stores.into_iter().zip(listed) {
+        match found {
             Ok(found) => {
                 reachable += 1;
                 ids.extend(
@@ -465,6 +515,37 @@ fn decode_record(id: &str, bytes: &[u8], label: String) -> Option<Record> {
     }
 }
 
+/// Runs `f` on every item at once (one scoped thread each; callers pass one
+/// item per store, and a pool has only a few remotes). Results keep the input
+/// order, so merges and failure lists stay deterministic. A panic in `f` is
+/// re-raised on the caller's thread.
+fn concurrently<I: Send, T: Send>(items: Vec<I>, f: impl Fn(I) -> T + Sync) -> Vec<T> {
+    if items.len() <= 1 {
+        return items.into_iter().map(f).collect();
+    }
+    let f = &f;
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = items
+            .into_iter()
+            .map(|item| scope.spawn(move || f(item)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect()
+    })
+}
+
+// `execute.rs` appends records of different archives from several threads.
+const _: () = {
+    const fn send_sync<T: Send + Sync>() {}
+    send_sync::<Journal>();
+};
+
 fn warn(message: &str) {
     eprintln!("[warning] migration journal: {message}");
 }
@@ -587,10 +668,12 @@ impl JournalStore for CloudStore {
         }
         // Cooperating writers publish identical bytes at one address; rclone has
         // no atomic create-if-absent (same caveat as pool-sync events).
+        // No second readback: `write_bytes` -> `write_file` returns `Ok` only
+        // after `reader.verify(shard, true)` proved the stored object's size and
+        // blake3 (either the pre-write `reusable` check or the post-write
+        // readback), on both the native and the rclone route, and always read
+        // through rclone crypt, the same path `read`/`read_metadata` use.
         storage.write_bytes(&address, bytes, 1)?;
-        if storage.reader().read_metadata(&address)? != bytes {
-            bail!("journal object readback mismatch");
-        }
         Ok(None)
     }
     fn list_records(&self, migration: &str) -> Result<Vec<String>> {

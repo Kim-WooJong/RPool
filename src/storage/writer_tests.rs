@@ -328,13 +328,21 @@ fn migration_replica_failure_retains_all_source_shards() {
     for shard in &manifest.shards {
         f.writer(vec![]).reader().verify(shard, true).unwrap();
     }
-    assert!(f
-        .memory
-        .stat(
-            &OperationContext::none(),
-            f.bindings["c:archive/manifest.json"].key()
-        )
-        .is_err());
+    // Replicas are written concurrently, so the faulted first manifest write may
+    // land on either replica remote; exactly that one is missing, the other
+    // finished before the error was returned.
+    let missing = ["b:", "c:"]
+        .iter()
+        .filter(|remote| {
+            f.memory
+                .stat(
+                    &OperationContext::none(),
+                    f.bindings[&remote_join(remote, "archive/manifest.json")].key(),
+                )
+                .is_err()
+        })
+        .count();
+    assert_eq!(missing, 1);
 }
 
 #[test]

@@ -27,5 +27,7 @@ mod storage;
 mod utils;
 
 fn main() -> anyhow::Result<()> {
+    // Stops this process's shared rclone read daemons when main returns.
+    let _rclone_daemons = storage::rclone::DaemonShutdownGuard;
     application::run()
 }

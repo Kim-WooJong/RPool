@@ -140,6 +140,11 @@ pub(crate) enum MigrateCommands {
         /// when that PC has stopped; claims otherwise expire after 2 hours).
         #[arg(long)]
         take_over: bool,
+        /// Archives migrated at once (1 = one after another). Each archive
+        /// still uses the pool's own relocation workers. Clamped to 1..=16;
+        /// default: 4, or fewer when fewer archives remain.
+        #[arg(long, value_name = "N")]
+        parallel: Option<usize>,
     },
     /// Show migrations recorded in the cloud (all, or one).
     Status {
@@ -269,7 +274,15 @@ mod capacity_tests {
         ));
         assert!(matches!(
             migrate(&["run", "p", "--id", "m1", "--stop-file", "/tmp/stop"]),
-            M::Run { ref pool, ref id, stop_file: Some(ref s), take_over: false } if pool == "p" && id == "m1" && s.ends_with("stop")
+            M::Run { ref pool, ref id, stop_file: Some(ref s), take_over: false, parallel: None } if pool == "p" && id == "m1" && s.ends_with("stop")
+        ));
+        assert!(matches!(
+            migrate(&["run", "p", "--id", "m1", "--parallel", "3"]),
+            M::Run {
+                parallel: Some(3),
+                stop_file: None,
+                ..
+            }
         ));
         assert!(matches!(
             migrate(&["status", "p"]),

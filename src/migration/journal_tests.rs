@@ -351,3 +351,184 @@ fn e2e_two_pcs_over_crypt_remotes() {
     assert_eq!(discover(&rclone, "jpool").unwrap(), vec!["mig-secret-name"]);
     eprintln!("E2E JOURNAL OK native={}", u8::from(native));
 }
+
+/// Named replica whose every call takes `delay` (a slow provider).
+struct Slow {
+    name: &'static str,
+    delay: std::time::Duration,
+    inner: Fake,
+    reads: std::sync::atomic::AtomicUsize,
+}
+impl Slow {
+    fn new(name: &'static str, delay_ms: u64) -> Arc<Self> {
+        Arc::new(Self {
+            name,
+            delay: std::time::Duration::from_millis(delay_ms),
+            inner: Fake::default(),
+            reads: Default::default(),
+        })
+    }
+    fn nap(&self) {
+        std::thread::sleep(self.delay);
+    }
+}
+impl JournalStore for Slow {
+    fn label(&self) -> String {
+        format!("{}:", self.name)
+    }
+    fn list_migrations(&self) -> Result<Vec<String>> {
+        self.nap();
+        self.inner.list_migrations()
+    }
+    fn read(&self, migration: &str, rel: &str) -> Result<Option<Vec<u8>>> {
+        self.nap();
+        self.reads.fetch_add(1, Ordering::SeqCst);
+        self.inner.read(migration, rel)
+    }
+    fn create(&self, migration: &str, rel: &str, bytes: &[u8]) -> Result<Option<Vec<u8>>> {
+        self.nap();
+        self.inner.create(migration, rel, bytes)
+    }
+    fn list_records(&self, migration: &str) -> Result<Vec<String>> {
+        self.nap();
+        self.inner.list_records(migration)
+    }
+}
+
+fn slow_journal(stores: &[Arc<Slow>], cache: Option<&Path>) -> Journal {
+    let cloud = stores
+        .iter()
+        .map(|s| Arc::clone(s) as Arc<dyn JournalStore>)
+        .collect();
+    let cache = cache.map(|d| Arc::new(LocalStore::new(d.join("p"))) as Arc<dyn JournalStore>);
+    Journal::with_stores("p", "m1", cloud, cache).unwrap()
+}
+
+#[test]
+fn append_writes_every_replica_concurrently() {
+    let stores: Vec<_> = ["s0", "s1", "s2", "s3", "s4"]
+        .into_iter()
+        .map(|n| Slow::new(n, 200))
+        .collect();
+    let dir = tempfile::tempdir().unwrap();
+    let j = slow_journal(&stores, Some(dir.path()));
+    let started = std::time::Instant::now();
+    j.append(&record("a", RecordState::Claimed, 1)).unwrap();
+    let elapsed = started.elapsed();
+    // Sequential would take 5 x 200 ms.
+    assert!(
+        elapsed < std::time::Duration::from_millis(600),
+        "{elapsed:?}"
+    );
+    assert!(stores.iter().all(|s| s.inner.len() == 1));
+    let started = std::time::Instant::now();
+    j.publish_plan(&plan("m1", 10)).unwrap();
+    // One concurrent read round plus one concurrent create round.
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_millis(1000),
+        "{elapsed:?}"
+    );
+    assert!(stores.iter().all(|s| s.inner.len() == 2));
+}
+
+#[test]
+fn concurrent_append_keeps_failure_semantics_in_store_order() {
+    let stores: Vec<_> = ["s0", "s1", "s2"]
+        .into_iter()
+        .map(|n| Slow::new(n, 50))
+        .collect();
+    let j = slow_journal(&stores, None);
+    stores[1].inner.down.store(true, Ordering::SeqCst);
+    j.append(&record("a", RecordState::Claimed, 1)).unwrap();
+    assert_eq!(
+        stores.iter().map(|s| s.inner.len()).collect::<Vec<_>>(),
+        vec![1, 0, 1]
+    );
+    // A differing object at the content address is a failure, not a success.
+    let bytes = serde_json::to_vec(&record("b", RecordState::Claimed, 2)).unwrap();
+    let rel = record_path(&blake3::hash(&bytes).to_hex());
+    stores[2].inner.put_raw(&format!("m1/{rel}"), b"other");
+    stores[0].inner.down.store(true, Ordering::SeqCst);
+    let error = j
+        .append(&record("b", RecordState::Claimed, 2))
+        .unwrap_err()
+        .to_string();
+    assert_eq!(
+        error,
+        "migration record could not be stored on any pool remote: \
+         s0:: provider unreachable; s1:: provider unreachable; \
+         s2:: existing record differs from its content address"
+    );
+}
+
+#[test]
+fn records_merge_concurrent_replicas_like_sequential_reads() {
+    let stores: Vec<_> = ["s0", "s1", "s2"]
+        .into_iter()
+        .map(|n| Slow::new(n, 100))
+        .collect();
+    let put = |store: &Slow, r: &Record| {
+        let bytes = serde_json::to_vec(r).unwrap();
+        let rel = record_path(&blake3::hash(&bytes).to_hex());
+        store.inner.put_raw(&format!("m1/{rel}"), &bytes);
+        rel
+    };
+    let everywhere: Vec<_> = (1..=6)
+        .map(|ts| record("all", RecordState::Claimed, ts))
+        .collect();
+    for r in &everywhere {
+        for store in &stores {
+            put(store, r);
+        }
+    }
+    put(&stores[2], &record("only-s2", RecordState::Verified, 20));
+    // s0 holds a corrupt copy of a record that s1 holds intact: the fallback
+    // read on s1 must still find it.
+    let good = record("healed", RecordState::Switched, 30);
+    let rel = put(&stores[1], &good);
+    stores[0].inner.put_raw(&format!("m1/{rel}"), b"corrupt");
+    // An unreachable replica only adds a warning.
+    let down = Slow::new("s3", 100);
+    put(&down, &record("lost-with-s3", RecordState::Lost, 40));
+    down.inner.down.store(true, Ordering::SeqCst);
+    let mut all = stores.clone();
+    all.push(down);
+
+    let dir = tempfile::tempdir().unwrap();
+    let j = slow_journal(&all, Some(dir.path()));
+    let started = std::time::Instant::now();
+    let mut got: Vec<u64> = j.records().unwrap().iter().map(|r| r.ts_unix).collect();
+    let elapsed = started.elapsed();
+    got.sort_unstable();
+    assert_eq!(got, vec![1, 2, 3, 4, 5, 6, 20, 30]);
+    // 8 distinct records: each downloaded once (+1 retry of the corrupt copy),
+    // spread over the replicas instead of all from the first one.
+    let reads: usize = stores.iter().map(|s| s.reads.load(Ordering::SeqCst)).sum();
+    assert_eq!(reads, 9);
+    // Sequential: 4 listings + 8 reads = 1.2 s at least.
+    assert!(
+        elapsed < std::time::Duration::from_millis(1000),
+        "{elapsed:?}"
+    );
+    // Everything is now cached: a second read downloads nothing.
+    let before = reads;
+    assert_eq!(j.records().unwrap().len(), 8);
+    let after: usize = stores.iter().map(|s| s.reads.load(Ordering::SeqCst)).sum();
+    assert_eq!(after, before);
+}
+
+#[test]
+fn appends_from_several_threads_share_one_journal() {
+    let parts = parts();
+    let j = journal("m1", &parts);
+    std::thread::scope(|scope| {
+        for ts in 1..=8 {
+            let j = &j;
+            scope.spawn(move || j.append(&record("a", RecordState::Claimed, ts)).unwrap());
+        }
+    });
+    assert_eq!(parts.0.len(), 8);
+    assert_eq!(parts.1.len(), 8);
+    assert_eq!(j.records().unwrap().len(), 8);
+}

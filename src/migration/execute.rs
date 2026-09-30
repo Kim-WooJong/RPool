@@ -19,11 +19,28 @@ pub(crate) fn create(rclone: &str, pool: &str, options: &PlanOptions) -> Result<
     Ok(plan)
 }
 
+/// Archives migrated at once when `--parallel` is not given.
+pub(crate) const DEFAULT_PARALLEL: usize = 4;
+/// Upper bound for `--parallel` (each archive also runs the pool's own
+/// relocation workers, so N archives use up to N x workers rclone calls).
+pub(crate) const MAX_PARALLEL: usize = 16;
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RunOptions {
     pub stop_file: Option<PathBuf>,
     /// Treat other PCs' unexpired claims as abandoned (after a PC crashed).
     pub take_over: bool,
+    /// Archives processed concurrently (None: [`DEFAULT_PARALLEL`]).
+    pub parallel: Option<usize>,
+}
+
+/// Worker count actually used: the request (or the default) clamped to
+/// `1..=MAX_PARALLEL` and to the number of archives to move.
+pub(crate) fn effective_parallel(requested: Option<usize>, work: usize) -> usize {
+    requested
+        .unwrap_or(DEFAULT_PARALLEL)
+        .clamp(1, MAX_PARALLEL)
+        .min(work.max(1))
 }
 
 /// Error a relocation/re-encode returns when some group has fewer than K
@@ -63,17 +80,63 @@ pub(crate) fn run(
         .join("migrations")
         .join(migration_id);
     fs::create_dir_all(&work_root)?;
-    let mut effects = LiveEffects {
+    let effects = LiveEffects {
         rclone,
         journal: &journal,
         plan: &plan,
         work_root,
         stop_file: options.stop_file.clone(),
         take_over: options.take_over,
+        switch_lock: Mutex::new(()),
     };
-    let summary = run_core(&plan, &records, &pc_id(), &mut effects)?;
+    println!(
+        "migration_parallel={}",
+        effective_parallel(options.parallel, order(&plan.entries).len())
+    );
+    let pc = pc_id();
+    let mut summary = run_core(&plan, &records, &pc, &effects, options.parallel)?;
+    if !summary.stopped && !summary.unknown.is_empty() {
+        // A provider error on one attempt is often transient: give the
+        // archives that ended unknown in this run one fresh attempt.
+        let retry = unknown_entries(&plan, &journal.records()?);
+        if !retry.is_empty() {
+            println!("migration_retry_unknown={}", retry.len());
+            std::thread::sleep(RETRY_UNKNOWN_DELAY);
+            let names: Vec<String> = retry.iter().map(|e| e.original_name.clone()).collect();
+            let retry_plan = Plan {
+                entries: retry,
+                ..plan.clone()
+            };
+            let second = run_core(
+                &retry_plan,
+                &journal.records()?,
+                &pc,
+                &effects,
+                options.parallel,
+            )?;
+            summary.unknown.retain(|u| !names.contains(u));
+            summary.unknown.extend(second.unknown);
+            summary.switched_now += second.switched_now;
+            summary.lost += second.lost;
+            summary.claimed_elsewhere += second.claimed_elsewhere;
+            summary.stopped = second.stopped;
+        }
+    }
     summary.finish()
 }
+
+/// Movable entries whose latest attempt ended unknown, in dispatch order.
+pub(crate) fn unknown_entries(plan: &Plan, records: &[Record]) -> Vec<Entry> {
+    let state = progress(records);
+    order(&plan.entries)
+        .into_iter()
+        .filter(|e| matches!(state.get(&e.archive_id), Some(Progress::Unknown(_))))
+        .cloned()
+        .collect()
+}
+
+/// Pause before the one automatic retry of archives that ended unknown.
+const RETRY_UNKNOWN_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Marks a migration abandoned (other PCs stop offering it).
 pub(crate) fn abandon(rclone: &str, pool: &str, migration_id: &str) -> Result<()> {
@@ -238,17 +301,20 @@ pub(crate) struct Replacement {
     pub new_manifest: String,
 }
 
-pub(crate) trait Effects {
-    fn append(&mut self, record: &Record) -> Result<()>;
+/// Shared by all run workers, hence `&self` and `Sync`: implementations
+/// serialize whatever must not run concurrently (see [`LiveEffects`]).
+pub(crate) trait Effects: Sync {
+    /// Must be safe to call concurrently for records of different entries.
+    fn append(&self, record: &Record) -> Result<()>;
     /// Fingerprint of the entry's current source manifest (Err: provider error).
-    fn source_fingerprint(&mut self, entry: &Entry) -> Result<String>;
+    fn source_fingerprint(&self, entry: &Entry) -> Result<String>;
     /// Builds and fully verifies the replacement (relocate or re-encode).
     /// An [`Unrecoverable`] error means lost; any other error is unknown.
-    fn build(&mut self, entry: &Entry, new_archive_id: &str) -> Result<Replacement>;
+    fn build(&self, entry: &Entry, new_archive_id: &str) -> Result<Replacement>;
     /// Quick check that a recorded replacement manifest loads and validates.
-    fn reverify(&mut self, entry: &Entry, new_archive_id: &str, new_manifest: &str) -> Result<()>;
+    fn reverify(&self, entry: &Entry, new_archive_id: &str, new_manifest: &str) -> Result<()>;
     /// Makes the replacement visible (inventory + replacement note).
-    fn switch(&mut self, entry: &Entry, replacement: &Replacement) -> Result<()>;
+    fn switch(&self, entry: &Entry, replacement: &Replacement) -> Result<()>;
     fn stop_requested(&self) -> bool;
     /// Other PCs' unexpired claims may be taken over (the user asked for it).
     fn take_over(&self) -> bool {
@@ -257,10 +323,12 @@ pub(crate) trait Effects {
     fn now(&self) -> u64 {
         crate::utils::now_unix()
     }
-    fn new_id(&mut self) -> Result<String> {
+    fn new_id(&self) -> Result<String> {
         random_hex(12)
     }
-    fn say(&mut self, line: &str) {
+    /// One whole output line (`println!` locks stdout, so concurrent lines
+    /// never interleave mid-line).
+    fn say(&self, line: &str) {
         println!("{line}");
     }
 }
@@ -311,7 +379,7 @@ impl RunSummary {
 }
 
 fn record(
-    effects: &mut dyn Effects,
+    effects: &dyn Effects,
     entry: &str,
     state: RecordState,
     attempt_id: &str,
@@ -330,13 +398,35 @@ fn record(
     }
 }
 
+/// What happened to one work entry during this run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Outcome {
+    SwitchedNow,
+    AlreadySwitched,
+    Lost,
+    /// Original name, for the summary.
+    Unknown(String),
+    ClaimedElsewhere,
+}
+
 /// The resume/run state machine over a frozen plan and the journal records.
+///
+/// Up to `parallel` archives (see [`effective_parallel`]) are processed at
+/// once; each archive's own steps stay strictly ordered, and archives are
+/// dispatched in [`order`]. With one worker this is the plain sequential
+/// loop. An error that is not about one archive (e.g. the journal refusing
+/// appends) stops dispatching, lets in-flight archives finish, and is
+/// returned; the first such error wins.
 pub(crate) fn run_core(
     plan: &Plan,
     records: &[Record],
     pc: &str,
-    effects: &mut dyn Effects,
+    effects: &dyn Effects,
+    parallel: Option<usize>,
 ) -> Result<RunSummary> {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst};
+    use std::sync::PoisonError;
+
     if is_abandoned(records) {
         bail!(
             "migration {} was abandoned; create a new plan",
@@ -367,162 +457,222 @@ pub(crate) fn run_core(
 
     let work = order(&plan.entries);
     summary.total = work.len();
-    for (index, entry) in work.into_iter().enumerate() {
-        let label = format!(
-            "Migration {}/{}: {} {}",
-            index + 1,
-            summary.total,
-            entry.original_name,
-            match entry.action {
-                Action::Relocate => "relocate",
-                _ => "reencode",
-            }
-        );
-        if effects.stop_requested() {
-            summary.stopped = true;
-            effects.say("migration_stop_requested=true");
+    let total = work.len();
+    let workers = effective_parallel(parallel, total);
+
+    let next = AtomicUsize::new(0);
+    let stopped = AtomicBool::new(false);
+    let halted = AtomicBool::new(false);
+    let outcomes: Mutex<Vec<(usize, Outcome)>> = Mutex::new(Vec::with_capacity(total));
+    let fatal: Mutex<Option<anyhow::Error>> = Mutex::new(None);
+    let worker = || loop {
+        if halted.load(SeqCst) || stopped.load(SeqCst) {
             break;
         }
-        let current = state.get(&entry.archive_id);
-        match current {
-            Some(Progress::Switched(_)) => {
-                summary.already_switched += 1;
-                effects.say(&format!("{label} already switched"));
-                continue;
-            }
-            Some(Progress::Lost(_)) => {
-                summary.lost += 1;
-                effects.say(&format!("{label} lost (recorded earlier)"));
-                continue;
-            }
-            Some(Progress::Verified(v)) => {
-                let (Some(id), Some(location)) = (v.new_archive_id.clone(), v.new_manifest.clone())
-                else {
-                    bail!(
-                        "verified record without replacement for {}",
-                        entry.archive_id
-                    );
-                };
-                effects.say(&format!("{label} re-verify {id}"));
-                match effects.reverify(entry, &id, &location) {
-                    Ok(()) => {
-                        let replacement = Replacement {
-                            new_archive_id: id,
-                            new_manifest: location,
-                        };
-                        match switch(effects, entry, &replacement, &v.attempt_id, pc) {
-                            Ok(()) => summary.switched_now += 1,
-                            Err(e) => unknown(effects, &mut summary, entry, &v.attempt_id, pc, e)?,
-                        }
-                        continue;
-                    }
-                    Err(e) => {
-                        effects.say(&format!(
-                            "{label} recorded replacement failed re-verification ({e:#}); rebuilding"
-                        ));
-                    }
-                }
-            }
-            Some(Progress::Claimed(c))
-                if c.pc_id != pc
-                    && !effects.take_over()
-                    && effects.now().saturating_sub(c.ts_unix) < CLAIM_LEASE_SECONDS =>
-            {
-                summary.claimed_elsewhere += 1;
-                effects.say(&format!("{label} claimed by {}; skipped", c.pc_id));
-                continue;
-            }
-            Some(Progress::Claimed(c)) => {
-                // Stale or our own interrupted attempt: its partial copy is an orphan.
-                if let Some(id) = &c.new_archive_id {
-                    let attempt = effects.new_id()?;
-                    let mut r = record(
-                        effects,
-                        &entry.archive_id,
-                        RecordState::Orphan,
-                        &attempt,
-                        pc,
-                    );
-                    r.new_archive_id = Some(id.clone());
-                    r.detail = Some(format!(
-                        "interrupted attempt {} by {}",
-                        c.attempt_id, c.pc_id
-                    ));
-                    effects.append(&r)?;
-                }
-            }
-            Some(Progress::Unknown(_)) | None => {}
-        }
-
-        // Fresh attempt.
-        match effects.source_fingerprint(entry) {
-            Ok(fp) if fp == entry.fingerprint => {}
-            Ok(_) => {
-                let e = anyhow!("source manifest changed since planning; create a new plan");
-                unknown(effects, &mut summary, entry, "", pc, e)?;
-                continue;
-            }
-            Err(e) => {
-                unknown(
-                    effects,
-                    &mut summary,
-                    entry,
-                    "",
-                    pc,
-                    e.context("source manifest unreadable"),
-                )?;
-                continue;
-            }
-        }
-        let attempt = effects.new_id()?;
-        let new_archive_id = format!("migrate-{}", effects.new_id()?);
-        let mut claim = record(
-            effects,
-            &entry.archive_id,
-            RecordState::Claimed,
-            &attempt,
-            pc,
-        );
-        claim.new_archive_id = Some(new_archive_id.clone());
-        effects.append(&claim)?;
-        effects.say(&format!("{label} -> {new_archive_id}"));
-        let replacement = match effects.build(entry, &new_archive_id) {
-            Ok(r) => r,
-            Err(e) => {
-                if let Some(Unrecoverable(losses)) = e.downcast_ref::<Unrecoverable>() {
-                    let mut r = record(effects, &entry.archive_id, RecordState::Lost, &attempt, pc);
-                    r.losses = losses.clone();
-                    r.new_archive_id = Some(new_archive_id.clone());
-                    r.detail = Some(format!("{e:#}"));
-                    effects.append(&r)?;
-                    summary.lost += 1;
-                    effects.say(&format!("{label} lost: {e}"));
-                } else {
-                    unknown(effects, &mut summary, entry, &attempt, pc, e)?;
-                }
-                continue;
-            }
+        let index = next.fetch_add(1, SeqCst);
+        let Some(entry) = work.get(index) else {
+            break;
         };
-        let mut verified = record(
-            effects,
-            &entry.archive_id,
-            RecordState::Verified,
-            &attempt,
-            pc,
-        );
-        verified.new_archive_id = Some(replacement.new_archive_id.clone());
-        verified.new_manifest = Some(replacement.new_manifest.clone());
-        effects.append(&verified)?;
-        match switch(effects, entry, &replacement, &attempt, pc) {
-            Ok(()) => summary.switched_now += 1,
-            Err(e) => unknown(effects, &mut summary, entry, &attempt, pc, e)?,
+        if effects.stop_requested() {
+            if !stopped.swap(true, SeqCst) {
+                effects.say("migration_stop_requested=true");
+            }
+            break;
+        }
+        match process_entry(effects, &state, entry, index, total, pc) {
+            Ok(outcome) => outcomes
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push((index, outcome)),
+            Err(error) => {
+                halted.store(true, SeqCst);
+                fatal
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .get_or_insert(error);
+                break;
+            }
+        }
+    };
+    if workers == 1 {
+        worker();
+    } else {
+        std::thread::scope(|scope| {
+            for _ in 0..workers {
+                scope.spawn(worker);
+            }
+        });
+    }
+    if let Some(error) = fatal.into_inner().unwrap_or_else(PoisonError::into_inner) {
+        return Err(error);
+    }
+    summary.stopped = stopped.into_inner();
+    let mut outcomes = outcomes
+        .into_inner()
+        .unwrap_or_else(PoisonError::into_inner);
+    // Deterministic summary (unknown names in work order) at any concurrency.
+    outcomes.sort_by_key(|(index, _)| *index);
+    for (_, outcome) in outcomes {
+        match outcome {
+            Outcome::SwitchedNow => summary.switched_now += 1,
+            Outcome::AlreadySwitched => summary.already_switched += 1,
+            Outcome::Lost => summary.lost += 1,
+            Outcome::Unknown(name) => summary.unknown.push(name),
+            Outcome::ClaimedElsewhere => summary.claimed_elsewhere += 1,
         }
     }
     Ok(summary)
 }
 
+/// One archive, start to finish: fingerprint check -> claim -> build ->
+/// verified -> switch -> switched (or the resume shortcut of each state).
+/// `Err` is reserved for failures that are not about this archive.
+fn process_entry(
+    effects: &dyn Effects,
+    state: &BTreeMap<String, Progress>,
+    entry: &Entry,
+    index: usize,
+    total: usize,
+    pc: &str,
+) -> Result<Outcome> {
+    let label = format!(
+        "Migration {}/{}: {} {}",
+        index + 1,
+        total,
+        entry.original_name,
+        match entry.action {
+            Action::Relocate => "relocate",
+            _ => "reencode",
+        }
+    );
+    match state.get(&entry.archive_id) {
+        Some(Progress::Switched(_)) => {
+            effects.say(&format!("{label} already switched"));
+            return Ok(Outcome::AlreadySwitched);
+        }
+        Some(Progress::Lost(_)) => {
+            effects.say(&format!("{label} lost (recorded earlier)"));
+            return Ok(Outcome::Lost);
+        }
+        Some(Progress::Verified(v)) => {
+            let (Some(id), Some(location)) = (v.new_archive_id.clone(), v.new_manifest.clone())
+            else {
+                bail!(
+                    "verified record without replacement for {}",
+                    entry.archive_id
+                );
+            };
+            effects.say(&format!("{label} re-verify {id}"));
+            match effects.reverify(entry, &id, &location) {
+                Ok(()) => {
+                    let replacement = Replacement {
+                        new_archive_id: id,
+                        new_manifest: location,
+                    };
+                    return match switch(effects, entry, &replacement, &v.attempt_id, pc) {
+                        Ok(()) => Ok(Outcome::SwitchedNow),
+                        Err(e) => unknown(effects, entry, &v.attempt_id, pc, e),
+                    };
+                }
+                Err(e) => {
+                    effects.say(&format!(
+                        "{label} recorded replacement failed re-verification ({e:#}); rebuilding"
+                    ));
+                }
+            }
+        }
+        Some(Progress::Claimed(c))
+            if c.pc_id != pc
+                && !effects.take_over()
+                && effects.now().saturating_sub(c.ts_unix) < CLAIM_LEASE_SECONDS =>
+        {
+            effects.say(&format!("{label} claimed by {}; skipped", c.pc_id));
+            return Ok(Outcome::ClaimedElsewhere);
+        }
+        Some(Progress::Claimed(c)) => {
+            // Stale or our own interrupted attempt: its partial copy is an orphan.
+            if let Some(id) = &c.new_archive_id {
+                let attempt = effects.new_id()?;
+                let mut r = record(
+                    effects,
+                    &entry.archive_id,
+                    RecordState::Orphan,
+                    &attempt,
+                    pc,
+                );
+                r.new_archive_id = Some(id.clone());
+                r.detail = Some(format!(
+                    "interrupted attempt {} by {}",
+                    c.attempt_id, c.pc_id
+                ));
+                effects.append(&r)?;
+            }
+        }
+        Some(Progress::Unknown(_)) | None => {}
+    }
+
+    // Fresh attempt.
+    match effects.source_fingerprint(entry) {
+        Ok(fp) if fp == entry.fingerprint => {}
+        Ok(_) => {
+            let e = anyhow!("source manifest changed since planning; create a new plan");
+            return unknown(effects, entry, "", pc, e);
+        }
+        Err(e) => {
+            return unknown(
+                effects,
+                entry,
+                "",
+                pc,
+                e.context("source manifest unreadable"),
+            );
+        }
+    }
+    let attempt = effects.new_id()?;
+    let new_archive_id = format!("migrate-{}", effects.new_id()?);
+    let mut claim = record(
+        effects,
+        &entry.archive_id,
+        RecordState::Claimed,
+        &attempt,
+        pc,
+    );
+    claim.new_archive_id = Some(new_archive_id.clone());
+    effects.append(&claim)?;
+    effects.say(&format!("{label} -> {new_archive_id}"));
+    let replacement = match effects.build(entry, &new_archive_id) {
+        Ok(r) => r,
+        Err(e) => {
+            if let Some(Unrecoverable(losses)) = e.downcast_ref::<Unrecoverable>() {
+                let mut r = record(effects, &entry.archive_id, RecordState::Lost, &attempt, pc);
+                r.losses = losses.clone();
+                r.new_archive_id = Some(new_archive_id.clone());
+                r.detail = Some(format!("{e:#}"));
+                effects.append(&r)?;
+                effects.say(&format!("{label} lost: {e}"));
+                return Ok(Outcome::Lost);
+            }
+            return unknown(effects, entry, &attempt, pc, e);
+        }
+    };
+    let mut verified = record(
+        effects,
+        &entry.archive_id,
+        RecordState::Verified,
+        &attempt,
+        pc,
+    );
+    verified.new_archive_id = Some(replacement.new_archive_id.clone());
+    verified.new_manifest = Some(replacement.new_manifest.clone());
+    effects.append(&verified)?;
+    match switch(effects, entry, &replacement, &attempt, pc) {
+        Ok(()) => Ok(Outcome::SwitchedNow),
+        Err(e) => unknown(effects, entry, &attempt, pc, e),
+    }
+}
+
 fn switch(
-    effects: &mut dyn Effects,
+    effects: &dyn Effects,
     entry: &Entry,
     replacement: &Replacement,
     attempt: &str,
@@ -550,14 +700,15 @@ fn switch(
     Ok(())
 }
 
+/// Records `error` as this entry's provider problem. Only the append of the
+/// Unknown record itself can fail the run.
 fn unknown(
-    effects: &mut dyn Effects,
-    summary: &mut RunSummary,
+    effects: &dyn Effects,
     entry: &Entry,
     attempt: &str,
     pc: &str,
     error: anyhow::Error,
-) -> Result<()> {
+) -> Result<Outcome> {
     let attempt = if attempt.is_empty() {
         effects.new_id()?
     } else {
@@ -576,8 +727,7 @@ fn unknown(
         "migration_entry_unknown={} error={error:#}",
         entry.archive_id
     ));
-    summary.unknown.push(entry.original_name.clone());
-    Ok(())
+    Ok(Outcome::Unknown(entry.original_name.clone()))
 }
 
 // ---------------------------------------------------------------------------
@@ -590,6 +740,10 @@ struct LiveEffects<'a> {
     work_root: PathBuf,
     stop_file: Option<PathBuf>,
     take_over: bool,
+    /// Serializes switches: the inventory read-modify-write and the local
+    /// replacement log. Cheap next to a build, and it does not rely on the
+    /// inventory file lock excluding threads of the same process.
+    switch_lock: Mutex<()>,
 }
 
 impl LiveEffects<'_> {
@@ -601,13 +755,13 @@ impl LiveEffects<'_> {
 }
 
 impl Effects for LiveEffects<'_> {
-    fn append(&mut self, record: &Record) -> Result<()> {
+    fn append(&self, record: &Record) -> Result<()> {
         self.journal.append(record)
     }
-    fn source_fingerprint(&mut self, entry: &Entry) -> Result<String> {
+    fn source_fingerprint(&self, entry: &Entry) -> Result<String> {
         crate::manifest::manifest_fingerprint(&self.load_source(entry)?)
     }
-    fn build(&mut self, entry: &Entry, new_archive_id: &str) -> Result<Replacement> {
+    fn build(&self, entry: &Entry, new_archive_id: &str) -> Result<Replacement> {
         let manifest = self.load_source(entry)?;
         if crate::manifest::manifest_fingerprint(&manifest)? != entry.fingerprint {
             bail!("source manifest changed since planning");
@@ -623,10 +777,12 @@ impl Effects for LiveEffects<'_> {
                     new_archive_id,
                     &work,
                 )?;
+                // Tagged with the archive: several archives run at once.
                 println!(
-                    "  relocated: downloaded {}, uploaded {}",
+                    "  relocated: downloaded {}, uploaded {} ({})",
                     crate::presentation::format_bytes(r.downloaded_bytes),
-                    crate::presentation::format_bytes(r.uploaded_bytes)
+                    crate::presentation::format_bytes(r.uploaded_bytes),
+                    entry.original_name
                 );
                 (r.manifest, r.manifest_locations)
             }
@@ -654,7 +810,7 @@ impl Effects for LiveEffects<'_> {
             new_manifest,
         })
     }
-    fn reverify(&mut self, entry: &Entry, new_archive_id: &str, new_manifest: &str) -> Result<()> {
+    fn reverify(&self, entry: &Entry, new_archive_id: &str, new_manifest: &str) -> Result<()> {
         let manifest = crate::manifest::load_manifest(self.rclone, new_manifest)?;
         crate::manifest::validate_manifest(&manifest)?;
         if manifest.archive_id != new_archive_id || manifest.original_size != entry.size {
@@ -662,7 +818,11 @@ impl Effects for LiveEffects<'_> {
         }
         Ok(())
     }
-    fn switch(&mut self, entry: &Entry, replacement: &Replacement) -> Result<()> {
+    fn switch(&self, entry: &Entry, replacement: &Replacement) -> Result<()> {
+        let _serialized = self
+            .switch_lock
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         crate::inventory::add_manifest(self.rclone, &replacement.new_manifest)?;
         note_replacement(&self.plan.migration_id, entry, replacement)
     }

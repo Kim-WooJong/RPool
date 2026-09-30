@@ -3,21 +3,36 @@
 #[cfg(all(test, unix))]
 #[path = "copy_tests.rs"]
 mod copy_tests;
+mod daemon;
+#[cfg(all(test, unix))]
+#[path = "daemon_tests.rs"]
+mod daemon_tests;
+mod http;
+mod limit;
 mod process;
 #[cfg(test)]
 mod tests;
+
+pub(crate) use daemon::ShutdownGuard as DaemonShutdownGuard;
 
 use crate::storage::capabilities::{BackendCapabilities, Capability, ConsistencyScope};
 use crate::storage::error::StorageError;
 use crate::storage::reference::{BackendId, ObjectKey};
 use crate::storage::traits::*;
-use serde_json::Value;
+use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 const ADMIN_LIMIT: usize = 8 * 1024 * 1024;
+const LIST_LIMIT: usize = 1 << 30;
+/// Extra attempts for a mutation the provider rejected before performing it.
+const REJECTED_RETRIES: u32 = 3;
+const REJECTED_BACKOFF_MS: u64 = if cfg!(test) { 20 } else { 2000 };
 
 #[derive(Clone)]
 pub(crate) enum ConfigSelection {
@@ -37,6 +52,9 @@ pub(crate) struct RcloneContext {
     executable: PathBuf,
     config: ConfigSelection,
     environment: Vec<(OsString, OsString)>,
+    /// Read-only calls may use the shared `rclone rcd` daemon. Off in unit
+    /// tests unless a test opts in, so tests never start real daemons.
+    daemon_allowed: bool,
 }
 
 struct BoundedVec {
@@ -94,6 +112,7 @@ impl RcloneContext {
             executable,
             config,
             environment: std::env::vars_os().collect(),
+            daemon_allowed: !cfg!(test),
         }
     }
     pub(crate) fn inherited(executable: &str) -> Self {
@@ -117,6 +136,14 @@ impl RcloneContext {
             bytes: Vec::new(),
             limit: ADMIN_LIMIT,
         };
+        let address = args
+            .iter()
+            .position(|arg| *arg == "--")
+            .and_then(|at| args.get(at + 1));
+        let _permit = match address {
+            Some(address) => permit(ctx, address)?,
+            None => None,
+        };
         process::run(
             &mut self.command(&args.iter().map(OsString::from).collect::<Vec<_>>()),
             ctx,
@@ -133,11 +160,23 @@ impl RcloneContext {
         ctx: &OperationContext,
         address: &str,
     ) -> Result<Vec<u8>, StorageError> {
+        if let Some(daemon) = daemon::get(self) {
+            let outcome = {
+                let _permit = permit(ctx, address)?;
+                daemon.list(ctx, address, LIST_LIMIT)
+            };
+            match outcome {
+                Ok(bytes) => return Ok(bytes),
+                Err(daemon::Failure::Definite(error)) => return Err(error),
+                Err(daemon::Failure::Fallback) => {}
+            }
+        }
         let mut sink = BoundedVec {
             bytes: Vec::new(),
-            limit: 1 << 30,
+            limit: LIST_LIMIT,
         };
         let args = ["lsjson", "-R", "--no-mimetype", "--", address];
+        let _permit = permit(ctx, address)?;
         process::run(
             &mut self.command(&args.iter().map(OsString::from).collect::<Vec<_>>()),
             ctx,
@@ -219,12 +258,53 @@ impl RcloneContext {
         self.environment.retain(|(k, _)| k != key);
         self.environment.push((key.into(), value.into()));
     }
+    #[cfg(test)]
+    pub(crate) fn allow_daemon_for_test(&mut self) {
+        self.daemon_allowed = true;
+    }
+    /// `lsjson --stat [--hash --hash-type ...]` output for one address,
+    /// through the daemon when it gives a definite answer.
+    fn stat_json(
+        &self,
+        ctx: &OperationContext,
+        address: &str,
+        hashes: &[String],
+    ) -> Result<Vec<u8>, StorageError> {
+        if let Some(daemon) = daemon::get(self) {
+            let opt = if hashes.is_empty() {
+                json!({})
+            } else {
+                json!({"showHash": true, "hashTypes": hashes})
+            };
+            let outcome = {
+                let _permit = permit(ctx, address)?;
+                daemon.stat(ctx, address, opt)
+            };
+            match outcome {
+                Ok(item) => {
+                    return serde_json::to_vec(&item)
+                        .map_err(|_| invalid("invalid rclone stat JSON"))
+                }
+                Err(daemon::Failure::Definite(error)) => return Err(error),
+                Err(daemon::Failure::Fallback) => {}
+            }
+        }
+        let mut args = vec!["lsjson", "--stat"];
+        if !hashes.is_empty() {
+            args.push("--hash");
+            for hash in hashes {
+                args.extend(["--hash-type", hash.as_str()]);
+            }
+        }
+        args.extend(["--", address]);
+        self.capture(ctx, &args)
+    }
     pub(crate) fn stat_raw(
         &self,
         ctx: &OperationContext,
         address: &str,
     ) -> Result<ObjectMetadata, StorageError> {
-        let bytes = self.capture(ctx, &["lsjson", "--stat", "--", address])?;
+        let bytes = self.stat_json(ctx, address, &[])?;
         let value: Value =
             serde_json::from_slice(&bytes).map_err(|_| invalid("invalid rclone stat JSON"))?;
         let is_dir = value
@@ -252,7 +332,6 @@ impl RcloneContext {
         range: Option<&ReadRange>,
         sink: &mut dyn Write,
     ) -> Result<ReadReceipt, StorageError> {
-        let mut args = vec![OsString::from("cat")];
         if let Some(range) = range {
             if range.is_empty() {
                 if self.stat_raw(ctx, address)?.is_dir {
@@ -267,21 +346,49 @@ impl RcloneContext {
             if range.offset() > i64::MAX as u64 || range.length() > i64::MAX as u64 {
                 return Err(invalid("rclone range exceeds signed 64-bit CLI limits"));
             }
-            args.extend([
-                "--offset".into(),
-                range.offset().to_string().into(),
-                "--count".into(),
-                range.length().to_string().into(),
-            ]);
         }
-        args.extend(["--".into(), address.into()]);
+        let (offset, count) = range.map_or((0, None), |r| (r.offset(), Some(r.length())));
         let mut bounded = RangeSink {
             sink,
-            remaining: range.map(ReadRange::length).unwrap_or(u64::MAX),
+            remaining: count.unwrap_or(u64::MAX),
         };
+        let mut written = 0u64;
+        if let Some(daemon) = daemon::get(self) {
+            let outcome = {
+                let _permit = permit(ctx, address)?;
+                daemon.read(ctx, address, offset, count, &mut bounded, &mut written)
+            };
+            match outcome {
+                Ok(()) => {
+                    return Ok(ReadReceipt {
+                        bytes_read: written,
+                        version: None,
+                    })
+                }
+                Err(daemon::Failure::Definite(error)) => return Err(error),
+                Err(daemon::Failure::Fallback) => {}
+            }
+        }
+        // Resume after whatever the daemon already delivered.
+        let count = count.map(|count| count - written);
+        if count == Some(0) {
+            return Ok(ReadReceipt {
+                bytes_read: written,
+                version: None,
+            });
+        }
+        let mut args = vec![OsString::from("cat")];
+        if range.is_some() || written > 0 {
+            args.extend(["--offset".into(), (offset + written).to_string().into()]);
+        }
+        if let Some(count) = count {
+            args.extend(["--count".into(), count.to_string().into()]);
+        }
+        args.extend(["--".into(), address.into()]);
+        let _permit = permit(ctx, address)?;
         let bytes_read = process::run(&mut self.command(&args), ctx, None, &mut bounded, false)?;
         Ok(ReadReceipt {
-            bytes_read,
+            bytes_read: written + bytes_read,
             version: None,
         })
     }
@@ -334,6 +441,9 @@ impl RcloneContext {
             args.extend(["--size".into(), size.to_string().into()]);
         }
         args.extend(["--".into(), address.into()]);
+        // The source stream is consumed, so a rejected upload is reported as
+        // retriable (RateLimited) instead of being retried here.
+        let _permits = self.mutation_permits(ctx, address)?;
         let size = process::run(
             &mut self.command(&args),
             ctx,
@@ -371,8 +481,7 @@ impl RcloneContext {
             destination,
         ]
         .map(OsString::from);
-        process::run(&mut self.command(&args), ctx, None, &mut io::sink(), true)?;
-        Ok(())
+        self.retry_rejected(ctx, destination, &args)
     }
     /// Copies one object from `source` to `destination` with `rclone copyto`,
     /// never overwriting: an existing destination is refused before the copy,
@@ -421,8 +530,7 @@ impl RcloneContext {
             destination,
         ]
         .map(OsString::from);
-        process::run(&mut self.command(&args), ctx, None, &mut io::sink(), true)?;
-        Ok(())
+        self.retry_rejected(ctx, destination, &args)
     }
     /// `rclone backend features <remote>`: server-side copy support and hashes.
     pub(crate) fn backend_features(
@@ -498,12 +606,7 @@ impl RcloneContext {
         if hashes.is_empty() {
             return Ok(None);
         }
-        let mut args = vec!["lsjson", "--stat", "--hash"];
-        for hash in hashes {
-            args.extend(["--hash-type", hash.as_str()]);
-        }
-        args.extend(["--", address]);
-        let bytes = self.capture(ctx, &args)?;
+        let bytes = self.stat_json(ctx, address, hashes)?;
         parse_object_hash(&bytes, hashes)
     }
     pub(crate) fn delete_raw(
@@ -521,8 +624,132 @@ impl RcloneContext {
             address,
         ]
         .map(OsString::from);
-        process::run(&mut self.command(&args), ctx, None, &mut io::sink(), true)?;
-        Ok(())
+        self.retry_rejected(ctx, address, &args)
+    }
+    /// General per-remote slot plus the write slot of the storage namespace
+    /// behind `address`. Resolution happens before any slot is taken.
+    fn mutation_permits(
+        &self,
+        ctx: &OperationContext,
+        address: &str,
+    ) -> Result<(Option<limit::Permit>, Option<limit::Permit>), StorageError> {
+        let lane = self.write_lane(ctx, address);
+        let general = permit(ctx, address)?;
+        let write = match &lane {
+            Some((base, dropbox)) => Some(limit::acquire_write(base, *dropbox, ctx)?),
+            None => None,
+        };
+        Ok((general, write))
+    }
+    /// (bottom remote of the crypt/alias chain, is Dropbox), cached per
+    /// config selection and remote name. Unresolvable -> the addressed name.
+    fn write_lane(&self, ctx: &OperationContext, address: &str) -> Option<(String, bool)> {
+        type Cache = HashMap<(Option<PathBuf>, Option<OsString>, String), (String, bool)>;
+        static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
+        let name = remote_name(address).ok()?;
+        let key = (
+            match &self.config {
+                ConfigSelection::File(path) => Some(path.clone()),
+                ConfigSelection::Inherited => None,
+            },
+            self.environment
+                .iter()
+                .find(|(k, _)| k == "RCLONE_CONFIG")
+                .map(|(_, v)| v.clone()),
+            name.to_owned(),
+        );
+        let cache = CACHE.get_or_init(Default::default);
+        if let Some(lane) = cache.lock().ok()?.get(&key) {
+            return Some(lane.clone());
+        }
+        let Ok(config) = self.config_dump(ctx) else {
+            return Some((name.to_owned(), false));
+        };
+        let lane = write_base(&config, name);
+        cache.lock().ok()?.insert(key, lane.clone());
+        Some(lane)
+    }
+    /// One mutation without a source stream, retried with bounded backoff
+    /// only while the provider definitely rejected it without performing it.
+    fn retry_rejected(
+        &self,
+        ctx: &OperationContext,
+        address: &str,
+        args: &[OsString],
+    ) -> Result<(), StorageError> {
+        let mut attempt = 0;
+        loop {
+            let result = {
+                let _permits = self.mutation_permits(ctx, address)?;
+                process::run(&mut self.command(args), ctx, None, &mut io::sink(), true)
+            };
+            match result {
+                Err(error)
+                    if error.kind() == crate::storage::error::StorageErrorKind::RateLimited
+                        && attempt < REJECTED_RETRIES =>
+                {
+                    backoff(ctx, attempt)?;
+                    attempt += 1;
+                }
+                result => return result.map(drop),
+            }
+        }
+    }
+}
+
+/// 2s, 4s, 8s (+ up to 25% jitter), cancellable.
+fn backoff(ctx: &OperationContext, attempt: u32) -> Result<(), StorageError> {
+    let base = REJECTED_BACKOFF_MS << attempt;
+    let mut jitter = [0u8; 8];
+    let _ = getrandom::fill(&mut jitter);
+    let wait = base + u64::from_le_bytes(jitter) % (base / 4 + 1);
+    let until = Instant::now() + Duration::from_millis(wait);
+    while Instant::now() < until {
+        process::check(ctx)?;
+        std::thread::sleep(process::POLL * 5);
+    }
+    process::check(ctx)
+}
+
+/// The storage namespace a write to remote `name` lands in: follows
+/// single-remote wrappers (`crypt`, `alias`, ...) through their `remote =`.
+pub(crate) fn write_base(config: &Value, name: &str) -> (String, bool) {
+    let mut current = name.to_owned();
+    for _ in 0..8 {
+        let Some(entry) = config.get(&current) else {
+            break;
+        };
+        let kind = entry
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if kind == "dropbox" {
+            return (current, true);
+        }
+        if !matches!(
+            kind.as_str(),
+            "crypt" | "alias" | "chunker" | "compress" | "hasher" | "cache"
+        ) {
+            break;
+        }
+        let Some(next) = entry
+            .get("remote")
+            .and_then(Value::as_str)
+            .and_then(|remote| remote_name(remote).ok())
+        else {
+            break;
+        };
+        current = next.to_owned();
+    }
+    (current, false)
+}
+
+/// One slot of the general per-remote cap for the remote of `address`.
+fn permit(ctx: &OperationContext, address: &str) -> Result<Option<limit::Permit>, StorageError> {
+    match remote_name(address) {
+        Ok(name) => limit::acquire(name, ctx).map(Some),
+        Err(_) => Ok(None),
     }
 }
 

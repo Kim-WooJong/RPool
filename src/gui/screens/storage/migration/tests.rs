@@ -243,7 +243,7 @@ fn background_planning_reports_failures_without_blocking() {
 fn run_and_abandon_argv() {
     let stop = Path::new("/ctl dir/stop");
     assert_eq!(
-        run_args("-my pool", ID, stop, false),
+        run_args("-my pool", ID, stop, false, 4),
         [
             "pool",
             "migrate",
@@ -252,6 +252,8 @@ fn run_and_abandon_argv() {
             ID,
             "--stop-file",
             "/ctl dir/stop",
+            "--parallel",
+            "4",
             "--",
             "-my pool"
         ]
@@ -274,8 +276,27 @@ fn parses(args: Vec<OsString>) {
 
 #[test]
 fn run_argv_parses_with_the_cli() {
-    parses(run_args("-my pool", ID, Path::new("/ctl dir/stop"), false));
-    parses(run_args("-my pool", ID, Path::new("/ctl dir/stop"), true));
+    parses(run_args(
+        "-my pool",
+        ID,
+        Path::new("/ctl dir/stop"),
+        false,
+        1,
+    ));
+    parses(run_args(
+        "-my pool",
+        ID,
+        Path::new("/ctl dir/stop"),
+        true,
+        16,
+    ));
+    // Out-of-range values are clamped before they reach the CLI.
+    let args = run_args("p", ID, Path::new("/s"), false, 0);
+    assert!(args.windows(2).any(|w| w[0] == "--parallel" && w[1] == "1"));
+    assert_eq!(
+        super::state::MigrationForm::default().parallel.0,
+        crate::migration::execute::DEFAULT_PARALLEL
+    );
 }
 
 #[test]

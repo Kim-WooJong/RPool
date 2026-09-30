@@ -10,6 +10,8 @@ fn main() {
     if address.contains("auth") {eprintln!("authentication failed secret-marker not found");std::process::exit(1)}
     if address.contains("denied") {eprintln!("permission denied secret-marker");std::process::exit(1)}
     if address.contains("badconfig") {eprintln!("config section not found");std::process::exit(1)}
+    if address.contains("busy") && (verb=="copyto"||verb=="deletefile"||verb=="rcat") {let path=format!("{}.busy",config.clone().unwrap_or_default());let n:usize=fs::read_to_string(&path).ok().and_then(|t|t.trim().parse().ok()).unwrap_or(0)+1;fs::write(&path,n.to_string()).unwrap();let fails:usize=if address.contains("busyforever"){usize::MAX}else{2};if n<=fails{eprintln!("ERROR : x: Failed to copy: copy failed: from_write/too_many_write_operations/..");std::process::exit(1)}}
+    if address.contains("unsure") {eprintln!("ERROR : upload failed: connection reset; object 4290 bytes");std::process::exit(1)}
     match verb {
         "version"=>println!("rclone v1.fixture"),
         "lsf"=>{if !address.contains("empty") {println!("synthetic-object")}},

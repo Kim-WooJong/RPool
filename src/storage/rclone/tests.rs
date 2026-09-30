@@ -676,3 +676,110 @@ fn mount_process_cancellation_inherits_across_threads_and_reaps_children() {
         assert!(!OperationContext::none().is_cancelled());
     }
 }
+
+#[test]
+fn provider_rejected_mutations_retry_with_backoff_then_report_retriable() {
+    let (dir, context) = normal();
+    let ctx = OperationContext::none();
+    let counter = dir.path().join("config file.json.busy");
+    // Rejected twice, then performed: the retry is invisible to the caller.
+    context.delete_raw(&ctx, "crypt:busy-twice").unwrap();
+    assert_eq!(std::fs::read_to_string(&counter).unwrap(), "3");
+    std::fs::remove_file(&counter).unwrap();
+    context
+        .copy_raw(&ctx, "crypt:source", "crypt:busy-twice")
+        .unwrap();
+    assert_eq!(std::fs::read_to_string(&counter).unwrap(), "3");
+    std::fs::remove_file(&counter).unwrap();
+    // Always rejected: 1 + 3 attempts, then a retriable RateLimited.
+    let error = context.delete_raw(&ctx, "crypt:busyforever").unwrap_err();
+    assert_eq!(error.kind(), StorageErrorKind::RateLimited);
+    assert!(error.is_retriable());
+    assert_eq!(std::fs::read_to_string(&counter).unwrap(), "4");
+    std::fs::remove_file(&counter).unwrap();
+    // An upload's source is consumed: no in-layer retry, but retriable.
+    let error = context
+        .write_raw(
+            &ctx,
+            "crypt:busyforever",
+            &mut &b"data"[..],
+            Some(4),
+            &WriteOptions::default(),
+        )
+        .unwrap_err();
+    assert_eq!(error.kind(), StorageErrorKind::RateLimited);
+    assert_eq!(std::fs::read_to_string(&counter).unwrap(), "1");
+    // Anything else stays an unknown outcome and is attempted once.
+    let error = context.delete_raw(&ctx, "crypt:unsure").unwrap_err();
+    assert_eq!(error.kind(), StorageErrorKind::UnknownOutcome);
+}
+
+#[test]
+fn rejected_write_signals_are_exact() {
+    for rejected in [
+        "ERROR : f: Failed to copy: copy failed: from_write/too_many_write_operations/..",
+        "upload failed: too_many_requests/.",
+        "googleapi: Error 403: User Rate Limit Exceeded, userRateLimitExceeded",
+        "googleapi: Error 403: Rate Limit Exceeded, rateLimitExceeded",
+        "HTTP error 429 (429 Too Many Requests) returned body: \"\"",
+        "failed: status code 429",
+        "Error 429: slow down",
+    ] {
+        assert!(
+            process::mutation_rejected(rejected.as_bytes()),
+            "{rejected}"
+        );
+    }
+    for unsure in [
+        "Failed to copy: connection reset by peer",
+        "context deadline exceeded",
+        "error 4290 at offset",
+        "object 4290 bytes",
+        "HTTP error 500 (500 Internal Server Error)",
+        "status code 4291",
+        "",
+    ] {
+        assert!(!process::mutation_rejected(unsure.as_bytes()), "{unsure}");
+    }
+}
+
+#[test]
+fn write_base_follows_wrappers_to_the_storage_namespace() {
+    let config: Value = serde_json::from_str(
+        r#"{"dropbox_1":{"type":"dropbox"},"dropbox_1_crypt":{"type":"crypt","remote":"dropbox_1:pool"},
+            "alias_c":{"type":"alias","remote":"dropbox_1_crypt:x"},"drime":{"type":"drime"},
+            "drime_crypt":{"type":"crypt","remote":"drime:"},"loop":{"type":"alias","remote":"loop:"}}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        write_base(&config, "dropbox_1_crypt"),
+        ("dropbox_1".into(), true)
+    );
+    assert_eq!(write_base(&config, "alias_c"), ("dropbox_1".into(), true));
+    assert_eq!(write_base(&config, "dropbox_1"), ("dropbox_1".into(), true));
+    assert_eq!(write_base(&config, "drime_crypt"), ("drime".into(), false));
+    assert_eq!(write_base(&config, "unknown"), ("unknown".into(), false));
+    assert_eq!(write_base(&config, "loop"), ("loop".into(), false));
+}
+
+#[test]
+fn a_fake_rclone_disables_the_daemon_and_reads_use_subprocesses() {
+    let (_dir, mut context) = normal();
+    context.allow_daemon_for_test();
+    let started = Instant::now();
+    assert!(daemon::get(&context).is_none());
+    assert!(started.elapsed() < Duration::from_secs(5));
+    let ctx = OperationContext::none();
+    assert_eq!(context.stat_raw(&ctx, "crypt:object").unwrap().size, 6);
+    let mut bytes = Vec::new();
+    context
+        .read_raw(
+            &ctx,
+            "crypt:object",
+            Some(&ReadRange::new(1, 3).unwrap()),
+            &mut bytes,
+        )
+        .unwrap();
+    assert_eq!(bytes, b"bcd");
+    assert!(daemon::get(&context).is_none(), "permanent fallback");
+}

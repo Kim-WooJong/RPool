@@ -11,6 +11,13 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
+Speed work (2026-10-01): persistent `rclone rcd` read transport
+(`src/storage/rclone/daemon.rs`, `http.rs`, `limit.rs`), parallel migration
+run (`--parallel`), concurrent journal/manifest replica I/O, per-remote
+caps (Dropbox writes = 1) and rate-limit retry. Real-cloud e2e: migrate run
+8–12x faster. Profiles: `projects/rpool/profile-20261001/`. Windows daemon
+path untested at runtime.
+
 Pool change migration phase 2 (2026-10-01): kept shards are copied
 server-side (`RcloneContext::copy_object`), verified by the base remote's
 ciphertext hash, else read back. Verified on real clouds (Dropbox, Koofr,

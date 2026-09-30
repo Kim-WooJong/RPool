@@ -31,6 +31,7 @@ pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
             id,
             stop_file,
             take_over,
+            parallel,
         } => execute::run(
             rclone,
             &pool,
@@ -38,6 +39,7 @@ pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
             &execute::RunOptions {
                 stop_file,
                 take_over,
+                parallel,
             },
         ),
         MigrateCommands::Status { pool, id, json } => {

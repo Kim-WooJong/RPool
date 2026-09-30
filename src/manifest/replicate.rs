@@ -31,11 +31,36 @@ pub(crate) fn replicate_manifest_bytes_with_storage(
     for remote in &remotes {
         storage.ensure_destination(remote)?;
     }
-    let mut written = Vec::with_capacity(remotes.len());
-    for remote in remotes {
-        let target = remote_join(&remote, &format!("{}/manifest.json", manifest.archive_id));
-        storage.write_bytes(&target, bytes, retries)?;
-        written.push(target);
+    let targets: Vec<String> = remotes
+        .iter()
+        .map(|remote| remote_join(remote, &format!("{}/manifest.json", manifest.archive_id)))
+        .collect();
+    // Replicas are independent verified writes, so one slow provider no longer
+    // delays the others: every replica is written on its own thread. All
+    // in-flight writes are allowed to finish; afterwards the error of the first
+    // failing remote in list order is returned unchanged (the sequential loop
+    // returned the same error, but skipped the later replicas). The returned
+    // targets keep the remote-list order; callers treat element 0 as primary.
+    let results: Vec<Result<()>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = targets
+            .iter()
+            .map(|target| scope.spawn(move || storage.write_bytes(target, bytes, retries)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect()
+    });
+    for result in results {
+        result?;
     }
-    Ok(written)
+    Ok(targets)
 }
+
+#[cfg(test)]
+#[path = "replicate_tests.rs"]
+mod tests;

@@ -18,6 +18,16 @@ the proposal:
   estimates it that way. Phase 2 makes most of that copy server-side (below).
 - `run --take-over` resumes entries that a stopped PC had claimed; claims
   otherwise expire after 2 hours.
+- `run --parallel N` (GUI: "Archives at once") moves up to N archives at
+  once; default 4 (fewer when fewer remain), clamped to 1..=16, and 1 is
+  the old one-after-another run. Each archive's own steps stay ordered
+  (fingerprint, claim, build, verified, switch, switched) and dispatch
+  follows the margin/size order. Each archive keeps the pool's relocation
+  `workers`, so up to N x workers transfers run at once: keep N small on
+  slow links. Switches (inventory + `replacements.jsonl`) are serialized.
+  The stop file stops dispatching; in-flight archives finish. A non-entry
+  error (e.g. the journal refusing appends) stops dispatching and fails the
+  run once in-flight archives finish.
 - Originals already replaced by an earlier migration are skipped by later
   plans.
 - Native crypt is not a re-encode reason: the on-disk format is the same.

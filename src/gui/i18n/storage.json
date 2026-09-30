@@ -1089,10 +1089,10 @@
   "ja": "移行 {id}",
   "zh": "迁移 {id}"
  },
- "Pausing after the current entry…": {
-  "ko": "현재 항목 후 일시 정지하는 중…",
-  "ja": "現在の項目の後で一時停止中…",
-  "zh": "将在当前条目后暂停…"
+ "Pausing after the archives in progress finish…": {
+  "ko": "진행 중인 아카이브가 끝나면 일시 정지해요…",
+  "ja": "処理中のアーカイブが終わったら一時停止します…",
+  "zh": "正在处理的归档完成后暂停…"
  },
  "{n} verified": {
   "ko": "{n}개 검증됨",
@@ -1408,5 +1408,15 @@
   "ko": "알 수 없음 (속도 미입력)",
   "ja": "不明（速度未指定）",
   "zh": "未知（未提供速度）"
+ },
+ "Archives at once": {
+  "ko": "동시에 옮길 아카이브 수",
+  "ja": "同時に移行するアーカイブ数",
+  "zh": "同时迁移的归档数"
+ },
+ "How many archives migrate at the same time (1 = one after another). Each one also uses the pool's workers, so higher values mean more simultaneous transfers.": {
+  "ko": "동시에 옮길 아카이브 수예요 (1 = 하나씩 차례로). 아카이브마다 풀의 작업자 수도 함께 쓰므로, 값이 클수록 동시 전송이 많아져요.",
+  "ja": "同時に移行するアーカイブの数です（1 = 1 つずつ順番に）。各アーカイブはプールのワーカーも使うため、値が大きいほど同時転送が増えます。",
+  "zh": "同时迁移的归档数量（1 = 逐个依次进行）。每个归档还会使用存储池的工作线程，因此数值越大，同时进行的传输越多。"
  }
 }

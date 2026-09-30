@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- **Faster cloud operations (migration, put, reads).** Measured on real
+  clouds (Dropbox, Koofr, Drime, Filen; 3 archives of 2–4 MB, RS 2+1, 8
+  runs): `pool migrate run` 1,650–1,940 s -> 136–232 s (8–12x), `put` of the
+  three files ~470 s -> ~265 s, `pool migrate plan` ~137 s -> ~57 s.
+  - One persistent `rclone rcd` per RPool process serves read-only calls
+    (stat, ranged reads, listings, hashes) over a private unix socket
+    (Windows: localhost TCP with random credentials in the environment).
+    Some providers pay a ~30 s cold start in every new rclone process (Drime:
+    32 s first read, then ~1 s); readbacks and journal reads now pay it once.
+    Writes stay subprocesses. Any transport problem falls back to a
+    subprocess for that read; `RPOOL_RCLONE_DAEMON=0` turns it off. The
+    daemon is stopped on exit (`core/quit`, also through wrapper scripts)
+    and a crashed run's daemon is removed by the next start.
+  - `pool migrate run --parallel N` (GUI: "Archives at once"; default up to
+    4, max 16) migrates several archives at once; each archive keeps its
+    claim -> build -> verified -> switch order, and N=1 is the old behaviour.
+    Archives that end unknown after a provider error get one automatic
+    retry in the same run.
+  - Journal records, plan reads and manifest replicas are written/read on
+    all remotes at once; a journal record is no longer read back twice.
+  - Per-remote limits: at most 16 rclone calls at once per remote
+    (`RPOOL_RCLONE_PER_REMOTE`), and one write at a time on Dropbox, which
+    rejects concurrent writes (`RPOOL_RCLONE_WRITES_PER_REMOTE`). A write the
+    provider rejects for rate limiting (`too_many_write_operations`, 429, …)
+    is retried with backoff; other failures stay "unknown outcome".
+  - Known: the Windows daemon path compiles but has not been run; a daemon
+    killed with SIGKILL together with RPool lingers until the next start.
+
 - **Pool change migration phase 2: server-side copies.** Relocation now
   copies the shards it keeps with `rclone copyto` inside the same remote,
   which the provider performs server-side when it supports it (Dropbox,

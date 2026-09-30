@@ -40,6 +40,16 @@ pub(crate) struct StatusOutcome {
     pub(crate) result: Result<Vec<MigrationStatus>, String>,
 }
 
+/// `--parallel` of the run step; defaults to the CLI default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RunParallel(pub(crate) usize);
+
+impl Default for RunParallel {
+    fn default() -> Self {
+        Self(crate::migration::execute::DEFAULT_PARALLEL)
+    }
+}
+
 /// Which of our own tasks the console is running.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Watched {
@@ -52,6 +62,8 @@ pub(crate) struct MigrationForm {
     pub(crate) pool: String,
     /// Take over entries another PC claimed but did not finish.
     pub(crate) take_over: bool,
+    /// Archives migrated at once (`--parallel`).
+    pub(crate) parallel: RunParallel,
     pub(crate) step: Step,
     pub(crate) probe_full: bool,
     pub(crate) measure_speed: bool,
@@ -297,7 +309,13 @@ impl MigrationForm {
                     &[("error", &e)],
                 )
             })?;
-        let args = run_args(&self.pool, id, &control.path().join("stop"), self.take_over);
+        let args = run_args(
+            &self.pool,
+            id,
+            &control.path().join("stop"),
+            self.take_over,
+            self.parallel.0,
+        );
         task.start_rpool(RUN_TASK, rclone, args)?;
         self.control = Some(control);
         self.pausing = false;
@@ -386,8 +404,15 @@ fn positive(value: f64) -> Option<f64> {
     (value.is_finite() && value > 0.0).then_some(value)
 }
 
-/// `rpool pool migrate run <pool> --id <id> --stop-file <stop> [--take-over]`.
-pub(crate) fn run_args(pool: &str, id: &str, stop: &Path, take_over: bool) -> Vec<OsString> {
+/// `rpool pool migrate run <pool> --id <id> --stop-file <stop> --parallel <n>
+/// [--take-over]`.
+pub(crate) fn run_args(
+    pool: &str,
+    id: &str,
+    stop: &Path,
+    take_over: bool,
+    parallel: usize,
+) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec![
         "pool".into(),
         "migrate".into(),
@@ -396,6 +421,11 @@ pub(crate) fn run_args(pool: &str, id: &str, stop: &Path, take_over: bool) -> Ve
         id.into(),
         "--stop-file".into(),
         stop.as_os_str().to_owned(),
+        "--parallel".into(),
+        parallel
+            .clamp(1, crate::migration::execute::MAX_PARALLEL)
+            .to_string()
+            .into(),
     ];
     if take_over {
         args.push("--take-over".into());

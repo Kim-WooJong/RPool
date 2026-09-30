@@ -12,7 +12,7 @@ use std::time::Duration;
 
 pub(super) const CHUNK: usize = 64 * 1024;
 const STDERR_LIMIT: usize = 16 * 1024;
-const POLL: Duration = Duration::from_millis(10);
+pub(super) const POLL: Duration = Duration::from_millis(10);
 
 pub(super) fn check(ctx: &OperationContext) -> Result<(), StorageError> {
     if ctx.is_cancelled() {
@@ -32,7 +32,7 @@ fn io_error() -> StorageError {
         detail: "rclone stream I/O failed".into(),
     }
 }
-fn sink_error(error: std::io::Error) -> StorageError {
+pub(super) fn sink_error(error: std::io::Error) -> StorageError {
     if error
         .get_ref()
         .is_some_and(|source| source.is::<super::AdminOutputCap>())
@@ -58,33 +58,86 @@ impl Drop for ChildGuard {
     }
 }
 
-pub(super) fn classify(status: ExitStatus, stderr: &[u8], mutation: bool) -> StorageError {
-    if mutation {
-        return StorageError::unknown_outcome("rclone mutation did not acknowledge success");
-    }
+/// Provider answers that reject a write before performing it. Only these exact
+/// signals make a failed mutation retriable; a `429` must stand alone.
+const REJECTED_WRITE_SIGNALS: &[&str] = &[
+    "too_many_write_operations",
+    "too_many_requests",
+    "ratelimitexceeded", // also userRateLimitExceeded
+    "too many requests",
+    "http 429",
+    "http error 429",
+    "error 429",
+    "status 429",
+    "status code 429",
+    "statuscode 429",
+    "statuscode=429",
+    "code: 429",
+    "code 429",
+];
+
+/// Whether a failed mutation's stderr carries a definite "rejected, not
+/// performed" rate-limit signal. The stderr itself is never exposed.
+pub(super) fn mutation_rejected(stderr: &[u8]) -> bool {
     let text = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    REJECTED_WRITE_SIGNALS.iter().any(|signal| {
+        text.match_indices(signal).any(|(at, _)| {
+            !signal.ends_with(|c: char| c.is_ascii_digit())
+                || !text.as_bytes()[at + signal.len()..]
+                    .first()
+                    .is_some_and(u8::is_ascii_digit)
+        })
+    })
+}
+
+/// Explicit authentication/permission evidence in an rclone error message.
+pub(super) fn denial(text: &str) -> Option<StorageError> {
+    let text = text.to_ascii_lowercase();
     if text.contains("unauthorized")
         || text.contains("authentication")
         || text.contains("invalid_grant")
     {
-        StorageError::Authentication {
+        Some(StorageError::Authentication {
             detail: "rclone authentication failed".into(),
-        }
+        })
     } else if text.contains("permission denied")
         || text.contains("access denied")
         || text.contains("forbidden")
     {
-        StorageError::PermissionDenied {
+        Some(StorageError::PermissionDenied {
             path: "rclone object".into(),
+        })
+    } else {
+        None
+    }
+}
+
+pub(super) fn rate_limited(text: &str) -> Option<StorageError> {
+    let text = text.to_ascii_lowercase();
+    (text.contains("429") || text.contains("rate limit")).then(|| StorageError::RateLimited {
+        retry_after: None,
+        detail: "rclone rate limited".into(),
+    })
+}
+
+pub(super) fn classify(status: ExitStatus, stderr: &[u8], mutation: bool) -> StorageError {
+    if mutation {
+        if mutation_rejected(stderr) {
+            return StorageError::RateLimited {
+                retry_after: None,
+                detail: "rclone write rejected by provider rate limit (not performed)".into(),
+            };
         }
+        return StorageError::unknown_outcome("rclone mutation did not acknowledge success");
+    }
+    let text = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    if let Some(error) = denial(&text) {
+        error
     } else if matches!(status.code(), Some(3 | 4)) {
         // Documented missing exits, after explicit auth/permission evidence.
         StorageError::not_found("rclone object")
-    } else if text.contains("429") || text.contains("rate limit") {
-        StorageError::RateLimited {
-            retry_after: None,
-            detail: "rclone rate limited".into(),
-        }
+    } else if let Some(error) = rate_limited(&text) {
+        error
     } else if text.contains("timeout") || text.contains("timed out") {
         StorageError::Timeout {
             detail: "rclone timed out".into(),
@@ -169,6 +222,9 @@ pub(super) fn run(
             retained
         });
         // Guard is inside scope: unwind kills/reaps before scope joins pipe workers.
+        // rclone may reject a write and exit before reading all of stdin; its
+        // exit status and stderr then decide, not the broken pipe.
+        let mut stdin_broken = false;
         let result = (|| {
             let mut total = 0u64;
             let mut buffer = [0u8; CHUNK];
@@ -184,7 +240,13 @@ pub(super) fn run(
                         break;
                     }
                     check(ctx)?;
-                    stdin.write_all(&buffer[..n]).map_err(|_| io_error())?;
+                    match stdin.write_all(&buffer[..n]) {
+                        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {
+                            stdin_broken = true;
+                            break;
+                        }
+                        result => result.map_err(|_| io_error())?,
+                    }
                     total = total.checked_add(n as u64).ok_or_else(io_error)?;
                 }
                 drop(stdin);
@@ -226,6 +288,9 @@ pub(super) fn run(
         stopped.store(true, Ordering::Release);
         let stderr = errors.join().map_err(|_| io_error())?;
         match result {
+            Ok((_, status)) if stdin_broken && status.success() => Err(
+                StorageError::unknown_outcome("rclone stopped reading the upload stream"),
+            ),
             Ok((total, status)) if status.success() => Ok(total),
             Ok((_, status)) => Err(classify(status, &stderr, mutation)),
             Err(_) if mutation => Err(StorageError::unknown_outcome(
