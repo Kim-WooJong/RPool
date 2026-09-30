@@ -38,6 +38,9 @@ fn append_pool_target(state: &GuiState, args: &mut Vec<OsString>) -> Result<(), 
     }
     args.push(OsString::from("--pool"));
     args.push(OsString::from(pool));
+    if let Some(policy) = &state.upload.policy_override {
+        args.extend(policy.args());
+    }
     Ok(())
 }
 

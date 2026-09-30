@@ -17,30 +17,18 @@ use crate::gui::task::TaskRunner;
 use eframe::egui;
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
-    section_tabs(ui, &mut state.files_section);
-    ui.separator();
-
+    crate::gui::theme::tabs(
+        ui,
+        &mut state.files_section,
+        &[
+            (FilesSection::Inventory, "Library"),
+            (FilesSection::Upload, "Upload"),
+            (FilesSection::Restore, "Restore"),
+        ],
+    );
     match state.files_section {
         FilesSection::Inventory => inventory::show(ui, state, task),
         FilesSection::Upload => upload::show(ui, state, task),
         FilesSection::Restore => restore::show(ui, state, task),
-        FilesSection::Verify => verify::show(ui, state, task),
-        FilesSection::Status => status::show(ui, state, task),
-    }
-}
-
-fn section_tabs(ui: &mut egui::Ui, section: &mut FilesSection) {
-    ui.horizontal(|ui| {
-        tab(ui, section, FilesSection::Inventory, "Library");
-        tab(ui, section, FilesSection::Upload, "Upload");
-        tab(ui, section, FilesSection::Restore, "Restore");
-        tab(ui, section, FilesSection::Verify, "Verify");
-        tab(ui, section, FilesSection::Status, "Status");
-    });
-}
-
-fn tab(ui: &mut egui::Ui, section: &mut FilesSection, target: FilesSection, label: &str) {
-    if ui.selectable_label(*section == target, label).clicked() {
-        *section = target;
     }
 }

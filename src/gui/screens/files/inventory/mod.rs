@@ -81,24 +81,39 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         .cloned();
     let mut action = None;
     let total_width = ui.available_width();
-    let detail_width = 300.0_f32.min((total_width * 0.38).max(250.0));
-    let table_width = (total_width - detail_width - theme::SECTION_GAP).max(360.0);
-
-    ui.horizontal(|ui| {
-        ui.vertical(|ui| {
-            ui.set_width(table_width);
+    if total_width < 760.0 {
+        // Narrow: the table on top in its own scroll, details below.
+        let height = (ui.available_height() * 0.55).max(200.0);
+        ui.allocate_ui(egui::vec2(total_width, height), |ui| {
+            ui.set_max_height(height);
             table::show(ui, &rows, &mut state.inventory);
         });
         ui.separator();
-        ui.vertical(|ui| {
-            ui.set_width(detail_width);
-            egui::ScrollArea::vertical()
-                .id_salt("inventory-details-scroll")
-                .show(ui, |ui| {
-                    action = details::show(ui, selected.as_ref());
-                });
+        egui::ScrollArea::vertical()
+            .id_salt("inventory-details-scroll")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                action = details::show(ui, selected.as_ref());
+            });
+    } else {
+        let detail_width = 300.0_f32.min((total_width * 0.38).max(250.0));
+        let table_width = (total_width - detail_width - theme::SECTION_GAP).max(360.0);
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(table_width);
+                table::show(ui, &rows, &mut state.inventory);
+            });
+            ui.separator();
+            ui.vertical(|ui| {
+                ui.set_width(detail_width);
+                egui::ScrollArea::vertical()
+                    .id_salt("inventory-details-scroll")
+                    .show(ui, |ui| {
+                        action = details::show(ui, selected.as_ref());
+                    });
+            });
         });
-    });
+    }
 
     if let (Some(action), Some(row)) = (action, selected) {
         match action {
@@ -108,11 +123,13 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             }
             InventoryAction::Verify => {
                 state.verify.manifest = row.entry.manifest_source;
-                state.files_section = FilesSection::Verify;
+                state.page = crate::gui::state::Page::Maintenance;
+                state.maintenance_section = crate::gui::state::MaintenanceSection::Archive;
             }
             InventoryAction::Status => {
                 state.status.manifest = row.entry.manifest_source;
-                state.files_section = FilesSection::Status;
+                state.page = crate::gui::state::Page::Maintenance;
+                state.maintenance_section = crate::gui::state::MaintenanceSection::Archive;
             }
         }
     }

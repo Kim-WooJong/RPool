@@ -1,17 +1,23 @@
-//! Mount screen: status and primary actions first, essential drive settings,
-//! a capacity verdict, account identities, then advanced options and the log.
-mod advanced;
+//! The Drive page: mount status and primary actions, connection settings, a
+//! capacity verdict, then tabs for options, history cleanup, imports and
+//! maintenance. Pool-change and recovery steps live in Storage › Account
+//! changes (`transitions`).
 mod args;
 mod cache_recovery;
 mod capacity_panel;
+mod cleanup;
 mod conflicts;
 mod drive_section;
 mod form;
 mod identity_summary;
+mod import;
 mod log;
+mod maintenance;
+mod options;
 mod status_bar;
 #[cfg(test)]
 mod tests;
+pub(crate) mod transitions;
 mod view;
 
 use args::build_args;

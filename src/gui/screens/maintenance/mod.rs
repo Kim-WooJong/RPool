@@ -13,10 +13,24 @@ use crate::gui::task::{JobStatus, TaskRunner};
 use eframe::egui;
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
-    section_tabs(ui, &mut state.maintenance_section);
-    ui.separator();
-
+    crate::gui::theme::tabs(
+        ui,
+        &mut state.maintenance_section,
+        &[
+            (MaintenanceSection::Archive, "Archive check"),
+            (MaintenanceSection::Integrity, "Integrity"),
+            (MaintenanceSection::Metadata, "Metadata"),
+            (MaintenanceSection::Diagnostics, "Diagnostics"),
+        ],
+    );
     match state.maintenance_section {
+        MaintenanceSection::Archive => {
+            crate::gui::theme::page_body(ui, "health-archive", |ui| {
+                crate::gui::screens::files::verify::show(ui, state, task);
+                ui.add_space(crate::gui::theme::SECTION_GAP);
+                crate::gui::screens::files::status::show(ui, state, task);
+            });
+        }
         MaintenanceSection::Integrity => integrity::show(ui, state, task),
         MaintenanceSection::Metadata => metadata::show(ui, state, task),
         MaintenanceSection::Diagnostics => diagnostics::show(ui, state, task),
@@ -54,24 +68,5 @@ pub(crate) fn handle_task_completion(state: &mut GuiState, task: &TaskRunner, st
             });
         }
         _ => {}
-    }
-}
-
-fn section_tabs(ui: &mut egui::Ui, section: &mut MaintenanceSection) {
-    ui.horizontal(|ui| {
-        tab(ui, section, MaintenanceSection::Integrity, "Integrity");
-        tab(ui, section, MaintenanceSection::Metadata, "Metadata");
-        tab(ui, section, MaintenanceSection::Diagnostics, "Diagnostics");
-    });
-}
-
-fn tab(
-    ui: &mut egui::Ui,
-    section: &mut MaintenanceSection,
-    target: MaintenanceSection,
-    label: &str,
-) {
-    if ui.selectable_label(*section == target, label).clicked() {
-        *section = target;
     }
 }

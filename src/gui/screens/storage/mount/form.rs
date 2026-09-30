@@ -42,6 +42,8 @@ pub(crate) struct MountForm {
     pub(super) import_batch_gib: u64,
     pub(super) import_rename: bool,
     pub(super) import_status: Option<crate::mount::rclone_import::Status>,
+    /// Selected Drive page tab.
+    pub(crate) tab: crate::gui::state::DriveTab,
     pub(super) recovery_skip_remotes: String,
     pub(super) recovery_reprocess_plan: String,
     pub(super) recovering_accounts: bool,
@@ -94,6 +96,7 @@ impl Default for MountForm {
             import_batch_gib: 4,
             import_rename: false,
             import_status: None,
+            tab: crate::gui::state::DriveTab::default(),
             recovery_skip_remotes: String::new(),
             recovery_reprocess_plan: String::new(),
             recovering_accounts: false,
@@ -173,7 +176,7 @@ impl MountForm {
         }
     }
 
-    pub(super) fn select_pool(
+    pub(crate) fn select_pool(
         &mut self,
         pool: String,
         settings: &mut crate::gui::settings::GuiSettings,
@@ -493,7 +496,9 @@ impl MountForm {
             } else {
                 self.worker_name.trim()
             },
-            &self.manifests,
+            // Listed archives are applied at the next mount; an rclone import
+            // is its own offline action and must not carry them.
+            if action == 9 { &[] } else { &self.manifests },
             self.interval_seconds,
             &control.join("stop"),
             sync_only,

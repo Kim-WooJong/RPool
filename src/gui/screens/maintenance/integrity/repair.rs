@@ -103,6 +103,10 @@ fn start(
     workers: usize,
     retries: u32,
 ) -> Result<(), String> {
+    task.start_rpool("Repair", rclone, args(form, workers, retries))
+}
+
+fn args(form: &IntegrityForm, workers: usize, retries: u32) -> Vec<OsString> {
     let mut args = vec![
         OsString::from("repair"),
         OsString::from(form.manifest.trim()),
@@ -114,9 +118,33 @@ fn start(
     if form.repair_dry_run {
         args.push(OsString::from("--dry-run"));
     }
+    // Repair re-checks with the same depth the scrub above used.
+    if form.quick {
+        args.push(OsString::from("--quick"));
+    }
     for group in &form.selected_groups {
         args.push(OsString::from("--group"));
         args.push(OsString::from(group.to_string()));
     }
-    task.start_rpool("Repair", rclone, args)
+    args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repair_uses_the_scrub_depth() {
+        use clap::Parser;
+        let mut form = IntegrityForm {
+            manifest: "a.json".into(),
+            ..Default::default()
+        };
+        assert!(!args(&form, 4, 2).iter().any(|a| a == "--quick"));
+        form.quick = true;
+        let argv = args(&form, 4, 2);
+        assert!(argv.iter().any(|a| a == "--quick"));
+        let argv = std::iter::once(OsString::from("rpool")).chain(argv);
+        assert!(crate::cli::Cli::try_parse_from(argv).is_ok());
+    }
 }

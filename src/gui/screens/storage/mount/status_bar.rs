@@ -36,7 +36,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let (form, settings) = (&mut state.mount, &mut state.settings);
     theme::card(ui).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let (label, tone) = match (form.runner.is_running(), form.stopping) {
                 (true, true) => ("Stopping", StatusTone::Warning),
                 (true, false) => ("Running", StatusTone::Success),
@@ -45,7 +45,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
             status_badge(ui, label, tone);
             let pool = if form.pool.is_empty() { "No pool selected" } else { form.pool.as_str() };
             let target = if form.mountpoint.trim().is_empty() { "no mountpoint" } else { form.mountpoint.trim() };
-            ui.label(egui::RichText::new(format!("{pool} → {target}")).strong());
+            ui.label(egui::RichText::new(format!("{pool} › {target}")).strong());
             ui.label(egui::RichText::new(mode(form)).weak());
             ui.label(egui::RichText::new(if form.native_selected() { "· native" } else { "· WebDAV" }).weak());
         });
@@ -75,7 +75,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
                     "Mounted. Other jobs stay available."
                 });
             } else {
-                let mount = ui.add(egui::Button::new(egui::RichText::new("Mount").strong()).min_size(egui::vec2(96.0, theme::CONTROL_HEIGHT)));
+                let mount = theme::primary_button(ui, true, "Mount");
                 if mount.on_hover_text("Mount read/write with the settings below.").clicked() {
                     run(form, settings, |form, rclone| form.start(rclone, false));
                 }

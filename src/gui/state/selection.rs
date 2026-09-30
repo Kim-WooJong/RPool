@@ -1,57 +1,52 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Top-level pages, in navigation order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Page {
+    #[default]
     Dashboard,
+    /// The mounted drive and everything used with it (was Storage › Mount).
+    Drive,
     Files,
     Storage,
-    Jobs,
+    /// Health checks: archive verify/status, integrity, metadata, diagnostics.
     Maintenance,
+    Jobs,
     Settings,
 }
 
-impl Default for Page {
-    fn default() -> Self {
-        Self::Dashboard
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum FilesSection {
+    #[default]
     Inventory,
     Upload,
     Restore,
-    Verify,
-    Status,
 }
 
-impl Default for FilesSection {
-    fn default() -> Self {
-        Self::Inventory
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum StorageSection {
+    #[default]
     Providers,
     Pools,
-    Reprocess,
-    Mount,
+    /// Account changes: drain, reprocess, apply to a drive, recover.
+    Changes,
 }
 
-impl Default for StorageSection {
-    fn default() -> Self {
-        Self::Providers
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum MaintenanceSection {
+    /// Verify and status of single archives.
+    #[default]
+    Archive,
     Integrity,
     Metadata,
     Diagnostics,
 }
 
-impl Default for MaintenanceSection {
-    fn default() -> Self {
-        Self::Integrity
-    }
+/// Sub-tabs of the Drive page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum DriveTab {
+    #[default]
+    Drive,
+    Options,
+    History,
+    Import,
+    Maintenance,
 }

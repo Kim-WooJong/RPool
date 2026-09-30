@@ -6,11 +6,11 @@ use std::ffi::OsString;
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     ui.label(egui::RichText::new("Inventory cache").strong());
     ui.label(egui::RichText::new("Rebuild the local inventory index from manifest files. The index is not a source of truth.").weak());
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut state.manifest.inventory_directory)
                 .hint_text("Directory containing manifests")
-                .desired_width(360.0),
+                .desired_width((ui.available_width() - 110.0).clamp(120.0, 360.0)),
         );
         if ui.button("Browse…").clicked() {
             if let Some(path) = rfd::FileDialog::new().pick_folder() {
@@ -32,11 +32,11 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         )
         .weak(),
     );
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut state.manifest.inventory_manifest)
                 .hint_text("file.rpool.json or crypt:path/manifest.json")
-                .desired_width(360.0),
+                .desired_width((ui.available_width() - 110.0).clamp(120.0, 360.0)),
         );
         if ui.button("Browse…").clicked() {
             if let Some(path) = rfd::FileDialog::new()

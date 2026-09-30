@@ -29,7 +29,7 @@ pub(crate) fn show(ui: &mut egui::Ui, row: Option<&InventoryRow>) -> Option<Inve
     detail_row(ui, "Created", &relative_age(row.entry.created_unix));
     detail_row(ui, "Remotes", &row.entry.remotes.len().to_string());
 
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label("Health");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             status_badge(ui, "Not checked", StatusTone::Neutral);
@@ -78,7 +78,7 @@ pub(crate) fn show(ui: &mut egui::Ui, row: Option<&InventoryRow>) -> Option<Inve
 }
 
 fn detail_row(ui: &mut egui::Ui, label: &str, value: &str) {
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(label);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(value);

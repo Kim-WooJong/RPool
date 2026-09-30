@@ -1,157 +1,157 @@
 use crate::gui::settings;
 use crate::gui::state::GuiState;
+use crate::gui::theme;
 use crate::models::Placement;
 use crate::remote_root::{load_remote_root_store, remove_remote_root, set_remote_root};
 use eframe::egui;
+
+const GENERAL: u8 = 0;
+const POOL_DEFAULTS: u8 = 3;
+const ENCRYPTION: u8 = 1;
+const PORTABLE: u8 = 2;
 
 pub(crate) fn show(
     ui: &mut egui::Ui,
     state: &mut GuiState,
     task: &mut crate::gui::task::TaskRunner,
 ) {
-    ui.heading("Settings");
     let tab_id = egui::Id::new("settings-tab");
     let mut tab = ui
         .ctx()
-        .data_mut(|data| data.get_temp::<u8>(tab_id).unwrap_or(0));
-    ui.horizontal(|ui| {
-        ui.selectable_value(&mut tab, 0, "Operation defaults");
-        ui.selectable_value(&mut tab, 1, "Encryption defaults");
-        ui.selectable_value(&mut tab, 2, "Portable configuration");
-    });
+        .data_mut(|data| data.get_temp::<u8>(tab_id).unwrap_or(GENERAL));
+    theme::tabs(
+        ui,
+        &mut tab,
+        &[
+            (GENERAL, "General"),
+            (POOL_DEFAULTS, "New-pool defaults"),
+            (ENCRYPTION, "Encryption & paths"),
+            (PORTABLE, "Portable configuration"),
+        ],
+    );
     ui.ctx().data_mut(|data| data.insert_temp(tab_id, tab));
-    if tab == 1 {
-        show_encryption(ui, state);
-        return;
-    }
-    if tab == 2 {
-        egui::ScrollArea::vertical()
-            .id_salt("settings-portable")
-            .show(ui, |ui| super::portable_config::show(ui, state, task));
-        return;
-    }
-    ui.heading("GUI / operation defaults");
-    ui.label("These values are shared by the GUI screens. Saving is explicit so temporary changes remain temporary until requested.");
-    ui.separator();
-
-    let section_height =
-        ((ui.available_height() - ui.spacing().item_spacing.y * 2.0) / 3.0).max(0.0);
-    egui::ScrollArea::both()
-        .id_salt("settings-defaults-section")
-        .auto_shrink([false, false])
-        .min_scrolled_height(0.0)
-        .max_height(section_height)
-        .show(ui, |ui| {
-            egui::Grid::new("gui-settings")
-                .num_columns(2)
-                .spacing([18.0, 10.0])
-                .show(ui, |ui| {
-                    ui.label("rclone executable");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut state.settings.rclone).desired_width(360.0),
-                    );
-                    ui.end_row();
-
-                    ui.label("Global crypt folder fallback");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut state.settings.default_remote_path)
-                            .hint_text("rpool")
-                            .desired_width(360.0),
-                    );
-                    ui.end_row();
-
-                    ui.label("Workers");
-                    ui.add(egui::DragValue::new(&mut state.settings.workers).range(1..=256));
-                    ui.end_row();
-
-                    ui.label("Retries");
-                    ui.add(egui::DragValue::new(&mut state.settings.retries).range(0..=100));
-                    ui.end_row();
-
-                    ui.label("Shard size (MiB)");
-                    ui.add(
-                        egui::DragValue::new(&mut state.settings.shard_mib)
-                            .range(1..=crate::config::constants::MAX_SHARD_MIB),
-                    );
-                    ui.end_row();
-
-                    ui.label("Data shards (K)");
-                    ui.add(egui::DragValue::new(&mut state.settings.data_shards).range(1..=255));
-                    ui.end_row();
-
-                    ui.label("Parity shards (M)");
-                    ui.add(egui::DragValue::new(&mut state.settings.parity_shards).range(0..=254));
-                    ui.end_row();
-
-                    ui.label("Placement");
-                    egui::ComboBox::from_id_salt("settings-placement")
-                        .selected_text(state.settings.placement.label())
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut state.settings.placement,
-                                Placement::RoundRobin,
-                                Placement::RoundRobin.label(),
-                            );
-                            ui.selectable_value(
-                                &mut state.settings.placement,
-                                Placement::FreeRatio,
-                                Placement::FreeRatio.label(),
-                            );
-                            ui.selectable_value(
-                                &mut state.settings.placement,
-                                Placement::Resilient,
-                                Placement::Resilient.label(),
-                            );
-                            ui.selectable_value(
-                                &mut state.settings.placement,
-                                Placement::CapacityFirst,
-                                Placement::CapacityFirst.label(),
-                            );
-                        });
-                    ui.end_row();
+    theme::page_body(ui, "settings", |ui| match tab {
+        ENCRYPTION => {
+            theme::two_up(ui, state, show_encryption, |ui, state| {
+                theme::card_section(ui, "Remote default paths", Some("Where RPool looks on a provider when the remote root is not the right place."), |_| {}, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("Global crypt folder fallback");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut state.settings.default_remote_path)
+                                .hint_text("rpool")
+                                .desired_width(ui.available_width().min(240.0)),
+                        );
+                    });
+                    show_remote_roots(ui, state);
+                    save_row(ui, state);
                 });
+            });
+        }
+        PORTABLE => super::portable_config::show(ui, state, task),
+        POOL_DEFAULTS => pool_defaults(ui, state),
+        _ => general(ui, state),
+    });
+}
+
+fn save_row(ui: &mut egui::Ui, state: &mut GuiState) {
+    ui.horizontal_wrapped(|ui| {
+        if theme::primary_button(ui, true, "Save settings").clicked() {
+            state.settings_notice = Some(match settings::save(&state.settings) {
+                Ok(path) => format!("Saved to {}", path.display()),
+                Err(error) => error,
+            });
+        }
+        if let Some(notice) = &state.settings_notice {
+            ui.label(notice);
+        }
+    });
+}
+
+fn general(ui: &mut egui::Ui, state: &mut GuiState) {
+    theme::card_section(
+        ui,
+        "General",
+        Some("Used by every screen. Changes stay temporary until saved."),
+        |_| {},
+        |ui| {
+            egui::Grid::new("gui-settings").num_columns(2).spacing([18.0, 10.0]).show(ui, |ui| {
+            ui.label("rclone executable");
+            ui.add(egui::TextEdit::singleline(&mut state.settings.rclone).desired_width((ui.available_width() - 20.0).clamp(160.0, 360.0)));
+            ui.end_row();
+            ui.label("Workers").on_hover_text("Parallel transfers for restore, verify, scrub, repair, drain and health checks.");
+            ui.add(egui::DragValue::new(&mut state.settings.workers).range(1..=256));
+            ui.end_row();
+            ui.label("Retries");
+            ui.add(egui::DragValue::new(&mut state.settings.retries).range(0..=100));
+            ui.end_row();
+        });
+            save_row(ui, state);
+        },
+    );
+}
+
+fn pool_defaults(ui: &mut egui::Ui, state: &mut GuiState) {
+    theme::two_up(
+        ui,
+        state,
+        |ui, state| {
+            theme::card_section(ui, "Defaults for new pools", Some("Pre-filled when you create a pool or upload without one. Existing pools keep their own policy."), |_| {}, |ui| {
+            egui::Grid::new("gui-pool-defaults").num_columns(2).spacing([18.0, 10.0]).show(ui, |ui| {
+                ui.label("Shard size (MiB)");
+                ui.add(egui::DragValue::new(&mut state.settings.shard_mib).range(1..=crate::config::constants::MAX_SHARD_MIB));
+                ui.end_row();
+                ui.label("Data shards (K)");
+                ui.add(egui::DragValue::new(&mut state.settings.data_shards).range(1..=255));
+                ui.end_row();
+                ui.label("Parity shards (M)");
+                ui.add(egui::DragValue::new(&mut state.settings.parity_shards).range(0..=254));
+                ui.end_row();
+                ui.label("Placement");
+                egui::ComboBox::from_id_salt("settings-placement")
+                    .selected_text(state.settings.placement.label())
+                    .show_ui(ui, |ui| {
+                        for placement in [Placement::RoundRobin, Placement::FreeRatio, Placement::Resilient, Placement::CapacityFirst] {
+                            ui.selectable_value(&mut state.settings.placement, placement, placement.label());
+                        }
+                    });
+                ui.end_row();
+            });
             if let Some(note) = state.settings.placement.protection_note() {
-                ui.small(note);
+                theme::hint(ui, note);
             }
-
-            ui.add_space(12.0);
-            if ui.button("Save GUI defaults").clicked() {
-                state.settings_notice = Some(match settings::save(&state.settings) {
-                    Ok(path) => format!("Saved to {}", path.display()),
-                    Err(error) => error,
-                });
-            }
-            if let Some(notice) = &state.settings_notice {
-                ui.label(notice);
-            }
+            save_row(ui, state);
         });
-    egui::ScrollArea::both()
-        .id_salt("settings-remote-roots-section")
-        .auto_shrink([false, false])
-        .min_scrolled_height(0.0)
-        .max_height(section_height)
-        .show(ui, |ui| show_remote_roots(ui, state));
-    egui::ScrollArea::both()
-        .id_salt("settings-destinations-section")
-        .auto_shrink([false, false])
-        .min_scrolled_height(0.0)
-        .max_height(section_height)
-        .show(ui, |ui| {
-            ui.heading("Selected upload destinations");
-            if state.settings.remotes.is_empty() {
-                ui.label("No saved upload destinations.");
-            } else {
-                for remote in &state.settings.remotes {
-                    ui.monospace(remote);
-                }
-            }
-        });
+        },
+        |ui, state| {
+            theme::card_section(
+                ui,
+                "Saved upload destinations",
+                Some("Used by Upload in manual mode."),
+                |_| {},
+                |ui| {
+                    if state.settings.remotes.is_empty() {
+                        theme::hint(ui, "No saved upload destinations.");
+                    } else {
+                        egui::ScrollArea::vertical()
+                            .id_salt("settings-destinations")
+                            .max_height(240.0)
+                            .auto_shrink([false, true])
+                            .show(ui, |ui| {
+                                for remote in &state.settings.remotes {
+                                    ui.monospace(remote);
+                                }
+                            });
+                    }
+                },
+            );
+        },
+    );
 }
 
 fn show_remote_roots(ui: &mut egui::Ui, state: &mut GuiState) {
-    ui.heading("Per-remote default paths");
-    ui.label("Use this when the root of a remote is not the correct storage/filesystem location. Explicit paths always override this default.");
-    ui.small("Example: Instance → /data/crypt makes capacity checks use Instance:/data/crypt instead of Instance:.");
+    ui.label(egui::RichText::new("Per-remote default paths").strong());
+    theme::hint(ui, "Use this when the root of a remote is not the correct storage location. Explicit paths always override this default.");
+    theme::hint(ui, "Example: Instance › /data/crypt makes capacity checks use Instance:/data/crypt instead of Instance:.");
 
     let rows: Vec<(String, String)> = state
         .remote_roots
@@ -189,7 +189,7 @@ fn show_remote_roots(ui: &mut egui::Ui, state: &mut GuiState) {
     }
 
     ui.add_space(6.0);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut state.remote_root_name)
                 .hint_text("Instance")
@@ -212,7 +212,7 @@ fn show_remote_roots(ui: &mut egui::Ui, state: &mut GuiState) {
                         reload_remote_roots(state);
                         state.remote_root_name.clear();
                         state.remote_root_path.clear();
-                        format!("Saved {name}: → {path} in {}", config.display())
+                        format!("Saved {name}: › {path} in {}", config.display())
                     }
                     Err(error) => format!("Failed to save remote default path: {error:#}"),
                 };
@@ -233,11 +233,14 @@ fn reload_remote_roots(state: &mut GuiState) {
 }
 
 fn show_encryption(ui: &mut egui::Ui, state: &mut GuiState) {
-    ui.label("Defaults for newly created encrypted providers. Existing keys and encrypted folders are never changed or rotated.");
-    ui.small(
+    theme::card_section(ui, "Encryption for new providers", Some("Used when RPool creates a crypt remote. Existing keys and encrypted folders are never changed or rotated."), |_| {}, |ui| encryption_body(ui, state));
+}
+
+fn encryption_body(ui: &mut egui::Ui, state: &mut GuiState) {
+    theme::hint(
+        ui,
         "Password entropy controls generated password randomness, not rclone’s cipher key size.",
     );
-    ui.separator();
     let defaults = &mut state.settings.encryption;
     egui::Grid::new("encryption-defaults")
         .num_columns(2)
@@ -269,7 +272,7 @@ fn show_encryption(ui: &mut egui::Ui, state: &mut GuiState) {
             ui.checkbox(&mut defaults.directory_encryption, "Enabled");
             ui.end_row();
         });
-    ui.small("New crypt uses the provider's remote default path exactly (Operation defaults → Per-remote default paths). No extra folder is added; existing crypt paths never move.");
+    theme::hint(ui, "New crypt uses the provider's remote default path exactly (Remote default paths, next to this card). No extra folder is added; existing crypt paths never move.");
     let validation = defaults.validate();
     if let Err(error) = &validation {
         ui.colored_label(egui::Color32::LIGHT_RED, error.to_string());

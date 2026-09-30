@@ -21,18 +21,17 @@ impl Default for JobsForm {
 }
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
-    ui.heading("Jobs");
-    ui.label("Current operation and recorded task history.");
-    ui.separator();
-
-    let section_height = ((ui.available_height() - ui.spacing().item_spacing.y) / 2.0).max(0.0);
-    egui::ScrollArea::both()
-        .id_salt("jobs-current-operation-section")
-        .auto_shrink([false, false])
-        .min_scrolled_height(0.0)
-        .max_height(section_height)
-        .show(ui, |ui| {
-            ui.heading("Current operation");
+    crate::gui::theme::page_header(
+        ui,
+        "Activity",
+        Some("The current operation and the recorded task history."),
+    );
+    crate::gui::theme::card_section(
+        ui,
+        "Current operation",
+        None,
+        |_| {},
+        |ui| {
             if task.is_running() {
                 ui.horizontal(|ui| {
                     ui.spinner();
@@ -56,54 +55,58 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             } else {
                 ui.label("No operation is currently running.");
             }
-            ui.small("Raw operation output remains available in the task console below.");
-        });
-    egui::ScrollArea::both()
-        .id_salt("jobs-history-section")
-        .auto_shrink([false, false])
-        .min_scrolled_height(0.0)
-        .max_height(section_height)
-        .show(ui, |ui| {
-            ui.heading("Task history");
-            ui.horizontal(|ui| {
-                ui.label("Show latest");
-                ui.add(egui::DragValue::new(&mut state.jobs.history_limit).range(1..=100_000));
-                if ui
-                    .add_enabled(!task.is_running(), egui::Button::new("Show history"))
-                    .clicked()
-                {
-                    let args = [
-                        OsString::from("history"),
-                        OsString::from("list"),
-                        OsString::from("--limit"),
-                        OsString::from(state.jobs.history_limit.to_string()),
-                    ];
-                    state.jobs.error = task
-                        .start_rpool("History", &state.settings.rclone, args)
-                        .err();
-                }
-            });
-            ui.horizontal(|ui| {
-                ui.label("Keep newest");
-                ui.add(egui::DragValue::new(&mut state.jobs.history_keep).range(0..=1_000_000));
-                if ui
-                    .add_enabled(!task.is_running(), egui::Button::new("Prune history"))
-                    .clicked()
-                {
-                    let args = [
-                        OsString::from("history"),
-                        OsString::from("prune"),
-                        OsString::from("--keep"),
-                        OsString::from(state.jobs.history_keep.to_string()),
-                    ];
-                    state.jobs.error = task
-                        .start_rpool("History prune", &state.settings.rclone, args)
-                        .err();
-                }
-            });
-
-            if let Some(error) = &state.jobs.error {
-                ui.label(error);
+            crate::gui::theme::hint(
+                ui,
+                "Raw operation output remains available in the console below.",
+            );
+        },
+    );
+    let size = egui::vec2(ui.available_width(), ui.available_height().max(200.0));
+    crate::gui::theme::fixed_pane(ui, "jobs-history-section", size, |ui| {
+        ui.label(
+            egui::RichText::new("Task history")
+                .size(crate::gui::theme::CARD_TITLE_SIZE)
+                .strong(),
+        );
+        ui.horizontal(|ui| {
+            ui.label("Show latest");
+            ui.add(egui::DragValue::new(&mut state.jobs.history_limit).range(1..=100_000));
+            if ui
+                .add_enabled(!task.is_running(), egui::Button::new("Show history"))
+                .clicked()
+            {
+                let args = [
+                    OsString::from("history"),
+                    OsString::from("list"),
+                    OsString::from("--limit"),
+                    OsString::from(state.jobs.history_limit.to_string()),
+                ];
+                state.jobs.error = task
+                    .start_rpool("History", &state.settings.rclone, args)
+                    .err();
             }
         });
+        ui.horizontal(|ui| {
+            ui.label("Keep newest");
+            ui.add(egui::DragValue::new(&mut state.jobs.history_keep).range(0..=1_000_000));
+            if ui
+                .add_enabled(!task.is_running(), egui::Button::new("Prune history"))
+                .clicked()
+            {
+                let args = [
+                    OsString::from("history"),
+                    OsString::from("prune"),
+                    OsString::from("--keep"),
+                    OsString::from(state.jobs.history_keep.to_string()),
+                ];
+                state.jobs.error = task
+                    .start_rpool("History prune", &state.settings.rclone, args)
+                    .err();
+            }
+        });
+
+        if let Some(error) = &state.jobs.error {
+            ui.label(error);
+        }
+    });
 }

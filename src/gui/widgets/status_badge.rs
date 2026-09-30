@@ -7,6 +7,7 @@ pub(crate) enum StatusTone {
     Success,
     Warning,
     Error,
+    Info,
 }
 
 pub(crate) fn status_badge(ui: &mut egui::Ui, label: &str, tone: StatusTone) {
@@ -16,12 +17,13 @@ pub(crate) fn status_badge(ui: &mut egui::Ui, label: &str, tone: StatusTone) {
         StatusTone::Success => theme::success_colors(dark),
         StatusTone::Warning => theme::warning_colors(dark),
         StatusTone::Error => theme::error_colors(dark),
+        StatusTone::Info => theme::info_colors(dark),
     };
 
     egui::Frame::NONE
         .fill(fill)
-        .inner_margin(egui::Margin::symmetric(6, 2))
-        .corner_radius(egui::CornerRadius::same(theme::CORNER_RADIUS))
+        .inner_margin(egui::Margin::symmetric(9, 3))
+        .corner_radius(egui::CornerRadius::same(255))
         .show(ui, |ui| {
             ui.label(
                 egui::RichText::new(label)

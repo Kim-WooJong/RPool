@@ -3,7 +3,7 @@ use eframe::egui;
 
 pub(crate) fn show(ui: &mut egui::Ui, form: &mut InventoryForm) {
     let pool_options = form.pool_options();
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut form.query)
                 .hint_text("Search files, archive IDs, remotes…")

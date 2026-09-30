@@ -26,6 +26,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     if open {
         state.pools.selected = state.mount.pool.clone();
         super::super::pools::load_selected(state);
+        state.page = crate::gui::state::Page::Storage;
         state.storage_section = StorageSection::Pools;
     }
 }

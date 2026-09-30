@@ -15,7 +15,10 @@ pub(crate) fn remote_selector(
     let mut remove_index = None;
     for (index, remote) in selected.iter_mut().enumerate() {
         ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(remote).desired_width(f32::INFINITY));
+            ui.add(
+                egui::TextEdit::singleline(remote)
+                    .desired_width((ui.available_width() - 90.0).max(120.0)),
+            );
             if ui.button("Remove").clicked() {
                 remove_index = Some(index);
             }
@@ -29,7 +32,7 @@ pub(crate) fn remote_selector(
         ui.add(
             egui::TextEdit::singleline(manual_remote)
                 .hint_text("crypt-remote:path")
-                .desired_width(f32::INFINITY),
+                .desired_width((ui.available_width() - 90.0).max(120.0)),
         );
         if ui.button("Add").clicked() {
             let value = manual_remote.trim();
@@ -48,7 +51,7 @@ pub(crate) fn remote_selector(
             let target = append_default_path(remote, path);
             ui.horizontal(|ui| {
                 ui.monospace(remote);
-                ui.label("→");
+                ui.label("›");
                 ui.monospace(&target);
                 let already_selected = selected.iter().any(|existing| existing == &target);
                 if ui

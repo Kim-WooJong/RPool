@@ -2,6 +2,7 @@
 use super::pool_picker::PoolPicker;
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
+use crate::gui::theme;
 use crate::models::{Placement, PoolDefinition};
 use crate::pool::{
     build_plan, load_plan, upsert_pool, validate_pool, validate_pool_name, ReprocessPlan,
@@ -35,23 +36,23 @@ pub(crate) struct ReprocessForm {
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     poll_save(state);
-    ui.heading("Reprocess existing data");
-    ui.small("Edit a target draft, select archives, calculate, then execute. Draft changes do not save the pool policy. Originals and old provider connections are retained.");
+    theme::hint(ui, "Edit a target draft, select archives, calculate, then execute. Draft changes do not save the pool policy. Originals and old provider connections are retained.");
     if !state.inventory.loaded {
         state.inventory.refresh();
     }
     if state.reprocess.target.is_empty() && !state.pools.selected.is_empty() {
         state.reprocess.target = state.pools.selected.clone();
     }
-    let size = ui.available_size();
-    let gap = ui.spacing().item_spacing;
-    let height = (size.y - 100.0).max(1.0);
-    let width = ((size.x - gap.x) / 2.0).max(1.0);
-    ui.horizontal(|ui| {
-        pane(ui, "reprocess-inputs", egui::vec2(width, height), |ui| {
+    let height = theme::pane_height(ui);
+    theme::split_panes(ui, "reprocess", height, |ui, side| {
+        if side == 0 {
             ui.strong("Target policy and selected archives");
             egui::ComboBox::from_id_salt("reprocess-target")
-                .selected_text(if state.reprocess.target.is_empty() { "Select saved pool" } else { &state.reprocess.target })
+                .selected_text(if state.reprocess.target.is_empty() {
+                    "Select saved pool"
+                } else {
+                    &state.reprocess.target
+                })
                 .show_ui(ui, |ui| {
                     for name in &state.pool_names {
                         ui.selectable_value(&mut state.reprocess.target, name.clone(), name);
@@ -59,118 +60,233 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 });
             if state.reprocess.loaded_target != state.reprocess.target {
                 state.reprocess.picker = PoolPicker::default();
-                state.reprocess.draft = state.pool_definitions.get(&state.reprocess.target).cloned();
+                state.reprocess.draft =
+                    state.pool_definitions.get(&state.reprocess.target).cloned();
                 state.reprocess.loaded_target = state.reprocess.target.clone();
             }
             if ui.button("Reload saved policy into draft").clicked() {
                 state.reprocess.picker = PoolPicker::default();
-                state.reprocess.draft = state.pool_definitions.get(&state.reprocess.target).cloned();
+                state.reprocess.draft =
+                    state.pool_definitions.get(&state.reprocess.target).cloned();
             }
             if let Some(draft) = &mut state.reprocess.draft {
                 ui.strong("Target draft (not saved to pool)");
                 if ui.button("Add / remove encrypted providers…").clicked() {
                     state.reprocess.picker.open(&draft.remotes);
                 }
-                for remote in &draft.remotes { ui.monospace(remote); }
-                egui::Grid::new("reprocess-draft-policy").num_columns(2).show(ui, |ui| {
-                    ui.label("Shard size (MiB)");
-                    let mut shard_mib = draft.shard_size.mib_ceil();
-                    if ui.add(egui::DragValue::new(&mut shard_mib).range(1..=crate::config::constants::MAX_SHARD_MIB)).changed() {
-                        if let Ok(size) = crate::models::shard_size::ShardSize::from_mib(shard_mib) { draft.shard_size = size; }
-                    }
-                    ui.end_row();
-                    ui.label("Data shards (K)");
-                    ui.add(egui::DragValue::new(&mut draft.data_shards).range(1..=255)); ui.end_row();
-                    ui.label("Parity shards (M)");
-                    ui.add(egui::DragValue::new(&mut draft.parity_shards).range(0..=254)); ui.end_row();
-                    ui.label("Workers");
-                    ui.add(egui::DragValue::new(&mut draft.workers).range(1..=256)); ui.end_row();
-                    ui.label("Retries");
-                    ui.add(egui::DragValue::new(&mut draft.retries).range(0..=100)); ui.end_row();
-                    ui.label("Placement");
-                    egui::ComboBox::from_id_salt("reprocess-placement").selected_text(draft.placement.label()).show_ui(ui, |ui| {
-                        ui.selectable_value(&mut draft.placement, Placement::RoundRobin, Placement::RoundRobin.label());
-                        ui.selectable_value(&mut draft.placement, Placement::FreeRatio, Placement::FreeRatio.label());
-                        ui.selectable_value(&mut draft.placement, Placement::Resilient, Placement::Resilient.label());
-                        ui.selectable_value(&mut draft.placement, Placement::CapacityFirst, Placement::CapacityFirst.label());
-                    }); ui.end_row();
-                });
-                if let Some(note) = draft.placement.protection_note() { ui.small(note); }
+                for remote in &draft.remotes {
+                    ui.monospace(remote);
+                }
+                egui::Grid::new("reprocess-draft-policy")
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        ui.label("Shard size (MiB)");
+                        let mut shard_mib = draft.shard_size.mib_ceil();
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut shard_mib)
+                                    .range(1..=crate::config::constants::MAX_SHARD_MIB),
+                            )
+                            .changed()
+                        {
+                            if let Ok(size) =
+                                crate::models::shard_size::ShardSize::from_mib(shard_mib)
+                            {
+                                draft.shard_size = size;
+                            }
+                        }
+                        ui.end_row();
+                        ui.label("Data shards (K)");
+                        ui.add(egui::DragValue::new(&mut draft.data_shards).range(1..=255));
+                        ui.end_row();
+                        ui.label("Parity shards (M)");
+                        ui.add(egui::DragValue::new(&mut draft.parity_shards).range(0..=254));
+                        ui.end_row();
+                        ui.label("Workers");
+                        ui.add(egui::DragValue::new(&mut draft.workers).range(1..=256));
+                        ui.end_row();
+                        ui.label("Retries");
+                        ui.add(egui::DragValue::new(&mut draft.retries).range(0..=100));
+                        ui.end_row();
+                        ui.label("Placement");
+                        egui::ComboBox::from_id_salt("reprocess-placement")
+                            .selected_text(draft.placement.label())
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut draft.placement,
+                                    Placement::RoundRobin,
+                                    Placement::RoundRobin.label(),
+                                );
+                                ui.selectable_value(
+                                    &mut draft.placement,
+                                    Placement::FreeRatio,
+                                    Placement::FreeRatio.label(),
+                                );
+                                ui.selectable_value(
+                                    &mut draft.placement,
+                                    Placement::Resilient,
+                                    Placement::Resilient.label(),
+                                );
+                                ui.selectable_value(
+                                    &mut draft.placement,
+                                    Placement::CapacityFirst,
+                                    Placement::CapacityFirst.label(),
+                                );
+                            });
+                        ui.end_row();
+                    });
+                if let Some(note) = draft.placement.protection_note() {
+                    ui.small(note);
+                }
             }
             let can_save = !task.is_running()
                 && state.reprocess.pending.is_none()
                 && state.reprocess.pending_save.is_none()
                 && !state.reprocess.picker.is_open()
                 && validate_pool_name(&state.reprocess.target).is_ok()
-                && state.reprocess.draft.as_ref().is_some_and(|draft| validate_pool(draft).is_ok());
-            if ui.add_enabled(can_save, egui::Button::new("Save draft as pool defaults")).clicked() {
+                && state
+                    .reprocess
+                    .draft
+                    .as_ref()
+                    .is_some_and(|draft| validate_pool(draft).is_ok());
+            if ui
+                .add_enabled(can_save, egui::Button::new("Save draft as pool defaults"))
+                .clicked()
+            {
                 start_save(state);
             }
             ui.small("Optional: save this named pool's defaults for future uploads only. Existing archives are unchanged; conversion is a separate action.");
-            if state.reprocess.pending_save.is_some() { ui.spinner(); ui.label("Saving pool defaults…"); }
+            if state.reprocess.pending_save.is_some() {
+                ui.spinner();
+                ui.label("Saving pool defaults…");
+            }
             ui.label("Assumed aggregate throughput (MiB/s; 0 = unknown)");
             ui.horizontal(|ui| {
                 ui.label("Download");
-                ui.add(egui::DragValue::new(&mut state.reprocess.download_mib_s).range(0.0..=1_000_000.0));
+                ui.add(
+                    egui::DragValue::new(&mut state.reprocess.download_mib_s)
+                        .range(0.0..=1_000_000.0),
+                );
             });
             ui.horizontal(|ui| {
                 ui.label("Upload");
-                ui.add(egui::DragValue::new(&mut state.reprocess.upload_mib_s).range(0.0..=1_000_000.0));
+                ui.add(
+                    egui::DragValue::new(&mut state.reprocess.upload_mib_s)
+                        .range(0.0..=1_000_000.0),
+                );
             });
             ui.small("These are estimates, not measured speeds. Provider throttling, retries and encoding can add time.");
             ui.separator();
-            if ui.button("Refresh local library").clicked() { state.inventory.refresh(); }
-            if let Some(error) = &state.inventory.error { ui.label(error); }
-            ui.small("All indexed archives are listed; remote overlap does not prove pool ownership.");
+            if ui.button("Refresh local library").clicked() {
+                state.inventory.refresh();
+            }
+            if let Some(error) = &state.inventory.error {
+                ui.label(error);
+            }
+            ui.small(
+                "All indexed archives are listed; remote overlap does not prove pool ownership.",
+            );
             for row in &state.inventory.rows {
                 let source = &row.entry.manifest_source;
                 let mut selected = state.reprocess.selected.contains(source);
-                if ui.checkbox(&mut selected, format!("{} · {}", row.entry.original_name, format_bytes(row.entry.original_size)))
-                    .on_hover_text(source).changed() {
-                    if selected { state.reprocess.selected.insert(source.clone()); }
-                    else { state.reprocess.selected.remove(source); }
+                if ui
+                    .checkbox(
+                        &mut selected,
+                        format!(
+                            "{} · {}",
+                            row.entry.original_name,
+                            format_bytes(row.entry.original_size)
+                        ),
+                    )
+                    .on_hover_text(source)
+                    .changed()
+                {
+                    if selected {
+                        state.reprocess.selected.insert(source.clone());
+                    } else {
+                        state.reprocess.selected.remove(source);
+                    }
                 }
             }
             ui.separator();
             if ui.button("Add manifest files…").clicked() {
-                if let Some(paths) = rfd::FileDialog::new().add_filter("Manifest", &["json"]).pick_files() {
-                    for path in paths { state.reprocess.selected.insert(path.to_string_lossy().into_owned()); }
+                if let Some(paths) = rfd::FileDialog::new()
+                    .add_filter("Manifest", &["json"])
+                    .pick_files()
+                {
+                    for path in paths {
+                        state
+                            .reprocess
+                            .selected
+                            .insert(path.to_string_lossy().into_owned());
+                    }
                 }
             }
-            ui.add(egui::TextEdit::singleline(&mut state.reprocess.manual).hint_text("Local manifest or crypt:path/manifest.json").desired_width(260.0));
+            ui.add(
+                egui::TextEdit::singleline(&mut state.reprocess.manual)
+                    .hint_text("Local manifest or crypt:path/manifest.json")
+                    .desired_width(260.0),
+            );
             if ui.button("Add manifest path").clicked() {
                 let source = state.reprocess.manual.trim().to_string();
-                if !source.is_empty() { state.reprocess.selected.insert(source); state.reprocess.manual.clear(); }
+                if !source.is_empty() {
+                    state.reprocess.selected.insert(source);
+                    state.reprocess.manual.clear();
+                }
             }
             ui.label(format!("{} selected", state.reprocess.selected.len()));
             let sources: Vec<_> = state.reprocess.selected.iter().cloned().collect();
             for source in sources {
                 ui.horizontal(|ui| {
-                    if ui.small_button("Remove").clicked() { state.reprocess.selected.remove(&source); }
+                    if ui.small_button("Remove").clicked() {
+                        state.reprocess.selected.remove(&source);
+                    }
                     ui.label(source);
                 });
             }
-        });
-        let signature = signature(state);
-        poll(state, &signature);
-        if state.reprocess.preview_signature != signature { state.reprocess.preview = None; }
-        pane(ui, "reprocess-preview", egui::vec2(width, height), |ui| {
+        } else {
+            let signature = signature(state);
+            poll(state, &signature);
+            if state.reprocess.preview_signature != signature {
+                state.reprocess.preview = None;
+            }
             ui.strong("Calculation / estimated time");
             if let Some(plan) = &state.reprocess.preview {
                 ui.label(format!("Archives: {}", plan.entries.len()));
-                ui.label(format!("Original file data: {}", format_bytes(plan.input_bytes)));
-                ui.label(format!("Additional remote storage: {}", format_bytes(plan.new_storage_bytes)));
-                ui.label(format!("Download / verification: {}", format_bytes(plan.download_bytes)));
+                ui.label(format!(
+                    "Original file data: {}",
+                    format_bytes(plan.input_bytes)
+                ));
+                ui.label(format!(
+                    "Additional remote storage: {}",
+                    format_bytes(plan.new_storage_bytes)
+                ));
+                ui.label(format!(
+                    "Download / verification: {}",
+                    format_bytes(plan.download_bytes)
+                ));
                 ui.label(format!("Upload: {}", format_bytes(plan.upload_bytes)));
                 ui.label(match plan.estimated_seconds {
                     Some(seconds) => format!("Estimated time until selected verified copies are ready: {:.1} minutes ({:.2} hours)", seconds / 60.0, seconds / 3600.0),
                     None => "Estimated time: unknown — enter both assumed transfer rates, then calculate.".into(),
                 });
                 ui.small(&plan.estimate_note);
-                for change in &plan.change_summary { ui.label(change); }
+                for change in &plan.change_summary {
+                    ui.label(change);
+                }
                 ui.separator();
-                ui.label(format!("Frozen target: {} MiB shards, {}+{}, {} workers, {} retries, {}", plan.target.shard_size, plan.target.data_shards, plan.target.parity_shards, plan.target.workers, plan.target.retries, plan.target.placement.label()));
-                for remote in &plan.target.remotes { ui.monospace(remote); }
+                ui.label(format!(
+                    "Frozen target: {} MiB shards, {}+{}, {} workers, {} retries, {}",
+                    plan.target.shard_size,
+                    plan.target.data_shards,
+                    plan.target.parity_shards,
+                    plan.target.workers,
+                    plan.target.retries,
+                    plan.target.placement.label()
+                ));
+                for remote in &plan.target.remotes {
+                    ui.monospace(remote);
+                }
                 ui.small("Temporary disk needs at least two copies of the largest restored file, plus parity/transfer scratch. Remote space must hold both original and new archives.");
                 ui.label(format!("Plan: {}", plan.plan_path.display()));
             } else {
@@ -180,20 +296,41 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 ui.separator();
                 ui.strong("Saved operation / resume");
                 ui.label(format!("Plan: {}", plan.plan_path.display()));
-                ui.label(format!("Exact saved target: {} MiB, {}+{}, {} workers, {} retries, {}", plan.target.shard_size, plan.target.data_shards, plan.target.parity_shards, plan.target.workers, plan.target.retries, plan.target.placement.label()));
-                for remote in &plan.target.remotes { ui.monospace(remote); }
-                ui.label(format!("{} explicitly selected archives", plan.entries.len()));
-                for entry in &plan.entries { ui.label(&entry.source); }
+                ui.label(format!(
+                    "Exact saved target: {} MiB, {}+{}, {} workers, {} retries, {}",
+                    plan.target.shard_size,
+                    plan.target.data_shards,
+                    plan.target.parity_shards,
+                    plan.target.workers,
+                    plan.target.retries,
+                    plan.target.placement.label()
+                ));
+                for remote in &plan.target.remotes {
+                    ui.monospace(remote);
+                }
+                ui.label(format!(
+                    "{} explicitly selected archives",
+                    plan.entries.len()
+                ));
+                for entry in &plan.entries {
+                    ui.label(&entry.source);
+                }
                 ui.small("Resume uses this saved plan, not the editable draft. Verified completed copies are rechecked and reused. The preview estimate is for the full operation, not remaining time.");
             }
-            if state.reprocess.pending.is_some() { ui.spinner(); ui.label("Reading manifests and calculating…"); }
-            if let Some(notice) = &state.reprocess.notice { ui.separator(); ui.label(notice); }
-        });
+            if state.reprocess.pending.is_some() {
+                ui.spinner();
+                ui.label("Reading manifests and calculating…");
+            }
+            if let Some(notice) = &state.reprocess.notice {
+                ui.separator();
+                ui.label(notice);
+            }
+        }
     });
     if state.reprocess.pending.is_some() || state.reprocess.pending_save.is_some() {
         ui.ctx().request_repaint_after(Duration::from_millis(100));
     }
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         let can_plan = !task.is_running()
             && state.reprocess.pending.is_none()
             && state.reprocess.pending_save.is_none()
@@ -231,7 +368,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             }
         }
     });
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         if ui.add_enabled(!task.is_running() && state.reprocess.pending.is_none()
             && state.reprocess.pending_save.is_none(), egui::Button::new("Open saved plan…")).clicked() {
             if let Some(path) = rfd::FileDialog::new().add_filter("Reprocess plan", &["json"]).pick_file() {
@@ -253,10 +390,10 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             }
         }
         if ui.add_enabled(!task.is_running() && !state.mount.is_running()
-            && state.reprocess.active_plan.is_some(), egui::Button::new("Use saved plan in mount recovery")).clicked() {
+            && state.reprocess.active_plan.is_some(), egui::Button::new("Use this plan below")).clicked() {
             let path = state.reprocess.active_plan.as_ref().unwrap().plan_path.clone();
             state.mount.use_reprocess_plan(&path);
-            state.storage_section = crate::gui::state::StorageSection::Mount;
+            state.reprocess.notice = Some("Plan selected for “Apply changed pool” and “Recover after losing an account” below.".into());
         }
     });
     if let Some(draft) = &mut state.reprocess.draft {
@@ -404,24 +541,6 @@ fn poll(state: &mut GuiState, signature: &str) {
         }
         _ => {}
     }
-}
-fn pane(ui: &mut egui::Ui, id: &str, size: egui::Vec2, show: impl FnOnce(&mut egui::Ui)) {
-    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-    let mut child = ui.new_child(
-        egui::UiBuilder::new()
-            .id_salt(id)
-            .max_rect(rect)
-            .layout(egui::Layout::top_down(egui::Align::Min)),
-    );
-    child.set_clip_rect(rect.intersect(ui.clip_rect()));
-    egui::ScrollArea::both()
-        .id_salt(id)
-        .auto_shrink([false, false])
-        .min_scrolled_width(0.0)
-        .min_scrolled_height(0.0)
-        .max_width(size.x)
-        .max_height(size.y)
-        .show(&mut child, show);
 }
 
 #[cfg(test)]

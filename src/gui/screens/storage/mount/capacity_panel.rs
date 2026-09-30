@@ -71,77 +71,112 @@ fn now() -> u64 {
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let form = &mut state.mount;
     let Some(capacity) = &form.capacity else {
-        ui.horizontal(|ui| {
-            status_badge(ui, "Capacity not measured", StatusTone::Neutral);
-            ui.label("Shown while mounted or after Check capacity. Until then an online drive reports 0 bytes free.");
-        });
+        theme::card_section(
+            ui,
+            "Capacity",
+            None,
+            |_| {},
+            |ui| {
+                status_badge(ui, "Not measured yet", StatusTone::Info);
+                theme::hint(ui, "Shown while mounted or after Check capacity. Until then an online drive reports 0 bytes free.");
+            },
+        );
         return;
     };
     let mut migrate = false;
-    theme::card(ui).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        match verdict(capacity, now()) {
-            Verdict::Writable(bytes) => {
-                ui.horizontal(|ui| {
-                    status_badge(ui, "Writable", StatusTone::Success);
-                    ui.label(egui::RichText::new(format!("{} can be written now", format_bytes(bytes))).strong());
-                });
-            }
-            Verdict::NotWritable(reasons) => {
-                ui.horizontal(|ui| {
-                    status_badge(ui, "Not writable yet", StatusTone::Warning);
-                    ui.label(egui::RichText::new("The drive shows 0 bytes free").strong());
-                });
-                for reason in reasons {
-                    ui.label(format!("• {reason}"));
-                }
-            }
-        }
-        ui.small(format!(
-            "Known files {} · measured {} s ago · {} of {} accounts usable",
-            format_bytes(capacity.logical_used),
-            age(capacity, now()),
-            capacity.eligible.len(),
-            capacity.eligible.len() + capacity.excluded.len()
-        ));
-        ui.add_space(theme::SUBSECTION_GAP);
-        egui::Grid::new("mount-capacity-accounts")
-            .num_columns(4)
-            .striped(true)
-            .spacing([14.0, 4.0])
-            .show(ui, |ui| {
-                ui.strong("Account");
-                ui.strong("Free / total");
-                ui.strong("Identity");
-                ui.strong("Status");
-                ui.end_row();
-                for target in &capacity.targets {
-                    ui.label(format!("{} → {}", target.remote, target.backing));
-                    ui.label(format!("{} / {}", format_bytes(target.free), format_bytes(target.total)));
-                    ui.label(if target.declared {
-                        format!("{} · {}", target.capacity_domain, target.failure_domain.as_deref().unwrap_or("no outage group"))
-                    } else {
-                        "not declared".into()
+    theme::card_section(
+        ui,
+        "Capacity",
+        None,
+        |_| {},
+        |ui| {
+            match verdict(capacity, now()) {
+                Verdict::Writable(bytes) => {
+                    ui.horizontal(|ui| {
+                        status_badge(ui, "Writable", StatusTone::Success);
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{} can be written now",
+                                format_bytes(bytes)
+                            ))
+                            .strong(),
+                        );
                     });
-                    status_badge(ui, "OK", StatusTone::Success);
-                    ui.end_row();
                 }
-                for excluded in &capacity.excluded {
-                    ui.label(&excluded.remote);
-                    ui.label("—");
-                    ui.label("");
-                    status_badge(
-                        ui,
-                        if excluded.temporary { "Unavailable" } else { "Excluded" },
-                        if excluded.temporary { StatusTone::Warning } else { StatusTone::Error },
-                    );
-                    ui.end_row();
+                Verdict::NotWritable(reasons) => {
+                    ui.horizontal(|ui| {
+                        status_badge(ui, "Not writable yet", StatusTone::Warning);
+                        ui.label(egui::RichText::new("The drive shows 0 bytes free").strong());
+                    });
+                    for reason in reasons {
+                        ui.label(format!("• {reason}"));
+                    }
                 }
-            });
-        for excluded in &capacity.excluded {
-            ui.small(format!("{}: {}", excluded.remote, excluded.reason));
-        }
-        egui::CollapsingHeader::new("Capacity details")
+            }
+            ui.small(format!(
+                "Known files {} · measured {} s ago · {} of {} accounts usable",
+                format_bytes(capacity.logical_used),
+                age(capacity, now()),
+                capacity.eligible.len(),
+                capacity.eligible.len() + capacity.excluded.len()
+            ));
+            ui.add_space(theme::SUBSECTION_GAP);
+            egui::Grid::new("mount-capacity-accounts")
+                .num_columns(4)
+                .striped(true)
+                .spacing([14.0, 4.0])
+                .show(ui, |ui| {
+                    ui.strong("Account");
+                    ui.strong("Free / total");
+                    ui.strong("Identity");
+                    ui.strong("Status");
+                    ui.end_row();
+                    for target in &capacity.targets {
+                        ui.label(format!("{} › {}", target.remote, target.backing));
+                        ui.label(format!(
+                            "{} / {}",
+                            format_bytes(target.free),
+                            format_bytes(target.total)
+                        ));
+                        ui.label(if target.declared {
+                            format!(
+                                "{} · {}",
+                                target.capacity_domain,
+                                target
+                                    .failure_domain
+                                    .as_deref()
+                                    .unwrap_or("no outage group")
+                            )
+                        } else {
+                            "not declared".into()
+                        });
+                        status_badge(ui, "OK", StatusTone::Success);
+                        ui.end_row();
+                    }
+                    for excluded in &capacity.excluded {
+                        ui.label(&excluded.remote);
+                        ui.label("—");
+                        ui.label("");
+                        status_badge(
+                            ui,
+                            if excluded.temporary {
+                                "Unavailable"
+                            } else {
+                                "Excluded"
+                            },
+                            if excluded.temporary {
+                                StatusTone::Warning
+                            } else {
+                                StatusTone::Error
+                            },
+                        );
+                        ui.end_row();
+                    }
+                });
+            for excluded in &capacity.excluded {
+                ui.small(format!("{}: {}", excluded.remote, excluded.reason));
+            }
+            egui::CollapsingHeader::new("Capacity details")
             .id_salt("mount-capacity-details")
             .show(ui, |ui| {
                 crate::gui::widgets::pool_capacity::summary(ui, capacity);
@@ -161,7 +196,8 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
                         .clicked();
                 }
             });
-    });
+        },
+    );
     if migrate {
         super::status_bar::run(form, &mut state.settings, |form, rclone| {
             form.start_action(rclone, 3)

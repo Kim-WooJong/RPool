@@ -22,23 +22,28 @@ pub(crate) struct ManifestForm {
 }
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
-    section_header(
-        ui,
-        "Metadata",
-        Some("Maintain manifest replicas and rebuild the local inventory cache from manifests."),
-    );
-
-    manifest::show(ui, state, task);
-    ui.add_space(theme::SECTION_GAP);
-    ui.separator();
-    ui.add_space(theme::SECTION_GAP);
-    inventory::show(ui, state, task);
-
-    if let Some(error) = &state.manifest.error {
-        let (_, color) = crate::gui::theme::error_colors(ui.visuals().dark_mode);
-        ui.label(egui::RichText::new(error).color(color));
-    }
-    if let Some(notice) = &state.manifest.notice {
-        ui.small(notice);
-    }
+    theme::page_body(ui, "health-metadata", |ui| {
+        section_header(
+            ui,
+            "Metadata",
+            Some("Manifest replicas are what an archive is rebuilt from; the inventory is this PC's index of archives."),
+        );
+        if let Some(error) = &state.manifest.error {
+            let (_, color) = crate::gui::theme::error_colors(ui.visuals().dark_mode);
+            ui.label(egui::RichText::new(error).color(color));
+        }
+        if let Some(notice) = &state.manifest.notice {
+            ui.label(notice);
+        }
+        manifest::show(ui, state, task);
+        theme::card_section(
+            ui,
+            "Inventory",
+            Some("Add archives to this PC's index, or rebuild it from a folder of manifests."),
+            |_| {},
+            |ui| {
+                inventory::show(ui, state, task);
+            },
+        );
+    });
 }

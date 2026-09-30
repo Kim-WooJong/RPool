@@ -2,6 +2,7 @@ use super::pool_picker::PoolPicker;
 use crate::gui::settings::GuiSettings;
 use crate::gui::state::{GuiState, StorageSection};
 use crate::gui::task::{JobStatus, TaskRunner};
+use crate::gui::theme;
 use crate::models::{Placement, PoolDefinition};
 use crate::pool::{load_pool_store, remove_pool};
 use eframe::egui;
@@ -79,11 +80,9 @@ impl PoolForm {
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     ui.add_enabled_ui(!state.pools.picker.is_open(), |ui| {
-        ui.heading("Storage pools");
-        ui.label("Create reusable provider groups and upload policy defaults.");
-        ui.separator();
+        theme::page_header(ui, "Storage pools", Some("Group encrypted providers and set the upload policy. Account identities decide how much space is really usable."));
 
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Existing pool");
             egui::ComboBox::from_id_salt("pool-existing")
                 .selected_text(if state.pools.selected.is_empty() {
@@ -110,14 +109,9 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             ui.add(egui::TextEdit::singleline(&mut state.pools.name).desired_width(280.0));
         });
 
-        let gap = ui.spacing().item_spacing.x;
-        let size = egui::vec2(
-            ((ui.available_width() - gap) / 2.0).max(1.0),
-            (ui.available_height() - 44.0).max(1.0),
-        );
-        ui.horizontal(|ui| {
-            pane(ui, "pool-destinations-scroll", size, |ui| {
-                ui.set_min_width(360.0);
+        let height = theme::pane_height(ui);
+        theme::split_panes(ui, "pool", height, |ui, side| {
+            if side == 0 {
                 ui.add_space(8.0);
                 ui.heading("Encrypted providers");
                 ui.small("Only selected destinations belong to this pool.");
@@ -138,14 +132,13 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                         }
                     }
                 });
-            });
-            pane(ui, "pool-policy-scroll", size, |ui| {
+            } else {
                 ui.heading("Pool policy");
                 ui.label(
                     "Saving affects future uploads. Existing data stays readable and unchanged.",
                 );
                 if ui.button("Reprocess existing data…").clicked() {
-                    state.storage_section = StorageSection::Reprocess;
+                    state.storage_section = StorageSection::Changes;
                 }
 
                 ui.add_space(8.0);
@@ -241,11 +234,11 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 if let Some(notice) = &state.pools.notice {
                     ui.label(notice);
                 }
-            });
+            }
         });
 
         ui.add_space(8.0);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if ui
                 .add_enabled(!task.is_running(), egui::Button::new("Save pool"))
                 .clicked()
@@ -274,31 +267,6 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     if action.setup {
         state.storage_section = StorageSection::Providers;
     }
-}
-
-// Allocate before rendering: expanding content cannot resize a neighboring pane.
-pub(super) fn pane(
-    ui: &mut egui::Ui,
-    id: &str,
-    size: egui::Vec2,
-    content: impl FnOnce(&mut egui::Ui),
-) {
-    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-    let mut child = ui.new_child(
-        egui::UiBuilder::new()
-            .id_salt(id)
-            .max_rect(rect)
-            .layout(egui::Layout::top_down(egui::Align::Min)),
-    );
-    child.set_clip_rect(rect.intersect(ui.clip_rect()));
-    egui::ScrollArea::both()
-        .id_salt(id)
-        .auto_shrink([false, false])
-        .min_scrolled_width(0.0)
-        .min_scrolled_height(0.0)
-        .max_width(size.x)
-        .max_height(size.y)
-        .show(&mut child, content);
 }
 
 /// Account identities of this pool's backing accounts, right under the
@@ -342,7 +310,7 @@ fn identities(ui: &mut egui::Ui, state: &mut GuiState, draft: &PoolDefinition, e
     }
 }
 
-pub(super) fn load_selected(state: &mut GuiState) {
+pub(crate) fn load_selected(state: &mut GuiState) {
     let name = state.pools.selected.clone();
     if name.is_empty() {
         state.pools.notice = Some("Select a pool first.".to_string());
@@ -485,79 +453,6 @@ pub(crate) fn refresh_pool_names(state: &mut GuiState) -> bool {
 mod tests {
     use super::*;
     use clap::Parser;
-    #[test]
-    fn storage_panes_keep_bounds_and_scroll_independently_at_minimum_window() {
-        let ctx = egui::Context::default();
-        let pane_size = egui::vec2(270.0, 160.0);
-        let mut ids = [egui::Id::NULL; 2];
-        let mut clips = [egui::Rect::NOTHING; 2];
-        let mut row_bounds = egui::Rect::NOTHING;
-        let mut draw = |events: Vec<egui::Event>, time: f64| {
-            let input = egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(800.0, 600.0),
-                )),
-                time: Some(time),
-                events,
-                ..Default::default()
-            };
-            ctx.run_ui(input, |ui| {
-                // Representative content space after navigation, heading and console.
-                row_bounds = ui
-                    .horizontal(|ui| {
-                        for (index, salt) in ["test-pool-destinations", "test-pool-policy"]
-                            .iter()
-                            .enumerate()
-                        {
-                            // egui 0.36 stores both builder salts as IdSalt before
-                            // composing the child and ScrollArea persistent IDs.
-                            let salt_id = egui::IdSalt::new(*salt);
-                            ids[index] = ui.id().with(salt_id).with(salt_id);
-                            pane(ui, salt, pane_size, |ui| {
-                                clips[index] = ui.clip_rect();
-                                ui.allocate_space(egui::vec2(900.0, 1200.0));
-                            });
-                        }
-                    })
-                    .response
-                    .rect;
-            })
-            .drop_without_applying_deltas();
-            (ids, clips, row_bounds)
-        };
-        draw(Vec::new(), 0.0);
-        let (initial_ids, initial_clips, bounds) = draw(Vec::new(), 0.02);
-        assert_ne!(initial_ids[0], initial_ids[1]);
-        assert!(bounds.width() <= pane_size.x * 2.0 + 16.0);
-        assert!(bounds.height() <= pane_size.y + 1.0);
-        assert!(initial_clips[0].right() <= initial_clips[1].left());
-        for clip in initial_clips {
-            assert!(clip.width() <= pane_size.x + 1.0);
-            assert!(clip.height() <= pane_size.y + 1.0);
-        }
-        let pointer = initial_clips[0].center();
-        draw(vec![egui::Event::PointerMoved(pointer)], 0.04);
-        let (scrolled_ids, _, _) = draw(
-            vec![egui::Event::MouseWheel {
-                unit: egui::MouseWheelUnit::Point,
-                delta: egui::vec2(0.0, -100.0),
-                phase: egui::TouchPhase::Move,
-                modifiers: egui::Modifiers::NONE,
-            }],
-            0.06,
-        );
-        assert_eq!(initial_ids, scrolled_ids);
-        let first = egui::scroll_area::State::load(&ctx, initial_ids[0]).unwrap();
-        let second = egui::scroll_area::State::load(&ctx, initial_ids[1]).unwrap();
-        assert!(first.offset.y > 0.0, "wheel must scroll the hovered pane");
-        assert_eq!(
-            second.offset,
-            egui::Vec2::ZERO,
-            "neighbor must not inherit scrolling"
-        );
-    }
-
     #[test]
     fn new_pool_uses_current_settings_and_loaded_pool_keeps_its_policy() {
         let mut settings = GuiSettings {

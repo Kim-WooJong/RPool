@@ -1,5 +1,6 @@
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
+use crate::gui::theme;
 use crate::gui::widgets::{local_file_field, output_file_field};
 use eframe::egui;
 use std::ffi::OsString;
@@ -20,6 +21,8 @@ pub(crate) struct ProviderForm {
     pub(crate) backup_acknowledged: bool,
     pub(crate) setup_notice: Option<String>,
     pub(crate) health_pool: String,
+    /// Specific crypt remotes to check when no pool is chosen (`--remote`).
+    pub(crate) health_remotes: Vec<String>,
     pub(crate) manifest: String,
     pub(crate) from: String,
     pub(crate) to: String,
@@ -81,54 +84,98 @@ pub(crate) fn start_automatic_encryption(
 }
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
-    ui.heading("Providers");
-    ui.label("Check provider health and migrate shards away from a provider without changing archive data.");
-    ui.horizontal(|ui| {
-        if ui.add_enabled(!task.is_running() && state.providers.connection.is_none(), egui::Button::new("+ Connect cloud provider")).clicked() {
-            state.providers.setup_notice = Some(match crate::provider::onboarding::open_setup(&state.settings.rclone) {
-                Ok(connection) => {
-                    state.providers.connection = Some(connection);
-                    "rclone setup opened in your terminal. Complete the login, then quit the wizard. Providers will refresh automatically when the wizard closes.".into()
-                },
-                Err(error) => error.to_string(),
-            });
-        }
-        if ui.add_enabled(!task.is_running() && state.providers.connection.is_none(), egui::Button::new("Set up encryption")).clicked() {
-            state.providers.apply_defaults(&state.settings.encryption);
-            state.providers.setup_open = true;
-        }
-        if ui.add_enabled(!task.is_running() && state.providers.connection.is_none(), egui::Button::new("Retry automatic encryption")).clicked() {
-            state.providers.encryption_failed = false;
-            state.providers.setup_notice = Some(match start_automatic_encryption(state, task) {
-                Ok(()) => "Checking encryption for connected providers. See Jobs for progress.".into(),
-                Err(error) => error,
-            });
-        }
-        if ui.add_enabled(!task.is_running(), egui::Button::new("Refresh providers")).clicked() {
-            state.providers.refresh_requested = true;
-        }
+    theme::page_body(ui, "providers", |ui| {
+        theme::page_header(
+            ui,
+            "Providers",
+            Some("Connect cloud accounts, keep them encrypted, and check that they answer."),
+        );
+        theme::two_up(
+            ui,
+            &mut (&mut *state, &mut *task),
+            |ui, s| connect_card(ui, s.0, s.1),
+            |ui, s| health_card(ui, s.0, s.1),
+        );
+        list_card(ui, state, task);
     });
-    if state.providers.connection.is_some() {
-        ui.horizontal(|ui| {
-            ui.spinner();
-            ui.label("Waiting for the connection wizard to close…");
-            if ui.small_button("Wizard already closed — refresh").on_hover_text("Use only after closing the external rclone wizard if completion was not detected.").clicked() {
-                state.providers.connection = None;
-                state.providers.refresh_requested = true;
+    encryption_dialog(ui.ctx(), state, task);
+}
+
+fn connect_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
+    let idle = !task.is_running() && state.providers.connection.is_none();
+    theme::card_section(
+        ui,
+        "Connect & encrypt",
+        Some("Encryption is set up automatically for connected base providers."),
+        |_| {},
+        |ui| {
+            ui.horizontal_wrapped(|ui| {
+            if theme::primary_button(ui, idle, "+ Connect cloud provider").clicked() {
+                state.providers.setup_notice = Some(match crate::provider::onboarding::open_setup(&state.settings.rclone) {
+                    Ok(connection) => {
+                        state.providers.connection = Some(connection);
+                        "rclone setup opened in your terminal. Complete the login, then quit the wizard. Providers will refresh automatically when the wizard closes.".into()
+                    },
+                    Err(error) => error.to_string(),
+                });
+            }
+            if ui.add_enabled(idle, egui::Button::new("Set up encryption…")).clicked() {
+                state.providers.apply_defaults(&state.settings.encryption);
+                state.providers.setup_open = true;
+            }
+            if ui.add_enabled(idle, egui::Button::new("Retry automatic encryption")).clicked() {
+                state.providers.encryption_failed = false;
+                state.providers.setup_notice = Some(match start_automatic_encryption(state, task) {
+                    Ok(()) => "Checking encryption for connected providers. See Activity for progress.".into(),
+                    Err(error) => error,
+                });
             }
         });
-    }
-    if let Some(notice) = &state.providers.setup_notice {
-        ui.label(notice);
-    }
-    ui.small("Encryption is set up automatically for connected base providers. Back up your rclone configuration to preserve generated keys.");
-    if !state.backing_remotes.is_empty() {
-        egui::ScrollArea::vertical()
+            if state.providers.connection.is_some() {
+                ui.horizontal_wrapped(|ui| {
+                ui.spinner();
+                ui.label("Waiting for the connection wizard to close…");
+                if ui.small_button("Wizard already closed — refresh").on_hover_text("Use only after closing the external rclone wizard if completion was not detected.").clicked() {
+                    state.providers.connection = None;
+                    state.providers.refresh_requested = true;
+                }
+            });
+            }
+            if let Some(notice) = &state.providers.setup_notice {
+                ui.label(notice);
+            }
+            theme::hint(ui, "Back up your rclone configuration (Settings › Portable configuration) to preserve generated keys. Defaults for new keys are in Settings › Encryption.");
+        },
+    );
+}
+
+fn list_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
+    let count = state.backing_remotes.len();
+    theme::card_section(
+        ui,
+        &format!("Connected providers · {count}"),
+        None,
+        |ui| {
+            if ui
+                .add_enabled(!task.is_running(), egui::Button::new("Refresh"))
+                .clicked()
+            {
+                state.providers.refresh_requested = true;
+            }
+        },
+        |ui| {
+            if count == 0 {
+                theme::hint(ui, "No providers yet. Connect one above.");
+                return;
+            }
+            let height = theme::list_height(ui.ctx().content_rect().height());
+            egui::ScrollArea::vertical()
             .id_salt("base-provider-list")
-            .max_height(120.0)
+            .max_height(height)
+            .auto_shrink([false, true])
             .show(ui, |ui| {
-                for provider in &state.backing_remotes {
-                    ui.horizontal(|ui| {
+                egui::Grid::new("provider-grid").num_columns(2).striped(true).spacing([24.0, 6.0]).show(ui, |ui| {
+                    for provider in &state.backing_remotes {
                         ui.strong(provider);
                         let missing = state.providers.missing_encryption.contains(provider);
                         ui.label(encryption_status(
@@ -136,107 +183,118 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                             task.is_running() && task.task_name() == Some(crate::gui::app::AUTO_ENCRYPTION_TASK),
                             state.providers.encryption_failed,
                         )).on_hover_text("Configuration status only; cloud access and key recovery are not verified by this indicator.");
-                    });
-                }
-            });
-    }
-    encryption_dialog(ui.ctx(), state, task);
-    ui.separator();
-
-    let size = egui::vec2(
-        ui.available_width(),
-        ((ui.available_height() - ui.spacing().item_spacing.y) / 2.0).max(1.0),
-    );
-    super::pools::pane(ui, "provider-health-scroll", size, |ui| {
-        ui.heading("Health monitor");
-        ui.horizontal(|ui| {
-            ui.label("Pool (optional)");
-            egui::ComboBox::from_id_salt("provider-health-pool")
-                .selected_text(if state.providers.health_pool.is_empty() {
-                    "All crypt remotes"
-                } else {
-                    state.providers.health_pool.as_str()
-                })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut state.providers.health_pool,
-                        String::new(),
-                        "All crypt remotes",
-                    );
-                    for name in &state.pool_names {
-                        ui.selectable_value(
-                            &mut state.providers.health_pool,
-                            name.clone(),
-                            name.as_str(),
-                        );
+                        ui.end_row();
                     }
                 });
-            if ui
-                .add_enabled(!task.is_running(), egui::Button::new("Check health"))
-                .clicked()
-            {
+            });
+        },
+    );
+}
+
+fn health_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
+    theme::card_section(
+        ui,
+        "Health monitor",
+        Some("Checks that each encrypted remote answers at its root."),
+        |_| {},
+        |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Scope");
+                egui::ComboBox::from_id_salt("provider-health-pool")
+                    .selected_text(if state.providers.health_pool.is_empty() {
+                        "Crypt remotes"
+                    } else {
+                        state.providers.health_pool.as_str()
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut state.providers.health_pool,
+                            String::new(),
+                            "Crypt remotes",
+                        );
+                        for name in &state.pool_names {
+                            ui.selectable_value(
+                                &mut state.providers.health_pool,
+                                name.clone(),
+                                format!("Pool {name}"),
+                            );
+                        }
+                    });
+            });
+            if state.providers.health_pool.is_empty() && !state.crypt_remotes.is_empty() {
+                theme::hint(
+                    ui,
+                    "Tick remotes to check only those; none ticked checks all.",
+                );
+                egui::ScrollArea::vertical()
+                    .id_salt("health-remotes")
+                    .max_height(140.0)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            for remote in &state.crypt_remotes {
+                                let mut on = state.providers.health_remotes.contains(remote);
+                                if ui.checkbox(&mut on, remote).changed() {
+                                    if on {
+                                        state.providers.health_remotes.push(remote.clone());
+                                    } else {
+                                        state.providers.health_remotes.retain(|r| r != remote);
+                                    }
+                                }
+                            }
+                        });
+                    });
+            }
+            if theme::primary_button(ui, !task.is_running(), "Check health").clicked() {
                 state.providers.error = start_health(state, task).err();
             }
-        });
-    });
-    super::pools::pane(ui, "provider-migration-scroll", size, |ui| {
-        ui.set_min_width(380.0);
-        ui.separator();
-        ui.heading("Drain / migrate provider");
-        local_file_field(
-            ui,
-            "Manifest (local file or remote path)",
-            &mut state.providers.manifest,
-            Some("rpool manifest"),
-            &["json"],
-        );
-        ui.horizontal(|ui| {
+        },
+    );
+}
+
+/// Moving shards off one provider; shown with the other account changes.
+pub(crate) fn drain_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
+    theme::card_section(ui, "Drain / migrate a provider", Some("Copies and fully verifies shard objects on a new crypt remote, then replaces the manifest. Old shards are deleted only if you ask, and last."), |_| {}, |ui| {
+        local_file_field(ui, "Manifest (local file or remote path)", &mut state.providers.manifest, Some("rpool manifest"), &["json"]);
+        egui::Grid::new("drain-grid").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
+            let width = (ui.available_width() - 80.0).clamp(160.0, 320.0);
             ui.label("From");
-            ui.add(
-                egui::TextEdit::singleline(&mut state.providers.from)
-                    .hint_text("old-crypt:rpool")
-                    .desired_width(280.0),
-            );
-        });
-        ui.horizontal(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut state.providers.from).hint_text("old-crypt:rpool").desired_width(width));
+            ui.end_row();
             ui.label("To");
-            ui.add(
-                egui::TextEdit::singleline(&mut state.providers.to)
-                    .hint_text("new-crypt:rpool")
-                    .desired_width(280.0),
-            );
+            ui.add(egui::TextEdit::singleline(&mut state.providers.to).hint_text("new-crypt:rpool").desired_width(width));
+            ui.end_row();
         });
-        output_file_field(
-            ui,
-            "Output manifest (optional for local input)",
-            &mut state.providers.output,
-        );
-        ui.vertical(|ui| {
+        output_file_field(ui, "Output manifest (optional for local input)", &mut state.providers.output);
+        ui.horizontal_wrapped(|ui| {
             ui.checkbox(&mut state.providers.dry_run, "Dry run");
-            ui.checkbox(
-                &mut state.providers.delete_source,
-                "Delete old shards after verified migration",
-            );
-            ui.checkbox(
-                &mut state.providers.allow_risky,
-                "Allow unverified / weaker failure-domain safety",
-            );
+            ui.checkbox(&mut state.providers.delete_source, "Delete old shards after verified migration");
+            ui.checkbox(&mut state.providers.allow_risky, "Allow unverified / weaker failure-domain safety");
         });
-        if ui
-            .add_enabled(!task.is_running(), egui::Button::new("Drain provider"))
-            .clicked()
-        {
+        let label = if state.providers.dry_run { "Preview drain" } else { "Drain provider" };
+        let clicked = if state.providers.delete_source && !state.providers.dry_run {
+            theme::danger_button(ui, !task.is_running(), label).clicked()
+        } else {
+            theme::primary_button(ui, !task.is_running(), label).clicked()
+        };
+        if clicked {
             state.providers.error = start_drain(state, task).err();
         }
-
-        ui.label("The destination must be an rclone crypt remote. Drain copies and fully verifies new shard objects before manifest replacement; source deletion is optional and occurs last.");
         if let Some(error) = &state.providers.error {
-            ui.label(error);
+            ui.colored_label(ui.visuals().error_fg_color, error);
         }
     });
 }
 
 fn start_health(state: &GuiState, task: &mut TaskRunner) -> Result<(), String> {
+    task.start_rpool(
+        "Provider health",
+        &state.settings.rclone,
+        health_args(state),
+    )
+}
+
+fn health_args(state: &GuiState) -> Vec<OsString> {
     let mut args = vec![
         OsString::from("provider"),
         OsString::from("health"),
@@ -246,8 +304,13 @@ fn start_health(state: &GuiState, task: &mut TaskRunner) -> Result<(), String> {
     if !state.providers.health_pool.is_empty() {
         args.push(OsString::from("--pool"));
         args.push(OsString::from(state.providers.health_pool.trim()));
+    } else {
+        for remote in &state.providers.health_remotes {
+            args.push(OsString::from("--remote"));
+            args.push(OsString::from(remote));
+        }
     }
-    task.start_rpool("Provider health", &state.settings.rclone, args)
+    args
 }
 
 fn start_drain(state: &GuiState, task: &mut TaskRunner) -> Result<(), String> {
@@ -389,6 +452,24 @@ mod tests {
         assert_eq!([256, 128, 512, 1024][form.entropy_index], 128);
         assert_eq!(form.filename_index, 2);
         assert!(form.disable_directory_encryption);
+    }
+
+    #[test]
+    fn health_checks_a_pool_or_the_ticked_remotes() {
+        use clap::Parser;
+        let mut state = GuiState::new(Default::default(), Default::default(), Default::default());
+        state.providers.health_remotes = vec!["a_crypt:".into(), "b_crypt:".into()];
+        let parse = |state: &GuiState| {
+            let argv = std::iter::once(OsString::from("rpool")).chain(health_args(state));
+            crate::cli::Cli::try_parse_from(argv).is_ok()
+        };
+        let args = health_args(&state);
+        assert_eq!(args.iter().filter(|a| *a == "--remote").count(), 2);
+        assert!(parse(&state));
+        state.providers.health_pool = "family".into();
+        let args = health_args(&state);
+        assert!(args.iter().any(|a| a == "--pool") && !args.iter().any(|a| a == "--remote"));
+        assert!(parse(&state));
     }
 
     #[test]

@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+- **GUI redesign: grouped by task, responsive, per-section scrolling.**
+  - Navigation: Overview, **Drive** (was Storage › Mount), Files, Storage,
+    **Health** (was Maintenance), Activity, Settings. Below 960 px the
+    navigation shows icons only; the console folds to one line on short
+    windows and opens while a task runs.
+  - Drive: status and actions, then Connection and Capacity side by side,
+    recovery report, conflicts and log. Options, History cleanup (a
+    preview → confirm → delete stepper), Import (RPool archives and rclone
+    paths) and Maintenance are tabs instead of one "Advanced" list.
+  - Storage › Account changes gathers what is done together when an
+    account changes: drain a provider, reprocess archives, apply the changed
+    pool to a drive, recover after losing an account.
+  - Health › Archive check now holds Verify and Status (moved from Files).
+  - Settings: General, New-pool defaults, Encryption & paths, Portable
+    configuration.
+  - Cards, page headers, pill tabs and badges, accent primary buttons and
+    red destructive buttons, refined dark and light palettes, and a theme
+    switch in the top bar.
+  - No page scrolls sideways. Pages scroll vertically, and lists, logs,
+    tables and side-by-side panes scroll on their own. Two-column layouts
+    stack below about 1060 px.
+  - New GUI coverage of CLI options: `provider health --remote`,
+    `manifest verify|replicate --remote`, `repair --quick` (follows the
+    scrub depth), `doctor --local-only`, and per-upload `put --pool`
+    overrides that no longer change saved defaults. Doctor runs off the UI
+    thread.
+  - Fixed: importing from rclone failed when archive imports were listed.
+  - A test renders every page and tab at 580, 960 and 1600 px wide, in
+    dark and light, and fails on any content wider than the window. Debug
+    builds can save screenshots of every page at three sizes with
+    `RPOOL_GUI_SNAPSHOTS=<dir> rpool gui`.
+
 - **Import files stored with plain rclone** into a drive: `rpool mount
   --virtual-drive … --import-from remote:path [--import-to folder]
   [--import-batch-gib N] [--import-conflict skip|rename]`, and in the GUI

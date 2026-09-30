@@ -92,7 +92,7 @@ impl CapacityPreview {
             }
             for target in &report.capacity.targets {
                 ui.small(format!(
-                    "{} → {} · quota group {} · {} free / {} total · {}",
+                    "{} › {} · quota group {} · {} free / {} total · {}",
                     target.remote,
                     target.backing,
                     target.capacity_domain,

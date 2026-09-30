@@ -1,7 +1,11 @@
 mod app;
+#[cfg(test)]
+mod layout_tests;
 mod navigation;
 mod screens;
 mod settings;
+#[cfg(debug_assertions)]
+mod snapshot;
 #[path = "state/mod.rs"]
 mod state;
 mod task;

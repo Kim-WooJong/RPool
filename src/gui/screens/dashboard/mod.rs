@@ -40,57 +40,50 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, usage: &mut UsageRef
     // Fixed viewport cells: growing one section cannot push another off-screen.
     let gap = ui.spacing().item_spacing;
     let available = ui.available_size();
-    let cell = egui::vec2(
-        ((available.x - gap.x) / 2.0).max(1.0),
-        ((available.y - gap.y) / 2.0).max(1.0),
-    );
-    ui.horizontal(|ui| {
-        section(ui, "dashboard-overview-scroll", cell, |ui| {
-            summary::show(
-                ui,
-                &state.dashboard,
-                &state.usage_reports,
-                state.usage_error.as_deref(),
-                &state.crypt_remotes,
-                usage.is_running(),
-            );
-            warnings::show(
-                ui,
-                &state.dashboard,
-                &state.usage_reports,
-                state.usage_error.as_deref(),
-                &state.crypt_remotes,
-            );
+    let wide = theme::wide(ui);
+    let cell = if wide {
+        egui::vec2(
+            ((available.x - gap.x) / 2.0).max(1.0),
+            ((available.y - gap.y) / 2.0).max(220.0),
+        )
+    } else {
+        egui::vec2(available.x, 300.0)
+    };
+    let row = if wide {
+        egui::Layout::left_to_right(egui::Align::Min)
+    } else {
+        egui::Layout::top_down(egui::Align::Min)
+    };
+    theme::page_body(ui, "overview", |ui| {
+        ui.with_layout(row, |ui| {
+            crate::gui::theme::fixed_pane(ui, "dashboard-overview-scroll", cell, |ui| {
+                summary::show(
+                    ui,
+                    &state.dashboard,
+                    &state.usage_reports,
+                    state.usage_error.as_deref(),
+                    &state.crypt_remotes,
+                    usage.is_running(),
+                );
+                warnings::show(
+                    ui,
+                    &state.dashboard,
+                    &state.usage_reports,
+                    state.usage_error.as_deref(),
+                    &state.crypt_remotes,
+                );
+            });
+            crate::gui::theme::fixed_pane(ui, "dashboard-providers-scroll", cell, |ui| {
+                providers::show(ui, state)
+            });
         });
-        section(ui, "dashboard-providers-scroll", cell, |ui| {
-            providers::show(ui, state)
+        ui.with_layout(row, |ui| {
+            crate::gui::theme::fixed_pane(ui, "dashboard-pools-scroll", cell, |ui| {
+                pools::show(ui, state)
+            });
+            crate::gui::theme::fixed_pane(ui, "dashboard-jobs-scroll", cell, |ui| {
+                recent_jobs::show(ui, state)
+            });
         });
     });
-    ui.horizontal(|ui| {
-        section(ui, "dashboard-pools-scroll", cell, |ui| {
-            pools::show(ui, state)
-        });
-        section(ui, "dashboard-jobs-scroll", cell, |ui| {
-            recent_jobs::show(ui, state)
-        });
-    });
-}
-
-fn section(ui: &mut egui::Ui, id: &str, size: egui::Vec2, content: impl FnOnce(&mut egui::Ui)) {
-    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-    let mut child = ui.new_child(
-        egui::UiBuilder::new()
-            .id_salt(id)
-            .max_rect(rect)
-            .layout(egui::Layout::top_down(egui::Align::Min)),
-    );
-    child.set_clip_rect(rect.intersect(ui.clip_rect()));
-    egui::ScrollArea::both()
-        .id_salt(id)
-        .auto_shrink([false, false])
-        .min_scrolled_width(0.0)
-        .min_scrolled_height(0.0)
-        .max_width(size.x)
-        .max_height(size.y)
-        .show(&mut child, content);
 }

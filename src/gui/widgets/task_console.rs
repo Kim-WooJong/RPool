@@ -2,10 +2,20 @@ use crate::gui::task::{LogKind, TaskRunner};
 use crate::gui::widgets::{status_badge, StatusTone};
 use eframe::egui;
 
-pub(crate) fn task_console(ui: &mut egui::Ui, task: &mut TaskRunner) {
-    ui.separator();
+/// The operation console. `full` draws progress and the log; otherwise one
+/// status line. Returns true when the user toggles between the two.
+pub(crate) fn task_console(ui: &mut egui::Ui, task: &mut TaskRunner, full: bool) -> bool {
+    let mut toggle = false;
     ui.horizontal_wrapped(|ui| {
-        ui.label(egui::RichText::new("Operation console").size(16.0).strong());
+        toggle = ui
+            .small_button(if full { "Hide" } else { "Show" })
+            .on_hover_text(if full {
+                "Collapse the console"
+            } else {
+                "Show the console"
+            })
+            .clicked();
+        ui.label(egui::RichText::new("Operation console").strong());
         if task.is_running() {
             status_badge(ui, "Running", StatusTone::Warning);
             ui.label(task.task_name().unwrap_or("operation"));
@@ -31,6 +41,9 @@ pub(crate) fn task_console(ui: &mut egui::Ui, task: &mut TaskRunner) {
         }
     });
 
+    if !full {
+        return toggle;
+    }
     if let Some(info) = task.current_task().or(task.last_task()) {
         crate::gui::widgets::progress_view(ui, &info.progress);
     }
@@ -42,13 +55,15 @@ pub(crate) fn task_console(ui: &mut egui::Ui, task: &mut TaskRunner) {
     }
 
     egui::ScrollArea::vertical()
+        .id_salt("task-console-log")
+        .auto_shrink([false, false])
         .stick_to_bottom(true)
         .max_height(ui.available_height())
         .show(ui, |ui| {
             if task.logs().is_empty() {
                 ui.add_space(12.0);
                 ui.label(egui::RichText::new("No operations yet").strong());
-                ui.label(egui::RichText::new("Start an operation from Files, Storage or Maintenance. Output appears here.").weak());
+                ui.label(egui::RichText::new("Start an operation from Drive, Files, Storage or Health. Output appears here.").weak());
             } else {
                 for line in task.logs() {
                     let prefix = match line.kind {
@@ -60,4 +75,5 @@ pub(crate) fn task_console(ui: &mut egui::Ui, task: &mut TaskRunner) {
                 }
             }
         });
+    toggle
 }

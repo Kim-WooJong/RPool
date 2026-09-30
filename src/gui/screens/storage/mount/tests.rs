@@ -429,3 +429,22 @@ fn rclone_import_action_reaches_the_cli_without_mounting() {
     form.pool_sync = false;
     assert!(form.action_args(9, control.path()).is_err());
 }
+#[test]
+fn rclone_import_ignores_listed_archive_imports() {
+    let control = tempfile::tempdir().unwrap();
+    let mut form = super::MountForm::default();
+    form.pool = "p".into();
+    form.workspace = control.path().join("ws").display().to_string();
+    form.virtual_drive = true;
+    form.import_source = "old:x".into();
+    form.manifests = vec!["archive.json".into()];
+    let args = form.action_args(9, control.path()).unwrap();
+    assert!(!args
+        .iter()
+        .any(|a| a.to_string_lossy().contains("archive.json")));
+    use clap::Parser;
+    assert!(
+        crate::cli::Cli::try_parse_from(std::iter::once(OsString::from("rpool")).chain(args))
+            .is_ok()
+    );
+}

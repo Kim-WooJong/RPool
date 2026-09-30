@@ -4,4 +4,4 @@ mod selection;
 
 pub(crate) use app_state::GuiState;
 pub(crate) use persistence::load;
-pub(crate) use selection::{FilesSection, MaintenanceSection, Page, StorageSection};
+pub(crate) use selection::{DriveTab, FilesSection, MaintenanceSection, Page, StorageSection};

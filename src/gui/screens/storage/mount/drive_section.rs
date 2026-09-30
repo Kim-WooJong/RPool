@@ -2,7 +2,6 @@
 use super::form::MountForm;
 use crate::gui::state::GuiState;
 use crate::gui::theme;
-use crate::gui::widgets::section_header;
 use eframe::egui;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -42,7 +41,7 @@ pub(super) fn directory_field(ui: &mut egui::Ui, value: &mut String, hint: &str)
     ui.horizontal(|ui| {
         ui.add(
             egui::TextEdit::singleline(value)
-                .desired_width(360.0)
+                .desired_width((ui.available_width() - 90.0).clamp(140.0, 360.0))
                 .hint_text(hint),
         );
         if ui.button("Choose…").clicked() {
@@ -55,8 +54,15 @@ pub(super) fn directory_field(ui: &mut egui::Ui, value: &mut String, hint: &str)
 
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let form = &mut state.mount;
-    section_header(ui, "Drive", None);
-    ui.add_enabled_ui(!form.runner.is_running(), |ui| {
+    let pool_names = &state.pool_names;
+    let settings = &mut state.settings;
+    theme::card_section(
+        ui,
+        "Connection",
+        Some("Which pool, how it syncs, and where it appears on this PC."),
+        |_| {},
+        |ui| {
+            ui.add_enabled_ui(!form.runner.is_running(), |ui| {
         egui::Grid::new("mount-drive-grid")
             .num_columns(2)
             .spacing([16.0, 10.0])
@@ -67,15 +73,15 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
                     .width(240.0)
                     .selected_text(if form.pool.is_empty() { "Select pool" } else { &form.pool })
                     .show_ui(ui, |ui| {
-                        for name in &state.pool_names {
+                        for name in pool_names {
                             ui.selectable_value(&mut selected, name.clone(), name);
                         }
                     });
-                form.select_pool(selected, &mut state.settings);
+                form.select_pool(selected, settings);
                 ui.end_row();
 
                 ui.label("Mode");
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     ui.radio_value(&mut form.virtual_drive, true, "Online drive (recommended)")
                         .on_hover_text("All files are visible; contents download on demand and clean cache is trimmed automatically. Cloud files are never deleted by trimming.");
                     ui.radio_value(&mut form.virtual_drive, false, "Full local replica")
@@ -85,7 +91,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
 
                 ui.label("Sync");
                 let mut mode = sync_mode(form);
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     if form.virtual_drive {
                         ui.radio_value(&mut mode, Sync::Pool, "Automatic pool sync")
                             .on_hover_text("Sync metadata lives in every pool destination. Use the same pool on each PC; no coordinator needed.");
@@ -141,10 +147,12 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
                 }
             });
     });
-    ui.add_space(theme::SUBSECTION_GAP);
-    ui.small(match (form.virtual_drive, sync_mode(form)) {
+            ui.add_space(theme::SUBSECTION_GAP);
+            theme::hint(ui, match (form.virtual_drive, sync_mode(form)) {
         (true, Sync::Pool) => "Use a NEW workspace when switching from a full replica. Saves stay local until the cloud copy is verified.",
         (true, _) => "Served files keep their revision for this mount; incoming changes appear as named copies. Empty folders stay local.",
         (false, _) => "Incoming shared changes are applied when unmounted or at the next start. Protect the local plaintext copy.",
     });
+        },
+    );
 }

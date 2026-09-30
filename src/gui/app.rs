@@ -42,7 +42,7 @@ pub(crate) fn launch(startup_rclone: &str) -> Result<()> {
         renderer: eframe::Renderer::Glow,
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1180.0, 800.0])
-            .with_min_inner_size([800.0, 600.0]),
+            .with_min_inner_size([640.0, 480.0]),
         ..Default::default()
     };
     eframe::run_native(
@@ -63,6 +63,10 @@ struct RpoolGui {
     refresh_pending: bool,
     encryption: EncryptionSetup,
     discovery_rclone: String,
+    /// `None` follows the window height; a click sets it explicitly.
+    console_open: Option<bool>,
+    #[cfg(debug_assertions)]
+    snapshots: Option<super::snapshot::Snapshots>,
 }
 
 impl RpoolGui {
@@ -77,6 +81,9 @@ impl RpoolGui {
             task: TaskRunner::default(),
             usage,
             refresh_pending: false,
+            console_open: None,
+            #[cfg(debug_assertions)]
+            snapshots: super::snapshot::Snapshots::from_env(),
         }
     }
 
@@ -170,6 +177,10 @@ impl RpoolGui {
 impl eframe::App for RpoolGui {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_background();
+        #[cfg(debug_assertions)]
+        if let Some(snapshots) = &mut self.snapshots {
+            snapshots.tick(ui.ctx(), &mut self.state);
+        }
 
         if self.task.is_running()
             || self.state.mount.is_running()
@@ -179,31 +190,86 @@ impl eframe::App for RpoolGui {
             ui.ctx().request_repaint_after(Duration::from_millis(100));
         }
 
-        egui::Panel::top("top-bar").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("RPool").strong());
-                ui.label(egui::RichText::new("Storage console").weak());
-                if self.task.is_running() {
-                    ui.separator();
-                    ui.spinner();
-                    ui.label(self.task.task_name().unwrap_or("operation"));
-                }
+        let window = ui.ctx().content_rect();
+        let p = theme::pal(ui);
+        let compact = window.width() < theme::NAV_COMPACT_BELOW;
+        egui::Panel::left(if compact {
+            "navigation-compact"
+        } else {
+            "navigation"
+        })
+        .resizable(false)
+        .exact_size(if compact {
+            theme::NAVIGATION_COMPACT_WIDTH
+        } else {
+            theme::NAVIGATION_WIDTH
+        })
+        .frame(
+            egui::Frame::new()
+                .fill(p.nav)
+                .inner_margin(egui::Margin::symmetric(8, 8)),
+        )
+        .show(ui, |ui| navigation::show(ui, &mut self.state.page, compact));
+
+        egui::Panel::top("top-bar")
+            .frame(
+                egui::Frame::new()
+                    .fill(p.bg)
+                    .inner_margin(egui::Margin::symmetric(16, 8)),
+            )
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(page_title(self.state.page))
+                            .size(15.0)
+                            .strong(),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        egui::widgets::global_theme_preference_switch(ui);
+                        if self.state.mount.is_running() {
+                            crate::gui::widgets::status_badge(
+                                ui,
+                                "Drive mounted",
+                                crate::gui::widgets::StatusTone::Success,
+                            );
+                        }
+                        if self.task.is_running() {
+                            ui.label(self.task.task_name().unwrap_or("operation"));
+                            ui.spinner();
+                        }
+                    });
+                });
             });
-        });
 
-        egui::Panel::left("navigation")
-            .resizable(false)
-            .default_size(theme::NAVIGATION_WIDTH)
-            .show(ui, |ui| navigation::show(ui, &mut self.state.page));
-
-        egui::Panel::bottom("task-console")
-            .resizable(true)
-            .default_size(theme::TASK_CONSOLE_HEIGHT)
-            .min_size(110.0)
-            .show(ui, |ui| task_console(ui, &mut self.task));
+        // The console starts collapsed on short windows and opens while a
+        // task runs, unless the user chose otherwise.
+        let open = self
+            .console_open
+            .unwrap_or(window.height() >= theme::CONSOLE_MINI_BELOW || self.task.is_running());
+        if open {
+            egui::Panel::bottom("task-console")
+                .resizable(true)
+                .default_size(theme::TASK_CONSOLE_HEIGHT)
+                .size_range(110.0..=(window.height() * 0.5).max(120.0))
+                .show(ui, |ui| {
+                    if task_console(ui, &mut self.task, true) {
+                        self.console_open = Some(false);
+                    }
+                });
+        } else {
+            egui::Panel::bottom("task-console-mini")
+                .resizable(false)
+                .exact_size(theme::TASK_CONSOLE_MINI_HEIGHT)
+                .show(ui, |ui| {
+                    if task_console(ui, &mut self.task, false) {
+                        self.console_open = Some(true);
+                    }
+                });
+        }
 
         egui::CentralPanel::default().show(ui, |ui| match self.state.page {
             Page::Dashboard => dashboard::show(ui, &mut self.state, &mut self.usage),
+            Page::Drive => storage::mount::show(ui, &mut self.state),
             Page::Files => files::show(ui, &mut self.state, &mut self.task),
             Page::Storage => storage::show(ui, &mut self.state, &mut self.task),
             Page::Jobs => jobs::show(ui, &mut self.state, &mut self.task),
@@ -221,6 +287,18 @@ impl eframe::App for RpoolGui {
             );
             ui.ctx().request_repaint();
         }
+    }
+}
+
+fn page_title(page: Page) -> &'static str {
+    match page {
+        Page::Dashboard => "Overview",
+        Page::Drive => "Drive",
+        Page::Files => "Files",
+        Page::Storage => "Storage",
+        Page::Maintenance => "Health",
+        Page::Jobs => "Activity",
+        Page::Settings => "Settings",
     }
 }
 
