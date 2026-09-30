@@ -1351,12 +1351,9 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     let frontend = args.frontend.resolve(&args);
     if args.frontend != crate::cli::Frontend::Auto
         && frontend != crate::cli::Frontend::Dav
-        && (args.pool_retention
-            || args.bounded_shared
-            || args.shared_root.is_some()
-            || !args.virtual_drive)
+        && (args.bounded_shared || args.shared_root.is_some() || !args.virtual_drive)
     {
-        bail!("native frontends serve online drives in local or pool-sync (v6) mode; use --frontend dav for v7 history, bounded shared or shared-root workspaces");
+        bail!("native frontends serve online drives in local or pool-sync mode; use --frontend dav for bounded shared or shared-root workspaces");
     }
     if args.native_read_only && frontend == crate::cli::Frontend::Dav {
         bail!("--native-read-only requires a native frontend");

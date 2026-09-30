@@ -158,7 +158,11 @@ fn native_frontend_choice_reaches_mount_cli_only_for_local_online_drives() {
         "pool sync v6 is served natively"
     );
     form.pool_retention = true;
-    assert_eq!(parse(&form, false), (Frontend::Dav, false), "v7 keeps DAV");
+    assert_eq!(
+        parse(&form, false),
+        (Frontend::Fuse, native_here),
+        "pool sync v7 is served natively"
+    );
     form.pool_retention = false;
     form.pool_sync = false;
     form.shared_root = "crypt:team".into();

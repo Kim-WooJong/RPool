@@ -74,7 +74,7 @@ fn frontend(ui: &mut egui::Ui, form: &mut MountForm) {
             "No native frontend on this OS yet; WebDAV is used."
         });
     } else if !form.native_allowed() {
-        ui.small("Native frontends serve online drives with This PC only or Automatic pool sync (without v7 history deletion). WebDAV is used here.");
+        ui.small("Native frontends serve online drives with This PC only or Automatic pool sync. WebDAV is used for shared-root and bounded shared modes.");
     } else if form.native_selected() {
         ui.checkbox(&mut form.native_read_only, "Mount read-only");
         ui.colored_label(ui.visuals().warn_fg_color, "Experimental: close/fsync is the local durability point; cloud sync stays asynchronous. Test with a NEW workspace first.");

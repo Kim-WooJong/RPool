@@ -7,6 +7,27 @@ use super::namespace::Intent;
 use super::virtual_drive::{Revision, VirtualDrive};
 use crate::prelude::*;
 
+/// A rename the native frontend should let the application redo as copy and
+/// delete (EXDEV): v7 cannot express it while intents are pending.
+#[derive(Debug)]
+pub(crate) struct CrossDevice(pub(crate) &'static str);
+impl std::fmt::Display for CrossDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "rename not supported here yet: {}", self.0)
+    }
+}
+impl std::error::Error for CrossDevice {}
+
+/// An operation that must wait for the running upload of the same file.
+#[derive(Debug)]
+pub(crate) struct Busy(pub(crate) &'static str);
+impl std::fmt::Display for Busy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "busy: {}", self.0)
+    }
+}
+impl std::error::Error for Busy {}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Ancestry {
     /// Continues this workspace's pending or already committed intent.
@@ -85,7 +106,7 @@ impl VirtualDrive {
         Ok(Ancestry::Default)
     }
 
-    fn apply_ancestry(&self, intent: &mut Intent, ancestry: &Ancestry) -> Result<()> {
+    pub(super) fn apply_ancestry(&self, intent: &mut Intent, ancestry: &Ancestry) -> Result<()> {
         let s = self
             .state
             .lock()
@@ -125,6 +146,9 @@ impl VirtualDrive {
         visible: Option<&Revision>,
         ancestry: &Ancestry,
     ) -> Result<Intent> {
+        if self.peer_retention {
+            return self.begin_snapshot_based(path, visible, ancestry);
+        }
         let mut intent = self.begin_intent(path, visible)?;
         self.apply_ancestry(&mut intent, ancestry)?;
         Ok(intent)
@@ -132,6 +156,9 @@ impl VirtualDrive {
 
     /// Deletes `path` as a successor of `ancestry` (what the caller last saw).
     pub(crate) fn delete_based(&self, path: &str, ancestry: &Ancestry) -> Result<()> {
+        if self.peer_retention {
+            return self.delete_snapshot_based(path, ancestry);
+        }
         let revision = self
             .view()?
             .get(path)

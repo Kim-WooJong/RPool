@@ -36,13 +36,10 @@ impl Frontend {
         }
     }
     /// The frontend a mount actually uses. Native frontends serve online
-    /// drives in local or pool-sync (v6) mode; v7 history, bounded shared and
+    /// drives in local, pool-sync (v6) and v7 mode; bounded shared and
     /// shared-root workspaces, replicas and platforms without one use WebDAV.
     pub(crate) fn resolve(self, args: &MountArgs) -> Self {
-        let supported = args.virtual_drive
-            && !args.pool_retention
-            && !args.bounded_shared
-            && args.shared_root.is_none();
+        let supported = args.virtual_drive && !args.bounded_shared && args.shared_root.is_none();
         match self {
             Self::Auto => match Self::native_here() {
                 Some(native) if supported => native,
@@ -66,8 +63,8 @@ impl Frontend {
 #[derive(Args, Debug, Clone)]
 pub(crate) struct MountArgs {
     /// Filesystem frontend. `auto` (default) uses the native one where available for
-    /// online drives in local or pool-sync (v6) mode, else WebDAV. Native frontends make
-    /// fsync/close the local durability point.
+    /// online drives in local or pool-sync (v6/v7) mode, else WebDAV. Native frontends make
+    /// fsync and the last close the local durability points.
     #[arg(long, value_enum, default_value_t = Frontend::Auto)]
     pub(crate) frontend: Frontend,
     /// Mount a native frontend read-only (writes fail with a read-only error).
@@ -355,7 +352,7 @@ mod tests {
             "v6 pool sync is served natively"
         );
         let v7 = parse(&["--virtual-drive", "--pool-sync", "--pool-retention"]);
-        assert_eq!(v7.frontend.resolve(&v7), Frontend::Dav);
+        assert_eq!(v7.frontend.resolve(&v7), native, "v7 is served natively");
         let replica = parse(&[]);
         assert_eq!(replica.frontend.resolve(&replica), Frontend::Dav);
         let explicit = parse(&["--virtual-drive", "--frontend=dav"]);

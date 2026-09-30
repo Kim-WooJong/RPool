@@ -1,5 +1,6 @@
 //! Linux FUSE frontend (native mount M5) over `FsCore`, using `fuser` without
-//! libfuse. Close (`flush`) and `fsync` are the local durability points.
+//! libfuse. The last close (`release`) and `fsync` are the local durability
+//! points; per-descriptor `flush` does not seal.
 mod errno;
 mod filesystem;
 mod inodes;

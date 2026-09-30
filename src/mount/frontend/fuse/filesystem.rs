@@ -353,8 +353,11 @@ impl Filesystem for RpoolFs {
         _lock_owner: LockOwner,
         reply: ReplyEmpty,
     ) {
-        match self.core.flush(handle(fh)) {
-            Ok(()) => reply.ok(),
+        // `flush` runs on every close(2) of every duplicate descriptor, so a
+        // shell's `open; dup2; close` would seal an empty file before the
+        // write. Seal on `release` (last close) and `fsync` instead.
+        match self.core.stat(handle(fh)) {
+            Ok(_) => reply.ok(),
             Err(e) => reply.error(errno(e)),
         }
     }

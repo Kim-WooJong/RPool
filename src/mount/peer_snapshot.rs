@@ -6,6 +6,8 @@ use super::shared_model::{Content, Event};
 use super::virtual_drive::VirtualDrive;
 use crate::prelude::*;
 
+#[path = "peer_snapshot_native.rs"]
+mod native;
 #[cfg(test)]
 #[path = "peer_snapshot_tests.rs"]
 mod tests;
@@ -225,6 +227,16 @@ impl VirtualDrive {
         store: &dyn Io,
     ) -> Result<Intent> {
         let intent = self.begin_intent(path, visible)?;
+        self.capture_originals(&intent, store)?;
+        Ok(intent)
+    }
+    /// Captures the original payload of each parent revision of `intent` into
+    /// its spool, so the edit's original survives history collection. An edit
+    /// that continues this workspace's own intent (`depends_on`) needs none.
+    fn capture_originals(&self, intent: &Intent, store: &dyn Io) -> Result<()> {
+        if intent.depends_on.is_some() {
+            return Ok(());
+        }
         let state = self.snapshot_state()?;
         let analysis = model::analyze(&state.snapshots, &self.snapshot_policy()?)?;
         for event in &intent.parents {
@@ -269,7 +281,7 @@ impl VirtualDrive {
                 }
             }
         }
-        Ok(intent)
+        Ok(())
     }
     fn validate_snapshot_locations(&self, state: &State) -> Result<()> {
         let allowed = crate::remote_root::apply_remote_roots(self.policy.remotes.clone())?;

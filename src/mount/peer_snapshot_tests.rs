@@ -727,3 +727,217 @@ fn transition_resumes_published_snapshot_before_namespace_commit() {
     assert!(allowed.contains(&d.state.lock().unwrap().snapshot_view["file"]));
     assert!(d.state.lock().unwrap().pending.is_empty());
 }
+
+// ---- Native frontend (fs_core) entry points ----
+
+use crate::mount::native_ancestry::{Ancestry, Busy, CrossDevice};
+
+/// A native write: explicit ancestry, sealed like a native close.
+fn native_write(d: &VirtualDrive, io: &FakeIo, path: &str, bytes: &[u8], ancestry: &Ancestry) {
+    let visible = d.view().unwrap().remove(path);
+    let intent = d
+        .begin_snapshot_based_with(path, visible.as_ref(), ancestry, io)
+        .unwrap();
+    fs::write(d.spool_path(&intent), bytes).unwrap();
+    d.seal(intent).unwrap();
+}
+fn event_at(d: &VirtualDrive, path: &str) -> String {
+    d.view().unwrap()[path].id().to_string()
+}
+fn spool_dirs(d: &VirtualDrive) -> usize {
+    fs::read_dir(d.root.join("spool")).unwrap().count()
+}
+
+#[test]
+fn native_atomic_save_becomes_the_next_revision_of_the_target() {
+    let root = tempfile::tempdir().unwrap();
+    let d = drive(root.path());
+    let io = FakeIo::default();
+    stage(&d, &io, "doc", b"version one");
+    d.sync_snapshots_with(&io).unwrap();
+    let base = event_at(&d, "doc");
+    let files_before = d
+        .snapshot_state()
+        .unwrap()
+        .snapshots
+        .values()
+        .map(|s| s.file_id.clone())
+        .collect::<BTreeSet<_>>();
+    // Editor: write a temp file (two closes), then rename it over the target.
+    native_write(&d, &io, "doc.tmp", b"partial", &Ancestry::Default);
+    native_write(&d, &io, "doc.tmp", b"version two", &Ancestry::Default);
+    let before = spool_dirs(&d);
+    d.rename_native_with(
+        "doc.tmp",
+        "doc",
+        false,
+        Some(&Ancestry::Parents(vec![base])),
+        &io,
+    )
+    .unwrap();
+    assert_eq!(
+        spool_dirs(&d),
+        before - 1,
+        "the superseded temp image is dropped"
+    );
+    assert!(!d.view().unwrap().contains_key("doc.tmp"));
+    d.sync_snapshots_with(&io).unwrap();
+    let visible = visible_bytes(&d, &io);
+    assert_eq!(
+        visible,
+        BTreeMap::from([("doc".into(), b"version two".to_vec())])
+    );
+    let files_after = d
+        .snapshot_state()
+        .unwrap()
+        .snapshots
+        .values()
+        .map(|s| s.file_id.clone())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        files_after, files_before,
+        "same file identity, new revision"
+    );
+}
+
+#[test]
+fn native_atomic_save_after_a_peer_edit_is_a_preserved_conflict() {
+    let root_a = tempfile::tempdir().unwrap();
+    let root_b = tempfile::tempdir().unwrap();
+    let mut a = drive(root_a.path());
+    let mut b = drive(root_b.path());
+    a.pool_history_limit = 1;
+    b.pool_history_limit = 1;
+    b.state.lock().unwrap().worker = "second".into();
+    let io = FakeIo::default();
+    stage(&a, &io, "doc", b"original");
+    a.sync_snapshots_with(&io).unwrap();
+    b.sync_snapshots_with(&io).unwrap();
+    let base = event_at(&a, "doc");
+    stage(&b, &io, "doc", b"edit-b");
+    b.sync_snapshots_with(&io).unwrap();
+    a.sync_snapshots_with(&io).unwrap();
+    // A's editor read the original before B's edit arrived.
+    native_write(&a, &io, "doc.tmp", b"edit-a", &Ancestry::Default);
+    a.rename_native_with(
+        "doc.tmp",
+        "doc",
+        false,
+        Some(&Ancestry::Parents(vec![base])),
+        &io,
+    )
+    .unwrap();
+    a.sync_snapshots_with(&io).unwrap();
+    b.sync_snapshots_with(&io).unwrap();
+    a.sync_snapshots_with(&io).unwrap();
+    let files = visible_bytes(&a, &io);
+    assert_eq!(
+        files.values().cloned().collect::<BTreeSet<_>>(),
+        BTreeSet::from([b"original".to_vec(), b"edit-a".to_vec(), b"edit-b".to_vec()]),
+        "{:?}",
+        files.keys()
+    );
+    assert_eq!(files, visible_bytes(&b, &io));
+}
+
+#[test]
+fn native_moves_of_fresh_and_edited_files_work_while_pending() {
+    let root = tempfile::tempdir().unwrap();
+    let d = drive(root.path());
+    let io = FakeIo::default();
+    // A fresh file moved twice before its first upload.
+    native_write(&d, &io, "new", b"fresh", &Ancestry::Default);
+    d.rename_native_with("new", "dir/newer", false, None, &io)
+        .unwrap();
+    d.rename_native_with("dir/newer", "final", false, None, &io)
+        .unwrap();
+    // A synced file with a pending edit, moved.
+    stage(&d, &io, "kept", b"one");
+    d.sync_snapshots_with(&io).unwrap();
+    let kept = event_at(&d, "kept");
+    native_write(&d, &io, "kept", b"two", &Ancestry::Parents(vec![kept]));
+    d.rename_native_with("kept", "moved", false, None, &io)
+        .unwrap();
+    assert!(!d.view().unwrap().contains_key("kept"));
+    d.sync_snapshots_with(&io).unwrap();
+    assert_eq!(
+        visible_bytes(&d, &io),
+        BTreeMap::from([
+            ("final".into(), b"fresh".to_vec()),
+            ("moved".into(), b"two".to_vec())
+        ])
+    );
+}
+
+#[test]
+fn native_directory_move_carries_pending_and_synced_children() {
+    let root = tempfile::tempdir().unwrap();
+    let d = drive(root.path());
+    let io = FakeIo::default();
+    stage(&d, &io, "src/synced", b"s");
+    d.sync_snapshots_with(&io).unwrap();
+    native_write(&d, &io, "src/fresh", b"f", &Ancestry::Default);
+    d.rename_native_with("src", "dst", true, None, &io).unwrap();
+    d.sync_snapshots_with(&io).unwrap();
+    assert_eq!(
+        visible_bytes(&d, &io),
+        BTreeMap::from([
+            ("dst/fresh".into(), b"f".to_vec()),
+            ("dst/synced".into(), b"s".to_vec())
+        ])
+    );
+}
+
+#[test]
+fn native_renames_refuse_what_v7_cannot_express_without_changing_state() {
+    let root = tempfile::tempdir().unwrap();
+    let d = drive(root.path());
+    let io = FakeIo::default();
+    stage(&d, &io, "a", b"a");
+    stage(&d, &io, "b", b"b");
+    d.sync_snapshots_with(&io).unwrap();
+    // A synced file renamed over another existing file.
+    let error = d
+        .rename_native_with("a", "b", false, None, &io)
+        .unwrap_err();
+    assert!(error.chain().any(|c| c.is::<CrossDevice>()), "{error:#}");
+    // A chain whose upload already started.
+    native_write(&d, &io, "c", b"c", &Ancestry::Default);
+    let id = d.state.lock().unwrap().pending.last().unwrap().id.clone();
+    fs::write(
+        d.root.join("spool").join(&id).join("snapshot-plan.json"),
+        b"{}",
+    )
+    .unwrap();
+    let names = serde_json::to_vec(&d.snapshot_state().unwrap().names).unwrap();
+    let error = d
+        .rename_native_with("c", "d", false, None, &io)
+        .unwrap_err();
+    assert!(error.chain().any(|c| c.is::<Busy>()), "{error:#}");
+    assert_eq!(
+        serde_json::to_vec(&d.snapshot_state().unwrap().names).unwrap(),
+        names
+    );
+    assert!(d.view().unwrap().contains_key("c"));
+}
+
+#[test]
+fn native_delete_captures_the_original_it_descends_from() {
+    let root = tempfile::tempdir().unwrap();
+    let mut d = drive(root.path());
+    d.pool_history_limit = 0;
+    let io = FakeIo::default();
+    stage(&d, &io, "f", b"first");
+    d.sync_snapshots_with(&io).unwrap();
+    let first = event_at(&d, "f");
+    d.delete_snapshot_based_with("f", &Ancestry::Parents(vec![first]), &io)
+        .unwrap();
+    let deletion = d.state.lock().unwrap().pending.last().unwrap().clone();
+    let captured = d.root.join("spool").join(&deletion.id).join("captured");
+    assert!(
+        captured.exists(),
+        "original captured for the deletion's ancestry"
+    );
+    d.sync_snapshots_with(&io).unwrap();
+    assert!(visible_bytes(&d, &io).is_empty());
+}

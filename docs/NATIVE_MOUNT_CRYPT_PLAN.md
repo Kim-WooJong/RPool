@@ -295,7 +295,7 @@ recovery.
   - Linux: FUSE.
   - Windows: WinFsp, in `winfsp` builds only.
   - macOS: WebDAV (no native frontend yet).
-  - v7 history, bounded shared, shared-root and replica workspaces: WebDAV.
+  - Bounded shared, shared-root and replica workspaces: WebDAV.
 - **Explicit choices still apply.** `--frontend dav|fuse|winfsp` is honoured,
   and an explicit native choice for an unsupported mode is refused.
 - **Pool sync v6 is served natively.** Design review by an independent
@@ -320,8 +320,33 @@ recovery.
 - **Leftover rclone cache.** A previous WebDAV session's rclone VFS cache is
   set aside, not deleted, before a native mount; it is never replayed.
 - **Native crypt covers mounted drives.** New GUI pools default to it.
-- **Still refused:** v7 (`peer_retention`), because its rename refuses
-  whenever any intent is pending, which breaks atomic saves.
-- **Not verified at kernel level for pool sync:** Docker is unavailable
-  until the reboot. The core traces above are the evidence so far.
+- **v7 is served natively** (`peer_snapshot_native.rs`):
+  - Writes and deletes carry the native ancestry, and deletes capture the
+    original before the snapshot plan.
+  - `rename_native` moves pending chains and synced files together under
+    the sync gate. Write order: NameOp, `intent.json`, one namespace save,
+    pins, then materialized snapshots.
+  - Renaming a fresh file over an existing one (an atomic save) rewrites
+    the fresh chain's last intent as the next revision of the target, with
+    the target's read ancestry. A save after a peer edit is therefore a
+    preserved conflict.
+  - Moves v7 cannot express (a pending snapshot plan, deletions inside the
+    chain, outside dependents, a non-fresh source over a target) return
+    `CrossDevice`/`Busy`, mapped to EXDEV/EBUSY, and leave state unchanged.
+  - Six FakeIo scenarios cover these, and the randomized traces run in v7.
+- **FUSE seals on `release` and `fsync`.** `flush` runs on every close of
+  every duplicate descriptor, so sealing there sealed an empty file when a
+  shell did `open; dup2; close` before writing.
+- **Kernel-level check:** `scripts/linux-docker/pool-sync-e2e.sh` mounts one
+  pool from two workspaces (MODE=v6 or v7) in Docker FUSE.
+  - Both modes pass (2026-09-30): propagation, an atomic save from B, a
+    delete, a sequential edit with no conflict copy, concurrent edits kept
+    as the original plus both named copies, clean stops, and no plaintext
+    content or names in the remotes.
+  - In v7, sync published the temp file before the rename, so the rename
+    returned EXDEV and `mv` fell back to copy and delete. The result is
+    correct.
+  - v7 sync is slow: one pass takes tens of seconds even in this small test,
+    because each snapshot object costs separate rclone calls. This is a
+    performance follow-up, not a correctness problem.
 

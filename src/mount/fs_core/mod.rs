@@ -2,7 +2,8 @@
 //!
 //! Frontends (DAV now; WinFsp, FUSE and NFS later) translate their requests into
 //! these handle operations. Contract:
-//! - `write_at` and `truncate` are volatile. `fsync`/`flush`/`freeze` seal the
+//! - `write_at` and `truncate` are volatile. `fsync`/`flush`/`freeze` and the
+//!   last write handle's `release` seal the
 //!   file's write generation, and that seal is the local durability
 //!   acknowledgement. Cloud upload is started later by `sync` and never gates it.
 //! - All write handles of one file share one generation (inode semantics).

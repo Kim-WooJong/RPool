@@ -11,7 +11,15 @@
     their revision while peers update them, and edits descend from the
     bytes they were built on, so concurrent edits become preserved
     conflicts.
-  - v7 history and bounded or shared-root workspaces stay on WebDAV.
+  - Native frontends also serve v7 (pool sync with history deletion).
+    Renames, including atomic saves (temp file renamed over the target),
+    keep the file's identity, so a save becomes the next revision instead
+    of a delete plus a new file. A rename v7 cannot express safely returns
+    EXDEV/EBUSY (`STATUS_NOT_SAME_DEVICE`/`STATUS_DEVICE_BUSY` on Windows),
+    so applications fall back to copy and delete.
+  - Bounded shared and shared-root workspaces stay on WebDAV.
+  - FUSE seals a file on its last close (`release`) and on `fsync`, not on
+    every `flush`, so `open; dup2; close` no longer seals an empty file.
   - New GUI pools default to native crypt.
 
 - Native crypt now covers mounted drives. For pools with `native_crypt`,

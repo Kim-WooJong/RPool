@@ -53,12 +53,12 @@ pub(super) fn checked(path: &str) -> FsResult<()> {
 }
 
 impl FsCore {
-    /// Local and pool-sync (v6) workspaces. v7 private snapshots and the
-    /// bounded shared protocol stay on the DAV route.
+    /// Local, pool-sync (v6) and v7 private-snapshot workspaces. The bounded
+    /// shared protocol stays on the DAV route.
     pub(crate) fn new(drive: Arc<VirtualDrive>) -> FsResult<Self> {
-        if drive.peer_retention || drive.bounded_shared {
+        if drive.bounded_shared {
             return Err(FsError::Io(anyhow!(
-                "the native frontend does not support v7 history or bounded shared workspaces yet"
+                "the native frontend does not support bounded shared workspaces"
             )));
         }
         let peer = !drive.pool_sync_roots.is_empty();

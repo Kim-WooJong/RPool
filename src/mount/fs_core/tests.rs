@@ -398,18 +398,20 @@ fn a_new_write_starts_from_the_latest_seal_even_with_an_old_handle() {
 }
 
 #[test]
-fn v7_and_bounded_shared_workspaces_are_refused_but_pool_sync_is_served() {
+fn only_bounded_shared_workspaces_are_refused() {
     let root = tempfile::tempdir().unwrap();
     let mut drive = fixture(root.path());
     drive.pool_sync_roots = vec!["remote:pool".into()];
-    assert!(FsCore::new(Arc::new(drive)).is_ok());
-    for (retention, bounded) in [(true, false), (false, true)] {
-        let root = tempfile::tempdir().unwrap();
-        let mut drive = fixture(root.path());
-        drive.peer_retention = retention;
-        drive.bounded_shared = bounded;
-        assert!(FsCore::new(Arc::new(drive)).is_err());
-    }
+    assert!(FsCore::new(Arc::new(drive)).is_ok(), "pool sync v6");
+    let root = tempfile::tempdir().unwrap();
+    let mut drive = fixture(root.path());
+    drive.pool_sync_roots = vec!["remote:pool".into()];
+    drive.peer_retention = true;
+    assert!(FsCore::new(Arc::new(drive)).is_ok(), "v7 private snapshots");
+    let root = tempfile::tempdir().unwrap();
+    let mut drive = fixture(root.path());
+    drive.bounded_shared = true;
+    assert!(FsCore::new(Arc::new(drive)).is_err());
 }
 
 #[test]

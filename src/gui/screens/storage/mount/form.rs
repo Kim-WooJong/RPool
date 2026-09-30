@@ -214,10 +214,7 @@ impl MountForm {
 
     /// A native frontend needs a local online drive: no pool sync or shared root.
     pub(super) fn native_allowed(&self) -> bool {
-        self.virtual_drive
-            && !self.bounded_shared
-            && self.shared_root.trim().is_empty()
-            && !(self.pool_sync && self.pool_retention)
+        self.virtual_drive && !self.bounded_shared && self.shared_root.trim().is_empty()
     }
     /// Whether this mount will use a native frontend on this build.
     pub(super) fn native_selected(&self) -> bool {

@@ -11,20 +11,29 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
+v7 native (2026-09-30):
+- Native frontends serve v7 too (`peer_snapshot_native.rs`). Renames keep
+  file identity: an atomic save becomes the next revision. Moves v7 cannot
+  express return EXDEV/EBUSY and leave state unchanged.
+- FUSE seals on `release`/`fsync`, no longer on `flush`.
+- Verified: macOS suite 545/545 (the socket test needs a short TMPDIR);
+  Windows `--features winfsp` cross check; Docker two-PC native FUSE e2e
+  (`scripts/linux-docker/pool-sync-e2e.sh`, MODE=v6 and v7) all pass.
+- Known: v7 sync passes are slow (per-object rclone calls); clippy 0.1.100
+  reports ~100 new pre-existing lints repo-wide.
+- Mac: no native frontend; the Mac DAV mount test needs a reboot (stuck NFS).
+- Next: task 3. Recover the DAV rclone VFS cache before a native mount
+  (parse vfsMeta, import dirty complete files by base ancestry, recovered
+  copies otherwise, keep the rest). Then import plain rclone data into a
+  drive (offline mount action with a journal and batching). Both in CLI+GUI.
+
 Native by default (2026-09-30, commits a3541e9 and 5d91e49):
 - The frontend is `auto` by default: native on Linux, and on Windows in
-  `winfsp` builds; WebDAV on macOS and for v7, bounded or shared-root modes.
+  `winfsp` builds; WebDAV on macOS and for bounded or shared-root modes.
 - Pool-sync v6 is served natively with an ancestry model that follows the
   bytes an edit was built on.
 - Native crypt covers mount uploads and pool metadata, and new GUI pools
   default to it.
-- Verified: core, crash and trace tests (local and v6); an rclone-backed
-  native-crypt sync e2e with a routing control; suite 539 passed.
-- Not verified: kernel-level pool-sync mounts (Docker unavailable until the
-  reboot), Windows runtime, and v7 (still refused: rename blocks while
-  intents are pending).
-- Next: v7 rename model, DAV→native workspace switch and plain-rclone
-  import (roadmap item 3).
 
 Native mount M3a (2026-09-30): `src/mount/fs_core/` filesystem core over
 VirtualDrive (handles, shared write generations, fsync = local seal ack,
