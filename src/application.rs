@@ -168,6 +168,7 @@ fn dispatch(cli: Cli) -> Result<()> {
                 native_crypt,
             ),
             PoolCommands::Remove { name } => commands::pool::remove(&name),
+            PoolCommands::Migrate(args) => commands::pool::migrate(&cli.rclone, args),
         },
         Commands::Manifest(args) => match args.command {
             ManifestCommands::Replicate {

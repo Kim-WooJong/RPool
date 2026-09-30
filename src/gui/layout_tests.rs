@@ -5,6 +5,7 @@ use super::state::{DriveTab, FilesSection, GuiState, MaintenanceSection, Page, S
 use super::task::TaskRunner;
 use super::usage_refresh::UsageRefresh;
 use eframe::egui;
+use storage::migration::state::Step;
 
 fn state() -> GuiState {
     let pools = std::collections::BTreeMap::from([(
@@ -12,6 +13,15 @@ fn state() -> GuiState {
         crate::models::PoolDefinition::default(),
     )]);
     GuiState::new(Default::default(), Default::default(), pools)
+}
+
+/// Account changes with the migration wizard at `step` (fake data) and the
+/// Advanced / manual section open.
+fn migration(state: &mut GuiState, step: Step) {
+    state.page = Page::Storage;
+    state.storage_section = StorageSection::Changes;
+    state.migration = storage::migration::tests::sample_form("family", step);
+    state.migration.show_advanced = true;
 }
 
 fn page(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner, usage: &mut UsageRefresh) {
@@ -102,6 +112,10 @@ fn every_page_fits_small_medium_and_large_windows() {
             s.page = Page::Storage;
             s.storage_section = StorageSection::Changes
         },
+        |s| migration(s, Step::Plan),
+        |s| migration(s, Step::Review),
+        |s| migration(s, Step::Run),
+        |s| migration(s, Step::Lost),
         |s| {
             s.page = Page::Maintenance;
             s.maintenance_section = MaintenanceSection::Archive

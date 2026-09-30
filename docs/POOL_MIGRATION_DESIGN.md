@@ -6,8 +6,28 @@ show what moves and how long it takes, record progress in the cloud so any PC
 can resume, and collect the files that cannot be recovered so the user can
 see them.
 
-Status: design only; nothing is implemented yet. Produced by a read-only
-architecture review and pending the user's decisions (see the end).
+Status (2026-09-30): phase 1 (WP0–WP6 plus the GUI wizard) is implemented
+for uploaded archives: `rpool pool migrate plan|run|status|lost|abandon`
+and Storage › Account changes › Pool change migration. Differences from
+the proposal:
+
+- Lost files are a list only. The user asked for no salvage.
+- A relocation writes a full copy under a new archive id. It never borrows
+  the old archive's objects, because drain `--delete-source`, drive
+  retention and repair could otherwise delete or overwrite them. The plan
+  estimates it that way.
+- `run --take-over` resumes entries that a stopped PC had claimed; claims
+  otherwise expire after 2 hours.
+- Originals already replaced by an earlier migration are skipped by later
+  plans.
+- Native crypt is not a re-encode reason: the on-disk format is the same.
+
+Verified in Docker (`scripts/linux-docker/pool-migrate-e2e.sh`, native crypt
+on and off): remove an account; kill PC A mid-run; PC B resumes with
+`--take-over`; the replacements restore byte-identical; the originals are
+unchanged; a second loss lists exactly the unrecoverable archives. Still to
+do: phase 2 (server-side copy, cheaper relocation), phase 3 (drive and
+epoch adoption), phase 4 (retire).
 
 ## What exists today (five separate flows)
 

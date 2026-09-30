@@ -411,15 +411,46 @@ fn describe_changes(entries: &[ReprocessEntry], target: &PoolDefinition) -> Vec<
     notes
 }
 
+/// Re-encodes one explicit source manifest into a new archive `archive_id` on
+/// `target` (copy-only; the source is never modified). `item` must be an
+/// existing empty private directory for temporary data and receipts. Returns
+/// the verified manifest and the remote locations of its replicas.
+pub(crate) fn reencode_manifest(
+    rclone: &str,
+    source: &str,
+    manifest: &Manifest,
+    target: &PoolDefinition,
+    item: &Path,
+    archive_id: &str,
+) -> Result<(Manifest, Vec<String>)> {
+    let mut target = target.clone();
+    target.remotes = crate::remote_root::apply_remote_roots(target.remotes)?;
+    super::validate_pool(&target)?;
+    validate_manifest(manifest)?;
+    let entry = ReprocessEntry {
+        source: source.to_owned(),
+        fingerprint: manifest_fingerprint(manifest)?,
+        manifest: manifest.clone(),
+    };
+    let writer = StorageWriter::for_pool(rclone, target.native_crypt);
+    for remote in &target.remotes {
+        writer.ensure_destination(remote)?;
+    }
+    let locations = convert_one(&writer, rclone, &entry, &target, item, archive_id)?;
+    let produced: Manifest = read_json(&item.join("manifest.json"))?;
+    Ok((produced, locations))
+}
+
 /// Backend-injected conversion boundary: no inventory publication until this succeeds.
-fn convert_one(
+/// Returns the remote locations of the new manifest replicas.
+pub(crate) fn convert_one(
     writer: &StorageWriter,
     rclone: &str,
     entry: &ReprocessEntry,
     target: &PoolDefinition,
     item: &Path,
     archive_id: &str,
-) -> Result<()> {
+) -> Result<Vec<String>> {
     let old = item.join("original-manifest.json");
     save_new(&old, &entry.manifest)?;
     let staging = tempfile::Builder::new().prefix("data-").tempdir_in(item)?;
@@ -462,14 +493,14 @@ fn convert_one(
         .original_name
         .clone_from(&entry.manifest.original_name);
     validate_manifest(&manifest)?;
-    crate::manifest::replicate_manifest_with_storage(
+    let locations = crate::manifest::replicate_manifest_with_storage(
         writer,
         &manifest,
         &target.remotes,
         target.retries,
     )?;
     save_new(&item.join("manifest.json"), &manifest)?;
-    Ok(())
+    Ok(locations)
 }
 
 #[cfg(test)]

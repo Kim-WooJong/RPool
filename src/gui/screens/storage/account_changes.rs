@@ -1,5 +1,6 @@
-//! Storage › Account changes: everything used when a storage account is
-//! added, replaced or lost, in the order it is done.
+//! Storage › Account changes: the pool change migration wizard first, then
+//! the manual tools (drain, reprocess, apply to a drive, recover) folded
+//! under "Advanced / manual".
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 use crate::gui::theme;
@@ -10,17 +11,27 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         theme::page_header(
             ui,
             "Account changes",
-            Some("Moving data off an account, re-encoding archives for a changed pool, and bringing a drive up to date. Work top to bottom."),
+            Some("When accounts leave or join a pool, or its coding changes: plan and run a migration. The manual tools below remain for special cases."),
         );
-        super::providers::drain_card(ui, state, task);
-        theme::card_section(ui, "Reprocess archives for a changed pool", Some("Re-encodes selected archives with a new pool policy. No old provider data is deleted."), |_| {}, |ui| {
-            super::reprocess::show(ui, state, task);
-        });
-        theme::two_up(
-            ui,
-            state,
-            super::mount::transitions::apply_card,
-            super::mount::transitions::recover_card,
-        );
+        super::migration::card(ui, state, task);
+        let header = egui::CollapsingHeader::new("Advanced / manual")
+            .id_salt("account-changes-advanced")
+            .open(Some(state.migration.show_advanced))
+            .show(ui, |ui| {
+                theme::hint(ui, "Single-step tools: drain one account, reprocess chosen archives, apply pool changes to a mounted drive, or recover a drive into a new pool.");
+                super::providers::drain_card(ui, state, task);
+                theme::card_section(ui, "Reprocess archives for a changed pool", Some("Re-encodes selected archives with a new pool policy. No old provider data is deleted."), |_| {}, |ui| {
+                    super::reprocess::show(ui, state, task);
+                });
+                theme::two_up(
+                    ui,
+                    state,
+                    super::mount::transitions::apply_card,
+                    super::mount::transitions::recover_card,
+                );
+            });
+        if header.header_response.clicked() {
+            state.migration.show_advanced = !state.migration.show_advanced;
+        }
     });
 }

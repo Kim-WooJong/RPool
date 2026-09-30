@@ -7,6 +7,15 @@ background Pool uploads. It needs full local disk space and a native mount backe
 (WinFsp on Windows, FUSE on Linux, built-in NFS on macOS); deletion
 retains earlier cloud versions. See [mount setup and recovery](docs/MOUNT.md).
 
+## Pool change migration (archives)
+
+After removing an account or changing K/M, shard size or native crypt with
+`pool set`, run `rpool pool migrate plan <POOL>` to see what moves, the
+bytes, ETA and unrecoverable files, then `rpool pool migrate run <POOL> --id
+<ID> [--stop-file PATH]`. Progress lives in the cloud; rerun on any PC to
+resume. `status`, `lost` and `abandon` take the same `--id`. Originals are
+never deleted. See [the design](docs/POOL_MIGRATION_DESIGN.md).
+
 ## 0.8.0: native crypt writes and native mount frontends
 
 This batch adds several opt-in features. Each pool can have RPool encrypt its shards itself in rclone crypt format (`pool set --native-crypt`). A filesystem core with crash- and trace-tested durability rules (`fsync`/close is the local acknowledgement) backs a native Linux FUSE frontend (`mount --virtual-drive --frontend fuse`). A Windows WinFsp frontend (built into Windows builds by default, not yet run on Windows) uses the same core. `config paths` is new, and portable bundles now carry encryption preferences. The DAV frontend and rclone crypt writes remain the defaults. See `docs/NATIVE_MOUNT_CRYPT_PLAN.md`.

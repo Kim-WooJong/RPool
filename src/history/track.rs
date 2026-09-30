@@ -72,6 +72,7 @@ pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> 
             PoolCommands::Show { name, .. } => ("pool-show".to_string(), Some(name.clone())),
             PoolCommands::Set { name, .. } => ("pool-set".to_string(), Some(name.clone())),
             PoolCommands::Remove { name } => ("pool-remove".to_string(), Some(name.clone())),
+            PoolCommands::Migrate(args) => crate::commands::pool::migrate_history(args),
         },
         Commands::Manifest(args) => match &args.command {
             ManifestCommands::Replicate { manifest, .. } => {

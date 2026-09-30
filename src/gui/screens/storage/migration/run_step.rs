@@ -1,0 +1,250 @@
+//! Step 3: run / pause / resume a migration, and the list of migrations of
+//! the selected pool recorded in the cloud.
+use super::state::{short_id, Step, Watched};
+use crate::gui::state::GuiState;
+use crate::gui::task::TaskRunner;
+use crate::gui::theme;
+use crate::gui::widgets::{status_badge, StatusTone};
+use crate::migration::model::MigrationStatus;
+use eframe::egui;
+
+pub(super) fn state_label(status: &MigrationStatus) -> (&'static str, StatusTone) {
+    if status.abandoned {
+        ("Discarded", StatusTone::Neutral)
+    } else if status.complete {
+        ("Complete", StatusTone::Success)
+    } else if status.switched > 0 || status.verified > 0 {
+        ("In progress", StatusTone::Info)
+    } else {
+        ("Not started", StatusTone::Warning)
+    }
+}
+
+pub(super) fn progress_text(status: &MigrationStatus) -> String {
+    format!("{}/{} switched", status.switched, status.to_move)
+}
+
+fn our_run_active(state: &GuiState, task: &TaskRunner, id: &str) -> bool {
+    task.is_running() && state.migration.watched == Some(Watched::Run(id.to_string()))
+}
+
+pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
+    let Some(id) = state.migration.active_id.clone() else {
+        state.migration.reset_to_plan();
+        return;
+    };
+    let running = our_run_active(state, task, &id);
+    ui.horizontal_wrapped(|ui| {
+        ui.label(egui::RichText::new(format!("Migration {}", short_id(&id))).strong());
+        if running {
+            status_badge(
+                ui,
+                if state.migration.pausing {
+                    "Pausing after the current entry…"
+                } else {
+                    "Running"
+                },
+                StatusTone::Info,
+            );
+        } else if let Some(status) = state.migration.active_status() {
+            let (label, tone) = state_label(status);
+            status_badge(ui, label, tone);
+        }
+        if state.migration.status_loading() {
+            ui.spinner();
+        }
+    });
+
+    let status = state.migration.active_status().cloned();
+    match &status {
+        Some(status) => {
+            let fraction = if status.to_move == 0 {
+                1.0
+            } else {
+                status.switched as f32 / status.to_move as f32
+            };
+            ui.add(
+                egui::ProgressBar::new(fraction)
+                    .desired_height(theme::PROGRESS_BAR_HEIGHT)
+                    .text(progress_text(status)),
+            );
+            ui.horizontal_wrapped(|ui| {
+                status_badge(
+                    ui,
+                    &format!("{} verified", status.verified),
+                    StatusTone::Neutral,
+                );
+                status_badge(
+                    ui,
+                    &format!("{} lost", status.lost.len()),
+                    if status.lost.is_empty() {
+                        StatusTone::Neutral
+                    } else {
+                        StatusTone::Error
+                    },
+                );
+                if status.failed_unknown > 0 {
+                    status_badge(
+                        ui,
+                        &format!("{} unknown (retry)", status.failed_unknown),
+                        StatusTone::Warning,
+                    );
+                }
+            });
+            if !status.pcs.is_empty() {
+                theme::hint(ui, &format!("Worked on by: {}", status.pcs.join(", ")));
+            }
+        }
+        None => theme::hint(
+            ui,
+            state
+                .migration
+                .status_error
+                .as_deref()
+                .unwrap_or("Loading progress from the cloud journal…"),
+        ),
+    }
+    if running {
+        if let Some(current) = task.current_task() {
+            if let Some(fraction) = current.progress.fraction() {
+                ui.add(egui::ProgressBar::new(fraction).text("current entry"));
+            }
+        }
+        if let Some(line) = task.logs().last() {
+            theme::hint(ui, &line.text);
+        }
+    }
+
+    let idle = !task.is_running();
+    let finished = status.as_ref().is_some_and(|s| s.complete || s.abandoned);
+    ui.horizontal_wrapped(|ui| {
+        if running {
+            if ui
+                .add_enabled(!state.migration.pausing, egui::Button::new("Pause"))
+                .on_hover_text("Stops cleanly after the current entry. Resume later from any PC.")
+                .clicked()
+            {
+                if let Err(error) = state.migration.request_pause() {
+                    state.migration.error = Some(error);
+                }
+            }
+        } else {
+            if theme::primary_button(ui, idle && !finished, "Resume").clicked() {
+                if let Err(error) = state.migration.start_run(task, &state.settings.rclone, &id) {
+                    state.migration.error = Some(error);
+                }
+            }
+            ui.checkbox(&mut state.migration.take_over, "Take over work of a stopped PC")
+                .on_hover_text("Use only if the other PC crashed or was turned off. Its unfinished claims otherwise expire after 2 hours.");
+        }
+        let lost = status.as_ref().map_or(0, |s| s.lost.len());
+        if ui
+            .add_enabled(lost > 0, egui::Button::new(format!("Lost files ({lost})")))
+            .clicked()
+        {
+            state.migration.step = Step::Lost;
+        }
+        if ui
+            .add_enabled(
+                !state.migration.status_loading(),
+                egui::Button::new("Refresh"),
+            )
+            .clicked()
+        {
+            state.migration.start_status(&state.settings.rclone);
+        }
+        if ui.button("Back to plan").clicked() {
+            state.migration.reset_to_plan();
+        }
+    });
+    theme::hint(ui, "Drive files are not included yet — use Apply pool changes (Advanced / manual) for a mounted drive.");
+}
+
+/// Migrations of the selected pool found in the cloud.
+pub(super) fn existing(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
+    ui.horizontal_wrapped(|ui| {
+        ui.strong("Existing migrations");
+        let loading = state.migration.status_loading();
+        if ui
+            .add_enabled(
+                !loading && !state.migration.pool.is_empty(),
+                egui::Button::new("Refresh"),
+            )
+            .clicked()
+        {
+            state.migration.start_status(&state.settings.rclone);
+        }
+        if loading {
+            ui.spinner();
+        }
+    });
+    if let Some(error) = &state.migration.status_error {
+        ui.colored_label(ui.visuals().warn_fg_color, error);
+    }
+    if state.migration.statuses.is_empty() {
+        theme::hint(ui, "No migration of this pool is recorded in the cloud.");
+        return;
+    }
+    let idle = !task.is_running();
+    let rows = state.migration.statuses.clone();
+    let height = (rows.len() as f32 * (theme::ROW_HEIGHT + 4.0) + 40.0)
+        .min(theme::list_height(ui.ctx().content_rect().height()));
+    let size = egui::vec2(ui.available_width(), height);
+    let mut action: Option<(u8, String)> = None;
+    theme::fixed_pane_wide(ui, "migration-existing", size, |ui| {
+        egui::Grid::new("migration-existing-grid")
+            .striped(true)
+            .num_columns(6)
+            .show(ui, |ui| {
+                for head in ["Id", "Created", "Progress", "Lost", "State", ""] {
+                    ui.strong(head);
+                }
+                ui.end_row();
+                for status in &rows {
+                    ui.monospace(short_id(&status.migration_id))
+                        .on_hover_text(&status.migration_id);
+                    ui.label(format!(
+                        "{} · {}",
+                        status.created_by,
+                        crate::presentation::relative_age(status.created_unix)
+                    ));
+                    ui.label(progress_text(status));
+                    ui.label(status.lost.len().to_string());
+                    let (label, tone) = state_label(status);
+                    status_badge(ui, label, tone);
+                    ui.horizontal(|ui| {
+                        let open = !status.abandoned && !status.complete;
+                        if ui
+                            .add_enabled(idle && open, egui::Button::new("Resume"))
+                            .clicked()
+                        {
+                            action = Some((0, status.migration_id.clone()));
+                        }
+                        if ui.button("Open").clicked() {
+                            action = Some((1, status.migration_id.clone()));
+                        }
+                        if ui
+                            .add_enabled(idle && !status.abandoned, egui::Button::new("Discard"))
+                            .clicked()
+                        {
+                            action = Some((2, status.migration_id.clone()));
+                        }
+                    });
+                    ui.end_row();
+                }
+            });
+    });
+    let rclone = state.settings.rclone.clone();
+    let result = match action {
+        Some((0, id)) => state.migration.start_run(task, &rclone, &id),
+        Some((1, id)) => {
+            state.migration.open(&id);
+            Ok(())
+        }
+        Some((_, id)) => state.migration.start_abandon(task, &rclone, &id),
+        None => Ok(()),
+    };
+    if let Err(error) = result {
+        state.migration.error = Some(error);
+    }
+}

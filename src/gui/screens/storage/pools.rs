@@ -26,6 +26,8 @@ pub(crate) struct PoolForm {
     pub(crate) parity_shards: usize,
     pub(crate) notice: Option<String>,
     pub(crate) refresh_requested: bool,
+    /// Pool whose last save changed stored-data policy: offer a migration.
+    pub(crate) migration_hint: Option<String>,
     picker: PoolPicker,
     capacity: crate::gui::widgets::pool_capacity::CapacityPreview,
     identity_rows: Vec<crate::gui::widgets::account_identities::IdentityRow>,
@@ -51,6 +53,7 @@ impl PoolForm {
             parity_shards: settings.parity_shards,
             notice: None,
             refresh_requested: false,
+            migration_hint: None,
             picker: PoolPicker::default(),
             capacity: Default::default(),
             identity_rows: Vec::new(),
@@ -138,6 +141,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                     state.pools = PoolForm::from_settings(&state.settings);
                 }
             });
+            migration_hint(ui, state);
         });
     });
     let action = state
@@ -148,6 +152,33 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     if action.setup {
         state.storage_section = StorageSection::Providers;
     }
+}
+
+/// After a save that changed remotes / K / M / shard size / native crypt.
+fn migration_hint(ui: &mut egui::Ui, state: &mut GuiState) {
+    let Some(name) = state.pools.migration_hint.clone() else {
+        return;
+    };
+    ui.add_space(8.0);
+    let (fill, fg) = theme::warning_colors(ui.visuals().dark_mode);
+    egui::Frame::new()
+        .fill(fill)
+        .corner_radius(theme::CORNER_RADIUS)
+        .inner_margin(egui::Margin::same(10))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.colored_label(fg, format!("'{name}' changed how data is stored. Existing archives still use the old accounts or coding until they are migrated."));
+            ui.horizontal_wrapped(|ui| {
+                if theme::primary_button(ui, true, "Plan migration now").clicked() {
+                    state.migration.select_pool(&name);
+                    state.storage_section = StorageSection::Changes;
+                    state.pools.migration_hint = None;
+                }
+                if ui.button("Later").clicked() {
+                    state.pools.migration_hint = None;
+                }
+            });
+        });
 }
 
 fn providers_card(ui: &mut egui::Ui, state: &mut GuiState) {
@@ -411,9 +442,16 @@ pub(crate) fn handle_task_completion(state: &mut GuiState, task: &TaskRunner, st
         .map(|s| s.to_string_lossy().into_owned());
     if let Some(name) = name {
         if status == JobStatus::Completed {
+            let before = state.pool_definitions.get(&name).cloned();
             if refresh_pool_names(state) {
                 state.pools.selected = name.clone();
                 state.pools.notice = Some(format!("Saved '{name}'."));
+                let changed = matches!(
+                    (&before, state.pool_definitions.get(&name)),
+                    (Some(old), Some(new))
+                        if super::migration::state::policy_change_affects_data(old, new)
+                );
+                state.pools.migration_hint = changed.then(|| name.clone());
             } else {
                 state.pools.notice = Some(format!(
                     "Saved '{name}', but {}",

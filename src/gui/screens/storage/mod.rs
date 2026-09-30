@@ -1,4 +1,5 @@
 mod account_changes;
+pub(crate) mod migration;
 pub(crate) mod mount;
 mod pool_picker;
 pub(crate) mod pools;

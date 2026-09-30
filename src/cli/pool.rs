@@ -87,6 +87,82 @@ pub(crate) enum PoolCommands {
 
     /// Remove a storage pool definition. Stored shards are not touched.
     Remove { name: String },
+
+    /// Move stored archives onto the pool's current (saved) policy after
+    /// accounts or coding changed: plan, run/resume, status, lost files.
+    Migrate(MigrateArgs),
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct MigrateArgs {
+    #[command(subcommand)]
+    pub(crate) command: MigrateCommands,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum ProbeMode {
+    /// List each remote once and compare shard sizes.
+    Quick,
+    /// Hash every shard of the affected archives.
+    Full,
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum MigrateCommands {
+    /// Plan a migration to the saved pool policy and publish it to the cloud
+    /// journal. Reads only; no archive data is written.
+    Plan {
+        pool: String,
+        #[arg(long, value_enum, default_value_t = ProbeMode::Quick)]
+        probe: ProbeMode,
+        /// Assumed aggregate download throughput in MiB/s.
+        #[arg(long, conflicts_with = "measure_speed")]
+        download_mib_s: Option<f64>,
+        /// Assumed aggregate upload throughput in MiB/s.
+        #[arg(long, conflicts_with = "measure_speed")]
+        upload_mib_s: Option<f64>,
+        /// Measure speeds with a small temporary object per remote
+        /// (written and deleted under .rpool-sync/bench/).
+        #[arg(long)]
+        measure_speed: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run or resume a migration. Never deletes; originals stay readable.
+    Run {
+        pool: String,
+        #[arg(long)]
+        id: String,
+        /// Stop cleanly between archives when this file exists.
+        #[arg(long)]
+        stop_file: Option<std::path::PathBuf>,
+        /// Take over archives another PC claimed but did not finish (use only
+        /// when that PC has stopped; claims otherwise expire after 2 hours).
+        #[arg(long)]
+        take_over: bool,
+    },
+    /// Show migrations recorded in the cloud (all, or one).
+    Status {
+        pool: String,
+        #[arg(long)]
+        id: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// List the files a migration found unrecoverable.
+    Lost {
+        pool: String,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Mark a migration abandoned. Nothing is deleted.
+    Abandon {
+        pool: String,
+        #[arg(long)]
+        id: String,
+    },
 }
 
 #[derive(Args, Debug)]
@@ -160,5 +236,78 @@ mod capacity_tests {
             })) if name == "my-pool"
         ));
         assert!(crate::cli::Cli::try_parse_from(["rpool", "pool", "browse"]).is_err());
+    }
+
+    fn migrate(args: &[&str]) -> super::MigrateCommands {
+        let mut full = vec!["rpool", "pool", "migrate"];
+        full.extend_from_slice(args);
+        match crate::cli::Cli::try_parse_from(full).unwrap().command {
+            Some(crate::cli::Commands::Pool(super::PoolArgs {
+                command: super::PoolCommands::Migrate(super::MigrateArgs { command }),
+            })) => command,
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn migrate_subcommands_parse() {
+        use super::{MigrateCommands as M, ProbeMode};
+        assert!(matches!(
+            migrate(&["plan", "p", "--probe", "full", "--download-mib-s", "10", "--upload-mib-s", "5", "--json"]),
+            M::Plan { ref pool, probe: ProbeMode::Full, download_mib_s: Some(d), upload_mib_s: Some(u), measure_speed: false, json: true }
+                if pool == "p" && d == 10.0 && u == 5.0
+        ));
+        assert!(matches!(
+            migrate(&["plan", "p", "--measure-speed"]),
+            M::Plan {
+                probe: ProbeMode::Quick,
+                measure_speed: true,
+                json: false,
+                download_mib_s: None,
+                ..
+            }
+        ));
+        assert!(matches!(
+            migrate(&["run", "p", "--id", "m1", "--stop-file", "/tmp/stop"]),
+            M::Run { ref pool, ref id, stop_file: Some(ref s), take_over: false } if pool == "p" && id == "m1" && s.ends_with("stop")
+        ));
+        assert!(matches!(
+            migrate(&["status", "p"]),
+            M::Status {
+                id: None,
+                json: false,
+                ..
+            }
+        ));
+        assert!(matches!(
+            migrate(&["status", "p", "--id", "m1", "--json"]),
+            M::Status { id: Some(ref id), json: true, .. } if id == "m1"
+        ));
+        assert!(matches!(
+            migrate(&["lost", "p", "--id", "m1", "--json"]),
+            M::Lost { ref id, json: true, .. } if id == "m1"
+        ));
+        assert!(
+            matches!(migrate(&["abandon", "p", "--id", "m1"]), M::Abandon { ref id, .. } if id == "m1")
+        );
+        for bad in [
+            vec!["rpool", "pool", "migrate", "run", "p"],
+            vec!["rpool", "pool", "migrate", "lost", "p"],
+            vec!["rpool", "pool", "migrate", "abandon", "p"],
+            vec!["rpool", "pool", "migrate", "plan"],
+            vec!["rpool", "pool", "migrate", "plan", "p", "--probe", "deep"],
+            vec![
+                "rpool",
+                "pool",
+                "migrate",
+                "plan",
+                "p",
+                "--measure-speed",
+                "--upload-mib-s",
+                "3",
+            ],
+        ] {
+            assert!(crate::cli::Cli::try_parse_from(bad).is_err());
+        }
     }
 }

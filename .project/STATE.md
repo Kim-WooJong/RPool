@@ -11,11 +11,13 @@ GUI platform; current executed tests are macOS.
 
 ## Current Status
 
-Pool change migration (2026-09-30): DESIGN ONLY, see docs/POOL_MIGRATION_DESIGN.md
-(`pool migrate plan|run|status|lost|salvage`, cloud journal under
-.rpool-sync/migrations-v1, lost-file list, drive via a new epoch). Waiting for
-the user's decisions before implementing; the work packages there are meant
-for parallel agents.
+Pool change migration phase 1 (2026-09-30): implemented for uploaded
+archives (`src/migration/*`, `rpool pool migrate plan|run|status|lost|abandon`,
+GUI wizard in Storage › Account changes); see docs/POOL_MIGRATION_DESIGN.md.
+Cloud journal `.rpool-sync/migrations-v1`, a lost list only (no salvage),
+relocation as a full copy, and `--take-over`. Docker e2e
+pool-migrate-e2e.sh passes with native crypt on and off. Next: phase 2
+(server-side copy), phase 3 (drive/epoch adoption), phase 4 (retire).
 
 v7 native (2026-09-30):
 - Native frontends serve v7 too (`peer_snapshot_native.rs`). Renames keep

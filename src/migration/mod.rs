@@ -6,10 +6,16 @@
 //!
 //! CONTRACT between the work packages: `model` types and the signatures in
 //! `plan`, `journal`, `relocate`, `speed`, `execute` and `status` are shared; keep them stable.
+mod classify;
+mod enumerate;
+mod estimate;
 pub(crate) mod execute;
 pub(crate) mod journal;
 pub(crate) mod model;
 pub(crate) mod plan;
+mod probe;
 pub(crate) mod relocate;
 pub(crate) mod speed;
 pub(crate) mod status;
+#[cfg(test)]
+mod test_support;

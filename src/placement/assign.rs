@@ -339,9 +339,186 @@ fn validate_resilient_catalog(
     )
 }
 
+/// One physical shard of an archive being relocated: its coding group, its
+/// size, and the target index it already sits on (`None` when it must move).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReplacementSlot {
+    pub(crate) group: u32,
+    pub(crate) size: u64,
+    pub(crate) current: Option<usize>,
+}
+
+/// Outage group of each target remote, used by [`assign_replacement_slots`].
+/// Resilient placement requires a declared outage group per backing remote
+/// (as `put` does); other placements treat each configured remote name as its
+/// own group, which is what `manifest_single_provider_failure_safety` checks.
+pub(crate) fn outage_domains(
+    rclone: &str,
+    remotes: &[String],
+    placement: Placement,
+) -> Result<Vec<String>> {
+    if placement == Placement::Resilient {
+        use crate::storage::admin::{BackendAdmin, RcloneAdmin};
+        let catalog = RcloneAdmin::inherited(rclone).catalog()?;
+        return remotes
+            .iter()
+            .map(|remote| declared_failure(&catalog, remote))
+            .collect();
+    }
+    Ok(remotes
+        .iter()
+        .map(|remote| {
+            remote
+                .split_once(':')
+                .map_or(remote.as_str(), |(name, _)| name)
+                .to_owned()
+        })
+        .collect())
+}
+
+/// Chooses a target for every slot of a relocated archive while moving as
+/// little as possible. A slot keeps its `current` target unless that would
+/// put more than `bound` shards of its group on one outage group (the first
+/// kept shards in slot order stay, the excess moves). Moving slots go, largest
+/// first, to the target whose outage group holds the fewest shards of that
+/// coding group, then to the least loaded target. With `strict` (Resilient
+/// placement) exceeding `bound` is an error; otherwise it is only avoided when
+/// possible. `domains[i]` is the outage group of target `i`.
+pub(crate) fn assign_replacement_slots(
+    domains: &[String],
+    slots: &[ReplacementSlot],
+    bound: usize,
+    strict: bool,
+) -> Result<Vec<usize>> {
+    if domains.is_empty() {
+        bail!("relocation requires at least one target remote");
+    }
+    if let Some(slot) = slots
+        .iter()
+        .find(|slot| slot.current.is_some_and(|i| i >= domains.len()))
+    {
+        bail!(
+            "replacement slot refers to unknown target {:?}",
+            slot.current
+        );
+    }
+    let mut result: Vec<Option<usize>> = vec![None; slots.len()];
+    let mut counts = BTreeMap::<(u32, &str), usize>::new();
+    let mut load = vec![0u64; domains.len()];
+    for (i, slot) in slots.iter().enumerate() {
+        let Some(current) = slot.current else {
+            continue;
+        };
+        let count = counts
+            .entry((slot.group, domains[current].as_str()))
+            .or_default();
+        if *count < bound {
+            *count += 1;
+            load[current] = load[current].saturating_add(slot.size);
+            result[i] = Some(current);
+        }
+    }
+    let mut moving: Vec<usize> = (0..slots.len()).filter(|&i| result[i].is_none()).collect();
+    moving.sort_by_key(|&i| (slots[i].group, std::cmp::Reverse(slots[i].size), i));
+    let mut cursor = 0usize;
+    for i in moving {
+        let slot = &slots[i];
+        let chosen = (0..domains.len())
+            .map(|n| (cursor + n) % domains.len())
+            .min_by_key(|&j| {
+                let count = counts
+                    .get(&(slot.group, domains[j].as_str()))
+                    .copied()
+                    .unwrap_or(0);
+                (count, load[j])
+            })
+            .expect("targets are not empty");
+        let count = counts
+            .entry((slot.group, domains[chosen].as_str()))
+            .or_default();
+        if *count >= bound && strict {
+            bail!(
+                "resilient relocation impossible: group {} would exceed {bound} shard(s) in one outage group; add independent target remotes or change K/M",
+                slot.group
+            );
+        }
+        *count += 1;
+        load[chosen] = load[chosen].saturating_add(slot.size);
+        result[i] = Some(chosen);
+        cursor = (chosen + 1) % domains.len();
+    }
+    Ok(result
+        .into_iter()
+        .map(|slot| slot.expect("every slot assigned"))
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn slot(group: u32, current: Option<usize>) -> ReplacementSlot {
+        ReplacementSlot {
+            group,
+            size: 10,
+            current,
+        }
+    }
+    fn domains(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    #[test]
+    fn replacement_keeps_valid_slots_and_moves_only_lost_ones() {
+        // 2+1 on a,b,c; c removed (current None) and d added.
+        let targets = domains(&["a", "b", "d"]);
+        let slots = [slot(0, Some(0)), slot(0, Some(1)), slot(0, None)];
+        assert_eq!(
+            assign_replacement_slots(&targets, &slots, 1, true).unwrap(),
+            vec![0, 1, 2]
+        );
+    }
+
+    #[test]
+    fn replacement_evicts_kept_shards_that_break_the_outage_bound() {
+        // Targets 0 and 1 share outage group "x": only one shard per group may stay.
+        let targets = domains(&["x", "x", "y", "z"]);
+        let slots = [slot(0, Some(0)), slot(0, Some(1)), slot(0, Some(2))];
+        let assigned = assign_replacement_slots(&targets, &slots, 1, true).unwrap();
+        assert_eq!(assigned[0], 0);
+        assert_eq!(assigned[2], 2);
+        assert_eq!(assigned[1], 3);
+    }
+
+    #[test]
+    fn strict_replacement_refuses_to_exceed_the_bound() {
+        let targets = domains(&["x", "x"]);
+        let slots = [slot(0, Some(0)), slot(0, None)];
+        assert!(assign_replacement_slots(&targets, &slots, 1, true).is_err());
+        // Non-strict placements accept the best available layout.
+        assert_eq!(
+            assign_replacement_slots(&targets, &slots, 1, false).unwrap()[0],
+            0
+        );
+    }
+
+    #[test]
+    fn replacement_spreads_moves_by_group_count_then_load() {
+        let targets = domains(&["a", "b", "c", "d"]);
+        let slots: Vec<_> = (0..6).map(|i| slot(i / 3, None)).collect();
+        let assigned = assign_replacement_slots(&targets, &slots, 1, true).unwrap();
+        for group in 0..2 {
+            let used: BTreeSet<_> = assigned[group * 3..group * 3 + 3].iter().collect();
+            assert_eq!(used.len(), 3);
+        }
+        let mut per_target = BTreeMap::new();
+        for index in &assigned {
+            *per_target.entry(index).or_insert(0) += 1;
+        }
+        assert!(per_target.values().all(|count| *count <= 2));
+        assert!(assign_replacement_slots(&[], &slots, 1, true).is_err());
+        assert!(assign_replacement_slots(&targets, &[slot(0, Some(9))], 1, true).is_err());
+    }
     fn snapshot(free: &[u64]) -> crate::storage::admin::budget::BudgetSnapshot {
         crate::storage::admin::budget::BudgetSnapshot {
             targets: free

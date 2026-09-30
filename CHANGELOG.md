@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Pool change migration (archives, in progress).** `rpool pool migrate
+  plan|run|status|lost|abandon` moves uploaded archives onto a pool's saved
+  policy after accounts or coding change. `plan` publishes a frozen plan to a
+  cloud journal; `run --id` works lowest-margin first, builds every
+  replacement as a new archive, verifies it, indexes it and records
+  `verified`/`switched`, so any PC can resume. Nothing is deleted; provider
+  errors are `unknown` (retried), never lost. `pool set` now hints when a
+  change affects stored data. The drive is not migrated yet.
+
 - **Browse a pool's drive without mounting.** `rpool pool browse <NAME>
   [--json]` lists the folders and files of the pool's drive (v6 or v7)
   straight from its cloud metadata, read-only and with no workspace. In the

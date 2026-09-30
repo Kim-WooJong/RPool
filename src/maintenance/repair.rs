@@ -125,6 +125,40 @@ fn repair_group(
         local_paths.insert(shard.index, path);
     }
 
+    let output_paths =
+        reconstruct_group_files(manifest, coding, group, bad, &local_paths, temp_root)?;
+    for shard in bad {
+        let path = output_paths
+            .get(&shard.index)
+            .ok_or_else(|| anyhow!("missing repaired path"))?;
+        storage.write_file(path, 0, shard, retries)?;
+        eprintln!("[repair] {:08} {}", shard.index, shard.remote);
+    }
+
+    Ok(bad.len())
+}
+
+/// Rebuilds the `bad` shards of `group` from verified local copies of every
+/// other shard of that group (`healthy`: shard index -> local file) into
+/// `out_dir`. Each output is checked against the manifest size and BLAKE3
+/// before it is returned. Nothing is written to storage.
+pub(crate) fn reconstruct_group_files(
+    manifest: &Manifest,
+    coding: &Coding,
+    group: u32,
+    bad: &[Shard],
+    healthy: &BTreeMap<u32, PathBuf>,
+    out_dir: &Path,
+) -> Result<BTreeMap<u32, PathBuf>> {
+    let bad_indexes: BTreeSet<u32> = bad.iter().map(|shard| shard.index).collect();
+    let group_shards: Vec<Shard> = manifest
+        .shards
+        .iter()
+        .filter(|shard| shard.group == group)
+        .cloned()
+        .collect();
+    let local_paths = healthy;
+    let temp_root = out_dir;
     let mut output_paths: BTreeMap<u32, PathBuf> = BTreeMap::new();
     let mut output_files: BTreeMap<u32, BufWriter<File>> = BTreeMap::new();
     for shard in bad {
@@ -233,9 +267,6 @@ fn repair_group(
         if hash != shard.blake3 {
             bail!("repaired shard {} failed BLAKE3 validation", shard.index);
         }
-        storage.write_file(path, 0, shard, retries)?;
-        eprintln!("[repair] {:08} {}", shard.index, shard.remote);
     }
-
-    Ok(bad.len())
+    Ok(output_paths)
 }

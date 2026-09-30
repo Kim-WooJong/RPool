@@ -1,6 +1,7 @@
 pub(crate) mod browse;
 mod browse_generations;
 pub(crate) mod capacity;
+pub(crate) mod estimate;
 mod load;
 mod manage;
 mod resolve;
@@ -17,5 +18,6 @@ pub(crate) use validate::{validate_pool, validate_pool_name};
 
 mod reprocess;
 pub(crate) use reprocess::{
-    build_plan, completed_reprocess_replacements, execute_plan, load_plan, ReprocessPlan,
+    build_plan, completed_reprocess_replacements, execute_plan, load_plan, reencode_manifest,
+    ReprocessPlan,
 };
