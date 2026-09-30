@@ -360,7 +360,8 @@ impl VirtualDrive {
         if self.shared_root.is_some() || !exclusive {
             bail!("remote retention requires an unshared, exclusively owned workspace");
         }
-        let storage = crate::storage::writer::StorageWriter::rclone(&self.rclone);
+        let storage =
+            crate::storage::writer::StorageWriter::for_pool(&self.rclone, self.policy.native_crypt);
         // Verify retained versions before sacrificing any historical fallback.
         let journal_path = self.root.join("retention-journal.json");
         let report = if journal_path.exists() {

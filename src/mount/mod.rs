@@ -222,4 +222,6 @@ fn report_capacity(workspace: &workspace::Workspace, path: Option<&std::path::Pa
 }
 
 #[cfg(test)]
+mod native_sync_tests;
+#[cfg(test)]
 mod virtual_tests;

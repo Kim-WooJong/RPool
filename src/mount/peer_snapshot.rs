@@ -206,7 +206,8 @@ impl VirtualDrive {
     fn snapshot_store(&self) -> Result<LiveIo<'_>> {
         Ok(LiveIo {
             drive: self,
-            store: Store::new(&self.rclone, &self.pool_sync_roots)?,
+            store: Store::new(&self.rclone, &self.pool_sync_roots)?
+                .with_native_crypt(self.policy.native_crypt),
         })
     }
     pub(crate) fn begin_snapshot(

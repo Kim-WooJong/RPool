@@ -84,7 +84,7 @@ pub(crate) fn upload(
     id: &str,
     base: &Manifest,
 ) -> Result<Option<Manifest>> {
-    let storage = StorageWriter::rclone(rclone);
+    let storage = StorageWriter::for_pool(rclone, policy.native_crypt);
     let status = super::capacity::CapacityStatus::inspect(
         &crate::storage::admin::RcloneAdmin::inherited(rclone),
         policy,

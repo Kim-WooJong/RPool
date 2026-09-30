@@ -568,7 +568,7 @@ pub(super) fn upload_eligible_registered(
         );
         register(&objects)?;
         finalize_completed_upload(
-            &crate::storage::writer::StorageWriter::rclone(rclone),
+            &crate::storage::writer::StorageWriter::for_pool(rclone, policy.native_crypt),
             &completed,
             &manifest,
             &publication,
@@ -593,7 +593,7 @@ pub(super) fn upload_eligible_registered(
         // Only fully re-read, source-matching data earns admission credit.
         // Parity remains charged in full because put regenerates it.
         crate::journal::validate_upload_journal(
-            &crate::storage::writer::StorageWriter::rclone(rclone),
+            &crate::storage::writer::StorageWriter::for_pool(rclone, policy.native_crypt),
             &staged,
             &plan,
             &mut journal,
@@ -649,7 +649,7 @@ pub(super) fn upload_eligible_registered(
     );
     register(&objects)?;
     crate::commands::put_with_storage(
-        &crate::storage::writer::StorageWriter::rclone(rclone),
+        &crate::storage::writer::StorageWriter::for_pool(rclone, policy.native_crypt),
         rclone,
         &staged,
         status.eligible.clone(),

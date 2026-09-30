@@ -109,7 +109,10 @@ impl super::virtual_drive::VirtualDrive {
     pub(crate) fn pool_transports(&self) -> Result<Vec<SharedTransport>> {
         self.pool_sync_roots
             .iter()
-            .map(|root| SharedTransport::new(&self.rclone, root))
+            .map(|root| {
+                SharedTransport::new(&self.rclone, root)
+                    .map(|t| t.with_native_crypt(self.policy.native_crypt))
+            })
             .collect()
     }
     pub(crate) fn pull_pool(&self) -> Result<()> {

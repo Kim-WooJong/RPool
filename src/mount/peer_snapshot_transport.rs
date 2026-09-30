@@ -27,6 +27,7 @@ fn digest<T: Serialize>(value: &T) -> Result<String> {
 pub(crate) struct Store {
     rclone: String,
     roots: Vec<String>,
+    native_crypt: bool,
 }
 impl Store {
     pub(crate) fn new(rclone: &str, roots: &[String]) -> Result<Self> {
@@ -39,7 +40,13 @@ impl Store {
         Ok(Self {
             rclone: rclone.into(),
             roots: roots.to_vec(),
+            native_crypt: false,
         })
+    }
+    /// Snapshot records and private copies in a native-crypt pool.
+    pub(crate) fn with_native_crypt(mut self, native_crypt: bool) -> Self {
+        self.native_crypt = native_crypt;
+        self
     }
     fn transports(&self, kind: &str) -> Result<Vec<SharedTransport>> {
         if !matches!(kind, "snapshots" | "retirements" | "names") {
@@ -47,7 +54,10 @@ impl Store {
         }
         self.roots
             .iter()
-            .map(|root| SharedTransport::new(&self.rclone, &crate::utils::remote_join(root, kind)))
+            .map(|root| {
+                SharedTransport::new(&self.rclone, &crate::utils::remote_join(root, kind))
+                    .map(|t| t.with_native_crypt(self.native_crypt))
+            })
             .collect()
     }
     pub(crate) fn collect(
@@ -89,7 +99,7 @@ impl Store {
         manifest: &Manifest,
     ) -> Result<Manifest> {
         copy_private_key(
-            &StorageWriter::rclone(&self.rclone),
+            &StorageWriter::for_pool(&self.rclone, self.native_crypt),
             owner,
             revision,
             manifest,
@@ -100,7 +110,11 @@ impl Store {
         path: &Path,
         proof: impl FnMut(&str, &str) -> Result<()>,
     ) -> Result<()> {
-        resume_gc_with(&StorageWriter::rclone(&self.rclone), path, proof)
+        resume_gc_with(
+            &StorageWriter::for_pool(&self.rclone, self.native_crypt),
+            path,
+            proof,
+        )
     }
 }
 

@@ -17,6 +17,8 @@ const TOTAL_LIMIT: usize = 64 * 1024 * 1024;
 pub(crate) struct SharedTransport {
     rclone: String,
     root: String,
+    /// Pool destinations with `native_crypt`: RPool encrypts metadata itself.
+    native_crypt: bool,
 }
 
 #[derive(Deserialize)]
@@ -71,7 +73,13 @@ impl SharedTransport {
         Ok(Self {
             rclone: rclone.into(),
             root: root.trim_end_matches('/').into(),
+            native_crypt: false,
         })
+    }
+    /// Metadata written into a native-crypt pool is encrypted by RPool.
+    pub(crate) fn with_native_crypt(mut self, native_crypt: bool) -> Self {
+        self.native_crypt = native_crypt;
+        self
     }
 
     pub(crate) fn list_missing(
@@ -82,7 +90,7 @@ impl SharedTransport {
         let operation = OperationContext::none();
         context.ensure_crypt(&operation, &self.root)?;
         let events = remote_join(&self.root, "events");
-        let storage = StorageWriter::rclone(&self.rclone);
+        let storage = StorageWriter::for_pool(&self.rclone, self.native_crypt);
         let mut result = BTreeMap::new();
         let mut total = 0usize;
         let mut count = 0usize;
@@ -138,7 +146,7 @@ impl SharedTransport {
 
     pub(crate) fn publish(&self, id: &str, bytes: &[u8]) -> Result<()> {
         validate_event(id, bytes)?;
-        let storage = StorageWriter::rclone(&self.rclone);
+        let storage = StorageWriter::for_pool(&self.rclone, self.native_crypt);
         storage.ensure_destination(&self.root)?;
         let address = remote_join(&self.root, &format!("events/{id}.json"));
         match storage.reader().stat(&address) {

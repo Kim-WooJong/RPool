@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Native crypt now covers mounted drives. For pools with `native_crypt`,
+  RPool encrypts the virtual drive's shard and manifest uploads and its
+  pool-sync (v6) and v7 snapshot metadata itself: content and names, in
+  rclone crypt format. Readback still goes through the rclone crypt
+  remotes. Verified end to end with rclone over local directories, plus a
+  routing control: a crypt remote the native gate refuses is never written
+  when native crypt is on. The legacy shared root keeps rclone crypt.
+
 - Mounted drives no longer report 0 bytes free for long stretches:
   - `sync` no longer clears the capacity snapshot.
   - Capacity refreshes in its own worker, at least every 60 s, instead of
