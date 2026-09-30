@@ -1,3 +1,4 @@
+pub(crate) mod browse;
 pub(crate) mod capacity;
 mod load;
 mod manage;
