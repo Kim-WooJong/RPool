@@ -104,6 +104,12 @@ pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> 
             ProviderCommands::Encrypt { name, .. } => {
                 ("provider-encrypt".to_string(), Some(name.clone()))
             }
+            ProviderCommands::NameEncoding {
+                remote, encoding, ..
+            } => (
+                "provider-name-encoding".to_string(),
+                Some(format!("{remote}: {encoding}")),
+            ),
             ProviderCommands::Health { pool, .. } => ("provider-health".to_string(), pool.clone()),
             ProviderCommands::SpeedTest { remotes, .. } => {
                 ("provider-speed-test".to_string(), Some(remotes.join(", ")))

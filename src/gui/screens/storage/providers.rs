@@ -12,8 +12,10 @@ pub(crate) mod limits_cache;
 mod limits_dialog;
 mod limits_model;
 mod model;
+mod name_encoding;
 
 pub(crate) use limits_model::wait as wait_text;
+pub(crate) use name_encoding::{combo as encoding_combo, index_of as encoding_index};
 #[cfg(any(test, debug_assertions))]
 pub(crate) mod sample;
 
@@ -29,6 +31,8 @@ pub(crate) struct ProviderForm {
     pub(crate) backing_provider: String,
     pub(crate) entropy_index: usize,
     pub(crate) filename_index: usize,
+    /// Index into `FILENAME_ENCODINGS`.
+    pub(crate) encoding_index: usize,
     pub(crate) disable_directory_encryption: bool,
     pub(crate) backup_acknowledged: bool,
     pub(crate) setup_notice: Option<String>,
@@ -46,6 +50,7 @@ pub(crate) struct ProviderForm {
     /// Account limits shown on the cards.
     pub(crate) limits: limits_cache::LimitsCache,
     pub(crate) limits_editor: limits_dialog::LimitsEditor,
+    pub(crate) name_encoding: name_encoding::Editor,
 }
 
 impl ProviderForm {
@@ -58,6 +63,7 @@ impl ProviderForm {
             .iter()
             .position(|v| *v == defaults.filename_encryption)
             .unwrap_or(0);
+        self.encoding_index = name_encoding::index_of(&defaults.filename_encoding);
         self.disable_directory_encryption = !defaults.directory_encryption;
         self.backup_acknowledged = false;
     }
@@ -118,6 +124,12 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         super::speed_test::providers_card(ui, state, task);
     });
     encryption_dialog(ui.ctx(), state, task);
+    name_encoding::show(
+        ui.ctx(),
+        &mut state.providers.name_encoding,
+        &state.settings.rclone,
+        task,
+    );
     if limits_dialog::show(ui.ctx(), &mut state.providers.limits_editor) {
         state.providers.limits.invalidate();
     }
@@ -255,6 +267,15 @@ fn list_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
                 .unwrap_or_default();
             state.providers.limits_editor =
                 limits_dialog::LimitsEditor::open_for(&name, &kind, &state.providers.limits.store);
+        }
+        Some((card::CardAction::NameEncoding, name)) => {
+            let crypts = state
+                .provider_details
+                .crypts
+                .get(&name)
+                .cloned()
+                .unwrap_or_default();
+            state.providers.name_encoding = name_encoding::Editor::open_for(&crypts);
         }
         Some((card::CardAction::KeepAlive, name)) => {
             state.providers.setup_notice = Some(match start_keepalive(state, task, &name) {
@@ -480,6 +501,8 @@ fn encryption_dialog(ctx: &egui::Context, state: &mut GuiState, task: &mut TaskR
                 egui::ComboBox::from_label(tr("Filename protection"))
                     .selected_text(modes[state.providers.filename_index.min(2)])
                     .show_ui(ui, |ui| { for (i, label) in modes.iter().enumerate() { ui.selectable_value(&mut state.providers.filename_index, i, *label); } });
+                ui.label(tr("Name encoding"));
+                name_encoding::combo(ui, "crypt-name-encoding", &mut state.providers.encoding_index);
                 ui.checkbox(&mut state.providers.disable_directory_encryption, tr("Leave directory names visible"));
                 ui.small(tr("Filename Off also leaves directory names visible regardless of the directory option."));
                 ui.separator();
@@ -516,6 +539,13 @@ fn start_encryption(state: &GuiState, task: &mut TaskRunner) -> Result<(), Strin
         format!("--entropy-bits={bits}").into(),
         format!("--filename-encryption={mode}").into(),
         format!(
+            "--filename-encoding={}",
+            crate::config_sync::provision::FILENAME_ENCODINGS[form
+                .encoding_index
+                .min(crate::config_sync::provision::FILENAME_ENCODINGS.len() - 1)]
+        )
+        .into(),
+        format!(
             "--directory-encryption={}",
             !form.disable_directory_encryption
         )
@@ -544,10 +574,12 @@ mod tests {
             entropy_bits: 128,
             filename_encryption: "off".into(),
             directory_encryption: false,
+            filename_encoding: "base32768".into(),
         };
         form.apply_defaults(&changed);
         assert_eq!([256, 128, 512, 1024][form.entropy_index], 128);
         assert_eq!(form.filename_index, 2);
+        assert_eq!(form.encoding_index, name_encoding::index_of("base32768"));
         assert!(form.disable_directory_encryption);
     }
 

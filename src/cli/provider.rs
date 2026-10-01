@@ -31,6 +31,12 @@ pub(crate) enum ProviderCommands {
         filename_encryption: String,
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         directory_encryption: bool,
+        /// How encrypted names are stored: base32 (rclone default, works
+        /// everywhere), base32768 (about a quarter of the characters, for
+        /// path-length-limited remotes such as Windows servers or OneDrive)
+        /// or base64 (case-sensitive remotes only).
+        #[arg(long, default_value = "base32")]
+        filename_encoding: String,
         #[arg(long)]
         json: bool,
     },
@@ -48,6 +54,29 @@ pub(crate) enum ProviderCommands {
         filename_encryption: String,
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
         directory_encryption: bool,
+        /// How encrypted names are stored: base32 (rclone default, works
+        /// everywhere), base32768 (about a quarter of the characters, for
+        /// path-length-limited remotes such as Windows servers or OneDrive)
+        /// or base64 (case-sensitive remotes only).
+        #[arg(long, default_value = "base32")]
+        filename_encoding: String,
+    },
+    /// Change how an existing crypt remote stores its names
+    /// (`filename_encoding`). Keys and stored bytes are kept, but files
+    /// written with the old encoding are not listed or readable until it is
+    /// switched back, so a remote that already holds files is refused unless
+    /// `--existing-files-ok`.
+    NameEncoding {
+        /// Crypt remote name, without colon.
+        #[arg(long)]
+        remote: String,
+        /// base32, base32768 or base64.
+        #[arg(long)]
+        encoding: String,
+        #[arg(long)]
+        existing_files_ok: bool,
+        #[arg(long)]
+        json: bool,
     },
     /// Check provider accessibility, latency, and quota information.
     Health {

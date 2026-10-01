@@ -350,6 +350,7 @@ impl Scenario {
                 remote,
                 filename_encryption: "standard".to_owned(),
                 directory_name_encryption: true,
+                filename_encoding: "base32".into(),
             };
             let generated = generated_source
                 .rclone
@@ -853,6 +854,7 @@ fn b6_real_leading_hyphen_secret_is_not_an_option() -> Result<()> {
         remote: format!("{}:{}", LOCAL_REMOTE, rclone_path(temp.path())?),
         filename_encryption: "standard".into(),
         directory_name_encryption: true,
+        filename_encoding: "base32".into(),
     };
     create_crypt_remote(&tools.rclone, &config, &portable, &secret, false)?;
     let mut update = rclone_command(&tools.rclone, &config);

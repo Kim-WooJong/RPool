@@ -82,6 +82,20 @@ pub(crate) struct PortableCryptRemote {
     pub(crate) remote: String,
     pub(crate) filename_encryption: String,
     pub(crate) directory_name_encryption: bool,
+    /// rclone `filename_encoding`; omitted for the default `base32`, so
+    /// packages without it stay readable by older RPool versions.
+    #[serde(
+        default = "default_encoding",
+        skip_serializing_if = "is_default_encoding"
+    )]
+    pub(crate) filename_encoding: String,
+}
+
+fn default_encoding() -> String {
+    "base32".into()
+}
+fn is_default_encoding(value: &String) -> bool {
+    value == "base32"
 }
 
 impl PortableCryptRemote {
@@ -95,6 +109,7 @@ impl PortableCryptRemote {
         {
             anyhow::bail!("unsupported portable crypt definition");
         }
+        crate::config_sync::provision::validate_filename_encoding(&self.filename_encoding)?;
         if self.remote.chars().any(char::is_control) {
             anyhow::bail!("invalid portable crypt backing reference");
         }

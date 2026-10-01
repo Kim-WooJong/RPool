@@ -1653,5 +1653,75 @@
   "ko": "풀 속도를 제한하는 계정이에요. 가장 느리지는 않지만, 풀의 배치 방식에서 속도에 비해 조각을 가장 많이 받아요.",
   "ja": "プールの速度を制限するアカウントです。最も遅くはありませんが、プールの配置方式では速度に比べて最も多くのシャードを受け取ります。",
   "zh": "限制池速度的账户：它并非最慢，但在池的放置方式下，相对其速度分到的分片最多。"
+ },
+ "Name encoding": {
+  "ko": "이름 인코딩",
+  "ja": "名前のエンコード",
+  "zh": "名称编码"
+ },
+ "Name encoding…": {
+  "ko": "이름 인코딩…",
+  "ja": "名前のエンコード…",
+  "zh": "名称编码…"
+ },
+ "How the encrypted provider stores names. Switch to base32768 when uploads fail on long paths.": {
+  "ko": "암호화된 공급자가 이름을 저장하는 방식이에요. 경로가 길어서 업로드가 실패하면 base32768로 바꾸세요.",
+  "ja": "暗号化プロバイダーが名前を保存する方式です。長いパスでアップロードに失敗する場合は base32768 に切り替えてください。",
+  "zh": "加密提供商存储名称的方式。路径过长导致上传失败时，请切换为 base32768。"
+ },
+ "Change even if the provider already holds files": {
+  "ko": "공급자에 이미 파일이 있어도 변경",
+  "ja": "プロバイダーにファイルがあっても変更する",
+  "zh": "即使提供商已有文件也更改"
+ },
+ "Change name encoding": {
+  "ko": "이름 인코딩 변경",
+  "ja": "名前のエンコードを変更",
+  "zh": "更改名称编码"
+ },
+ "Changes how an existing encrypted provider stores file and folder names. Keys, contents and the folder stay the same.": {
+  "ko": "기존 암호화 공급자가 파일과 폴더 이름을 저장하는 방식을 바꿔요. 키, 내용, 저장 폴더는 그대로예요.",
+  "ja": "既存の暗号化プロバイダーがファイル名とフォルダー名を保存する方式を変更します。鍵、内容、フォルダーはそのままです。",
+  "zh": "更改现有加密提供商存储文件和文件夹名称的方式。密钥、内容和文件夹保持不变。"
+ },
+ "Changing {crypt} to {encoding}. See Jobs for the result.": {
+  "ko": "{crypt}을(를) {encoding}(으)로 바꾸는 중이에요. 결과는 작업에서 확인하세요.",
+  "ja": "{crypt} を {encoding} に変更しています。結果はジョブで確認してください。",
+  "zh": "正在将 {crypt} 更改为 {encoding}。结果请在任务中查看。"
+ },
+ "Files already stored with the old encoding are not deleted, but they are not listed or readable until you switch back. If the provider already holds files, RPool refuses unless you confirm below.": {
+  "ko": "이전 인코딩으로 저장된 파일은 지워지지 않지만, 다시 되돌릴 때까지 목록에 보이지 않고 읽을 수도 없어요. 공급자에 이미 파일이 있으면 아래에서 확인해야 변경해요.",
+  "ja": "以前のエンコードで保存されたファイルは削除されませんが、元に戻すまで一覧に表示されず読み取れません。プロバイダーにファイルがある場合は、下で確認しないと変更しません。",
+  "zh": "以旧编码存储的文件不会被删除，但在切换回去之前不会列出也无法读取。如果提供商已有文件，需在下方确认后才会更改。"
+ },
+ "Names stay encrypted and are about 20% shorter than base32, but upper and lower case differ: never use it on Windows, macOS or other case-insensitive storage.": {
+  "ko": "이름은 계속 암호화되고 base32보다 약 20% 짧지만, 대소문자를 구분해요. Windows, macOS처럼 대소문자를 구분하지 않는 저장소에서는 절대 쓰지 마세요.",
+  "ja": "名前は暗号化されたままで base32 より約 20% 短くなりますが、大文字と小文字を区別します。Windows や macOS など大文字小文字を区別しないストレージでは絶対に使わないでください。",
+  "zh": "名称仍然加密，比 base32 短约 20%，但区分大小写：切勿在 Windows、macOS 等不区分大小写的存储上使用。"
+ },
+ "Names stay encrypted but take about a quarter of the characters. Use it when uploads fail on long paths, e.g. a Windows SFTP server (260-character limit) or OneDrive.": {
+  "ko": "이름은 계속 암호화되면서 글자 수가 약 4분의 1로 줄어요. Windows SFTP 서버(260자 제한)나 OneDrive처럼 긴 경로에서 업로드가 실패할 때 쓰세요.",
+  "ja": "名前は暗号化されたまま、文字数が約 4 分の 1 になります。Windows の SFTP サーバー（260 文字制限）や OneDrive など、長いパスでアップロードに失敗する場合に使います。",
+  "zh": "名称仍然加密，字符数约为四分之一。在长路径导致上传失败时使用，例如 Windows SFTP 服务器（260 字符限制）或 OneDrive。"
+ },
+ "Names stay encrypted using only lower-case letters and digits, which every storage accepts. Encrypted names are about 1.6 times longer than the original.": {
+  "ko": "모든 저장소가 받아주는 소문자와 숫자만으로 이름을 암호화해요. 암호화된 이름은 원래보다 약 1.6배 길어요.",
+  "ja": "すべてのストレージが受け付ける小文字と数字だけで名前を暗号化します。暗号化された名前は元の約 1.6 倍の長さになります。",
+  "zh": "仅使用所有存储都接受的小写字母和数字来加密名称。加密后的名称约为原来的 1.6 倍长。"
+ },
+ "base32 — rclone default, works everywhere (recommended)": {
+  "ko": "base32 — rclone 기본값, 어디서나 동작 (권장)",
+  "ja": "base32 — rclone の既定、どこでも動作（推奨）",
+  "zh": "base32 — rclone 默认，处处可用（推荐）"
+ },
+ "base32768 — short names for path-limited storage": {
+  "ko": "base32768 — 경로 길이가 제한된 저장소용 짧은 이름",
+  "ja": "base32768 — パス長に制限のあるストレージ向けの短い名前",
+  "zh": "base32768 — 适用于路径长度受限存储的短名称"
+ },
+ "base64 — shorter names, case-sensitive storage only": {
+  "ko": "base64 — 더 짧은 이름, 대소문자 구분 저장소 전용",
+  "ja": "base64 — より短い名前、大文字小文字を区別するストレージ専用",
+  "zh": "base64 — 更短的名称，仅限区分大小写的存储"
  }
 }

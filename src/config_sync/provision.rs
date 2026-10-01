@@ -20,6 +20,9 @@ pub(crate) struct EncryptionDefaults {
     pub(crate) entropy_bits: usize,
     pub(crate) filename_encryption: String,
     pub(crate) directory_encryption: bool,
+    /// How encrypted names are written (`filename_encoding`); see
+    /// [`FILENAME_ENCODINGS`].
+    pub(crate) filename_encoding: String,
 }
 impl Default for EncryptionDefaults {
     fn default() -> Self {
@@ -27,8 +30,26 @@ impl Default for EncryptionDefaults {
             entropy_bits: 1024,
             filename_encryption: "standard".into(),
             directory_encryption: true,
+            filename_encoding: DEFAULT_FILENAME_ENCODING.into(),
         }
     }
+}
+
+/// rclone's default name encoding.
+pub(crate) const DEFAULT_FILENAME_ENCODING: &str = "base32";
+/// Name encodings RPool can create and read natively. All keep the names
+/// encrypted; they differ only in how long the stored names are.
+/// - `base32`: rclone's default, works everywhere (case-insensitive safe).
+/// - `base32768`: about a quarter of the characters, for remotes that limit
+///   path length in characters (Windows servers, OneDrive, SharePoint).
+/// - `base64`: shorter than base32, case-sensitive remotes only.
+pub(crate) const FILENAME_ENCODINGS: [&str; 3] = ["base32", "base32768", "base64"];
+
+pub(crate) fn validate_filename_encoding(encoding: &str) -> Result<()> {
+    if !FILENAME_ENCODINGS.contains(&encoding) {
+        bail!("unsupported filename encoding (base32, base32768 or base64)");
+    }
+    Ok(())
 }
 impl EncryptionDefaults {
     pub(crate) fn validate(&self) -> Result<()> {
@@ -39,6 +60,7 @@ impl EncryptionDefaults {
             format!("--entropy-bits={}", self.entropy_bits),
             format!("--filename-encryption={}", self.filename_encryption),
             format!("--directory-encryption={}", self.directory_encryption),
+            format!("--filename-encoding={}", self.filename_encoding),
         ]
         .into_iter()
         .map(Into::into)
@@ -51,6 +73,7 @@ impl EncryptionDefaults {
             entropy_bits: self.entropy_bits,
             filename_encryption: self.filename_encryption.clone(),
             directory_encryption: self.directory_encryption,
+            filename_encoding: self.filename_encoding.clone(),
         }
     }
 }
@@ -61,6 +84,7 @@ pub(crate) struct CryptSetup {
     pub(crate) entropy_bits: usize,
     pub(crate) filename_encryption: String,
     pub(crate) directory_encryption: bool,
+    pub(crate) filename_encoding: String,
 }
 impl CryptSetup {
     fn validate(&self) -> Result<()> {
@@ -78,6 +102,7 @@ impl CryptSetup {
         ) {
             bail!("unsupported filename encryption mode");
         }
+        validate_filename_encoding(&self.filename_encoding)?;
         Ok(())
     }
 }
@@ -164,7 +189,13 @@ fn candidate(
         }
     }
     let mut result = SensitiveBytes(original.to_vec());
-    result.0.extend_from_slice(format!("\n[{}]\ntype = crypt\nremote = {}\nfilename_encryption = {}\ndirectory_name_encryption = {}\npassword = ", setup.name, backing, setup.filename_encryption, setup.directory_encryption).as_bytes());
+    result.0.extend_from_slice(format!("\n[{}]\ntype = crypt\nremote = {}\nfilename_encryption = {}\ndirectory_name_encryption = {}\n", setup.name, backing, setup.filename_encryption, setup.directory_encryption).as_bytes());
+    if setup.filename_encoding != DEFAULT_FILENAME_ENCODING {
+        result.0.extend_from_slice(
+            format!("filename_encoding = {}\n", setup.filename_encoding).as_bytes(),
+        );
+    }
+    result.0.extend_from_slice(b"password = ");
     result.0.extend_from_slice(password.as_str().as_bytes());
     result.0.extend_from_slice(b"\npassword2 = ");
     result.0.extend_from_slice(salt.as_str().as_bytes());
@@ -279,6 +310,93 @@ pub(crate) struct EncryptionReport {
     pub(crate) created: Vec<String>,
     pub(crate) existing: Vec<String>,
     pub(crate) failed: Vec<String>,
+}
+
+/// What changing a crypt remote's name encoding found and did.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct NameEncodingChange {
+    pub(crate) remote: String,
+    pub(crate) from: String,
+    pub(crate) to: String,
+    /// Objects already stored under the crypt remote's backing location.
+    pub(crate) existing_files: u64,
+    pub(crate) existing_bytes: u64,
+    pub(crate) changed: bool,
+}
+
+/// Switches an existing crypt remote's `filename_encoding`. Keys, the
+/// backing location and stored bytes stay as they are, but names written
+/// with the old encoding are not listed or readable until it is switched
+/// back. Refused while the backing location holds files unless
+/// `existing_files_ok`.
+pub(crate) fn set_name_encoding(
+    executable: &Path,
+    name: &str,
+    encoding: &str,
+    existing_files_ok: bool,
+) -> Result<NameEncodingChange> {
+    validate_remote_name(name)?;
+    validate_filename_encoding(encoding)?;
+    let config = config_path(executable)?;
+    let dump = read_dump(executable, &config)?;
+    let remote = dump
+        .get(name)
+        .ok_or_else(|| anyhow!("crypt remote {name} is not configured"))?;
+    if remote.kind != "crypt" {
+        bail!("{name} is not a crypt remote");
+    }
+    let from = if remote.filename_encoding.is_empty() {
+        DEFAULT_FILENAME_ENCODING.to_owned()
+    } else {
+        remote.filename_encoding.clone()
+    };
+    let mut change = NameEncodingChange {
+        remote: name.to_owned(),
+        from: from.clone(),
+        to: encoding.to_owned(),
+        existing_files: 0,
+        existing_bytes: 0,
+        changed: false,
+    };
+    if from == encoding {
+        return Ok(change);
+    }
+    let mut size = clean_command(executable);
+    size.args(["size", "--json", "--"]).arg(&remote.remote);
+    let raw = execute(&mut size, |_| Ok(()), Output::Memory(64 * 1024))
+        .with_context(|| format!("cannot list {name}'s backing location"))?;
+    #[derive(serde::Deserialize)]
+    struct Size {
+        count: u64,
+        bytes: u64,
+    }
+    let found: Size = serde_json::from_slice(&raw.0).context("invalid rclone size response")?;
+    change.existing_files = found.count;
+    change.existing_bytes = found.bytes;
+    if found.count > 0 && !existing_files_ok {
+        bail!(
+            "{name} already holds {} file(s) ({} bytes); after switching from {from} to {encoding}, files written with {from} names are not listed or readable until you switch back. Confirm to change anyway (--existing-files-ok).",
+            found.count,
+            found.bytes
+        );
+    }
+    let mut update = clean_command(executable);
+    update.args([
+        "config",
+        "update",
+        name,
+        "filename_encoding",
+        encoding,
+        "--non-interactive",
+    ]);
+    execute(&mut update, |_| Ok(()), Output::Memory(64 * 1024))
+        .with_context(|| format!("rclone could not update {name}"))?;
+    let after = read_dump(executable, &config)?;
+    if after.get(name).map(|r| r.filename_encoding.as_str()) != Some(encoding) {
+        bail!("rclone did not record the new name encoding for {name}");
+    }
+    change.changed = true;
+    Ok(change)
 }
 
 pub(crate) fn ensure_encryption(
@@ -507,6 +625,26 @@ fn main() {
     }
 
     #[test]
+    fn subprocess_provision_records_a_non_default_name_encoding() {
+        let tool = fixture_executable();
+        for encoding in FILENAME_ENCODINGS {
+            let dir = tempfile::tempdir().unwrap();
+            let config = dir.path().join("rclone.conf");
+            fs::write(&config, b"[cloud]\ntype = drive\n").unwrap();
+            let mut s = setup();
+            s.filename_encoding = encoding.into();
+            create_crypt_at(&tool, &s, &config, &RemoteRootStore::default()).unwrap();
+            let dump = read_dump(&tool, &config).unwrap();
+            let stored =
+                super::super::crypt_secrets::encoding_setting(&dump[&s.name].filename_encoding);
+            assert_eq!(stored, encoding);
+        }
+        let mut s = setup();
+        s.filename_encoding = "base99".into();
+        assert!(s.validate().is_err());
+    }
+
+    #[test]
     fn subprocess_provision_preserves_keys_modes_and_private_permissions() {
         let tool = fixture_executable();
         for mode in ["standard", "obfuscate", "off"] {
@@ -686,7 +824,8 @@ fn main() {
             [
                 "--entropy-bits=1024",
                 "--filename-encryption=standard",
-                "--directory-encryption=true"
+                "--directory-encryption=true",
+                "--filename-encoding=base32"
             ]
             .map(std::ffi::OsString::from)
         );
@@ -709,6 +848,7 @@ fn main() {
             entropy_bits: 512,
             filename_encryption: "obfuscate".into(),
             directory_encryption: false,
+            filename_encoding: "base32".into(),
         };
         defaults.validate().unwrap();
         let mut argv: Vec<std::ffi::OsString> =
@@ -723,6 +863,7 @@ fn main() {
                     entropy_bits,
                     filename_encryption,
                     directory_encryption,
+                    filename_encoding,
                     json,
                 } => {
                     assert!(json);
@@ -730,7 +871,8 @@ fn main() {
                         EncryptionDefaults {
                             entropy_bits,
                             filename_encryption,
-                            directory_encryption
+                            directory_encryption,
+                            filename_encoding
                         },
                         defaults
                     );
@@ -753,6 +895,7 @@ fn main() {
             entropy_bits: 1024,
             filename_encryption: "off".into(),
             directory_encryption: false,
+            filename_encoding: "base32".into(),
         };
         let report =
             ensure_encryption_at(&tool, &config, &defaults, &RemoteRootStore::default()).unwrap();
@@ -786,6 +929,7 @@ fn main() {
             entropy_bits: 256,
             filename_encryption: "standard".into(),
             directory_encryption: true,
+            filename_encoding: "base32".into(),
         }
     }
     #[test]

@@ -262,6 +262,7 @@ fn dispatch(cli: Cli) -> Result<()> {
                 entropy_bits,
                 filename_encryption,
                 directory_encryption,
+                filename_encoding,
             } => {
                 let report = crate::config_sync::provision::ensure_encryption(
                     std::path::Path::new(&cli.rclone),
@@ -269,6 +270,7 @@ fn dispatch(cli: Cli) -> Result<()> {
                         entropy_bits,
                         filename_encryption,
                         directory_encryption,
+                        filename_encoding,
                     },
                 )?;
                 if json {
@@ -292,6 +294,7 @@ fn dispatch(cli: Cli) -> Result<()> {
                 entropy_bits,
                 filename_encryption,
                 directory_encryption,
+                filename_encoding,
             } => {
                 let backing = crate::config_sync::provision::create_crypt(
                     std::path::Path::new(&cli.rclone),
@@ -301,10 +304,35 @@ fn dispatch(cli: Cli) -> Result<()> {
                         entropy_bits,
                         filename_encryption,
                         directory_encryption,
+                        filename_encoding,
                     },
                 )?;
                 println!("Encrypted provider created. Backing location: {backing}");
                 println!("Back up the rclone configuration / encrypted secret vault before storing data. Losing these keys loses access to the data.");
+                Ok(())
+            }
+            ProviderCommands::NameEncoding {
+                remote,
+                encoding,
+                existing_files_ok,
+                json,
+            } => {
+                let change = crate::config_sync::provision::set_name_encoding(
+                    std::path::Path::new(&cli.rclone),
+                    remote.trim_end_matches(':'),
+                    &encoding,
+                    existing_files_ok,
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string(&change)?);
+                } else if change.changed {
+                    println!(
+                        "{}: names now use {} (were {}). {} file(s) already under its folder; those written with another encoding are not listed until you switch back.",
+                        change.remote, change.to, change.from, change.existing_files
+                    );
+                } else {
+                    println!("{}: names already use {}.", change.remote, change.to);
+                }
                 Ok(())
             }
             ProviderCommands::Health {

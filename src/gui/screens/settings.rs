@@ -314,6 +314,20 @@ fn encryption_body(ui: &mut egui::Ui, state: &mut GuiState) {
             ui.label(tr("Directory name encryption"));
             ui.checkbox(&mut defaults.directory_encryption, tr("Enabled"));
             ui.end_row();
+            ui.label(tr("Name encoding"));
+            ui.vertical(|ui| {
+                let mut index = crate::gui::screens::storage::providers::encoding_index(
+                    &defaults.filename_encoding,
+                );
+                crate::gui::screens::storage::providers::encoding_combo(
+                    ui,
+                    "encryption-default-encoding",
+                    &mut index,
+                );
+                defaults.filename_encoding =
+                    crate::config_sync::provision::FILENAME_ENCODINGS[index].into();
+            });
+            ui.end_row();
         });
     theme::hint(ui, tr("New crypt uses the provider's remote default path exactly (Remote default paths, next to this card). No extra folder is added; existing crypt paths never move."));
     let validation = defaults.validate();

@@ -23,6 +23,9 @@ pub(super) struct DumpRemote {
     pub(super) directory_name_encryption: String,
     #[serde(default)]
     pub(super) no_data_encryption: String,
+    /// Empty when rclone's default (`base32`) applies.
+    #[serde(default)]
+    pub(super) filename_encoding: String,
     #[serde(default)]
     pub(super) password: Option<SensitiveText>,
     #[serde(default)]
@@ -49,6 +52,15 @@ pub(super) fn read_dump(executable: &Path, config: &Path) -> Result<BTreeMap<Str
     command.args(["config", "dump"]);
     let raw = execute(&mut command, |_| Ok(()), Output::Memory(MAX_SECRET_BYTES))?;
     parse_dump(&raw.0)
+}
+
+/// rclone leaves `filename_encoding` out for its default.
+pub(super) fn encoding_setting(value: &str) -> String {
+    if value.is_empty() {
+        crate::config_sync::provision::DEFAULT_FILENAME_ENCODING.into()
+    } else {
+        value.into()
+    }
 }
 
 pub(super) fn bool_setting(value: &str, default: bool) -> Result<bool> {
@@ -83,6 +95,7 @@ pub(crate) fn extract_crypt_secrets(
             remote: remote.remote,
             filename_encryption: remote.filename_encryption,
             directory_name_encryption: bool_setting(&remote.directory_name_encryption, true)?,
+            filename_encoding: encoding_setting(&remote.filename_encoding),
         };
         definition.validate_structure()?;
         portable.push(definition);

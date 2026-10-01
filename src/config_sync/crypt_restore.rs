@@ -49,6 +49,8 @@ fn validate_target(
             || bool_setting(&remote.directory_name_encryption, true)?
                 != expected.directory_name_encryption
             || bool_setting(&remote.no_data_encryption, false)?
+            || super::crypt_secrets::encoding_setting(&remote.filename_encoding)
+                != expected.filename_encoding
         {
             bail!("target crypt structure does not match portable config");
         }
@@ -210,6 +212,7 @@ mod tests {
             remote: "cloud:rpool".into(),
             filename_encryption: "standard".into(),
             directory_name_encryption: true,
+            filename_encoding: "base32".into(),
         }
     }
     fn secrets(name: &str) -> SecretBundle {

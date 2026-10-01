@@ -17,6 +17,7 @@ pub(crate) enum CardAction {
     SetupEncryption,
     EditLimits,
     KeepAlive,
+    NameEncoding,
 }
 
 fn tone_color(ui: &egui::Ui, tone: Tone) -> egui::Color32 {
@@ -125,6 +126,14 @@ pub(crate) fn show(ui: &mut egui::Ui, card: &ProviderCard<'_>, idle: bool) -> Op
                     .clicked()
                 {
                     action = Some(CardAction::KeepAlive);
+                }
+                if !card.crypts.is_empty()
+                    && ui
+                        .add_enabled(idle, egui::Button::new(tr("Name encoding…")).small())
+                        .on_hover_text(tr("How the encrypted provider stores names. Switch to base32768 when uploads fail on long paths."))
+                        .clicked()
+                {
+                    action = Some(CardAction::NameEncoding);
                 }
             });
         });
