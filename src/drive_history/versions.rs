@@ -18,7 +18,7 @@ pub(crate) fn lineages(history: &History, path: &str) -> Result<Vec<String>> {
         let mut deleted: Vec<_> = history
             .deleted_lineages()
             .into_keys()
-            .filter(|l| history.lineage_path(l, None) == path)
+            .filter(|l| l == path)
             .collect();
         deleted.sort();
         result.extend(deleted.into_iter().take(1));
@@ -26,9 +26,7 @@ pub(crate) fn lineages(history: &History, path: &str) -> Result<Vec<String>> {
     if result.is_empty() {
         bail!("no file history at {}", display_path(path));
     }
-    if history.mode == "v6" {
-        follow_moves(history, &mut result);
-    }
+    follow_moves(history, &mut result);
     Ok(result)
 }
 
@@ -126,14 +124,13 @@ pub(crate) fn list(history: &History, path: &str) -> Result<Vec<VersionEntry>> {
         .map(|id| {
             let rev = &history.revs[&id];
             VersionEntry {
-                path: display_path(&history.lineage_path(&rev.lineage, None)),
+                path: display_path(&rev.lineage),
                 kind: kind(history, &id),
                 size: rev.content.as_ref().map_or(0, |c| c.size),
                 time_unix: rev.time,
                 author: Some(rev.author.clone()),
                 current: current.contains(&id),
-                restorable: rev.content.as_ref().is_some_and(|c| c.restorable)
-                    && !purged.contains(&id),
+                restorable: history.payloads.contains_key(&id) && !purged.contains(&id),
                 id,
             }
         })
@@ -166,7 +163,7 @@ pub(crate) fn restore_action(
         .get(path)
         .is_some_and(|r| &history.revs[r].lineage == lineage)
     {
-        history.lineage_path(lineage, None)
+        lineage.clone()
     } else {
         path.to_owned()
     };
@@ -190,29 +187,26 @@ pub(crate) fn restore_action(
 
 #[cfg(test)]
 mod tests {
-    use super::super::graph::fixture::{history, rev};
+    use super::super::graph::fixture::{history, rev, Fx};
     use super::*;
 
-    fn sample() -> History {
-        history(
-            vec![
-                ("v1", rev("F", &[], Some("one"), "pc", Some(10))),
-                ("v2", rev("F", &["v1"], Some("two"), "pc", Some(20))),
-                ("v3", rev("F", &["v2"], None, "pc", Some(30))),
-                ("v4", rev("F", &["v3"], Some("two"), "pc", Some(40))),
-                // Concurrent edits: a conflict.
-                ("x", rev("F", &["v4"], Some("x"), "PC-A", Some(50))),
-                ("y", rev("F", &["v4"], Some("y"), "PC-B", Some(51))),
-            ],
-            &[("F", "f.txt")],
-        )
+    fn sample() -> Fx {
+        history(vec![
+            ("v1", rev("f.txt", &[], Some("one"), "pc", Some(10))),
+            ("v2", rev("f.txt", &["v1"], Some("two"), "pc", Some(20))),
+            ("v3", rev("f.txt", &["v2"], None, "pc", Some(30))),
+            ("v4", rev("f.txt", &["v3"], Some("two"), "pc", Some(40))),
+            // Concurrent edits: a conflict.
+            ("x", rev("f.txt", &["v4"], Some("x"), "PC-A", Some(50))),
+            ("y", rev("f.txt", &["v4"], Some("y"), "PC-B", Some(51))),
+        ])
     }
 
     #[test]
     fn newest_first_with_deletions_restores_and_conflict_branches() {
         let h = sample();
         let list = list(&h, "f.txt").unwrap();
-        let ids: Vec<_> = list.iter().map(|e| e.id.as_str()).collect();
+        let ids: Vec<_> = list.iter().map(|e| h.name(&e.id)).collect();
         assert_eq!(ids, ["y", "x", "v4", "v3", "v2", "v1"]);
         let kinds: Vec<_> = list.iter().map(|e| e.kind).collect();
         assert_eq!(
@@ -230,15 +224,16 @@ mod tests {
         let current: Vec<_> = list
             .iter()
             .filter(|e| e.current)
-            .map(|e| e.id.as_str())
+            .map(|e| h.name(&e.id))
             .collect();
         assert_eq!(current, ["y", "x", "v4"]);
         // A conflict copy path lists the same file.
+        let x = h.id("x");
         let copy = h
             .view_at(None)
             .unwrap()
             .into_iter()
-            .find(|(_, id)| id == "x")
+            .find(|(_, id)| *id == x)
             .unwrap()
             .0;
         assert_eq!(super::list(&h, &copy).unwrap().len(), 6);
@@ -247,27 +242,24 @@ mod tests {
 
     #[test]
     fn restore_writes_a_new_revision_or_a_copy() {
-        let h = history(
-            vec![
-                ("v1", rev("F", &[], Some("one"), "pc", Some(10))),
-                ("v2", rev("F", &["v1"], Some("two"), "pc", Some(20))),
-                ("v3", rev("F", &["v2"], None, "pc", Some(30))),
-            ],
-            &[("F", "f.txt")],
-        );
+        let h = history(vec![
+            ("v1", rev("f.txt", &[], Some("one"), "pc", Some(10))),
+            ("v2", rev("f.txt", &["v1"], Some("two"), "pc", Some(20))),
+            ("v3", rev("f.txt", &["v2"], None, "pc", Some(30))),
+        ]);
         // Deleted file: versions still listed by its last path.
         assert_eq!(
-            restore_action(&h, "f.txt", "v1", false).unwrap(),
+            restore_action(&h, "f.txt", &h.id("v1"), false).unwrap(),
             Action::Put {
                 path: "f.txt".into(),
-                rev: "v1".into(),
+                rev: h.id("v1"),
                 from: None
             }
         );
-        assert!(restore_action(&h, "f.txt", "v3", false).is_err());
+        assert!(restore_action(&h, "f.txt", &h.id("v3"), false).is_err());
         let h = sample();
-        assert!(restore_action(&h, "f.txt", "v4", false).is_err());
-        match restore_action(&h, "f.txt", "v1", true).unwrap() {
+        assert!(restore_action(&h, "f.txt", &h.id("v4"), false).is_err());
+        match restore_action(&h, "f.txt", &h.id("v1"), true).unwrap() {
             Action::Put { path, .. } => assert_eq!(path, "f (restored).txt"),
             other => panic!("{other:?}"),
         }

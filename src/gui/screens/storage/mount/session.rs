@@ -16,7 +16,6 @@ pub(crate) struct SessionSpec {
     pub(crate) frontend: Option<crate::cli::Frontend>,
     /// Other workspaces the process reads (the recovery source).
     pub(crate) reads: Vec<String>,
-    pub(crate) keep_previous: usize,
 }
 
 pub(crate) struct MountSession {
@@ -35,7 +34,6 @@ pub(crate) struct MountSession {
     pub(super) import_status: Option<crate::mount::rclone_import::Status>,
     pub(super) recovering_accounts: bool,
     pub(super) last_action: u8,
-    pub(super) retention_previewed: Option<(String, String, usize)>,
 }
 
 impl Default for MountSession {
@@ -54,7 +52,6 @@ impl Default for MountSession {
             import_status: None,
             recovering_accounts: false,
             last_action: 0,
-            retention_previewed: None,
         }
     }
 }
@@ -119,22 +116,6 @@ impl MountSession {
                 _ => tr("Mount/sync failed. Check the log; local files and cache are retained. Windows mounts require WinFsp.").into(),
             }
         });
-        if self.last_action == 7 {
-            self.retention_previewed = self
-                .spec
-                .as_ref()
-                .filter(|_| status == JobStatus::Completed)
-                .map(|spec| {
-                    (
-                        spec.pool.trim().into(),
-                        spec.workspace.trim().into(),
-                        spec.keep_previous,
-                    )
-                });
-            if status == JobStatus::Completed {
-                self.notice = Some(tr("Preview finished; review the list in the log. Delete obsolete versions is now available for this limit.").into());
-            }
-        }
         self.stopping = false;
         self.control = None;
     }

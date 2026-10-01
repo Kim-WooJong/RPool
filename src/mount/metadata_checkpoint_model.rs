@@ -14,7 +14,7 @@ pub(crate) const MARK_IDS_MAX: usize = 100_000;
 #[derive(Debug, Clone)]
 pub(crate) struct Family {
     pub name: &'static str,
-    /// Record directories in replica order (`events`, or `snapshots`, `names`).
+    /// Record directories in replica order (v6: `events`).
     pub kinds: &'static [&'static str],
     /// Exact bytes of the gate record, published in `kinds[0]`.
     pub gate: Vec<u8>,
@@ -36,30 +36,6 @@ impl Family {
         Self {
             name: "v6",
             kinds: &["events"],
-            gate: serde_json::to_vec(&gate).expect("gate serializes"),
-        }
-    }
-    /// v7: a snapshot older RPool rejects (version is not 7).
-    pub(crate) fn v7() -> Self {
-        let zero = "0".repeat(64);
-        let gate = super::peer_snapshot_model::Snapshot {
-            version: 8,
-            file_id: zero.clone(),
-            owner_id: object_id(format!("rpool-compaction-gate-{FORMAT}").as_bytes()),
-            policy: super::peer_snapshot_model::Policy {
-                genesis_id: zero,
-                history_limit: 0,
-            },
-            parents: BTreeSet::new(),
-            covered: BTreeSet::new(),
-            revisions: BTreeMap::new(),
-            heads: BTreeSet::new(),
-            payloads: BTreeMap::new(),
-            unavailable: BTreeSet::new(),
-        };
-        Self {
-            name: "v7",
-            kinds: &["snapshots", "names"],
             gate: serde_json::to_vec(&gate).expect("gate serializes"),
         }
     }

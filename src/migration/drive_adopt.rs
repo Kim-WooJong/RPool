@@ -39,11 +39,11 @@ pub(crate) const SETTLE_SECONDS: u64 = 5 * 60;
 /// Side effects of an adoption, faked in tests.
 pub(crate) trait AdoptIo: Sync {
     fn source(&self) -> &dyn DriveSource;
-    fn sink(&self, epoch: &str, v7: bool) -> Result<Box<dyn Sink + '_>>;
+    fn sink(&self, epoch: &str) -> Result<Box<dyn Sink + '_>>;
     fn load_manifest(&self, location: &str) -> Result<Manifest>;
     /// Classifies `files` and runs those needing a new archive through the
-    /// run state machine. Returns the run summary and the keys of v6 files
-    /// that are kept as they are.
+    /// run state machine. Returns the run summary and the keys of files that
+    /// are kept as they are.
     fn catch_up(&self, files: &[DriveFile]) -> Result<(RunSummary, BTreeSet<String>)>;
     fn now(&self) -> u64 {
         crate::utils::now_unix()
@@ -94,7 +94,7 @@ pub(crate) fn adopt_core(
     let unaffected: BTreeSet<String> = drive
         .entries
         .iter()
-        .filter(|e| e.action == Action::Unaffected && !drive.source.v7)
+        .filter(|e| e.action == Action::Unaffected)
         .map(|e| e.key.clone())
         .collect();
     let mut resolution = resolve(journal, &view.files, &unaffected)?;
@@ -167,28 +167,18 @@ pub(crate) fn adopt_core(
             }
         })
         .collect::<Result<_>>()?;
-    let v7 = drive.source.v7;
-    let new_records = records(
-        &plan.pool,
-        &plan.target.remotes,
-        &drive.epoch,
-        v7,
-        &adopted,
-        drive.history_limit.unwrap_or(0),
-        &plan.migration_id,
-    )?;
+    let new_records = records(&adopted, &plan.migration_id)?;
     io.say(&format!(
         "drive_publish epoch={} records={} files={}",
         &drive.epoch[..12],
         new_records.len(),
         adopted.len()
     ));
-    publish(io.sink(&drive.epoch, v7)?.as_ref(), &new_records)?;
+    publish(io.sink(&drive.epoch)?.as_ref(), &new_records)?;
 
     // Read the new generation back as a PC without a workspace would.
     let generation = GenerationRef {
         epoch: Some(drive.epoch.clone()),
-        v7,
     };
     let seen = io.source().view(&generation)?;
     let identity = |files: &[DriveFile]| -> Result<BTreeMap<String, (String, u64, String)>> {
@@ -216,7 +206,6 @@ pub(crate) fn adopt_core(
             migration_id: plan.migration_id.clone(),
             source: drive.source.clone(),
             epoch: drive.epoch.clone(),
-            v7,
             files: adopted.len(),
             dropped,
             pc_id: pc.into(),
@@ -335,7 +324,7 @@ pub(crate) fn adopt(
     let drive = load_plan(&journal)?
         .ok_or_else(|| anyhow!("migration {id} has no drive part (it was planned without the drive, or the pool had none)"))?;
     check_target_unchanged(pool, &plan.target)?;
-    let io = super::drive_adopt_live::LiveAdopt::new(rclone, &journal, &plan, &drive, options);
+    let io = super::drive_adopt_live::LiveAdopt::new(rclone, &journal, &plan, options);
     adopt_core(
         &journal,
         &plan,

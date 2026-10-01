@@ -58,9 +58,9 @@ pub(crate) trait Cloud: Sync {
     ) -> Option<bool>;
 }
 
-/// Drive revisions (`virtual-*`, `peer-v7-*`) are handled by a later phase.
+/// Drive revisions (`virtual-*`) are handled by a later phase.
 pub(crate) fn is_drive_archive(archive_id: &str) -> bool {
-    archive_id.starts_with("virtual-") || archive_id.starts_with("peer-v7-")
+    archive_id.starts_with("virtual-")
 }
 
 /// Parses `rclone lsjson -R` output into file path -> size.

@@ -1,22 +1,21 @@
 //! Publishes the records that adopt migrated drive files into a new metadata
-//! epoch (pool change migration, phase 3). v6: one parentless event per file
-//! referencing its (migrated or unchanged) manifest. v7: one fresh snapshot
-//! and name per file over a private `peer-v7-<owner>` payload. Records are
+//! epoch (pool change migration, phase 3): one parentless event per file
+//! referencing its (migrated or unchanged) manifest. Records are
 //! deterministic for a migration, write-once and verified by readback on
 //! every replica (`SharedTransport::publish`), so publishing again (another
 //! PC, a resumed adoption) is idempotent. Nothing existing is overwritten.
-use super::peer_snapshot::migration as v7;
-use super::peer_snapshot_transport::Store;
 use super::shared_model::{Content, Event};
 use super::shared_transport::SharedTransport;
 use super::virtual_drive::drive_metadata_roots;
 use crate::migration::drive_model::DriveFile;
 use crate::prelude::*;
 
-/// One record: `kind` is `events` (v6), `snapshots` or `names` (v7).
+/// Worker name of adopted events.
+const WORKER: &str = "pool-migration";
+
+/// One v6 event record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Record {
-    pub kind: &'static str,
     pub id: String,
     pub bytes: Vec<u8>,
 }
@@ -34,45 +33,17 @@ fn device(seed: &str) -> Result<String> {
     )
 }
 
-/// The records that publish `files` in `epoch` of `pool` on `remotes` (the
-/// new policy's remotes, as in the pool config). `history_limit` is the v7
-/// snapshot policy limit; `seed` is the migration id.
-pub(crate) fn records(
-    pool: &str,
-    remotes: &[String],
-    epoch: &str,
-    v7: bool,
-    files: &[DriveFile],
-    history_limit: usize,
-    seed: &str,
-) -> Result<Vec<Record>> {
-    if v7 {
-        let roots = drive_metadata_roots(pool, remotes, Some(epoch), true)?;
-        let adopted = v7::adopted(files, &roots, history_limit, seed)?;
-        // Snapshots first: a name is only valid once its snapshot is visible.
-        let mut out: Vec<Record> = adopted
-            .snapshots
-            .into_iter()
-            .map(|(id, bytes)| Record {
-                kind: "snapshots",
-                id,
-                bytes,
-            })
-            .collect();
-        out.extend(adopted.names.into_iter().map(|(id, bytes)| Record {
-            kind: "names",
-            id,
-            bytes,
-        }));
-        return Ok(out);
-    }
+/// The records that publish `files` in a new epoch; `seed` is the
+/// migration id. They do not depend on the epoch or the pool's remotes (the
+/// [`Sink`] places them).
+pub(crate) fn records(files: &[DriveFile], seed: &str) -> Result<Vec<Record>> {
     let device = device(seed)?;
     let mut events = BTreeMap::new();
     let mut out = Vec::with_capacity(files.len());
     for file in files {
         let event = Event {
             version: 1,
-            worker: v7::WORKER.into(),
+            worker: WORKER.into(),
             device: device.clone(),
             path: file.path.clone(),
             parents: vec![],
@@ -85,7 +56,6 @@ pub(crate) fn records(
         event.validate()?;
         let id = event.id()?;
         out.push(Record {
-            kind: "events",
             id: id.clone(),
             bytes: serde_json::to_vec(&event)?,
         });
@@ -98,22 +68,14 @@ pub(crate) fn records(
     Ok(out)
 }
 
-/// Publishes `records` in order of kind (all snapshots before any name),
-/// several at once within a kind.
+/// Publishes `records`, several at once.
 pub(crate) fn publish(sink: &dyn Sink, records: &[Record]) -> Result<()> {
-    for kind in ["events", "snapshots", "names"] {
-        records
-            .par_iter()
-            .filter(|r| r.kind == kind)
-            .try_for_each(|r| sink.publish(r))?;
-    }
-    Ok(())
+    records.par_iter().try_for_each(|r| sink.publish(r))
 }
 
 /// The replicas of the new epoch on the pool's (new) remotes.
 pub(crate) struct CloudSink {
     v6: Vec<SharedTransport>,
-    v7: Option<Store>,
 }
 
 impl CloudSink {
@@ -122,15 +84,8 @@ impl CloudSink {
         pool: &str,
         policy: &PoolDefinition,
         epoch: &str,
-        v7: bool,
     ) -> Result<Self> {
-        let roots = drive_metadata_roots(pool, &policy.remotes, Some(epoch), v7)?;
-        if v7 {
-            return Ok(Self {
-                v6: vec![],
-                v7: Some(Store::new(rclone, &roots)?.with_native_crypt(policy.native_crypt)),
-            });
-        }
+        let roots = drive_metadata_roots(pool, &policy.remotes, Some(epoch))?;
         Ok(Self {
             v6: roots
                 .iter()
@@ -139,25 +94,16 @@ impl CloudSink {
                         .map(|t| t.with_native_crypt(policy.native_crypt))
                 })
                 .collect::<Result<_>>()?,
-            v7: None,
         })
     }
 }
 
 impl Sink for CloudSink {
     fn publish(&self, record: &Record) -> Result<()> {
-        match (&self.v7, record.kind) {
-            (Some(store), "snapshots" | "names") => {
-                store.publish(record.kind, &record.id, &record.bytes)
-            }
-            (None, "events") => {
-                for transport in &self.v6 {
-                    transport.publish(&record.id, &record.bytes)?;
-                }
-                Ok(())
-            }
-            _ => bail!("record kind {} does not match this generation", record.kind),
+        for transport in &self.v6 {
+            transport.publish(&record.id, &record.bytes)?;
         }
+        Ok(())
     }
 }
 
@@ -178,13 +124,12 @@ mod tests {
 
     #[test]
     fn v6_records_project_to_the_adopted_files_and_are_deterministic() {
-        let files = vec![file("a/one.txt", "migrate-1"), file("two.txt", "virtual-2")];
-        let remotes = vec!["a:".to_string()];
-        let records = records("pool", &remotes, &"e".repeat(64), false, &files, 0, "m1").unwrap();
+        let files = vec![file("a/one.txt", "virtual-1"), file("two.txt", "virtual-2")];
+        let records = records(&files, "m1").unwrap();
         assert_eq!(records.len(), 2);
         assert_eq!(
             records,
-            records_again(&files, &remotes),
+            super::records(&files, "m1").unwrap(),
             "another PC publishes the same bytes"
         );
         let events: BTreeMap<String, Event> = records
@@ -199,55 +144,13 @@ mod tests {
             .iter()
             .map(|f| (f.path.clone(), f.manifest.archive_id.clone()))
             .collect();
-        assert_eq!(seen["a/one.txt"], "migrate-1");
+        assert_eq!(seen["a/one.txt"], "virtual-1");
         assert_eq!(seen["two.txt"], "virtual-2");
-    }
-
-    fn records_again(files: &[DriveFile], remotes: &[String]) -> Vec<Record> {
-        records("pool", remotes, &"e".repeat(64), false, files, 0, "m1").unwrap()
     }
 
     #[test]
     fn colliding_paths_are_refused() {
         let files = vec![file("Same.txt", "x1"), file("same.txt", "x2")];
-        assert!(records(
-            "pool",
-            &["a:".into()],
-            &"e".repeat(64),
-            false,
-            &files,
-            0,
-            "m"
-        )
-        .is_err());
-    }
-
-    struct Seen(Mutex<Vec<&'static str>>);
-    impl Sink for Seen {
-        fn publish(&self, record: &Record) -> Result<()> {
-            self.0.lock().unwrap().push(record.kind);
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn snapshots_are_published_before_names() {
-        let mk = |kind, id: &str| Record {
-            kind,
-            id: id.into(),
-            bytes: vec![],
-        };
-        let records = vec![
-            mk("names", "n1"),
-            mk("snapshots", "s1"),
-            mk("names", "n2"),
-            mk("snapshots", "s2"),
-        ];
-        let sink = Seen(Mutex::new(vec![]));
-        publish(&sink, &records).unwrap();
-        assert_eq!(
-            *sink.0.lock().unwrap(),
-            vec!["snapshots", "snapshots", "names", "names"]
-        );
+        assert!(records(&files, "m").is_err());
     }
 }

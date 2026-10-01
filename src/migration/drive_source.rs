@@ -1,7 +1,7 @@
 //! Access to the pool's drive in the cloud for planning and adoption: which
 //! generations exist (adoption-aware) and the files of one generation. No
-//! workspace is involved; everything is read from the pool-sync / snapshot
-//! records on the pool's remotes. Faked in tests.
+//! workspace is involved; everything is read from the pool-sync records on
+//! the pool's remotes. Faked in tests.
 use super::drive_generations::{effective, generation_ref};
 use super::drive_model::{GenerationRef, SourceView};
 use crate::prelude::*;

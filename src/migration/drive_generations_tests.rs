@@ -1,10 +1,9 @@
 use super::*;
 use crate::migration::drive_model::{DriveAdoption, DriveFreeze};
 
-fn generation(epoch: Option<&str>, v7: bool, newest: i128) -> Generation {
+fn generation(epoch: Option<&str>, newest: i128) -> Generation {
     Generation {
         epoch: epoch.map(str::to_owned),
-        v7,
         newest,
         records: 1,
     }
@@ -16,7 +15,6 @@ fn adoption(id: &str, source: GenerationRef, ts: u64) -> DriveAdoption {
         migration_id: id.into(),
         source,
         epoch: epoch_for(id),
-        v7: false,
         files: 3,
         dropped: vec![],
         pc_id: "pc-a".into(),
@@ -25,10 +23,7 @@ fn adoption(id: &str, source: GenerationRef, ts: u64) -> DriveAdoption {
 }
 
 fn original() -> GenerationRef {
-    GenerationRef {
-        epoch: None,
-        v7: false,
-    }
+    GenerationRef { epoch: None }
 }
 
 #[test]
@@ -36,9 +31,9 @@ fn adopted_generation_wins_even_when_the_old_one_has_newer_records() {
     let new = epoch_for("m1");
     let listed = vec![
         // A PC still on the original generation wrote after the adoption.
-        generation(None, false, 300),
-        generation(Some(&new), false, 200),
-        generation(Some("other"), true, 100),
+        generation(None, 300),
+        generation(Some(&new), 200),
+        generation(Some("other"), 100),
     ];
     let mut known = Known::default();
     known.migration_ids.insert("m1".into());
@@ -58,8 +53,8 @@ fn adopted_generation_wins_even_when_the_old_one_has_newer_records() {
 #[test]
 fn unrelated_transition_epochs_are_untouched() {
     let listed = vec![
-        generation(Some("apply-pool-changes"), false, 20),
-        generation(None, false, 10),
+        generation(Some("apply-pool-changes"), 20),
+        generation(None, 10),
     ];
     let mut known = Known::default();
     known.migration_ids.insert("m9".into());
@@ -67,14 +62,13 @@ fn unrelated_transition_epochs_are_untouched() {
 }
 
 #[test]
-fn fresh_workspace_follows_the_last_adoption_of_its_protocol() {
+fn fresh_workspace_follows_the_last_adoption() {
     let mut known = Known::default();
-    assert!(fresh_workspace(&known, false).is_none());
+    assert!(fresh_workspace(&known).is_none());
     known.adoptions.push(adoption("m1", original(), 10));
     let first = known.adoptions[0].generation();
     known.adoptions.push(adoption("m2", first, 20));
-    assert_eq!(fresh_workspace(&known, false).unwrap().migration_id, "m2");
-    assert!(fresh_workspace(&known, true).is_none());
+    assert_eq!(fresh_workspace(&known).unwrap().migration_id, "m2");
 }
 
 #[test]
@@ -102,10 +96,9 @@ fn fence_refuses_superseded_and_freezes_the_source() {
         message.contains("pool migrate adopt p --id m1 --workspace"),
         "{message}"
     );
-    // Another protocol's generation is not affected.
-    let v7 = GenerationRef {
-        epoch: None,
-        v7: true,
+    // Another generation is not affected.
+    let other = GenerationRef {
+        epoch: Some("other".into()),
     };
-    assert_eq!(fence(&v7, &known), Fence::Proceed);
+    assert_eq!(fence(&other, &known), Fence::Proceed);
 }

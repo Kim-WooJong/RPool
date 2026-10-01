@@ -2,7 +2,7 @@
 //! the cloud drive source, the new epoch's replicas, manifest reads, and the
 //! catch-up run of files changed since planning.
 use super::drive_adopt::AdoptIo;
-use super::drive_model::{DriveFile, DrivePlan};
+use super::drive_model::DriveFile;
 use super::drive_plan::{classify, extend_listings};
 use super::drive_run::{as_entry, by_key, run_entries};
 use super::drive_source::{CloudDrive, DriveSource};
@@ -17,7 +17,6 @@ pub(crate) struct LiveAdopt<'a> {
     rclone: &'a str,
     journal: &'a Journal,
     plan: &'a Plan,
-    drive: &'a DrivePlan,
     options: &'a RunOptions,
     source: CloudDrive,
 }
@@ -27,14 +26,12 @@ impl<'a> LiveAdopt<'a> {
         rclone: &'a str,
         journal: &'a Journal,
         plan: &'a Plan,
-        drive: &'a DrivePlan,
         options: &'a RunOptions,
     ) -> Self {
         Self {
             rclone,
             journal,
             plan,
-            drive,
             options,
             source: CloudDrive::new(rclone, &plan.pool, &plan.target),
         }
@@ -45,13 +42,12 @@ impl AdoptIo for LiveAdopt<'_> {
     fn source(&self) -> &dyn DriveSource {
         &self.source
     }
-    fn sink(&self, epoch: &str, v7: bool) -> Result<Box<dyn Sink + '_>> {
+    fn sink(&self, epoch: &str) -> Result<Box<dyn Sink + '_>> {
         Ok(Box::new(CloudSink::new(
             self.rclone,
             &self.plan.pool,
             &self.plan.target,
             epoch,
-            v7,
         )?))
     }
     fn load_manifest(&self, location: &str) -> Result<Manifest> {
@@ -69,7 +65,6 @@ impl AdoptIo for LiveAdopt<'_> {
             workers,
             ..Default::default()
         };
-        let v7 = self.drive.source.v7;
         let classified = classify(
             &cloud,
             target,
@@ -77,7 +72,6 @@ impl AdoptIo for LiveAdopt<'_> {
             &listings,
             &options,
             workers,
-            v7,
             files,
         )?;
         let kept = classified
@@ -94,7 +88,6 @@ impl AdoptIo for LiveAdopt<'_> {
             self.rclone,
             self.journal,
             self.plan,
-            v7,
             entries,
             by_key(files.to_vec()),
             self.options,

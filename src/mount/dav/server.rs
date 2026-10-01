@@ -11,7 +11,7 @@ pub(crate) struct Server {
 }
 
 impl Server {
-    pub(crate) fn start(drive: Arc<VirtualDrive>, read_only: bool) -> Result<Self> {
+    pub(crate) fn start(drive: Arc<VirtualDrive>) -> Result<Self> {
         crate::mount::adapter::preflight_virtual(&drive.root)?;
         let (listener, token) = endpoint(&drive.root)?;
         listener.set_nonblocking(true)?;
@@ -79,18 +79,6 @@ impl Server {
                                         hyper::Response::builder()
                                             .status(401)
                                             .body(dav_server::body::Body::from("Unauthorized"))
-                                            .unwrap()
-                                    } else if read_only
-                                        && !matches!(
-                                            req.method().as_str(),
-                                            "GET" | "HEAD" | "PROPFIND" | "OPTIONS"
-                                        )
-                                    {
-                                        hyper::Response::builder()
-                                            .status(403)
-                                            .body(dav_server::body::Body::from(
-                                                "Read-only diagnostic mount",
-                                            ))
                                             .unwrap()
                                     } else {
                                         handler.handle(req).await

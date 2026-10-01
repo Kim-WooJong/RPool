@@ -77,7 +77,7 @@ impl VirtualDrive {
         if !recovery.exists() {
             return Ok(Vec::new());
         }
-        super::retention::real_tree(&recovery)?;
+        super::spool::real_tree(&recovery)?;
         let mut dirs: Vec<PathBuf> = fs::read_dir(&recovery)?
             .map(|e| e.map(|e| e.path()))
             .collect::<std::io::Result<_>>()?;
@@ -104,7 +104,7 @@ impl VirtualDrive {
         if !cache.exists() {
             return Ok(());
         }
-        super::retention::real_tree(&cache)?;
+        super::spool::real_tree(&cache)?;
         if fs::read_dir(&cache)?.next().is_none() {
             return Ok(());
         }

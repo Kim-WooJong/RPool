@@ -99,10 +99,6 @@ fn every_page_fits_small_medium_and_large_windows() {
         },
         |s| {
             s.page = Page::Drive;
-            s.mount.tab = DriveTab::History
-        },
-        |s| {
-            s.page = Page::Drive;
             s.mount.tab = DriveTab::Import
         },
         |s| {

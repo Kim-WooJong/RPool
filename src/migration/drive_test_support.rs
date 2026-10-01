@@ -9,18 +9,16 @@ use crate::prelude::*;
 pub(crate) struct FakeDrive {
     pub source: GenerationRef,
     pub files: Mutex<Vec<DriveFile>>,
-    pub history_limit: Option<usize>,
     /// Epoch -> records published there.
     pub published: Mutex<BTreeMap<String, Vec<Record>>>,
     pub fail: bool,
 }
 
 impl FakeDrive {
-    pub(crate) fn new(v7: bool, files: Vec<DriveFile>) -> Self {
+    pub(crate) fn new(files: Vec<DriveFile>) -> Self {
         Self {
-            source: GenerationRef { epoch: None, v7 },
+            source: GenerationRef { epoch: None },
             files: Mutex::new(files),
-            history_limit: v7.then_some(0),
             published: Mutex::new(BTreeMap::new()),
             fail: false,
         }
@@ -44,7 +42,6 @@ impl DriveSource for FakeDrive {
                 0,
                 GenerationRef {
                     epoch: Some(epoch.clone()),
-                    v7: self.source.v7,
                 },
             );
         }
@@ -57,7 +54,6 @@ impl DriveSource for FakeDrive {
         if *generation == self.source {
             return Ok(SourceView {
                 files: self.files.lock().unwrap().clone(),
-                history_limit: self.history_limit,
             });
         }
         let records = generation
@@ -65,7 +61,7 @@ impl DriveSource for FakeDrive {
             .as_ref()
             .and_then(|e| self.published.lock().unwrap().get(e).cloned())
             .unwrap_or_default();
-        crate::mount::drive_generation_read::decode(&records, generation.v7)
+        crate::mount::drive_generation_read::decode(&records)
     }
 }
 
@@ -79,10 +75,7 @@ impl Sink for FakeSink<'_> {
         let mut published = self.drive.published.lock().unwrap();
         let records = published.entry(self.epoch.clone()).or_default();
         // Write-once and content-addressed: a repeat is a no-op.
-        if !records
-            .iter()
-            .any(|r| r.id == record.id && r.kind == record.kind)
-        {
+        if !records.iter().any(|r| r.id == record.id) {
             records.push(record.clone());
         }
         Ok(())

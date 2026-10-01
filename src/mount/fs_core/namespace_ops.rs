@@ -192,11 +192,7 @@ impl FsCore {
                     self.seal_file(file)?;
                 }
             }
-            if self.drive.peer_retention {
-                self.drive.rename_native(from, to, true, None)?;
-            } else {
-                self.drive.rename_directory(from, to)?;
-            }
+            self.drive.rename_directory(from, to)?;
             lock(&self.ids)?.rename_directory(from, to);
             return Ok(());
         }
@@ -206,19 +202,7 @@ impl FsCore {
         if let Some(file) = source.id {
             self.seal_file(file)?;
         }
-        if self.drive.peer_retention {
-            // An atomic save descends from what the editor last read of `to`.
-            let replace = match lock(&self.ids)?.get(to) {
-                Some(target) if self.visible(to)?.is_some() => {
-                    Some(self.read_ancestry(target, to)?)
-                }
-                _ => None,
-            };
-            self.drive
-                .rename_native(from, to, false, replace.as_ref())?;
-        } else {
-            self.drive.rename_file(from, to)?;
-        }
+        self.drive.rename_file(from, to)?;
         lock(&self.ids)?.rename(from, to);
         // Handles follow the moved file; its new revision is the moved copy.
         if let (Some(file), Some(moved)) = (source.id, self.visible(to)?) {

@@ -9,7 +9,6 @@ use crate::storage::traits::OperationContext;
 pub(crate) struct Generation {
     /// `None`: the original (pre-transition) location.
     pub epoch: Option<String>,
-    pub v7: bool,
     /// Newest record time, nanoseconds since the Unix epoch.
     pub newest: i128,
     pub records: usize,
@@ -24,7 +23,7 @@ struct Listed {
 }
 
 /// Groups one replica's recursive listing by generation.
-fn group(listing: &[Listed], v7: bool, into: &mut Vec<Generation>) {
+fn group(listing: &[Listed], into: &mut Vec<Generation>) {
     for item in listing {
         let epoch = item
             .path
@@ -32,14 +31,13 @@ fn group(listing: &[Listed], v7: bool, into: &mut Vec<Generation>) {
             .and_then(|rest| rest.split_once('/'))
             .map(|(epoch, _)| epoch.to_string());
         let time = parse_rfc3339(&item.mod_time).unwrap_or(i128::MIN);
-        match into.iter_mut().find(|g| g.epoch == epoch && g.v7 == v7) {
+        match into.iter_mut().find(|g| g.epoch == epoch) {
             Some(generation) => {
                 generation.newest = generation.newest.max(time);
                 generation.records += 1;
             }
             None => into.push(Generation {
                 epoch,
-                v7,
                 newest: time,
                 records: 1,
             }),
@@ -53,24 +51,19 @@ pub(crate) fn discover(
     pool: &str,
     remotes: &[String],
 ) -> anyhow::Result<Vec<Generation>> {
-    let v6_roots = crate::mount::pool_sync::roots(pool, remotes)?;
-    let mut targets: Vec<(String, bool)> = Vec::new();
-    for root in v6_roots {
-        targets.push((root.replace("/events-v6/", "/snapshots-v7/"), true));
-        targets.push((root, false));
-    }
+    let targets = crate::mount::pool_sync::roots(pool, remotes)?;
     let context = crate::storage::rclone::RcloneContext::inherited(rclone);
     let results: Vec<_> = std::thread::scope(|scope| {
         let jobs: Vec<_> = targets
             .iter()
-            .map(|(root, v7)| {
+            .map(|root| {
                 let context = &context;
                 scope.spawn(move || {
                     let listing = context
                         .list_recursive(&OperationContext::none(), root)
                         .map_err(|e| anyhow::anyhow!("{root}: {e}"))
                         .and_then(|bytes| Ok(serde_json::from_slice::<Vec<Listed>>(&bytes)?));
-                    (*v7, listing)
+                    listing
                 })
             })
             .collect();
@@ -81,11 +74,11 @@ pub(crate) fn discover(
     let mut generations = Vec::new();
     let mut first_error = None;
     let mut listed = 0;
-    for (v7, listing) in results {
+    for listing in results {
         match listing {
             Ok(listing) => {
                 listed += 1;
-                group(&listing, v7, &mut generations);
+                group(&listing, &mut generations);
             }
             // A replica without this metadata kind is normal ("directory not found").
             Err(e) => {
@@ -105,9 +98,9 @@ pub(crate) fn discover(
     Ok(generations)
 }
 
-/// Newest record first; at equal times v7 before v6.
+/// Newest record first.
 pub(crate) fn sort(generations: &mut [Generation]) {
-    generations.sort_by(|a, b| b.newest.cmp(&a.newest).then(b.v7.cmp(&a.v7)));
+    generations.sort_by_key(|g| std::cmp::Reverse(g.newest));
 }
 
 /// `2026-09-30T05:06:38.549521135Z` or `…+09:00` as Unix nanoseconds.
@@ -186,19 +179,12 @@ mod tests {
                 listed("epochs/abc/events/c", "2026-09-21T00:00:00Z"),
                 listed("epochs/old/events/d", "2026-09-10T00:00:00Z"),
             ],
-            false,
-            &mut generations,
-        );
-        group(
-            &[listed("snapshots/x", "2026-08-01T00:00:00Z")],
-            true,
             &mut generations,
         );
         sort(&mut generations);
         assert_eq!(generations[0].epoch.as_deref(), Some("abc"));
         assert_eq!(generations[0].records, 2);
-        assert!(!generations[0].v7);
-        assert_eq!(generations.len(), 4);
-        assert!(generations[3].v7 && generations[3].epoch.is_none());
+        assert_eq!(generations.len(), 3);
+        assert!(generations[2].epoch.is_none());
     }
 }

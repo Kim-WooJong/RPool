@@ -16,7 +16,7 @@ fn lsjson_and_manifest_ids_skip_dirs_bookkeeping_and_nesting() {
         manifest_ids(&files),
         vec![("a".into(), 10), ("virtual-1".into(), 4)]
     );
-    assert!(is_drive_archive("virtual-1") && is_drive_archive("peer-v7-x"));
+    assert!(is_drive_archive("virtual-1") && !is_drive_archive("peer-v7-x"));
     assert!(!is_drive_archive("reprocess-1"));
 }
 

@@ -23,13 +23,7 @@ impl Target for VirtualDrive {
     }
     fn put(&self, path: &str, payload: &Payload) -> Result<()> {
         self.history_base_on_visible(path)?;
-        match payload {
-            Payload::Event(content) if !bridge::is_v7(self) => {
-                self.history_put_content(path, content.clone()).map(|_| ())
-            }
-            Payload::Manifest(manifest) => self.history_put_bytes(path, manifest),
-            Payload::Event(content) => self.history_put_bytes(path, &content.manifest),
-        }
+        self.history_put_content(path, payload.clone()).map(|_| ())
     }
     fn delete(&self, path: &str) -> Result<()> {
         self.history_base_on_visible(path)?;
@@ -153,31 +147,17 @@ mod tests {
 
     #[test]
     fn applies_in_order_publishes_and_refuses_pending_or_missing_data() {
-        let mut h = history(
-            vec![("a", rev("A", &[], Some("x"), "pc", Some(1)))],
-            &[("A", "a.txt")],
-        );
+        let mut h = history(vec![("a", rev("a.txt", &[], Some("x"), "pc", Some(1)))]);
         let put = Action::Put {
             path: "a.txt".into(),
-            rev: "a".into(),
+            rev: h.id("a"),
             from: None,
         };
         let drive = fake::Drive::default();
+        let id = h.id("a");
+        let payload = h.payloads.remove(&id).unwrap();
         assert!(apply(&drive, &h, std::slice::from_ref(&put)).is_err()); // no payload
-        h.payloads.insert(
-            "a".into(),
-            Payload::Manifest(Manifest {
-                version: 2,
-                archive_id: "x".into(),
-                original_name: "x".into(),
-                original_size: 0,
-                shard_size: 1,
-                created_unix: 0,
-                content_root_blake3: String::new(),
-                coding: None,
-                shards: vec![],
-            }),
-        );
+        h.payloads.insert(id, payload);
         let delete = Action::Delete {
             path: "b".into(),
             rev: "b".into(),

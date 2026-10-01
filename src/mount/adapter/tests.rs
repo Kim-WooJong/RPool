@@ -4,8 +4,11 @@ use super::*;
 use std::sync::Arc;
 #[test]
 fn dav_vfs_policy_keeps_dirty_writes_until_after_the_nfs_callback_burst() {
-    assert_eq!(vfs_cache_policy(true), ("full", "60s"));
-    assert_eq!(vfs_cache_policy(false), ("writes", "0s"));
+    assert_eq!(vfs_cache_policy(), ("full", "60s"));
+}
+
+fn dav() -> (String, String) {
+    ("http://127.0.0.1:9/".into(), "token".into())
 }
 
 fn lease_fixture() -> (
@@ -38,19 +41,19 @@ fn lease_fixture() -> (
 #[test]
 fn lease_survives_owner_drop_and_uncertain_launch_blocks_restart() {
     let (_root, _other, files, cache, target) = lease_fixture();
-    let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
-    assert!(MountLease::prepare(&files, &cache, &target, None).is_err());
+    let lease = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
+    assert!(MountLease::prepare(&files, &cache, &target, &dav()).is_err());
     lease.record(&LeaseState::Launching).unwrap();
     let path = lease.path.clone();
     drop(lease);
     assert!(path.exists());
-    assert!(MountLease::prepare(&files, &cache, &target, None).is_err());
+    assert!(MountLease::prepare(&files, &cache, &target, &dav()).is_err());
 }
 
 #[test]
 fn active_pid_blocks_restart_without_sending_signal() {
     let (_root, _other, files, cache, target) = lease_fixture();
-    let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
+    let lease = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
     lease
         .record(&LeaseState::Running {
             pid: std::process::id(),
@@ -58,7 +61,7 @@ fn active_pid_blocks_restart_without_sending_signal() {
         .unwrap();
     drop(lease);
     assert!(process_alive(std::process::id()).unwrap());
-    assert!(MountLease::prepare(&files, &cache, &target, None).is_err());
+    assert!(MountLease::prepare(&files, &cache, &target, &dav()).is_err());
     assert!(process_alive(0).is_err());
 }
 
@@ -66,7 +69,7 @@ fn active_pid_blocks_restart_without_sending_signal() {
 #[test]
 fn uncertain_nfs_shutdown_never_kills_child_or_clears_lease() {
     let (_root, _other, files, cache, target) = lease_fixture();
-    let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
+    let lease = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
     let child = Command::new("/bin/sleep").arg("60").spawn().unwrap();
     let pid = child.id();
     lease.record(&LeaseState::Running { pid }).unwrap();
@@ -91,19 +94,19 @@ fn uncertain_nfs_shutdown_never_kills_child_or_clears_lease() {
     drop(process);
     assert!(process_alive(pid).unwrap());
     assert!(lease_path.exists());
-    assert!(MountLease::prepare(&files, &cache, &target, None).is_err());
+    assert!(MountLease::prepare(&files, &cache, &target, &dav()).is_err());
     unsafe {
         libc::kill(pid as i32, libc::SIGKILL);
         libc::waitpid(pid as i32, std::ptr::null_mut(), 0);
     }
-    assert!(MountLease::prepare(&files, &cache, &target, None).is_err());
+    assert!(MountLease::prepare(&files, &cache, &target, &dav()).is_err());
 }
 
 #[cfg(target_os = "macos")]
 #[test]
 fn unexpected_nfs_child_exit_retains_lease_even_without_mount_table_entry() {
     let (_root, _other, files, cache, target) = lease_fixture();
-    let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
+    let lease = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
     let child = Command::new("/usr/bin/true").spawn().unwrap();
     lease
         .record(&LeaseState::Running { pid: child.id() })
@@ -127,7 +130,7 @@ fn unexpected_nfs_child_exit_retains_lease_even_without_mount_table_entry() {
     assert!(process.poll().is_err());
     drop(process);
     assert!(path.exists());
-    assert!(MountLease::prepare(&files, &cache, &target, None).is_err());
+    assert!(MountLease::prepare(&files, &cache, &target, &dav()).is_err());
 }
 
 #[cfg(target_os = "macos")]
@@ -146,14 +149,14 @@ fn nfsmount_minimum_version_is_reported() {
 #[test]
 fn dropping_lease_unlocks_even_with_an_inherited_description() {
     let (_root, _other, files, cache, target) = lease_fixture();
-    let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
+    let lease = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
     // Deterministically model the descriptor inherited across fork without
     // depending on thread/process scheduling or weakening exclusive locking.
     let inherited = lease._lock.try_clone().unwrap();
-    assert!(MountLease::prepare(&files, &cache, &target, None).is_err());
+    assert!(MountLease::prepare(&files, &cache, &target, &dav()).is_err());
     drop(lease);
-    let next = MountLease::prepare(&files, &cache, &target, None).unwrap();
-    assert!(MountLease::prepare(&files, &cache, &target, None).is_err());
+    let next = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
+    assert!(MountLease::prepare(&files, &cache, &target, &dav()).is_err());
     drop(next);
     drop(inherited);
 }
@@ -161,14 +164,14 @@ fn dropping_lease_unlocks_even_with_an_inherited_description() {
 #[test]
 fn identity_is_stable_after_clean_stop() {
     let (_root, _other, files, cache, target) = lease_fixture();
-    let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
+    let lease = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
     lease.record(&LeaseState::Launching).unwrap();
     lease.clear().unwrap();
     drop(lease);
-    drop(MountLease::prepare(&files, &cache, &target, None).unwrap());
+    drop(MountLease::prepare(&files, &cache, &target, &dav()).unwrap());
     let different_cache = cache.parent().unwrap().join("other-cache");
     std::fs::create_dir(&different_cache).unwrap();
-    assert!(MountLease::prepare(&files, &different_cache, &target, None).is_err());
+    assert!(MountLease::prepare(&files, &different_cache, &target, &dav()).is_err());
     #[cfg(windows)]
     let different_target = PathBuf::from("S:");
     #[cfg(not(windows))]
@@ -177,7 +180,7 @@ fn identity_is_stable_after_clean_stop() {
     let different_target_path = different_target.path();
     #[cfg(windows)]
     let different_target_path = different_target.as_path();
-    assert!(MountLease::prepare(&files, &cache, different_target_path, None).is_err());
+    assert!(MountLease::prepare(&files, &cache, different_target_path, &dav()).is_err());
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -186,7 +189,7 @@ fn forced_stop_reaps_owned_child_and_preserves_cache() {
     let (_root, _other, files, cache, target) = lease_fixture();
     let sentinel = cache.join("pending-write");
     std::fs::write(&sentinel, b"must survive").unwrap();
-    let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
+    let lease = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
     lease.record(&LeaseState::Launching).unwrap();
     // Synthetic local child only: no rclone, driver, cloud or configuration access.
     let child = Command::new("/bin/sh")
@@ -212,7 +215,6 @@ fn forced_stop_reaps_owned_child_and_preserves_cache() {
     };
     let report = process.stop().unwrap();
     assert!(report.forced);
-    assert!(report.cache_preserved);
     assert!(process.child.try_wait().unwrap().is_some());
     assert!(!lease_path.exists());
     assert_eq!(std::fs::read(sentinel).unwrap(), b"must survive");
@@ -384,7 +386,7 @@ fn drain_respects_retry_backoff_and_time_limit() {
 #[test]
 fn late_graceful_exit_is_awaited_without_killing_and_then_clears_lease() {
     let (_root, _other, files, cache, target) = lease_fixture();
-    let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
+    let lease = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
     let child = Command::new("/bin/sh")
         .args(["-c", "sleep 0.5"])
         .spawn()
@@ -420,7 +422,7 @@ fn late_graceful_exit_is_awaited_without_killing_and_then_clears_lease() {
 #[test]
 fn late_exit_without_graceful_quit_keeps_uncertain_lease() {
     let (_root, _other, files, cache, target) = lease_fixture();
-    let lease = MountLease::prepare(&files, &cache, &target, None).unwrap();
+    let lease = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
     let child = Command::new("/bin/sh")
         .args(["-c", "exit 0"])
         .spawn()
@@ -469,14 +471,12 @@ fn rclone_output_goes_to_private_log_file_not_pipes() {
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
     let mut process = MountProcess::start(MountConfig {
         rclone: script.to_str().unwrap().into(),
-        files_dir: files,
+        anchor_dir: files,
         cache_dir: cache,
         target,
-        shared: false,
-        read_only: false,
         vfs_cache_gib: 1,
         cache_min_free_gib: 0,
-        webdav: Some(("http://127.0.0.1:9/".into(), "bearer-secret-token".into())),
+        webdav: ("http://127.0.0.1:9/".into(), "bearer-secret-token".into()),
         volume_name: Some("My Pool".into()),
     })
     .unwrap();
@@ -536,14 +536,12 @@ fn rejects_overlap_nonempty_and_symlink_targets() {
     std::fs::create_dir(&target).unwrap();
     let mut config = MountConfig {
         rclone: "rclone".into(),
-        files_dir: files.clone(),
+        anchor_dir: files.clone(),
         cache_dir: root.join("cache"),
         target: target.clone(),
-        shared: false,
-        read_only: false,
         vfs_cache_gib: 10,
         cache_min_free_gib: 2,
-        webdav: None,
+        webdav: dav(),
         volume_name: None,
     };
     assert!(validate_mountpoint(&config).is_ok());

@@ -1,21 +1,19 @@
-//! Normalized revision graph of one drive, built from v6 events
-//! (`source_v6`) or v7 snapshots (`source_v7`). Trash, versions and rollback
-//! only read this graph. Paths are namespace paths (no leading `/`).
+//! Normalized revision graph of one drive, built from its v6 events
+//! (`source_v6`). Trash, versions and rollback only read this graph. Paths
+//! are namespace paths (no leading `/`).
 use crate::prelude::*;
 
 /// Plaintext content of a revision.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RevContent {
-    /// Whole-file hash (v6 `Content.hash`, v7 `content_hash`).
+    /// Whole-file hash (`Content.hash`).
     pub hash: String,
     pub size: u64,
-    /// Bytes are expected to still exist (v7: retained or not yet collected).
-    pub restorable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Rev {
-    /// File identity: v6 event path, v7 stable file id.
+    /// File identity: the event path.
     pub lineage: String,
     pub parents: Vec<String>,
     /// `None`: this revision deletes the file.
@@ -26,30 +24,15 @@ pub(crate) struct Rev {
     pub time: Option<u64>,
 }
 
-/// How bytes of a revision are obtained when it is restored.
-#[derive(Debug, Clone)]
-pub(crate) enum Payload {
-    /// v6: the event content is referenced again (no bytes move).
-    Event(crate::mount::history_bridge::Content),
-    /// v7: bytes are read from this manifest and uploaded as a new revision.
-    Manifest(Manifest),
-}
-
-/// Paths of a v7 file over time: `(record time, path)` in causal order.
-pub(crate) type Names = BTreeMap<String, Vec<(Option<u64>, String)>>;
-
-pub(crate) enum Projection {
-    /// v6: the drive's own projection over (time filtered) events.
-    V6(BTreeMap<String, crate::mount::history_bridge::Event>),
-    /// v7: per file names; projection mirrors the snapshot materialization.
-    V7(Names),
-}
+/// Bytes of a revision when it is restored: the event content is
+/// referenced again (no bytes move).
+pub(crate) type Payload = crate::mount::history_bridge::Content;
 
 pub(crate) struct History {
-    pub mode: &'static str,
     pub revs: BTreeMap<String, Rev>,
     pub payloads: BTreeMap<String, Payload>,
-    pub projection: Projection,
+    /// The drive's events; views are its own projection over them.
+    pub events: BTreeMap<String, crate::mount::history_bridge::Event>,
     /// Deletion revisions purged from the trash (published history marks).
     pub purged: BTreeSet<String>,
     effective: BTreeMap<String, u64>,
@@ -58,10 +41,9 @@ pub(crate) struct History {
 
 impl History {
     pub(crate) fn new(
-        mode: &'static str,
         revs: BTreeMap<String, Rev>,
         payloads: BTreeMap<String, Payload>,
-        projection: Projection,
+        events: BTreeMap<String, crate::mount::history_bridge::Event>,
         purged: BTreeSet<String>,
     ) -> Result<Self> {
         // Times only move forward along ancestry, so filtering by time keeps
@@ -101,10 +83,9 @@ impl History {
             }
         }
         Ok(Self {
-            mode,
             revs,
             payloads,
-            projection,
+            events,
             purged,
             effective,
             depth,
@@ -192,89 +173,20 @@ impl History {
         found
     }
 
-    /// Path of a lineage at `at` (`None`: now).
-    pub(crate) fn lineage_path(&self, lineage: &str, at: Option<u64>) -> String {
-        match &self.projection {
-            Projection::V6(_) => lineage.to_owned(),
-            Projection::V7(names) => names
-                .get(lineage)
-                .and_then(|list| {
-                    list.iter()
-                        .rev()
-                        .find(|(time, _)| at.is_none_or(|t| time.unwrap_or(0) <= t))
-                        .or_else(|| list.first())
-                })
-                .map(|(_, path)| path.clone())
-                .unwrap_or_else(|| lineage.to_owned()),
-        }
-    }
-
     /// Visible files at `at` (`None`: now): path -> revision.
     pub(crate) fn view_at(&self, at: Option<u64>) -> Result<BTreeMap<String, String>> {
-        match &self.projection {
-            Projection::V6(events) => {
-                let kept: BTreeMap<_, _> = events
-                    .iter()
-                    .filter(|(id, _)| at.is_none_or(|t| self.effective(id) <= t))
-                    .map(|(id, e)| (id.clone(), e.clone()))
-                    .collect();
-                Ok(crate::mount::peer_projection::project(&kept)?
-                    .files
-                    .into_iter()
-                    .filter(|(_, r)| r.event.content.is_some())
-                    .map(|(path, r)| (path, r.event_id))
-                    .collect())
-            }
-            Projection::V7(_) => self.view_v7(at),
-        }
-    }
-
-    /// Mirrors the v7 materialization: one head at its path; with several
-    /// heads the common original keeps the path and heads get labelled copies.
-    fn view_v7(&self, at: Option<u64>) -> Result<BTreeMap<String, String>> {
-        let mut view = BTreeMap::new();
-        for (lineage, heads) in self.heads_at(at) {
-            let path = self.lineage_path(&lineage, at);
-            let live: Vec<_> = heads
-                .iter()
-                .filter(|id| self.revs[*id].content.is_some())
-                .collect();
-            if heads.len() == 1 {
-                if let Some(id) = live.first() {
-                    view.insert(path, (*id).clone());
-                }
-                continue;
-            }
-            if live.is_empty() {
-                continue;
-            }
-            let mut common: Option<BTreeSet<String>> = None;
-            for head in &heads {
-                let mut set = self.ancestors(head);
-                set.insert(head.clone());
-                common = Some(match common {
-                    None => set,
-                    Some(c) => c.intersection(&set).cloned().collect(),
-                });
-            }
-            let common = common.unwrap_or_default();
-            let older: BTreeSet<_> = common.iter().flat_map(|id| self.ancestors(id)).collect();
-            let originals: Vec<_> = common
-                .difference(&older)
-                .filter(|id| self.revs[*id].content.is_some())
-                .collect();
-            if originals.len() == 1 {
-                view.insert(path.clone(), originals[0].clone());
-            }
-            for id in live {
-                let rev = &self.revs[id];
-                let revision = id.rsplit(':').next().unwrap_or(id);
-                let label =
-                    crate::mount::history_bridge::peer_path(&path, &rev.author, revision, 0)?;
-                view.insert(label, id.clone());
-            }
-        }
-        Ok(view)
+        let kept: BTreeMap<_, _> = self
+            .events
+            .iter()
+            .filter(|(id, _)| at.is_none_or(|t| self.effective(id) <= t))
+            .map(|(id, e)| (id.clone(), e.clone()))
+            .collect();
+        Ok(crate::mount::peer_projection::project(&kept)?
+            .files
+            .into_iter()
+            .filter(|(_, r)| r.event.content.is_some())
+            .map(|(path, r)| (path, r.event_id))
+            .collect())
     }
 
     /// Lineages whose every head deletes the file.
@@ -317,42 +229,91 @@ pub(crate) fn in_scope(path: &str, scope: &str) -> bool {
 
 #[cfg(test)]
 pub(crate) mod fixture {
-    //! Small v7-style graphs for unit tests (no payloads needed).
+    //! Small v6 histories for unit tests. Revisions get symbolic names
+    //! (`"a1"`) that map to their real event ids.
     use super::*;
+    use crate::drive_history::source_v6::fixture::{add, event};
+
+    /// One event: path, parent names, text (`None`: deletion), worker, time.
+    pub(crate) struct Spec {
+        path: String,
+        parents: Vec<String>,
+        text: Option<String>,
+        author: String,
+        time: Option<u64>,
+    }
     pub(crate) fn rev(
-        lineage: &str,
+        path: &str,
         parents: &[&str],
-        content: Option<&str>,
+        text: Option<&str>,
         author: &str,
         time: Option<u64>,
-    ) -> Rev {
-        Rev {
-            lineage: lineage.into(),
+    ) -> Spec {
+        Spec {
+            path: path.into(),
             parents: parents.iter().map(|p| p.to_string()).collect(),
-            content: content.map(|text| RevContent {
-                hash: blake3::hash(text.as_bytes()).to_hex().to_string(),
-                size: text.len() as u64,
-                restorable: true,
-            }),
+            text: text.map(Into::into),
             author: author.into(),
             time,
         }
     }
-    pub(crate) fn history(revs: Vec<(&str, Rev)>, names: &[(&str, &str)]) -> History {
-        let names = names
-            .iter()
-            .map(|(lineage, path)| (lineage.to_string(), vec![(None, path.to_string())]))
-            .collect();
-        History::new(
-            "v7",
-            revs.into_iter()
-                .map(|(id, r)| (id.to_string(), r))
-                .collect(),
-            BTreeMap::new(),
-            Projection::V7(names),
+
+    /// A history plus the name <-> event id mapping.
+    pub(crate) struct Fx {
+        pub h: History,
+        ids: BTreeMap<String, String>,
+    }
+    impl Fx {
+        /// Event id of a revision name.
+        pub(crate) fn id(&self, name: &str) -> String {
+            self.ids[name].clone()
+        }
+        /// Revision name of an event id (other ids are returned unchanged).
+        pub(crate) fn name<'a>(&'a self, id: &'a str) -> &'a str {
+            self.ids
+                .iter()
+                .find(|(_, v)| v.as_str() == id)
+                .map_or(id, |(k, _)| k.as_str())
+        }
+    }
+    impl std::ops::Deref for Fx {
+        type Target = History;
+        fn deref(&self) -> &History {
+            &self.h
+        }
+    }
+    impl std::ops::DerefMut for Fx {
+        fn deref_mut(&mut self) -> &mut History {
+            &mut self.h
+        }
+    }
+
+    /// Builds the history; parents must be listed before their children.
+    pub(crate) fn history(revs: Vec<(&str, Spec)>) -> Fx {
+        let mut events = BTreeMap::new();
+        let mut ids: BTreeMap<String, String> = BTreeMap::new();
+        let mut times = BTreeMap::new();
+        for (name, spec) in revs {
+            let parents: Vec<String> = spec.parents.iter().map(|p| ids[p].clone()).collect();
+            let parents: Vec<&str> = parents.iter().map(String::as_str).collect();
+            let id = add(
+                &mut events,
+                event(&spec.author, &spec.path, &parents, spec.text.as_deref()),
+            );
+            if let Some(time) = spec.time {
+                times.insert(id.clone(), time);
+            }
+            assert!(ids.insert(name.to_owned(), id).is_none(), "{name}");
+        }
+        let h = crate::drive_history::source_v6::build(
+            events,
+            &times,
+            &BTreeSet::new(),
+            0,
             BTreeSet::new(),
         )
-        .unwrap()
+        .unwrap();
+        Fx { h, ids }
     }
 }
 
@@ -363,38 +324,32 @@ mod tests {
 
     #[test]
     fn effective_times_are_monotone_and_views_filter_by_time() {
-        let h = history(
-            vec![
-                ("a1", rev("A", &[], Some("one"), "pc", Some(100))),
-                // Unknown own time inherits the parent's.
-                ("a2", rev("A", &["a1"], Some("two"), "pc", None)),
-                ("a3", rev("A", &["a2"], Some("three"), "pc", Some(300))),
-                ("b1", rev("B", &[], Some("b"), "pc", Some(200))),
-            ],
-            &[("A", "a.txt"), ("B", "b.txt")],
-        );
-        assert_eq!(h.effective("a2"), 100);
+        let h = history(vec![
+            ("a1", rev("a.txt", &[], Some("one"), "pc", Some(100))),
+            // Unknown own time inherits the parent's.
+            ("a2", rev("a.txt", &["a1"], Some("two"), "pc", None)),
+            ("a3", rev("a.txt", &["a2"], Some("three"), "pc", Some(300))),
+            ("b1", rev("b.txt", &[], Some("b"), "pc", Some(200))),
+        ]);
+        assert_eq!(h.effective(&h.id("a2")), 100);
         let then = h.view_at(Some(150)).unwrap();
-        assert_eq!(then.get("a.txt").map(String::as_str), Some("a2"));
+        assert_eq!(then.get("a.txt").map(|id| h.name(id)), Some("a2"));
         assert!(!then.contains_key("b.txt"));
         let now = h.view_at(None).unwrap();
-        assert_eq!(now["a.txt"], "a3");
-        assert_eq!(now["b.txt"], "b1");
-        assert_eq!(h.last_content("a3").as_deref(), Some("a3"));
+        assert_eq!(h.name(&now["a.txt"]), "a3");
+        assert_eq!(h.name(&now["b.txt"]), "b1");
+        assert_eq!(h.last_content(&h.id("a3")), Some(h.id("a3")));
     }
 
     #[test]
     fn concurrent_heads_show_original_and_labelled_copies() {
-        let h = history(
-            vec![
-                ("o", rev("A", &[], Some("o"), "pc", Some(1))),
-                ("x", rev("A", &["o"], Some("x"), "PC-A", Some(2))),
-                ("y", rev("A", &["o"], Some("y"), "PC-B", Some(3))),
-            ],
-            &[("A", "a.txt")],
-        );
+        let h = history(vec![
+            ("o", rev("a.txt", &[], Some("o"), "pc", Some(1))),
+            ("x", rev("a.txt", &["o"], Some("x"), "PC-A", Some(2))),
+            ("y", rev("a.txt", &["o"], Some("y"), "PC-B", Some(3))),
+        ]);
         let view = h.view_at(None).unwrap();
-        assert_eq!(view["a.txt"], "o");
+        assert_eq!(h.name(&view["a.txt"]), "o");
         assert_eq!(view.len(), 3);
         assert!(view.keys().any(|p| p.contains("PC-A")));
         assert!(view.keys().any(|p| p.contains("PC-B")));

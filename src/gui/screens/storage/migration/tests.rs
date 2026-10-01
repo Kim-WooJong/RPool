@@ -128,12 +128,8 @@ pub(crate) fn sample_drive_plan(pool: &str) -> DrivePlan {
         version: 1,
         migration_id: ID.into(),
         pool: pool.into(),
-        source: GenerationRef {
-            epoch: None,
-            v7: false,
-        },
+        source: GenerationRef { epoch: None },
         epoch: epoch_for(ID),
-        history_limit: None,
         entries: vec![
             entry("docs/a.txt", Action::Unaffected),
             entry("b.bin", Action::Relocate),

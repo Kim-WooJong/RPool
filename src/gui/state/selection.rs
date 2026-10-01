@@ -48,7 +48,6 @@ pub(crate) enum DriveTab {
     #[default]
     Drive,
     Options,
-    History,
     Import,
     Maintenance,
 }

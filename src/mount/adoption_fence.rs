@@ -34,37 +34,29 @@ pub(crate) fn workspace_generation(root: &Path) -> Result<Option<GenerationRef>>
         epoch: Option<String>,
     }
     let binding: Binding = crate::utils::read_json(&path)?;
-    Ok(match binding.version {
-        6 | 7 => Some(GenerationRef {
+    Ok(
+        (binding.version == super::virtual_drive::FORMAT_VERSION).then_some(GenerationRef {
             epoch: binding.epoch,
-            v7: binding.version == 7,
         }),
-        _ => None,
-    })
+    )
 }
 
 /// Before a pool-sync mount opens `workspace`: `Some(epoch)` when a new
 /// workspace must be initialized on an adopted epoch; an error for a
 /// workspace on a superseded generation.
-pub(crate) fn before_open(
-    rclone: &str,
-    pool: &str,
-    workspace: &Path,
-    v7: bool,
-) -> Result<Option<String>> {
+pub(crate) fn before_open(rclone: &str, pool: &str, workspace: &Path) -> Result<Option<String>> {
     let known = crate::migration::drive_journal::known(rclone, pool)
         .context("cannot check this pool's migrations before mounting; local data is retained")?;
-    open_decision(workspace_generation(workspace)?, v7, &known, pool)
+    open_decision(workspace_generation(workspace)?, &known, pool)
 }
 
 pub(crate) fn open_decision(
     generation: Option<GenerationRef>,
-    v7: bool,
     known: &Known,
     pool: &str,
 ) -> Result<Option<String>> {
     let Some(generation) = generation else {
-        return Ok(fresh_workspace(known, v7).map(|adoption| {
+        return Ok(fresh_workspace(known).map(|adoption| {
             println!(
                 "Drive adopted by pool migration {}: this new workspace opens the migrated drive (epoch {})",
                 adoption.migration_id,
@@ -160,7 +152,6 @@ mod tests {
             migration_id: format!("m-{epoch}"),
             source,
             epoch: epoch.repeat(64),
-            v7: false,
             files: 1,
             dropped: vec![],
             pc_id: "pc".into(),
@@ -168,36 +159,27 @@ mod tests {
         }
     }
     fn original() -> GenerationRef {
-        GenerationRef {
-            epoch: None,
-            v7: false,
-        }
+        GenerationRef { epoch: None }
     }
 
     #[test]
     fn fresh_workspace_opens_the_adopted_epoch_and_old_one_is_refused() {
         let mut known = Known::default();
-        assert_eq!(open_decision(None, false, &known, "p").unwrap(), None);
+        assert_eq!(open_decision(None, &known, "p").unwrap(), None);
         known.adoptions.push(adoption(original(), "a", 10));
         assert_eq!(
-            open_decision(None, false, &known, "p").unwrap(),
+            open_decision(None, &known, "p").unwrap(),
             Some("a".repeat(64))
         );
-        // v7 workspaces are not redirected by a v6 adoption.
-        assert_eq!(open_decision(None, true, &known, "p").unwrap(), None);
-        let error = open_decision(Some(original()), false, &known, "p")
+        let error = open_decision(Some(original()), &known, "p")
             .unwrap_err()
             .to_string();
         assert!(error.contains("pool migrate adopt p --id m-a"), "{error}");
         // The adopted generation itself mounts normally.
         let adopted = GenerationRef {
             epoch: Some("a".repeat(64)),
-            v7: false,
         };
-        assert_eq!(
-            open_decision(Some(adopted), false, &known, "p").unwrap(),
-            None
-        );
+        assert_eq!(open_decision(Some(adopted), &known, "p").unwrap(), None);
     }
 
     #[test]
@@ -206,17 +188,15 @@ mod tests {
         known.adoptions.push(adoption(original(), "a", 10));
         let a = GenerationRef {
             epoch: Some("a".repeat(64)),
-            v7: false,
         };
         known.adoptions.push(adoption(a.clone(), "b", 20));
         assert_eq!(
-            open_decision(None, false, &known, "p").unwrap(),
+            open_decision(None, &known, "p").unwrap(),
             Some("b".repeat(64))
         );
-        assert!(open_decision(Some(a.clone()), false, &known, "p").is_err());
+        assert!(open_decision(Some(a.clone()), &known, "p").is_err());
         let b = GenerationRef {
             epoch: Some("b".repeat(64)),
-            v7: false,
         };
         known.freezes.push(DriveFreeze {
             version: 1,
@@ -226,7 +206,7 @@ mod tests {
             pc_id: "pc".into(),
             ts_unix: 30,
         });
-        assert_eq!(open_decision(Some(b), false, &known, "p").unwrap(), None);
+        assert_eq!(open_decision(Some(b), &known, "p").unwrap(), None);
     }
 
     #[test]
@@ -265,17 +245,16 @@ mod tests {
         assert_eq!(workspace_generation(dir.path()).unwrap(), None);
         fs::write(
             dir.path().join("virtual.json"),
-            format!(r#"{{"version":7,"pool":"p","epoch":"{}"}}"#, "e".repeat(64)),
+            format!(r#"{{"version":6,"pool":"p","epoch":"{}"}}"#, "e".repeat(64)),
         )
         .unwrap();
         assert_eq!(
             workspace_generation(dir.path()).unwrap(),
             Some(GenerationRef {
                 epoch: Some("e".repeat(64)),
-                v7: true
             })
         );
-        fs::write(dir.path().join("virtual.json"), r#"{"version":1}"#).unwrap();
+        fs::write(dir.path().join("virtual.json"), r#"{"version":7}"#).unwrap();
         assert_eq!(workspace_generation(dir.path()).unwrap(), None);
     }
 }

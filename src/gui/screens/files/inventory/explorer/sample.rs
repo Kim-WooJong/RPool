@@ -63,7 +63,7 @@ pub(crate) fn browse() -> PoolBrowse {
     }
     PoolBrowse {
         pool: "family".into(),
-        mode: "v7".into(),
+        mode: "v6".into(),
         entries,
         notes: Vec::new(),
     }

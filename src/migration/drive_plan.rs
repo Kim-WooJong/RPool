@@ -1,13 +1,8 @@
 //! Drive planner (phase 3): the drive's visible files, read from the cloud
 //! without a workspace, classified exactly like archives (same listings,
-//! probe, losses and estimates). Differences:
-//!
-//! - v6: an unaffected file is kept as is; the new generation references its
-//!   existing archive (v6 pool sync never deletes payloads).
-//! - v7: payloads are private to the generation that owns them (its peer GC
-//!   may delete them), so every file gets a private copy in the new
-//!   generation: an unaffected file is copied on its remotes (server-side
-//!   when the provider can).
+//! probe, losses and estimates). An unaffected file is kept as is: the new
+//! generation references its existing archive (pool sync never deletes
+//! payloads).
 //!
 //! Only what the cloud records is planned: writes still pending on some PC
 //! (not yet uploaded and published) are not visible here.
@@ -17,10 +12,9 @@ use super::drive_model::{
 };
 use super::drive_source::DriveSource;
 use super::enumerate::{Cloud, Loaded, RemoteListing};
-use super::estimate::{private_copy_transfer, Transfer};
+use super::estimate::Transfer;
 use super::model::{Action, Counts, Plan};
 use super::plan::{list_all, plan_entry, Listed, PlanOptions};
-use super::probe::quick_states;
 use crate::prelude::*;
 
 /// Plans the drive of `plan.pool` against `plan.target`, reusing the archive
@@ -80,7 +74,6 @@ pub(crate) fn plan_drive(
         &listed.listings,
         options,
         workers,
-        generation.v7,
         &view.files,
     )?;
 
@@ -132,11 +125,9 @@ pub(crate) fn plan_drive(
         generation.label()
     ));
     notes.push("drive: only files published to the cloud are planned. Writes still pending on a PC (not uploaded yet) are not; let that PC finish syncing first. Files changed after planning are caught up during adoption.".into());
-    if generation.v7 {
-        notes.push("drive (v7): payloads are private to a generation, so unaffected files are copied too (server-side when the provider can).".into());
-    } else if counts.unaffected > 0 {
+    if counts.unaffected > 0 {
         notes.push(format!(
-            "drive (v6): {} unaffected file(s) are kept as is; the new generation references their existing archives.",
+            "drive: {} unaffected file(s) are kept as is; the new generation references their existing archives.",
             counts.unaffected
         ));
     }
@@ -151,7 +142,6 @@ pub(crate) fn plan_drive(
         pool: plan.pool.clone(),
         source: generation,
         epoch: epoch_for(&plan.migration_id),
-        history_limit: view.history_limit,
         entries,
         counts,
         download_bytes: download,
@@ -195,7 +185,6 @@ pub(super) fn classify(
     listings: &BTreeMap<String, RemoteListing>,
     options: &PlanOptions,
     workers: usize,
-    v7: bool,
     files: &[DriveFile],
 ) -> Result<Vec<(DriveEntry, Transfer)>> {
     files
@@ -207,31 +196,15 @@ pub(super) fn classify(
                 source: format!("drive:{}", file.path),
                 fingerprint: fingerprint.clone(),
             };
-            let (entry, mut transfer) = plan_entry(
+            let (entry, transfer) = plan_entry(
                 cloud, &loaded, target, target_set, listings, options, workers,
             )?;
-            let mut action = entry.action;
             let mut detail = entry.detail;
-            let (mut download, mut upload) = (entry.download_bytes, entry.upload_bytes);
-            if action == Action::Unaffected {
-                if v7 {
-                    let states = quick_states(&file.manifest, listings, target_set);
-                    transfer = private_copy_transfer(&file.manifest, &states, &|r| {
-                        cloud.copy_features(r)
-                    })?;
-                    action = Action::Relocate;
-                    download = transfer.download;
-                    upload = transfer.upload;
-                    detail = Some(join(
-                        detail,
-                        "v7: copied into the new generation's private payload",
-                    ));
-                } else {
-                    detail = Some(join(
-                        detail,
-                        "kept: the new generation references this archive",
-                    ));
-                }
+            if entry.action == Action::Unaffected {
+                detail = Some(join(
+                    detail,
+                    "kept: the new generation references this archive",
+                ));
             }
             Ok((
                 DriveEntry {
@@ -242,9 +215,9 @@ pub(super) fn classify(
                     size: file.size,
                     source_archive_id: file.manifest.archive_id.clone(),
                     fingerprint,
-                    action,
-                    download_bytes: download,
-                    upload_bytes: upload,
+                    action: entry.action,
+                    download_bytes: entry.download_bytes,
+                    upload_bytes: entry.upload_bytes,
                     losses: entry.losses,
                     detail,
                 },

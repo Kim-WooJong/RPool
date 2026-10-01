@@ -9,9 +9,6 @@ impl VirtualDrive {
         let visible = self.view()?.get(path).cloned();
         let mut intent = self.begin_observed(path, visible.as_ref())?;
         let state = self.state.lock().unwrap();
-        if self.bounded_shared {
-            return Ok(intent);
-        }
         if let Some(previous) = state.pending.iter().rev().find(|i| i.path == path) {
             intent.depends_on = Some(previous.id.clone());
             intent.event_path = previous.event_path.clone();
@@ -61,9 +58,6 @@ impl VirtualDrive {
         Ok(())
     }
     pub(crate) fn rename_file(&self, from: &str, to: &str) -> Result<()> {
-        if self.peer_retention {
-            return self.rename_snapshot(from, to, false);
-        }
         valid_path(from)?;
         valid_path(to)?;
         if from == to {
@@ -75,12 +69,9 @@ impl VirtualDrive {
             .cloned()
             .context("rename source missing")?;
         let mut destination = self.move_destination(to)?;
-        let mut deletion = self.deletion_for(from, &revision)?;
-        if self.bounded_shared {
-            deletion.depends_on = Some(destination.id.clone());
-        }
+        let deletion = self.deletion_for(from, &revision)?;
         match revision {
-            Revision::Cloud { content, .. } if !self.bounded_shared => {
+            Revision::Cloud { content, .. } => {
                 let mut s = self.state.lock().unwrap();
                 let mut next = s.clone();
                 if let Some(dep) = &destination.depends_on {
@@ -130,9 +121,6 @@ impl VirtualDrive {
         Ok(())
     }
     pub(crate) fn rename_directory(&self, from: &str, to: &str) -> Result<()> {
-        if self.peer_retention {
-            return self.rename_snapshot(from, to, true);
-        }
         valid_path(from)?;
         valid_path(to)?;
         if from == to {
@@ -153,12 +141,9 @@ impl VirtualDrive {
         for (name, revision) in view.iter().filter(|(name, _)| name.starts_with(&prefix)) {
             let target = format!("{to}/{}", &name[prefix.len()..]);
             let mut destination = self.move_destination(&target)?;
-            let mut deletion = self.deletion_for(name, revision)?;
-            if self.bounded_shared {
-                deletion.depends_on = Some(destination.id.clone());
-            }
+            let deletion = self.deletion_for(name, revision)?;
             let content = match revision {
-                Revision::Cloud { content, .. } if !self.bounded_shared => Some(content.clone()),
+                Revision::Cloud { content, .. } => Some(content.clone()),
                 revision => {
                     self.copy_revision_to_spool(revision, &self.spool_path(&destination))?;
                     destination = self.prepare_seal(destination)?;

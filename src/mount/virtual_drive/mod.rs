@@ -14,6 +14,7 @@ mod run;
 mod sync;
 mod write;
 
+pub(crate) use open::FORMAT_VERSION;
 use recovery::checked_directory;
 pub(crate) use recovery::recover_spool;
 pub(crate) use run::run;
@@ -28,7 +29,9 @@ fn validate_workspace_epoch(epoch: &str) -> Result<()> {
     }
     Ok(())
 }
-fn workspace_metadata_roots(
+/// The pool-sync metadata roots a workspace of `pool` on `epoch` uses. Also
+/// read by pool change migration.
+pub(crate) fn drive_metadata_roots(
     pool: &str,
     remotes: &[String],
     epoch: Option<&str>,
@@ -41,24 +44,6 @@ fn workspace_metadata_roots(
         }
     }
     Ok(roots)
-}
-/// The metadata roots a pool-sync workspace of `pool` on `epoch` uses
-/// (v7: the private snapshot roots). Also read by pool change migration.
-pub(crate) fn drive_metadata_roots(
-    pool: &str,
-    remotes: &[String],
-    epoch: Option<&str>,
-    v7: bool,
-) -> Result<Vec<String>> {
-    let roots = workspace_metadata_roots(pool, remotes, epoch)?;
-    Ok(if v7 {
-        roots
-            .into_iter()
-            .map(|r| r.replace("/events-v6/", "/snapshots-v7/"))
-            .collect()
-    } else {
-        roots
-    })
 }
 #[derive(Clone, Debug)]
 pub(crate) enum Revision {
@@ -92,7 +77,6 @@ pub(crate) struct VirtualDrive {
     pub policy: PoolDefinition,
     pub pool: String,
     pub rclone: String,
-    pub shared_root: Option<String>,
     pub cache: ShardCache,
     pub capacity: Mutex<Option<CapacityStatus>>,
     pub sync_gate: Mutex<()>,
@@ -100,22 +84,19 @@ pub(crate) struct VirtualDrive {
     pub local_leases: Mutex<BTreeMap<String, std::sync::Weak<()>>>,
     pub spool_limit: u64,
     pub spool_writes: Mutex<()>,
-    pub bounded_shared: bool,
-    pub peer_retention: bool,
+    /// Pool-sync (v6) metadata roots inside the pool. Every opened workspace
+    /// has them; only the test fixture leaves them empty, which keeps the
+    /// namespace local (no pull/publish) so tests need no cloud.
     pub pool_sync_roots: Vec<String>,
-    pub pool_history_limit: usize,
+    /// Revision first served per path; a pool-sync read never mixes revisions.
     pub peer_read_pins: Mutex<BTreeMap<String, String>>,
-    pub checkpoint_coordinator: bool,
-    pub checkpoint_keep: usize,
     /// A pool layout change this mount keeps for later (pending old-layout work).
     pub layout_deferral: Option<super::layout_refresh::Deferral>,
-    /// Explicitly saved drive retention of the pool (`rpool drive retention
-    /// set`); v7 snapshot GC keeps the bytes it still needs. `None`: only the
-    /// snapshot `history_limit` decides (unchanged behaviour).
-    pub history_retention: Option<crate::drive_history::model::Retention>,
     _lock: File,
 }
 
+/// Test-only drive: a local namespace without pool-sync roots, so `pull`
+/// and `sync` never touch a cloud (uploads still go through `sync`).
 #[cfg(test)]
 pub(crate) fn fixture(root: &Path) -> VirtualDrive {
     for path in ["spool", "clean-cache", ".rpool"] {
@@ -138,7 +119,6 @@ fn fixture_with(root: &Path, state: Namespace) -> VirtualDrive {
         policy: PoolDefinition::default(),
         pool: "test".into(),
         rclone: "nonexistent-rclone".into(),
-        shared_root: None,
         cache: ShardCache::new(root.join("clean-cache"), 1024).unwrap(),
         capacity: Mutex::new(None),
         sync_gate: Mutex::new(()),
@@ -146,15 +126,9 @@ fn fixture_with(root: &Path, state: Namespace) -> VirtualDrive {
         local_leases: Mutex::new(BTreeMap::new()),
         spool_limit: 64 * 1073741824,
         spool_writes: Mutex::new(()),
-        bounded_shared: false,
-        peer_retention: false,
         pool_sync_roots: vec![],
-        pool_history_limit: 0,
         peer_read_pins: Mutex::new(BTreeMap::new()),
-        checkpoint_coordinator: false,
-        checkpoint_keep: 0,
         layout_deferral: None,
-        history_retention: None,
         _lock: File::create(root.join("virtual.lock")).unwrap(),
     }
 }
@@ -176,14 +150,14 @@ mod policy_refresh_tests {
         let remotes = policy().remotes;
         let legacy = super::super::pool_sync::roots("pool", &remotes).unwrap();
         assert_eq!(
-            workspace_metadata_roots("pool", &remotes, None).unwrap(),
+            drive_metadata_roots("pool", &remotes, None).unwrap(),
             legacy
         );
         let epoch = "a".repeat(64);
-        let changed = workspace_metadata_roots("pool", &remotes, Some(&epoch)).unwrap();
+        let changed = drive_metadata_roots("pool", &remotes, Some(&epoch)).unwrap();
         assert_eq!(changed[0], format!("{}/epochs/{epoch}", legacy[0]));
         for invalid in ["", "../escape", &"A".repeat(64), &"a".repeat(63)] {
-            assert!(workspace_metadata_roots("pool", &remotes, Some(invalid)).is_err());
+            assert!(drive_metadata_roots("pool", &remotes, Some(invalid)).is_err());
         }
     }
 }

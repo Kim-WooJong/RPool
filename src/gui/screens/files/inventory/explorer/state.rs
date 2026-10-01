@@ -201,7 +201,7 @@ mod tests {
         state.selected = Some("Photos/2024/IMG_0001.jpg".into());
         let smaller = crate::gui::screens::files::inventory::drive_state::DriveTree::build(
             crate::pool::browse::PoolBrowse {
-                mode: "v7".into(),
+                mode: "v6".into(),
                 entries: vec![crate::pool::browse::BrowseEntry {
                     path: "Photos/cover.png".into(),
                     size: 1,

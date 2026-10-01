@@ -67,17 +67,7 @@ pub(crate) fn run(
         unknown.len()
     );
     let entries = planned.into_iter().map(as_entry).collect();
-    run_entries(
-        rclone,
-        journal,
-        plan,
-        drive.source.v7,
-        entries,
-        current,
-        options,
-        pc,
-    )
-    .map(Some)
+    run_entries(rclone, journal, plan, entries, current, options, pc).map(Some)
 }
 
 /// Drive files by journal key.
@@ -105,12 +95,10 @@ pub(super) fn as_entry(entry: &DriveEntry) -> Entry {
 }
 
 /// Runs `entries` (keys of `files`) through the archive state machine.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn run_entries(
     rclone: &str,
     journal: &Journal,
     plan: &Plan,
-    v7: bool,
     entries: Vec<Entry>,
     files: BTreeMap<String, DriveFile>,
     options: &RunOptions,
@@ -125,7 +113,6 @@ pub(super) fn run_entries(
         rclone,
         journal,
         target: &plan.target,
-        v7,
         files,
         work_root,
         stop_file: options.stop_file.clone(),
@@ -149,20 +136,16 @@ pub(crate) fn merge(into: &mut RunSummary, other: RunSummary) {
     into.stopped |= other.stopped;
 }
 
-/// Archive id of a new drive payload: v7 payloads must be privately owned.
-pub(super) fn new_archive_id(v7: bool) -> Result<String> {
-    Ok(if v7 {
-        format!("peer-v7-{}", super::execute::random_hex(32)?)
-    } else {
-        format!("migrate-{}", super::execute::random_hex(12)?)
-    })
+/// Archive id of a new drive payload: `virtual-*` like every drive payload,
+/// so archive migrations and source deletion treat it as drive data.
+pub(super) fn new_archive_id() -> Result<String> {
+    Ok(format!("virtual-{}", super::execute::random_hex(16)?))
 }
 
 struct DriveEffects<'a> {
     rclone: &'a str,
     journal: &'a Journal,
     target: &'a PoolDefinition,
-    v7: bool,
     files: BTreeMap<String, DriveFile>,
     work_root: PathBuf,
     stop_file: Option<PathBuf>,
@@ -253,6 +236,6 @@ impl Effects for DriveEffects<'_> {
         self.take_over
     }
     fn new_archive_id(&self) -> Result<String> {
-        new_archive_id(self.v7)
+        new_archive_id()
     }
 }

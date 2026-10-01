@@ -1,5 +1,5 @@
 //! Filesystem errors that every frontend maps to its own status codes.
-use super::super::retention::SpoolBudgetExceeded;
+use super::super::spool::SpoolBudgetExceeded;
 
 #[derive(Debug)]
 pub(crate) enum FsError {
@@ -15,10 +15,6 @@ pub(crate) enum FsError {
     /// The file was unlinked or replaced; unsealed writes cannot be acknowledged.
     Stale,
     InvalidPath,
-    /// The rename cannot be expressed here yet; copy and delete instead (EXDEV).
-    CrossDevice,
-    /// Wait for the running upload of this file, then retry.
-    Busy,
     Io(anyhow::Error),
 }
 pub(crate) type FsResult<T> = Result<T, FsError>;
@@ -27,18 +23,6 @@ impl From<anyhow::Error> for FsError {
     fn from(error: anyhow::Error) -> Self {
         if error.chain().any(|cause| cause.is::<SpoolBudgetExceeded>()) {
             return Self::NoSpace;
-        }
-        if error
-            .chain()
-            .any(|cause| cause.is::<crate::mount::native_ancestry::CrossDevice>())
-        {
-            return Self::CrossDevice;
-        }
-        if error
-            .chain()
-            .any(|cause| cause.is::<crate::mount::native_ancestry::Busy>())
-        {
-            return Self::Busy;
         }
         Self::Io(error)
     }

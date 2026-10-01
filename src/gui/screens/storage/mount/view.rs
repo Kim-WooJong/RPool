@@ -1,6 +1,6 @@
 //! Drive page: status and actions first, then connection and capacity side by
-//! side, anything that needs attention, and the log. Options, history
-//! cleanup, imports and maintenance are separate tabs.
+//! side, anything that needs attention, and the log. Options, imports and
+//! maintenance are separate tabs.
 use crate::gui::i18n::tr;
 use crate::gui::state::{DriveTab, GuiState};
 use crate::gui::theme;
@@ -9,36 +9,18 @@ use eframe::egui;
 /// Inputs whose change invalidates the shown capacity and sync status.
 fn inputs(state: &GuiState) -> impl PartialEq {
     let f = &state.mount;
-    (
-        f.pool.clone(),
-        f.workspace.clone(),
-        f.shared_root.clone(),
-        f.manifests.clone(),
-        (
-            f.virtual_drive,
-            f.pool_sync,
-            f.pool_retention,
-            f.bounded_shared,
-        ),
-        (f.shared_coordinator, f.shared_keep_previous),
-    )
+    (f.pool.clone(), f.workspace.clone(), f.manifests.clone())
 }
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let before = inputs(state);
     let before_pool = state.mount.pool.clone();
-    let history = if state.mount.retention_allowed() {
-        tr("History cleanup")
-    } else {
-        tr("History")
-    };
     theme::tabs(
         ui,
         &mut state.mount.tab,
         &[
             (DriveTab::Drive, tr("Drive")),
             (DriveTab::Options, tr("Options")),
-            (DriveTab::History, history),
             (DriveTab::Import, tr("Import")),
             (DriveTab::Maintenance, tr("Maintenance")),
         ],
@@ -46,7 +28,6 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     theme::page_body(ui, "drive", |ui| match state.mount.tab {
         DriveTab::Drive => overview(ui, state),
         DriveTab::Options => super::options::show(ui, state),
-        DriveTab::History => super::cleanup::show(ui, state),
         DriveTab::Import => super::import::show(ui, state),
         DriveTab::Maintenance => super::maintenance::show(ui, state),
     });

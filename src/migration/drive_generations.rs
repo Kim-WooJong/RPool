@@ -6,8 +6,8 @@
 //!   migrated; the old generation itself is kept, never deleted);
 //! - a migration epoch without its adoption marker is a partial publication
 //!   and is never read;
-//! - a fresh workspace opens the newest adopted generation of its protocol
-//!   that was not adopted further;
+//! - a fresh workspace opens the newest adopted generation that was not
+//!   adopted further;
 //! - a workspace on a superseded generation is refused (adopt it), one on a
 //!   frozen generation may mount but must not publish.
 use super::drive_model::{epoch_for, DriveAdoption, DriveFreeze, GenerationRef};
@@ -31,10 +31,8 @@ impl Known {
             .filter(|a| a.source == *generation)
             .max_by(|a, b| (a.ts_unix, &a.epoch).cmp(&(b.ts_unix, &b.epoch)))
     }
-    fn adopted(&self, epoch: &str, v7: bool) -> bool {
-        self.adoptions
-            .iter()
-            .any(|a| a.epoch == epoch && a.v7 == v7)
+    fn adopted(&self, epoch: &str) -> bool {
+        self.adoptions.iter().any(|a| a.epoch == epoch)
     }
     fn migration_epochs(&self) -> BTreeSet<String> {
         self.migration_ids.iter().map(|id| epoch_for(id)).collect()
@@ -44,7 +42,6 @@ impl Known {
 pub(crate) fn generation_ref(generation: &Generation) -> GenerationRef {
     GenerationRef {
         epoch: generation.epoch.clone(),
-        v7: generation.v7,
     }
 }
 
@@ -57,7 +54,7 @@ pub(crate) fn effective(generations: Vec<Generation>, known: &Known) -> Vec<Gene
         .into_iter()
         .filter(|g| known.superseded(&generation_ref(g)).is_none())
         .filter_map(|g| {
-            let adopted = g.epoch.as_deref().is_some_and(|e| known.adopted(e, g.v7));
+            let adopted = g.epoch.as_deref().is_some_and(|e| known.adopted(e));
             let incomplete = g.epoch.as_ref().is_some_and(|e| partial.contains(e)) && !adopted;
             (!incomplete).then_some((adopted, g))
         })
@@ -67,13 +64,13 @@ pub(crate) fn effective(generations: Vec<Generation>, known: &Known) -> Vec<Gene
     kept.into_iter().map(|(_, g)| g).collect()
 }
 
-/// The generation a NEW workspace of this protocol opens, if the drive was
-/// adopted: the newest adoption not adopted further.
-pub(crate) fn fresh_workspace(known: &Known, v7: bool) -> Option<&DriveAdoption> {
+/// The generation a NEW workspace opens, if the drive was adopted: the
+/// newest adoption not adopted further.
+pub(crate) fn fresh_workspace(known: &Known) -> Option<&DriveAdoption> {
     known
         .adoptions
         .iter()
-        .filter(|a| a.v7 == v7 && known.superseded(&a.generation()).is_none())
+        .filter(|a| known.superseded(&a.generation()).is_none())
         .max_by(|a, b| (a.ts_unix, &a.epoch).cmp(&(b.ts_unix, &b.epoch)))
 }
 

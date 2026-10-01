@@ -18,11 +18,7 @@ fn online_mount_refuses_legacy_or_nonempty_workspace_without_changing_files() {
             "unused-pool",
             temp.path(),
             "pc",
-            None,
             8,
-            false,
-            false,
-            false,
         )
         .err()
         .expect("must not convert existing data");
@@ -126,8 +122,6 @@ fn incremental_base_is_captured_ancestry_not_new_remote_head() {
         size: 0,
         hash: String::new(),
         depends_on: None,
-        checkpoint_base: None,
-        checkpoint_serial: None,
     };
     assert_eq!(
         state.upload_base(&intent).unwrap().unwrap().hash,

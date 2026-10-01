@@ -1,36 +1,9 @@
 //! Automatic immutable metadata replication within the existing encrypted pool.
 //! No mutable shared catalog, coordinator, or destructive history collection.
 use super::metadata_limits::{PAGE_BYTES, PAGE_RECORDS, STREAM_BYTES_MAX, STREAM_RECORDS_MAX};
-use super::namespace::durable_json;
 use super::shared_model::Event;
 use super::shared_transport::SharedTransport;
 use crate::prelude::*;
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct Config {
-    /// Desired previous revisions per file, reserved for future safe peer GC.
-    #[serde(default)]
-    pub history_limit: usize,
-}
-impl Config {
-    pub(crate) fn load(root: &Path, requested: Option<usize>) -> Result<Self> {
-        let path = root.join("pool-sync-config.json");
-        let mut value: Self = if path.exists() {
-            crate::utils::read_json(&path)?
-        } else {
-            Self::default()
-        };
-        if let Some(limit) = requested {
-            value.history_limit = limit;
-        }
-        if value.history_limit > 10_000 {
-            bail!("history_limit must be between 0 and 10000");
-        }
-        durable_json(&path, &value)?;
-        Ok(value)
-    }
-}
 
 /// Pool name defines stable identity within actual pool destinations; membership order
 /// and expansion cannot redirect discovery to an empty namespace.
@@ -302,78 +275,16 @@ pub(crate) fn read_stores(
         })
         .collect()
 }
-/// Read-only v7 listing (path -> plaintext size, conflicts) through a throwaway
-/// pool-sync workspace in a temp dir, exactly as a fresh v7 mount would see it.
-/// `open` touches only the local workspace; the pull only lists/reads records.
-/// `None` when the pool has no v7 records.
-#[allow(clippy::type_complexity)]
-pub(crate) fn browse_v7(
-    rclone: &str,
-    pool: &str,
-    epoch: Option<&str>,
-) -> Result<Option<(BTreeMap<String, u64>, Vec<super::peer_projection::Conflict>)>> {
-    use super::virtual_drive::VirtualDrive;
-    let temp = tempfile::tempdir()?;
-    let workspace = temp.path().join("workspace");
-    let mut drive = match epoch {
-        None => VirtualDrive::open(
-            rclone,
-            pool,
-            &workspace,
-            "rpool-browse",
-            None,
-            1 << 20,
-            false,
-            true,
-            true,
-        )?,
-        Some(epoch) => VirtualDrive::open_with_epoch(
-            rclone,
-            pool,
-            &workspace,
-            "rpool-browse",
-            None,
-            1 << 20,
-            false,
-            true,
-            true,
-            epoch,
-        )?,
-    };
-    if !drive.pull_snapshots_adopting_policy()? {
-        return Ok(None);
-    }
-    let files = drive
-        .view()?
-        .into_iter()
-        .map(|(path, revision)| (path, revision.size()))
-        .collect();
-    let conflicts = drive.pool_status()?.conflicts;
-    Ok(Some((files, conflicts)))
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Status {
     pub roots: Vec<String>,
-    pub desired_history_limit: usize,
-    pub history_deletion_enabled: bool,
     pub conflicts: Vec<super::peer_projection::Conflict>,
 }
 impl super::virtual_drive::VirtualDrive {
     pub(crate) fn pool_status(&self) -> Result<Status> {
-        if self.peer_retention {
-            return Ok(Status {
-                roots: self.pool_sync_roots.clone(),
-                desired_history_limit: self.pool_history_limit,
-                history_deletion_enabled: true,
-                conflicts: self.snapshot_conflicts()?,
-            });
-        }
         let state = self.state.lock().unwrap();
         Ok(Status {
             roots: self.pool_sync_roots.clone(),
-            desired_history_limit: self.pool_history_limit,
-            history_deletion_enabled: false,
             conflicts: super::peer_projection::project(&state.events)?.conflicts,
         })
     }
@@ -455,18 +366,6 @@ mod tests {
             .insert("0".repeat(64), serde_json::to_vec(&e).unwrap());
         assert!(collect(&[&store], &BTreeSet::new()).is_err());
         assert!(replicate(&[&store], &"0".repeat(64), &e).is_err());
-    }
-    #[test]
-    fn future_history_config_persists_ten_and_rejects_invalid_without_overwrite() {
-        let root = tempfile::tempdir().unwrap();
-        assert_eq!(Config::load(root.path(), None).unwrap().history_limit, 0);
-        assert_eq!(
-            Config::load(root.path(), Some(10)).unwrap().history_limit,
-            10
-        );
-        assert_eq!(Config::load(root.path(), None).unwrap().history_limit, 10);
-        assert!(Config::load(root.path(), Some(10001)).is_err());
-        assert_eq!(Config::load(root.path(), None).unwrap().history_limit, 10);
     }
     #[test]
     fn automatic_paths_stable_across_membership_order_and_expansion() {

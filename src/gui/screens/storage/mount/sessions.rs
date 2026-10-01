@@ -191,7 +191,6 @@ fn external_mounts() -> Vec<SessionSpec> {
             mountpoint: entry.mountpoint,
             frontend: None,
             reads: Vec::new(),
-            keep_previous: 0,
         })
         .collect();
     *cache = Some((Instant::now(), specs.clone()));

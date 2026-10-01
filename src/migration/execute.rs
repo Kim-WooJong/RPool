@@ -12,14 +12,8 @@ use crate::prelude::*;
 /// Advisory lease: another PC's claim younger than this is left alone.
 pub(crate) const CLAIM_LEASE_SECONDS: u64 = 2 * 60 * 60;
 
-/// Plans `pool` and publishes the plan to the cloud journal.
-/// Shared signature; the CLI and GUI use [`create_with_drive`].
-#[allow(dead_code)]
-pub(crate) fn create(rclone: &str, pool: &str, options: &PlanOptions) -> Result<Plan> {
-    create_with_drive(rclone, pool, options).map(|(plan, _)| plan)
-}
-
-/// [`create`] with the drive part (unless `options.skip_drive`). The drive
+/// Plans `pool` and publishes the plan to the cloud journal, with the drive
+/// part (unless `options.skip_drive`). The drive
 /// plan is published before `plan.json`, so a listed migration always has
 /// the drive part it was planned with.
 pub(crate) fn create_with_drive(
@@ -360,8 +354,7 @@ pub(crate) trait Effects: Sync {
     fn new_id(&self) -> Result<String> {
         random_hex(12)
     }
-    /// Archive id of a fresh replacement (drive v7 payloads need their own
-    /// `peer-v7-<owner>` form).
+    /// Archive id of a fresh replacement.
     fn new_archive_id(&self) -> Result<String> {
         Ok(format!("migrate-{}", self.new_id()?))
     }

@@ -1,6 +1,6 @@
 //! Data model of the drive part of a migration (phase 3, WP7).
 //!
-//! The pool's virtual drive (v6 pool-sync events or v7 private snapshots) is
+//! The pool's virtual drive (v6 pool-sync events) is
 //! migrated file by file like archives: each file's payload manifest is
 //! relocated or re-encoded into a NEW archive, recorded in the same cloud
 //! journal (records keyed by [`entry_key`]). Nothing is switched in place:
@@ -26,16 +26,13 @@ pub(crate) const DRIVE_ADOPTION: &str = "drive-adoption.json";
 pub(crate) struct GenerationRef {
     /// `None`: the original (pre-transition) location.
     pub epoch: Option<String>,
-    /// v7 private snapshots (`snapshots-v7`); v6 pool-sync events otherwise.
-    pub v7: bool,
 }
 
 impl GenerationRef {
     pub(crate) fn label(&self) -> String {
-        let kind = if self.v7 { "v7" } else { "v6" };
         match &self.epoch {
-            None => format!("{kind} original"),
-            Some(epoch) => format!("{kind} epoch {}", &epoch[..epoch.len().min(12)]),
+            None => "v6 original".into(),
+            Some(epoch) => format!("v6 epoch {}", &epoch[..epoch.len().min(12)]),
         }
     }
 }
@@ -44,7 +41,7 @@ impl GenerationRef {
 #[derive(Debug, Clone)]
 pub(crate) struct DriveFile {
     pub path: String,
-    /// Event id of the visible revision (v6 event, v7 materialized event).
+    /// Event id of the visible revision.
     pub revision: String,
     /// Plaintext blake3 of the whole file.
     pub hash: String,
@@ -56,8 +53,6 @@ pub(crate) struct DriveFile {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SourceView {
     pub files: Vec<DriveFile>,
-    /// v7: the history limit recorded in the snapshots' policy.
-    pub history_limit: Option<usize>,
 }
 
 /// One drive file of a plan.
@@ -69,7 +64,7 @@ pub(crate) struct DriveEntry {
     pub revision: String,
     pub hash: String,
     pub size: u64,
-    /// Archive id of the payload when planned (`virtual-*`, `peer-v7-*`, ...).
+    /// Archive id of the payload when planned (`virtual-*`).
     pub source_archive_id: String,
     pub fingerprint: String,
     pub action: Action,
@@ -90,9 +85,6 @@ pub(crate) struct DrivePlan {
     pub source: GenerationRef,
     /// The epoch the drive is adopted into ([`epoch_for`]).
     pub epoch: String,
-    /// v7: the snapshot history limit adopted records keep.
-    #[serde(default)]
-    pub history_limit: Option<usize>,
     pub entries: Vec<DriveEntry>,
     pub counts: Counts,
     pub download_bytes: u64,
@@ -126,7 +118,6 @@ pub(crate) struct DriveAdoption {
     pub migration_id: String,
     pub source: GenerationRef,
     pub epoch: String,
-    pub v7: bool,
     /// Files published in the new generation.
     pub files: usize,
     /// Unrecoverable paths left out (`--accept-lost`).
@@ -140,7 +131,6 @@ impl DriveAdoption {
     pub(crate) fn generation(&self) -> GenerationRef {
         GenerationRef {
             epoch: Some(self.epoch.clone()),
-            v7: self.v7,
         }
     }
     /// Copies written by different PCs differ only in who and when.
@@ -148,7 +138,6 @@ impl DriveAdoption {
         self.migration_id == other.migration_id
             && self.source == other.source
             && self.epoch == other.epoch
-            && self.v7 == other.v7
     }
 }
 
@@ -196,8 +185,7 @@ pub(crate) fn epoch_for(migration_id: &str) -> String {
     .to_string()
 }
 
-/// Fresh-bootstrap budget of one generation (`pool_sync::collect`,
-/// `peer_snapshot_transport::Store::collect`).
+/// Fresh-bootstrap budget of one generation (`pool_sync::collect`).
 pub(crate) const BOOTSTRAP_RECORDS: usize = 10_000;
 pub(crate) const BOOTSTRAP_BYTES: u64 = 64 * 1024 * 1024;
 

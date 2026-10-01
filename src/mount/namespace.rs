@@ -12,17 +12,10 @@ pub(crate) struct Intent {
     pub size: u64,
     pub hash: String,
     pub depends_on: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub checkpoint_base: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub checkpoint_serial: Option<u64>,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct CheckpointCursor {
-    pub owner: String,
-    pub serial: u64,
-    pub hash: String,
-}
+/// The workspace namespace. `version` is 6 (pool sync) for every opened
+/// workspace; [`Namespace::create`] starts at 3 (local-only resolution),
+/// which only the test fixture keeps.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Namespace {
     pub version: u32,
@@ -36,15 +29,6 @@ pub(crate) struct Namespace {
     pub directories: BTreeSet<String>,
     /// Conservative edit ancestry: listing never advances a writer's baseline.
     pub bases: BTreeMap<String, Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub checkpoint: Option<CheckpointCursor>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub checkpoint_ids: BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub accepted_spool: BTreeMap<String, Intent>,
-    /// V7 materialized namespace only; authoritative file identities live in snapshots.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub snapshot_view: BTreeMap<String, String>,
 }
 #[derive(Serialize, Deserialize)]
 struct Envelope {
@@ -99,58 +83,14 @@ impl Namespace {
             committed_intents: BTreeMap::new(),
             directories: BTreeSet::new(),
             bases: BTreeMap::new(),
-            checkpoint: None,
-            checkpoint_ids: BTreeMap::new(),
-            accepted_spool: BTreeMap::new(),
-            snapshot_view: BTreeMap::new(),
         })
     }
     pub(crate) fn validate(&self) -> Result<()> {
-        if !matches!(self.version, 3..=7) {
+        if !matches!(self.version, 3 | 6) {
             bail!("unsupported virtual namespace version");
         }
-        let valid_id = |id: &str| id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit());
-        if let Some(cursor) = &self.checkpoint {
-            if self.version != 5 || !valid_id(&cursor.owner) || !valid_id(&cursor.hash) {
-                bail!("invalid checkpoint cursor");
-            }
-        }
-        if self
-            .checkpoint_ids
-            .iter()
-            .any(|(k, v)| !valid_id(k) || !valid_id(v))
-        {
-            bail!("invalid checkpoint revision map");
-        }
-        for (id, intent) in &self.accepted_spool {
-            if self.version != 5
-                || id != &intent.id
-                || !valid_id(id)
-                || intent.spool.as_ref().is_some_and(|s| s != id)
-                || (intent.spool.is_some() && !valid_id(&intent.hash))
-            {
-                bail!("invalid acknowledged spool identity");
-            }
-            valid_path(&intent.path)?;
-            valid_path(&intent.event_path)?;
-        }
         valid_path(&self.worker)?;
-        if self.version == 7 {
-            for (id, event) in &self.events {
-                event.validate()?;
-                if event.id()? != *id {
-                    bail!("invalid snapshot cache identity");
-                }
-            }
-            for (path, id) in &self.snapshot_view {
-                valid_path(path)?;
-                if self.events.get(id).is_none_or(|e| e.path != *path) {
-                    bail!("invalid snapshot namespace view");
-                }
-            }
-        } else {
-            shared_model::reduce(&self.events)?;
-        }
+        shared_model::reduce(&self.events)?;
         if self
             .published
             .iter()
@@ -160,7 +100,7 @@ impl Namespace {
         }
         for (path, parents) in &self.bases {
             valid_path(path)?;
-            if self.version != 5 && parents.iter().any(|id| !self.events.contains_key(id)) {
+            if parents.iter().any(|id| !self.events.contains_key(id)) {
                 bail!("missing observed ancestry");
             }
         }
@@ -176,15 +116,6 @@ impl Namespace {
         for intent in &self.pending {
             valid_path(&intent.path)?;
             valid_path(&intent.event_path)?;
-            if self.version == 5
-                && (intent.checkpoint_serial.is_none()
-                    || intent
-                        .checkpoint_base
-                        .as_ref()
-                        .is_some_and(|id| !valid_id(id)))
-            {
-                bail!("invalid checkpoint intent");
-            }
             if intent.id.len() != 64
                 || !intent
                     .id
@@ -325,24 +256,7 @@ impl Namespace {
         durable_json(&path, &envelope)
     }
     pub(crate) fn resolved(&self) -> Result<BTreeMap<String, Resolved>> {
-        if self.version == 7 {
-            self.snapshot_view
-                .iter()
-                .map(|(path, id)| {
-                    Ok((
-                        path.clone(),
-                        Resolved {
-                            event_id: id.clone(),
-                            event: self
-                                .events
-                                .get(id)
-                                .context("snapshot view entry missing")?
-                                .clone(),
-                        },
-                    ))
-                })
-                .collect()
-        } else if self.version == 6 {
+        if self.version == 6 {
             Ok(super::peer_projection::project(&self.events)?.files)
         } else {
             shared_model::reduce(&self.events)
@@ -502,29 +416,5 @@ impl Namespace {
         // advance a conservative observed baseline merely because another PUT committed.
         self.resolved()?;
         Ok(id)
-    }
-}
-
-#[cfg(test)]
-mod compatibility_tests {
-    use super::*;
-    #[test]
-    fn pre_checkpoint_namespace_checksum_remains_loadable_with_pending_intent() {
-        let tmp = tempfile::tempdir().unwrap();
-        let id = "a".repeat(64);
-        // Literal pre-v5 field order and absent extension fields, not a new-schema serializer.
-        let old = format!(
-            r#"{{"version":3,"generation":1,"device":"{id}","worker":"old","events":{{}},"published":[],"pending":[{{"id":"{id}","path":"file","event_path":"file","parents":[],"spool":"{id}","size":0,"hash":"","depends_on":null}}],"committed_intents":{{}},"directories":[],"bases":{{}}}}"#
-        );
-        let hash = blake3::hash(old.as_bytes()).to_hex().to_string();
-        fs::write(
-            tmp.path().join("namespace.json"),
-            format!(r#"{{"hash":"{hash}","payload":{old}}}"#),
-        )
-        .unwrap();
-        let state = Namespace::load(tmp.path(), "old").unwrap();
-        assert_eq!(state.pending.len(), 1);
-        assert_eq!(serde_json::to_string(&state).unwrap(), old);
-        assert!(state.pending[0].checkpoint_serial.is_none());
     }
 }

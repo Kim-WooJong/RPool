@@ -34,7 +34,7 @@ fn rclone_vfs_writeback_collapses_repeated_prefix_puts() {
     fn replay(write_back: &str, count: usize) -> (u64, u64, u64) {
         let temp = tempfile::tempdir().unwrap();
         let drive = Arc::new(crate::mount::virtual_drive::fixture(temp.path()));
-        let backend = Server::start(drive.clone(), false).unwrap();
+        let backend = Server::start(drive.clone()).unwrap();
         let config = temp.path().join("empty-rclone.conf");
         std::fs::write(&config, "").unwrap();
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -121,7 +121,7 @@ fn rclone_vfs_writeback_collapses_repeated_prefix_puts() {
         )
     }
 
-    let (_, delay) = crate::mount::adapter::vfs_cache_policy(true);
+    let (_, delay) = crate::mount::adapter::vfs_cache_policy();
     assert_eq!(delay, "60s");
     let (old_puts, old_seals, old_spool) = replay("0s", 8);
     assert!(old_puts >= 8 && old_seals >= 8);
@@ -148,7 +148,7 @@ fn rclone_rc_drain_delivers_delayed_writeback_immediately() {
     };
     let temp = tempfile::tempdir().unwrap();
     let drive = Arc::new(crate::mount::virtual_drive::fixture(temp.path()));
-    let backend = Server::start(drive.clone(), false).unwrap();
+    let backend = Server::start(drive.clone()).unwrap();
     let config = temp.path().join("empty-rclone.conf");
     std::fs::write(&config, "").unwrap();
     let (front, rc) = (free_port(), free_port());
@@ -159,7 +159,7 @@ fn rclone_rc_drain_delivers_delayed_writeback_immediately() {
             "rclone".into()
         }
     });
-    let (_, write_back) = crate::mount::adapter::vfs_cache_policy(true);
+    let (_, write_back) = crate::mount::adapter::vfs_cache_policy();
     let mut command = std::process::Command::new(rclone);
     command
         .args(["serve", "webdav", ":webdav:", "--addr"])
@@ -268,7 +268,7 @@ fn rclone_about_reports_mount_capacity_for_default_64_mib_pool() {
     let temp = tempfile::tempdir().unwrap();
     let drive = Arc::new(crate::mount::virtual_drive::fixture(temp.path()));
     *drive.capacity.lock().unwrap() = Some(status);
-    let server = Server::start(drive.clone(), false).unwrap();
+    let server = Server::start(drive.clone()).unwrap();
     let config = temp.path().join("empty-rclone.conf");
     std::fs::write(&config, "").unwrap();
     let rclone = std::env::var_os("RPOOL_TEST_RCLONE").unwrap_or_else(|| {

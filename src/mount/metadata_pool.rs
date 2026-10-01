@@ -27,7 +27,7 @@ impl ReplicaDirs {
     }
 }
 
-/// `roots` are family roots (v6 `events-v6/…`, v7 `snapshots-v7/…`).
+/// `roots` are family roots (v6 `events-v6/…`).
 pub(crate) fn replica_dirs(
     rclone: &str,
     roots: &[String],
@@ -43,7 +43,8 @@ pub(crate) fn replica_dirs(
                 .kinds
                 .iter()
                 .map(|kind| match family.name {
-                    // v6 events live in `<root>/events`, v7 kinds in `<root>/<kind>/events`.
+                    // v6 events live in `<root>/events`; other families keep
+                    // each kind in `<root>/<kind>/events`.
                     "v6" => open(root),
                     _ => open(&crate::utils::remote_join(root, kind)),
                 })
@@ -86,24 +87,13 @@ pub(crate) fn pool_target(rclone: &str, pool: &str) -> Result<Option<Target>> {
     };
     let roots = super::pool_sync::roots(pool, &policy.remotes)?
         .into_iter()
-        .map(|root| {
-            let root = if newest.v7 {
-                root.replace("/events-v6/", "/snapshots-v7/")
-            } else {
-                root
-            };
-            match &newest.epoch {
-                Some(epoch) => crate::utils::remote_join(&root, &format!("epochs/{epoch}")),
-                None => root,
-            }
+        .map(|root| match &newest.epoch {
+            Some(epoch) => crate::utils::remote_join(&root, &format!("epochs/{epoch}")),
+            None => root,
         })
         .collect();
     Ok(Some(Target {
-        family: if newest.v7 {
-            Family::v7()
-        } else {
-            Family::v6()
-        },
+        family: Family::v6(),
         roots,
         native_crypt: policy.native_crypt,
         epoch: newest.epoch.clone(),
@@ -141,7 +131,7 @@ pub(crate) fn compact_pool(
 }
 
 impl VirtualDrive {
-    /// One automatic pass for a pool-sync drive (v6/v7); `None` when the
+    /// One automatic pass for a pool-sync drive; `None` when the
     /// drive has no pool-sync metadata or automatic compaction is off.
     pub(crate) fn compact_metadata(&self) -> Result<Option<Report>> {
         if self.pool_sync_roots.is_empty() {
@@ -151,11 +141,7 @@ impl VirtualDrive {
         if !config.auto {
             return Ok(None);
         }
-        let family = if self.peer_retention {
-            Family::v7()
-        } else {
-            Family::v6()
-        };
+        let family = Family::v6();
         let dirs = replica_dirs(
             &self.rclone,
             &self.pool_sync_roots,
@@ -251,61 +237,6 @@ pub(crate) fn read_v6(
     let tail = read_unseen(&stores, &unseen, |id| events.contains_key(id))?;
     events.extend(tail);
     Ok(events)
-}
-
-/// Records a v7 pull takes from checkpoints. `commit` stores the chunk cache
-/// and must run only after the records are durable in the workspace state.
-#[derive(Default)]
-pub(crate) struct Checkpointed {
-    /// (kind, id, exact JSON) of records not yet known.
-    pub records: Vec<(String, String, String)>,
-    pub covered: super::metadata_checkpoint_model::Ids,
-    cache: Option<(PathBuf, Cache)>,
-}
-impl Checkpointed {
-    pub(crate) fn commit(self) -> Result<()> {
-        match self.cache {
-            Some((path, cache)) => cache.save(&path),
-            None => Ok(()),
-        }
-    }
-}
-pub(crate) fn v7_checkpointed(
-    drive: &VirtualDrive,
-    store: &super::peer_snapshot_transport::Store,
-    known: &dyn Fn(&str, &str) -> bool,
-    bootstrap: bool,
-) -> Result<Checkpointed> {
-    let family = Family::v7();
-    let gate = store.gate_listed()?;
-    let dirs = replica_dirs(
-        &drive.rclone,
-        &drive.pool_sync_roots,
-        drive.policy.native_crypt,
-        &family,
-    )?;
-    let replicas: Vec<_> = dirs.iter().map(ReplicaDirs::replica).collect();
-    let path = Cache::path(&drive.root, family.name);
-    let mut cache = Cache::load(&path);
-    let mut records = Vec::new();
-    let covered = super::metadata_checkpoint::pull(
-        &family,
-        &replicas,
-        &mut cache,
-        gate,
-        bootstrap,
-        &mut |kind, id, text| {
-            if !known(kind, id) {
-                records.push((kind.to_owned(), id.to_owned(), text.to_owned()));
-            }
-            Ok(())
-        },
-    )?;
-    Ok(Checkpointed {
-        records,
-        covered,
-        cache: Some((path, cache)),
-    })
 }
 
 /// Cheap metadata counts of a saved pool for `rpool doctor`: listings and

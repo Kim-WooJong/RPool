@@ -75,11 +75,6 @@ impl VirtualDrive {
         self.root.join("spool").join(&intent.id).join("content")
     }
     pub(crate) fn read(&self, revision: &Revision, offset: u64, count: usize) -> Result<Vec<u8>> {
-        if self.peer_retention {
-            if let Revision::Cloud { id, .. } = revision {
-                return self.read_snapshot(id, offset, count);
-            }
-        }
         match revision {
             Revision::Cloud { content, .. } => self.cache.read(
                 &crate::storage::reader::StorageReader::rclone(&self.rclone),
@@ -102,11 +97,6 @@ impl VirtualDrive {
         }
     }
     pub(crate) fn pin_read(&self, path: &str, revision: &Revision) -> Result<()> {
-        if self.peer_retention {
-            if let Revision::Cloud { id, .. } = revision {
-                return self.pin_snapshot_read(path, id);
-            }
-        }
         let mut s = self.state.lock().unwrap();
         if !self.pool_sync_roots.is_empty() {
             // Native DAV clients may make independent unconditioned range requests.
@@ -136,22 +126,11 @@ impl VirtualDrive {
         }
         match revision {
             Revision::Cloud { id, .. } => {
-                if self.bounded_shared {
-                    if !s.events.contains_key(id) {
-                        bail!("expired read revision; reopen the file");
-                    }
-                    s.bases.insert(path.into(), vec![id.clone()]);
-                } else {
-                    s.bases
-                        .entry(path.into())
-                        .or_insert_with(|| vec![id.clone()]);
-                }
+                s.bases
+                    .entry(path.into())
+                    .or_insert_with(|| vec![id.clone()]);
             }
-            Revision::Local { id, .. } => {
-                if self.bounded_shared && !s.pending.iter().any(|i| &i.id == id) {
-                    bail!("local read revision already retired; reopen the file");
-                }
-            }
+            Revision::Local { .. } => {}
         }
         s.save(&self.root)?;
         self.pins

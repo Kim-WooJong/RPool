@@ -50,7 +50,7 @@ pub(crate) fn files(history: &History, retention: &Retention, now: u64) -> Resul
         if expires.is_some_and(|t| t <= now) {
             continue;
         }
-        let path = history.lineage_path(&lineage, None);
+        let path = lineage.clone();
         let entry = TrashEntry {
             id: deletion.clone(),
             path: display_path(&path),
@@ -298,43 +298,39 @@ pub(crate) fn purge_selection(
 
 #[cfg(test)]
 mod tests {
-    use super::super::graph::fixture::{history, rev};
+    use super::super::graph::fixture::{history, rev, Fx};
     use super::*;
 
-    fn sample() -> History {
-        history(
-            vec![
-                ("a1", rev("A", &[], Some("alpha"), "pc", Some(10))),
-                ("a2", rev("A", &["a1"], None, "PC-B", Some(20))),
-                ("b1", rev("B", &[], Some("beta"), "pc", Some(10))),
-                ("b2", rev("B", &["b1"], None, "pc", Some(30))),
-                ("c1", rev("C", &[], Some("gamma"), "pc", Some(10))),
-                ("c2", rev("C", &["c1"], None, "pc", Some(31))),
-                // Live file whose path the deleted A used.
-                ("n1", rev("N", &[], Some("new"), "pc", Some(40))),
-                // A moved file: deleted at its old path, same bytes live.
-                ("m1", rev("M", &[], Some("moved"), "pc", Some(10))),
-                ("m2", rev("M", &["m1"], None, "pc", Some(11))),
-                ("m3", rev("M2", &[], Some("moved"), "pc", Some(11))),
-            ],
-            &[
-                ("A", "a.txt"),
-                ("B", "Docs/b.txt"),
-                ("C", "Docs/sub/c.txt"),
-                ("N", "a.txt"),
-                ("M", "old.txt"),
-                ("M2", "new-place.txt"),
-            ],
-        )
+    fn sample() -> Fx {
+        history(vec![
+            ("a1", rev("a.txt", &[], Some("alpha"), "pc", Some(10))),
+            ("a2", rev("a.txt", &["a1"], None, "PC-B", Some(20))),
+            ("b1", rev("Docs/b.txt", &[], Some("beta"), "pc", Some(10))),
+            ("b2", rev("Docs/b.txt", &["b1"], None, "pc", Some(30))),
+            (
+                "c1",
+                rev("Docs/sub/c.txt", &[], Some("gamma"), "pc", Some(10)),
+            ),
+            ("c2", rev("Docs/sub/c.txt", &["c1"], None, "pc", Some(31))),
+            // Live file whose path (other case) the deleted a.txt used.
+            ("n1", rev("A.txt", &[], Some("new"), "pc", Some(40))),
+            // A moved file: deleted at its old path, same bytes live.
+            ("m1", rev("old.txt", &[], Some("moved"), "pc", Some(10))),
+            ("m2", rev("old.txt", &["m1"], None, "pc", Some(11))),
+            (
+                "m3",
+                rev("new-place.txt", &[], Some("moved"), "pc", Some(11)),
+            ),
+        ])
     }
 
     #[test]
     fn lists_trash_with_folders_taken_paths_and_hides_moves() {
         let h = sample();
         let entries = list(&h, &Retention::default(), 100).unwrap();
-        let ids: Vec<_> = entries.iter().map(|e| e.id.as_str()).collect();
+        let ids: Vec<_> = entries.iter().map(|e| h.name(&e.id)).collect();
         assert_eq!(ids, ["dir:/Docs", "c2", "b2", "a2"]);
-        let a = entries.iter().find(|e| e.id == "a2").unwrap();
+        let a = entries.iter().find(|e| e.id == h.id("a2")).unwrap();
         assert!(a.path_taken);
         assert_eq!(a.deleted_by.as_deref(), Some("PC-B"));
         assert_eq!(a.size, 5);
@@ -343,19 +339,19 @@ mod tests {
         assert!(dir.is_dir && dir.size == 9 && !dir.path_taken);
         // Expired entries leave the trash.
         let later = list(&h, &Retention::default(), 21 + 30 * 86_400).unwrap();
-        assert!(!later.iter().any(|e| e.id == "a2"));
+        assert!(!later.iter().any(|e| e.id == h.id("a2")));
     }
 
     #[test]
     fn restore_to_original_taken_path_and_folder() {
         let h = sample();
         let files = files(&h, &Retention::default(), 100).unwrap();
-        let actions = restore_actions(&h, &files, &["a2".into()], None, None).unwrap();
+        let actions = restore_actions(&h, &files, &[h.id("a2")], None, None).unwrap();
         assert_eq!(
             actions,
             [Action::Put {
                 path: "a (restored).txt".into(),
-                rev: "a1".into(),
+                rev: h.id("a1"),
                 from: Some("a.txt".into())
             }]
         );
@@ -369,9 +365,7 @@ mod tests {
             restore_actions(&h, &files, &["dir:/Docs".into()], Some("/Restored"), None).unwrap();
         assert!(actions.iter().any(|a| a.path() == "Restored/sub/c.txt"));
         assert!(restore_actions(&h, &files, &["zzz".into()], None, None).is_err());
-        assert!(
-            restore_actions(&h, &files, &["a2".into(), "b2".into()], Some("/x"), None).is_err()
-        );
+        assert!(restore_actions(&h, &files, &[h.id("a2"), h.id("b2")], Some("/x"), None).is_err());
         // --into keeps each entry's name under the chosen folder.
         let into =
             restore_actions(&h, &files, &["dir:/Docs".into()], None, Some("/Saved")).unwrap();
@@ -384,18 +378,19 @@ mod tests {
     #[test]
     fn purge_selection_by_id_expiry_and_all() {
         let mut h = sample();
+        let (a2, b2, c2) = (h.id("a2"), h.id("b2"), h.id("c2"));
         let r = Retention::default();
         assert_eq!(
             purge_selection(&h, &r, 100, &["dir:/Docs".into()], false, false).unwrap(),
-            ["b2".to_string(), "c2".into()].into()
+            [b2.clone(), c2.clone()].into()
         );
         let late = 31 + 30 * 86_400;
         let expired = purge_selection(&h, &r, late, &[], true, false).unwrap();
-        assert!(expired.contains("a2") && expired.contains("b2") && expired.contains("c2"));
+        assert!(expired.contains(&a2) && expired.contains(&b2) && expired.contains(&c2));
         assert!(purge_selection(&h, &r, 100, &[], false, false).is_err());
-        h.purged.insert("a2".into());
+        h.purged.insert(a2.clone());
         let all = purge_selection(&h, &r, 100, &[], false, true).unwrap();
-        assert!(!all.contains("a2") && all.contains("b2"));
-        assert!(!list(&h, &r, 100).unwrap().iter().any(|e| e.id == "a2"));
+        assert!(!all.contains(&a2) && all.contains(&b2));
+        assert!(!list(&h, &r, 100).unwrap().iter().any(|e| e.id == a2));
     }
 }

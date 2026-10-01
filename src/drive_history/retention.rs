@@ -3,8 +3,8 @@
 //! Saved in the pool store (`pools.json`, `retention` map by pool name) so it
 //! travels with portable export/import; a missing entry means the defaults.
 //! Retention never deletes anything by itself: it decides which trash entries
-//! are still listed and which old revisions must keep their data (v7 GC
-//! defers collecting them; see `mount::peer_snapshot::history`).
+//! are still listed and which old revisions must keep their data (for a
+//! future guarded cleanup).
 use super::graph::History;
 use super::model::Retention;
 use crate::prelude::*;
@@ -30,15 +30,6 @@ pub(crate) fn load(pool: &str) -> Result<Retention> {
         bail!("pool not found: {pool}");
     }
     Ok(store.retention.get(pool).copied().unwrap_or_default())
-}
-
-/// Retention saved explicitly for `pool` (`None`: never set, or unreadable).
-pub(crate) fn explicit(pool: &str) -> Option<Retention> {
-    crate::pool::load_pool_store()
-        .ok()?
-        .retention
-        .get(pool)
-        .copied()
 }
 
 /// Changes the given fields of `pool`'s retention and saves the pool store.
@@ -165,10 +156,7 @@ pub(crate) fn eligible_bytes(history: &History, keep: &BTreeSet<String>) -> Resu
     let mut kept_objects = BTreeSet::new();
     let mut candidates = BTreeMap::new();
     for (id, payload) in &history.payloads {
-        let manifest = match payload {
-            super::graph::Payload::Event(content) => &content.manifest,
-            super::graph::Payload::Manifest(manifest) => manifest,
-        };
+        let manifest = &payload.manifest;
         let kept = keep.contains(id) || current.contains(id);
         for shard in &manifest.shards {
             if kept {
@@ -212,45 +200,41 @@ mod tests {
     #[test]
     fn protection_keeps_unexpired_trash_and_recent_versions_only() {
         let day = DAY;
-        let h = history(
-            vec![
-                // Deleted file: deleted on day 10.
-                ("d1", rev("D", &[], Some("gone"), "pc", Some(day))),
-                ("d2", rev("D", &["d1"], None, "pc", Some(10 * day))),
-                // Live file with versions v1..v4 (v4 current).
-                ("v1", rev("V", &[], Some("1"), "pc", Some(day))),
-                ("v2", rev("V", &["v1"], Some("2"), "pc", Some(20 * day))),
-                ("v3", rev("V", &["v2"], Some("3"), "pc", Some(50 * day))),
-                ("v4", rev("V", &["v3"], Some("4"), "pc", Some(55 * day))),
-            ],
-            &[("D", "d.txt"), ("V", "v.txt")],
-        );
+        let h = history(vec![
+            // Deleted file: deleted on day 10.
+            ("d1", rev("d.txt", &[], Some("gone"), "pc", Some(day))),
+            ("d2", rev("d.txt", &["d1"], None, "pc", Some(10 * day))),
+            // Live file with versions v1..v4 (v4 current).
+            ("v1", rev("v.txt", &[], Some("1"), "pc", Some(day))),
+            ("v2", rev("v.txt", &["v1"], Some("2"), "pc", Some(20 * day))),
+            ("v3", rev("v.txt", &["v2"], Some("3"), "pc", Some(50 * day))),
+            ("v4", rev("v.txt", &["v3"], Some("4"), "pc", Some(55 * day))),
+        ]);
         let clock = |id: &str| h.revs.get(id).and_then(|r| r.time);
         let now = 60 * day;
+        let has = |keep: &BTreeSet<String>, name: &str| keep.contains(&h.id(name));
         // Trash 30 days: deleted day 10 expired at day 40.
         let keep = protected(&h, &retention(30, 2, 0), now, &clock);
-        assert!(!keep.contains("d1"));
-        assert!(keep.contains("v3") && keep.contains("v2") && !keep.contains("v1"));
+        assert!(!has(&keep, "d1"));
+        assert!(has(&keep, "v3") && has(&keep, "v2") && !has(&keep, "v1"));
         // Trash 90 days keeps it; versions 20 days back: v3 (replaced day 55)
         // and v2 (replaced day 50) stay, v1 (replaced day 20) expired.
         let keep = protected(&h, &retention(90, 0, 20), now, &clock);
-        assert!(keep.contains("d1"));
-        assert!(keep.contains("v3") && keep.contains("v2") && !keep.contains("v1"));
+        assert!(has(&keep, "d1"));
+        assert!(has(&keep, "v3") && has(&keep, "v2") && !has(&keep, "v1"));
         // Unknown times are never expired.
         let keep = protected(&h, &retention(1, 0, 1), now, &|_| None);
-        assert!(keep.contains("d1") && keep.contains("v1"));
+        assert!(has(&keep, "d1") && has(&keep, "v1"));
     }
 
     #[test]
     fn purged_trash_is_not_protected() {
-        let mut h = history(
-            vec![
-                ("d1", rev("D", &[], Some("gone"), "pc", Some(1))),
-                ("d2", rev("D", &["d1"], None, "pc", Some(2))),
-            ],
-            &[("D", "d.txt")],
-        );
-        h.purged.insert("d2".into());
+        let mut h = history(vec![
+            ("d1", rev("d.txt", &[], Some("gone"), "pc", Some(1))),
+            ("d2", rev("d.txt", &["d1"], None, "pc", Some(2))),
+        ]);
+        let d2 = h.id("d2");
+        h.purged.insert(d2);
         assert!(protected(&h, &Retention::default(), 3, &|_| Some(2)).is_empty());
     }
 }

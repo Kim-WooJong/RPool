@@ -7,16 +7,10 @@ use crate::migration::test_support::{manifest, policy, FakeCloud};
 const MIB: u64 = 1048576;
 const ALL: [&str; 4] = ["a:x", "b:x", "c:x", "d:x"];
 
-/// Drive payloads (v6 `virtual-*` or v7 `peer-v7-*`): one unaffected by
-/// losing d, one with a shard on d, one with two shards on d (lost).
-fn drive(v7: bool) -> (FakeCloud, FakeDrive) {
-    let id = |n: char| {
-        if v7 {
-            format!("peer-v7-{}", n.to_string().repeat(64))
-        } else {
-            format!("virtual-{}", n.to_string().repeat(64))
-        }
-    };
+/// Drive payloads (`virtual-*`): one unaffected by losing d, one with a
+/// shard on d, one with two shards on d (lost).
+fn drive() -> (FakeCloud, FakeDrive) {
+    let id = |n: char| format!("virtual-{}", n.to_string().repeat(64));
     let mut cloud = FakeCloud::default();
     let files = vec![
         manifest(&id('1'), 2 * MIB, MIB, 2, 1, &["a:x", "b:x", "c:x"]),
@@ -34,7 +28,7 @@ fn drive(v7: bool) -> (FakeCloud, FakeDrive) {
         .zip(names)
         .map(|(m, name)| drive_file(name, &format!("rev-{name}"), m))
         .collect();
-    (cloud, FakeDrive::new(v7, files))
+    (cloud, FakeDrive::new(files))
 }
 
 fn plan_for(cloud: &FakeCloud, source: &dyn DriveSource) -> (Plan, Option<DrivePlan>) {
@@ -61,19 +55,13 @@ fn entry<'a>(drive: &'a DrivePlan, path: &str) -> &'a DriveEntry {
 }
 
 #[test]
-fn v6_drive_files_are_classified_like_archives() {
-    let (cloud, source) = drive(false);
+fn drive_files_are_classified_like_archives() {
+    let (cloud, source) = drive();
     let (plan, drive) = plan_for(&cloud, &source);
     let drive = drive.expect("the pool has a drive");
     assert_eq!(drive.migration_id, plan.migration_id);
     assert_eq!(drive.epoch, epoch_for(&plan.migration_id));
-    assert_eq!(
-        drive.source,
-        GenerationRef {
-            epoch: None,
-            v7: false
-        }
-    );
+    assert_eq!(drive.source, GenerationRef { epoch: None });
     assert_eq!(drive.entries.len(), 3);
     let kept = entry(&drive, "docs/kept.txt");
     assert_eq!(kept.action, Action::Unaffected);
@@ -101,24 +89,8 @@ fn v6_drive_files_are_classified_like_archives() {
 }
 
 #[test]
-fn v7_unaffected_files_get_a_private_copy() {
-    let (cloud, source) = drive(true);
-    let (_, drive) = plan_for(&cloud, &source);
-    let drive = drive.unwrap();
-    assert!(drive.source.v7);
-    let kept = entry(&drive, "docs/kept.txt");
-    assert_eq!(kept.action, Action::Relocate);
-    assert!(kept.detail.as_deref().unwrap().contains("private"));
-    // Copy features unknown: a streamed copy and a readback per shard.
-    assert_eq!(kept.upload_bytes, 3 * MIB);
-    assert_eq!(drive.counts.unaffected, 0);
-    assert_eq!(drive.counts.relocate, 2);
-    assert_eq!(drive.history_limit, Some(0));
-}
-
-#[test]
 fn unreadable_drive_is_left_out_with_a_note() {
-    let (cloud, mut source) = drive(false);
+    let (cloud, mut source) = drive();
     source.fail = true;
     let (plan, drive) = plan_for(&cloud, &source);
     assert!(drive.is_none());
@@ -140,7 +112,7 @@ impl DriveSource for NoDrive {
 
 #[test]
 fn pool_without_drive_has_no_drive_part() {
-    let (cloud, _) = drive(false);
+    let (cloud, _) = drive();
     let (_, drive) = plan_for(&cloud, &NoDrive);
     assert!(drive.is_none());
 }

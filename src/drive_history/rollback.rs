@@ -18,13 +18,7 @@ pub(crate) fn plan(history: &History, pool: &str, scope: &str, at: u64) -> Resul
     let now = history.view_at(None)?;
     let size = |id: &str| history.revs[id].content.as_ref().map_or(0, |c| c.size);
     let hash = |id: &str| history.revs[id].content.as_ref().map(|c| c.hash.clone());
-    let restorable = |id: &str| {
-        history.revs[id]
-            .content
-            .as_ref()
-            .is_some_and(|c| c.restorable)
-            && history.payloads.contains_key(id)
-    };
+    let restorable = |id: &str| history.payloads.contains_key(id);
     let paths: BTreeSet<&String> = then.keys().chain(now.keys()).collect();
     let mut changes = Vec::new();
     let mut skipped = Vec::new();
@@ -86,58 +80,35 @@ pub(crate) fn actions(plan: &RollbackPlan) -> Result<Vec<Action>> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::graph::fixture::{history, rev};
-    use super::super::graph::{Payload, Rev};
+    use super::super::graph::fixture::{history, rev, Spec};
     use super::*;
 
-    pub(crate) fn with_payloads(mut h: History) -> History {
-        let manifest = Manifest {
-            version: 2,
-            archive_id: "x".into(),
-            original_name: "x".into(),
-            original_size: 0,
-            shard_size: 1,
-            created_unix: 0,
-            content_root_blake3: String::new(),
-            coding: None,
-            shards: vec![],
-        };
-        for (id, rev) in &h.revs {
-            if rev.content.is_some() {
-                h.payloads
-                    .insert(id.clone(), Payload::Manifest(manifest.clone()));
-            }
-        }
-        h
-    }
-
-    fn base() -> Vec<(&'static str, Rev)> {
+    fn base() -> Vec<(&'static str, Spec)> {
         vec![
-            ("a1", rev("A", &[], Some("a-old"), "pc", Some(10))),
-            ("a2", rev("A", &["a1"], Some("a-new"), "pc", Some(30))),
-            ("b1", rev("B", &[], Some("b"), "pc", Some(10))),
-            ("b2", rev("B", &["b1"], None, "pc", Some(30))),
-            ("c1", rev("C", &[], Some("c"), "pc", Some(30))),
-            ("d1", rev("D", &[], Some("same"), "pc", Some(10))),
-            ("e1", rev("E", &[], Some("outside"), "pc", Some(30))),
+            ("a1", rev("Docs/a.txt", &[], Some("a-old"), "pc", Some(10))),
+            (
+                "a2",
+                rev("Docs/a.txt", &["a1"], Some("a-new"), "pc", Some(30)),
+            ),
+            ("b1", rev("Docs/b.txt", &[], Some("b"), "pc", Some(10))),
+            ("b2", rev("Docs/b.txt", &["b1"], None, "pc", Some(30))),
+            ("c1", rev("Docs/c.txt", &[], Some("c"), "pc", Some(30))),
+            ("d1", rev("Docs/d.txt", &[], Some("same"), "pc", Some(10))),
+            (
+                "e1",
+                rev("Other/e.txt", &[], Some("outside"), "pc", Some(30)),
+            ),
         ]
     }
-    const NAMES: &[(&str, &str)] = &[
-        ("A", "Docs/a.txt"),
-        ("B", "Docs/b.txt"),
-        ("C", "Docs/c.txt"),
-        ("D", "Docs/d.txt"),
-        ("E", "Other/e.txt"),
-    ];
 
     #[test]
     fn preview_reverts_undeletes_and_removes_within_scope() {
-        let h = with_payloads(history(base(), NAMES));
+        let mut h = history(base());
         let plan = plan(&h, "p", "Docs", 20).unwrap();
         let summary: Vec<_> = plan
             .changes
             .iter()
-            .map(|c| (c.path.as_str(), c.action, c.revision.as_str()))
+            .map(|c| (c.path.as_str(), c.action, h.name(&c.revision)))
             .collect();
         assert_eq!(
             summary,
@@ -151,7 +122,7 @@ mod tests {
         let whole = super::plan(&h, "p", "", 20).unwrap();
         assert_eq!(whole.changes.len(), 4);
         // Without data the change is skipped, never planned.
-        let h = history(base(), NAMES);
+        h.payloads.clear();
         let plan = super::plan(&h, "p", "Docs", 20).unwrap();
         assert_eq!(plan.changes.len(), 1);
         assert_eq!(plan.skipped.len(), 2);
@@ -162,18 +133,21 @@ mod tests {
         // State after applying the rollback above at time 40.
         let mut revs = base();
         revs.extend([
-            ("a3", rev("A", &["a2"], Some("a-old"), "rb", Some(40))),
-            ("b3", rev("B", &["b2"], Some("b"), "rb", Some(40))),
-            ("c2", rev("C", &["c1"], None, "rb", Some(40))),
+            (
+                "a3",
+                rev("Docs/a.txt", &["a2"], Some("a-old"), "rb", Some(40)),
+            ),
+            ("b3", rev("Docs/b.txt", &["b2"], Some("b"), "rb", Some(40))),
+            ("c2", rev("Docs/c.txt", &["c1"], None, "rb", Some(40))),
         ]);
-        let h = with_payloads(history(revs, NAMES));
+        let h = history(revs);
         assert!(plan(&h, "p", "Docs", 45).unwrap().changes.is_empty());
         // Back to time 35 (after the edits, before the rollback).
         let undo = plan(&h, "p", "Docs", 35).unwrap();
         let summary: Vec<_> = undo
             .changes
             .iter()
-            .map(|c| (c.path.as_str(), c.action, c.revision.as_str()))
+            .map(|c| (c.path.as_str(), c.action, h.name(&c.revision)))
             .collect();
         assert_eq!(
             summary,

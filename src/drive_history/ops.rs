@@ -126,12 +126,7 @@ pub(crate) fn purge_report(
         .filter_map(|id| history.last_content(id))
         .collect();
     let keep: BTreeSet<String> = keep.difference(&freed).cloned().collect();
-    let mut notes = Vec::new();
-    if history.mode == "v6" {
-        notes.push("v6 keeps all data; purged files are hidden on every PC and their data becomes eligible for a future guarded cleanup (nothing is deleted now)".into());
-    } else {
-        notes.push("v7: retention stops protecting the purged data; snapshot GC reclaims it unless the pool's history limit still keeps it".into());
-    }
+    let notes = vec!["the drive keeps all data; purged files are hidden on every PC and their data becomes eligible for a future guarded cleanup (nothing is deleted now)".into()];
     Ok(PurgeReport {
         version: HISTORY_VERSION,
         pool: pool.into(),
@@ -270,26 +265,21 @@ mod tests {
 
     #[test]
     fn purge_previews_then_publishes_a_mark_that_hides_the_entry() {
-        let mut h = history(
-            vec![
-                ("d1", rev("D", &[], Some("gone"), "pc", Some(1))),
-                ("d2", rev("D", &["d1"], None, "pc", Some(2))),
-            ],
-            &[("D", "d.txt")],
-        );
+        let mut h = history(vec![
+            ("d1", rev("d.txt", &[], Some("gone"), "pc", Some(1))),
+            ("d2", rev("d.txt", &["d1"], None, "pc", Some(2))),
+        ]);
+        let d2 = h.id("d2");
         let r = Retention::default();
         let op = Op::TrashPurge {
-            ids: vec!["d2".into()],
+            ids: vec![d2.clone()],
             expired: false,
             all: false,
             confirm: false,
         };
         let preview: PurgeReport =
             serde_json::from_value(read(&op, &h, "p", &r, 10).unwrap()).unwrap();
-        assert_eq!(
-            (preview.ids.clone(), preview.applied),
-            (vec!["d2".to_string()], false)
-        );
+        assert_eq!((preview.ids.clone(), preview.applied), (vec![d2], false));
         let store = super::super::marks::fake::Store::default();
         let stores: Vec<&dyn super::super::marks::MarkStore> = vec![&store];
         let done: PurgeReport =

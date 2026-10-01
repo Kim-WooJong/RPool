@@ -14,19 +14,11 @@ pub(crate) struct MountForm {
     pub(super) pool: String,
     pub(super) workspace: String,
     pub(super) mountpoint: String,
-    pub(super) shared_root: String,
-    pub(super) worker_name: String,
+    /// Display name in pool-sync conflicts (`--pool-worker`); generated if empty.
+    pub(super) pc_name: String,
     pub(super) manifests: Vec<String>,
     pub(super) manifest_input: String,
     pub(super) interval_seconds: u64,
-    pub(super) virtual_drive: bool,
-    pub(super) bounded_shared: bool,
-    pub(super) pool_sync: bool,
-    pub(super) pool_retention: bool,
-    pub(super) pool_history_limit: u32,
-    pub(super) pool_history_override: bool,
-    pub(super) shared_coordinator: bool,
-    pub(super) shared_keep_previous: usize,
     pub(super) cache_gib: u64,
     pub(super) vfs_cache_gib: u64,
     pub(super) cache_min_free_gib: u64,
@@ -42,9 +34,6 @@ pub(crate) struct MountForm {
     pub(crate) tab: crate::gui::state::DriveTab,
     pub(super) recovery_skip_remotes: String,
     pub(super) recovery_reprocess_plan: String,
-    pub(super) keep_previous: usize,
-    pub(super) diagnostic_read_only: bool,
-    pub(super) retention_confirmed: bool,
     pub(super) frontend: crate::cli::Frontend,
     pub(super) native_read_only: bool,
 }
@@ -64,19 +53,10 @@ impl Default for MountForm {
             } else {
                 String::new()
             },
-            shared_root: String::new(),
-            worker_name: String::new(),
+            pc_name: String::new(),
             manifests: Vec::new(),
             manifest_input: String::new(),
             interval_seconds: 30,
-            virtual_drive: true,
-            bounded_shared: false,
-            pool_sync: true,
-            pool_retention: false,
-            pool_history_limit: 0,
-            pool_history_override: false,
-            shared_coordinator: false,
-            shared_keep_previous: 0,
             cache_gib: 10,
             vfs_cache_gib: 10,
             cache_min_free_gib: 2,
@@ -89,9 +69,6 @@ impl Default for MountForm {
             tab: crate::gui::state::DriveTab::default(),
             recovery_skip_remotes: String::new(),
             recovery_reprocess_plan: String::new(),
-            keep_previous: 3,
-            diagnostic_read_only: false,
-            retention_confirmed: false,
             frontend: Default::default(),
             native_read_only: false,
         }
@@ -112,7 +89,6 @@ impl MountForm {
     pub(crate) fn from_settings(settings: &crate::gui::settings::GuiSettings) -> Self {
         let cache = &settings.mount_cache;
         Self {
-            virtual_drive: cache.online_drive,
             cache_gib: cache.shard_gib,
             vfs_cache_gib: cache.native_gib,
             cache_min_free_gib: cache.min_free_gib,
@@ -123,7 +99,6 @@ impl MountForm {
 
     pub(super) fn cache_settings(&self) -> crate::gui::settings::MountCacheSettings {
         crate::gui::settings::MountCacheSettings {
-            online_drive: self.virtual_drive,
             shard_gib: self.cache_gib,
             native_gib: self.vfs_cache_gib,
             min_free_gib: self.cache_min_free_gib,
@@ -151,21 +126,12 @@ impl MountForm {
         crate::gui::settings::MountProfile {
             workspace: self.workspace.clone(),
             mountpoint: self.mountpoint.clone(),
-            shared_root: self.shared_root.clone(),
-            worker_name: self.worker_name.clone(),
+            pc_name: self.pc_name.clone(),
             manifests: self.manifests.clone(),
             interval_seconds: self.interval_seconds,
-            bounded_shared: self.bounded_shared,
-            pool_sync: self.pool_sync,
-            pool_retention: self.pool_retention,
-            pool_history_limit: self.pool_history_limit,
-            pool_history_override: self.pool_history_override,
-            shared_coordinator: self.shared_coordinator,
-            shared_keep_previous: self.shared_keep_previous,
             cache: self.cache_settings(),
             frontend: self.frontend,
             native_read_only: self.native_read_only,
-            keep_previous: self.keep_previous,
         }
     }
 
@@ -199,22 +165,11 @@ impl MountForm {
         self.pool = pool;
         self.workspace = profile.workspace;
         self.mountpoint = profile.mountpoint;
-        self.shared_root = profile.shared_root;
-        self.worker_name = profile.worker_name;
+        self.pc_name = profile.pc_name;
         self.manifests = profile.manifests;
         self.interval_seconds = profile.interval_seconds;
-        self.bounded_shared = profile.bounded_shared;
-        self.pool_sync = profile.pool_sync;
-        self.pool_retention = profile.pool_retention;
-        self.pool_history_limit = profile.pool_history_limit;
-        self.pool_history_override = profile.pool_history_override;
-        self.shared_coordinator = profile.shared_coordinator;
-        self.shared_keep_previous = profile.shared_keep_previous;
         self.frontend = profile.frontend;
         self.native_read_only = profile.native_read_only;
-        self.keep_previous = profile.keep_previous;
-        self.retention_confirmed = false;
-        self.virtual_drive = profile.cache.online_drive;
         self.cache_gib = profile.cache.shard_gib;
         self.vfs_cache_gib = profile.cache.native_gib;
         self.cache_min_free_gib = profile.cache.min_free_gib;
@@ -228,15 +183,10 @@ impl MountForm {
         }
     }
 
-    /// A native frontend needs a local online drive: no pool sync or shared root.
-    pub(super) fn native_allowed(&self) -> bool {
-        self.virtual_drive && !self.bounded_shared && self.shared_root.trim().is_empty()
-    }
     /// Whether this mount will use a native frontend on this build.
     pub(super) fn native_selected(&self) -> bool {
         use crate::cli::Frontend;
-        self.native_allowed()
-            && Frontend::native_here().is_some()
+        Frontend::native_here().is_some()
             && matches!(
                 self.frontend,
                 Frontend::Auto | Frontend::Fuse | Frontend::Winfsp
@@ -246,18 +196,12 @@ impl MountForm {
     /// explicit, so the CLI's `auto` default never picks a frontend the form
     /// did not offer.
     pub(super) fn frontend_args(&self, sync_only: bool) -> Vec<OsString> {
-        use crate::cli::Frontend;
         if sync_only {
             return vec![];
         }
-        let frontend = if self.native_allowed() {
-            self.frontend
-        } else {
-            Frontend::Dav
-        };
         let mut args = vec![OsString::from(format!(
             "--frontend={}",
-            frontend.cli_value()
+            self.frontend.cli_value()
         ))];
         if self.native_read_only && self.native_selected() {
             args.push("--native-read-only".into());
@@ -268,11 +212,8 @@ impl MountForm {
     pub(super) fn append_cache_args(&self, args: &mut Vec<OsString>) {
         args.push(format!("--vfs-cache-gib={}", self.vfs_cache_gib).into());
         args.push(format!("--cache-min-free-gib={}", self.cache_min_free_gib).into());
-        if self.virtual_drive {
-            args.push("--virtual-drive".into());
-            args.push(format!("--spool-gib={}", self.spool_gib).into());
-            args.push(format!("--cache-gib={}", self.cache_gib).into());
-        }
+        args.push(format!("--spool-gib={}", self.spool_gib).into());
+        args.push(format!("--cache-gib={}", self.cache_gib).into());
     }
 
     /// Forget the shown capacity (for example after identities changed).
@@ -328,7 +269,6 @@ impl MountForm {
             } else {
                 Vec::new()
             },
-            keep_previous: self.keep_previous,
         }
     }
 
@@ -344,9 +284,6 @@ impl MountForm {
     }
 
     pub(super) fn recovery_args(&self, stop: &Path) -> Result<Vec<OsString>, String> {
-        if !self.virtual_drive || !self.pool_sync || self.pool_retention {
-            return Err(tr("Recovery destination must use Online drive + Automatic pool sync, with automatic history deletion OFF.").into());
-        }
         if self.pool.trim().is_empty()
             || !Path::new(self.workspace.trim()).is_absolute()
             || !Path::new(self.recovery_source.trim()).is_absolute()
@@ -360,11 +297,11 @@ impl MountForm {
             self.workspace.trim().into(),
             "--account-recovery-from".into(),
             self.recovery_source.trim().into(),
-            "--pool-sync".into(),
             "--stop-file".into(),
             stop.as_os_str().to_owned(),
         ];
         self.append_cache_args(&mut args);
+        self.append_pc_name(&mut args);
         for remote in self
             .recovery_skip_remotes
             .lines()
@@ -406,83 +343,32 @@ impl MountForm {
         Ok(())
     }
 
-    /// Local online drives only: retention and native frontends conflict with
-    /// pool sync and shared roots.
-    pub(super) fn retention_allowed(&self) -> bool {
-        self.virtual_drive
-            && !self.pool_sync
-            && !self.bounded_shared
-            && self.shared_root.trim().is_empty()
-    }
-    pub(super) fn retention_key(&self) -> (String, String, usize) {
-        (
-            self.pool.trim().into(),
-            self.workspace.trim().into(),
-            self.keep_previous,
-        )
-    }
-    /// Deleting obsolete versions needs a successful preview of the same
-    /// pool, workspace and history limit, plus confirmed exclusive ownership.
-    pub(super) fn retention_ready(&self) -> bool {
-        self.retention_allowed()
-            && self.retention_confirmed
-            && self.session.retention_previewed.as_ref() == Some(&self.retention_key())
+    /// `--pool-worker` when a PC name is set.
+    fn append_pc_name(&self, args: &mut Vec<OsString>) {
+        if !self.pc_name.trim().is_empty() {
+            args.push(format!("--pool-worker={}", self.pc_name.trim()).into());
+        }
     }
 
     /// Validated `rpool mount` arguments for `action`: 0 mount, 1 sync, 2
-    /// capacity, 3 migrate, 4 trim cache, 5 export spool, 6 apply pool
-    /// changes, 7 retention preview, 8 apply retention, 9 import from rclone.
+    /// capacity, 4 trim cache, 5 export spool, 6 apply pool changes, 9 import
+    /// from rclone.
     pub(super) fn action_args(&self, action: u8, control: &Path) -> Result<Vec<OsString>, String> {
         let sync_only = action != 0;
-        let automatic = self.virtual_drive && self.pool_sync;
-        if action == 6 && (!automatic || !self.manifests.is_empty()) {
-            return Err(tr("Apply pool changes requires Online drive + Automatic pool sync and no explicit imports.").into());
-        }
-        if matches!(action, 7 | 8) && !self.retention_allowed() {
-            return Err(tr("History cleanup needs an online drive with Sync = This PC only (no pool sync or shared root).").into());
-        }
-        if action == 9 {
-            if !self.virtual_drive
-                || self.bounded_shared
-                || (!automatic && !self.shared_root.trim().is_empty())
-            {
-                return Err(tr(
-                    "Importing needs an online drive with This PC only or Automatic pool sync.",
-                )
-                .into());
-            }
-            if !self.import_source.trim().contains(':') {
-                return Err(tr(
-                    "Enter the rclone source as remote:path (for example old-crypt:photos).",
-                )
-                .into());
-            }
-        }
-        if action == 8 && !self.retention_ready() {
-            return Err(tr("Preview obsolete versions for this pool, workspace and limit, and confirm exclusive ownership, before deleting.").into());
-        }
-        let diagnostic =
-            action == 0 && automatic && self.pool_retention && self.diagnostic_read_only;
-        if diagnostic && !self.manifests.is_empty() {
+        if action == 6 && !self.manifests.is_empty() {
             return Err(tr(
-                "A diagnostic read-only mount cannot import archives; remove the manifest imports.",
+                "Apply pool changes needs no listed archive imports; remove them first.",
+            )
+            .into());
+        }
+        if action == 9 && !self.import_source.trim().contains(':') {
+            return Err(tr(
+                "Enter the rclone source as remote:path (for example old-crypt:photos).",
             )
             .into());
         }
         if self.pool.trim().is_empty() || self.workspace.trim().is_empty() {
             return Err(tr("Select an upload pool and a persistent local workspace.").into());
-        }
-        if !automatic && self.shared_root.trim().is_empty() != self.worker_name.trim().is_empty() {
-            return Err(tr("Enter both a shared root and a worker name, or leave both empty for local-only mode.").into());
-        }
-        if !automatic
-            && self.bounded_shared
-            && (!self.virtual_drive || self.shared_root.trim().is_empty())
-        {
-            return Err(tr(
-                "Bounded shared history requires virtual mode and a shared encrypted root.",
-            )
-            .into());
         }
         if !sync_only && self.mountpoint.trim().is_empty() {
             return Err(tr(
@@ -497,16 +383,6 @@ impl MountForm {
             self.pool.trim(),
             Path::new(self.workspace.trim()),
             self.mountpoint.trim(),
-            if automatic {
-                ""
-            } else {
-                self.shared_root.trim()
-            },
-            if automatic {
-                ""
-            } else {
-                self.worker_name.trim()
-            },
             // Listed archives are applied at the next mount; an rclone import
             // is its own offline action and must not carry them.
             if action == 9 { &[] } else { &self.manifests },
@@ -515,29 +391,7 @@ impl MountForm {
             sync_only,
         );
         self.append_cache_args(&mut args);
-        if self.virtual_drive {
-            if automatic {
-                args.push("--pool-sync".into());
-                if self.pool_retention {
-                    args.push("--pool-retention".into());
-                }
-                if !self.worker_name.trim().is_empty() {
-                    args.push(format!("--pool-worker={}", self.worker_name.trim()).into());
-                }
-                if self.pool_history_override || self.pool_retention {
-                    args.push(format!("--pool-history-limit={}", self.pool_history_limit).into());
-                }
-            } else if self.bounded_shared {
-                args.push("--bounded-shared".into());
-                args.push(format!("--shared-keep-previous={}", self.shared_keep_previous).into());
-                if self.shared_coordinator {
-                    args.push("--shared-coordinator".into());
-                }
-            }
-        }
-        if diagnostic {
-            args.push("--diagnostic-read-only".into());
-        }
+        self.append_pc_name(&mut args);
         args.extend(self.frontend_args(sync_only));
         args.push("--status-file".into());
         args.push(control.join("capacity.json").into_os_string());
@@ -549,10 +403,8 @@ impl MountForm {
                     4 => "--cleanup-cache",
                     5 => "--recover-spool",
                     6 => "--apply-pool-changes",
-                    7 => "--retention-report",
-                    8 => "--apply-retention",
                     9 => "--import-from",
-                    _ => "--migrate-excluded",
+                    _ => return Err(format!("unknown mount action {action}")),
                 }
                 .into(),
             );
@@ -567,12 +419,6 @@ impl MountForm {
             if self.import_rename {
                 args.push("--import-conflict=rename".into());
             }
-        }
-        if matches!(action, 7 | 8) {
-            args.push(format!("--keep-previous={}", self.keep_previous).into());
-        }
-        if action == 8 {
-            args.push("--exclusive-archive-ownership".into());
         }
         if action == 6 && !self.recovery_reprocess_plan.trim().is_empty() {
             args.push("--recovery-reprocess-plan".into());
@@ -595,7 +441,6 @@ impl MountForm {
         let args = self.action_args(action, control.path())?;
         self.check_conflict(action)?;
         let spec = self.spec_for(action);
-        let diagnostic = self.diagnostic_read_only && self.pool_retention && self.pool_sync;
         let session = &mut self.session;
         session.capacity = None;
         session.pool_status = None;
@@ -604,15 +449,11 @@ impl MountForm {
         session.runner.start_rpool(
             match action {
                 2 => "Check pool capacity",
-                3 => "Migrate active archives (retain originals)",
                 4 => "Trim clean shard cache",
                 5 => "Export recoverable spool",
                 6 => "Apply pool changes (preserve original workspace)",
-                7 => "Preview obsolete versions",
-                8 => "Delete obsolete versions",
                 9 => "Import from rclone",
                 _ if sync_only => "Sync local workspace",
-                _ if diagnostic => "Diagnostic read-only mount",
                 _ => "Mount workspace",
             },
             rclone,
@@ -620,13 +461,7 @@ impl MountForm {
         )?;
         session.started(control, spec, action);
         session.recovering_accounts = false;
-        if action == 8 {
-            session.retention_previewed = None;
-            self.retention_confirmed = false;
-        }
         self.session.notice = Some(match action {
-            7 => tr("Previewing obsolete versions; nothing is uploaded or deleted. Check the log for the list."),
-            8 => tr("Deleting obsolete versions. The operation is resumable; do not remove the retention journal."),
             9 => tr("Importing. The source is only read; imported files upload in batches. Stop anytime and start again to resume."),
             2.. => tr("Maintenance running. See log for capacity, cleanup or recovery results."),
             1 => tr("Synchronizing local workspace. See log for verified archive results."),

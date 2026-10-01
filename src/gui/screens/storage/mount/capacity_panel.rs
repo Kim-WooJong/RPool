@@ -73,7 +73,7 @@ fn now() -> u64 {
 }
 
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
-    let form = &mut state.mount;
+    let form = &state.mount;
     let Some(capacity) = &form.session.capacity else {
         theme::card_section(
             ui,
@@ -87,7 +87,6 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
         );
         return;
     };
-    let mut migrate = false;
     theme::card_section(
         ui,
         tr("Capacity"),
@@ -194,24 +193,9 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
                     ui.small(trf("Known committed shared namespace: {size} (data only)", &[("size", &format_bytes(committed))]));
                 }
                 ui.small(tr("Usage excludes parity and may exclude writes still in the OS cache. Retained cloud history uses physical quota."));
-                if capacity.retained_archives > 0 {
-                    ui.colored_label(ui.visuals().warn_fg_color, trf("{active} active archives and {manifests} known manifests reference excluded accounts.", &[("active", &capacity.affected_active), ("manifests", &capacity.retained_archives)]));
-                    ui.small(tr("Migration switches active references only after verified copying; originals are kept. Unmount and drain the OS cache first."));
-                    migrate = ui
-                        .add_enabled(
-                            !form.virtual_drive && !form.session.runner.is_running() && capacity.affected_active > 0 && !capacity.eligible.is_empty(),
-                            egui::Button::new(tr("Migrate active archives — keep originals")),
-                        )
-                        .clicked();
-                }
             });
         },
     );
-    if migrate {
-        super::status_bar::run(form, &mut state.settings, |form, rclone| {
-            form.start_action(rclone, 3)
-        });
-    }
 }
 
 #[cfg(test)]

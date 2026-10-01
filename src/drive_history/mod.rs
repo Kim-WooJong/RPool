@@ -2,14 +2,14 @@
 //!
 //! `rpool drive trash list|restore|purge|empty`, `rpool drive versions
 //! list|restore` and `rpool drive rollback` (preview by default) work on a
-//! pool's drive (v6 events or v7 snapshots) and never destroy history:
+//! pool's drive (v6 events) and never destroy history:
 //! restoring or rolling back publishes new revisions. Only `trash purge` /
 //! `trash empty` (and expiry after the retention period) make a deleted
 //! file's data eligible for removal. `--json` prints the [`model`] types;
 //! the GUI reads those (or calls [`api`] in process).
 //!
 //! Design: `docs/DRIVE_HISTORY_DESIGN.md`. Layout:
-//! - `graph`: normalized revision graph; `source_v6` / `source_v7` build it,
+//! - `graph`: normalized revision graph; `source_v6` builds it,
 //!   `times` (record ModTimes) and `marks` (published purge marks) feed it.
 //! - `trash`, `versions`, `rollback`: pure planning over the graph;
 //!   `restore`: planned actions; `retention`: settings and what they keep.
@@ -29,17 +29,11 @@ mod restore;
 pub(crate) mod retention;
 mod rollback;
 mod source_v6;
-pub(crate) mod source_v7;
 mod time_arg;
 mod times;
 mod trash;
 mod versions;
 
-/// Trash of a built history with default retention (tests outside this module).
-#[cfg(test)]
-pub(crate) fn trash_list_for_tests(history: &graph::History) -> Vec<model::TrashEntry> {
-    trash::list(history, &model::Retention::default(), 10).unwrap()
-}
 #[cfg(test)]
 mod drive_tests;
 #[cfg(test)]

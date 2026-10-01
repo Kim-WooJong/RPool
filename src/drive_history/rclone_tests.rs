@@ -1,7 +1,7 @@
 //! End to end with the installed rclone over local crypt remotes (no cloud,
 //! no OS mount): two PCs (workspaces), workspace-less cloud listing and
 //! restore, a workspace rollback, a request answered by a "mounted" drive,
-//! purge marks, and v7 bytes kept by retention and restored.
+//! purge marks.
 //! Run alone: `cargo test --bin rpool drive_history::rclone_tests -- --ignored --test-threads=1`.
 use super::dispatch::run;
 use super::model::{RollbackPlan, TrashEntry, VersionEntry};
@@ -63,11 +63,8 @@ fn setup(temp: &Path, rclone: &str, pools: &[&str]) {
     crate::pool::save_pool_store(&store).unwrap();
 }
 
-fn open(rclone: &str, pool: &str, root: &Path, worker: &str, v7: bool) -> VirtualDrive {
-    let mut drive =
-        VirtualDrive::open(rclone, pool, root, worker, None, 64 << 20, false, true, v7).unwrap();
-    drive.pool_history_limit = 0;
-    crate::mount::pool_sync::Config::load(&drive.root, Some(0)).unwrap();
+fn open(rclone: &str, pool: &str, root: &Path, worker: &str) -> VirtualDrive {
+    let drive = VirtualDrive::open(rclone, pool, root, worker, 64 << 20).unwrap();
     fs::write(root.join("pool-worker.json"), format!("\"{worker}\"")).unwrap();
     drive
 }
@@ -123,7 +120,7 @@ fn v6_trash_versions_rollback_and_mount_requests_end_to_end() {
     let temp = tempfile::tempdir().unwrap();
     setup(temp.path(), &rclone, &["hist"]);
     let ws_a = temp.path().join("pc-a");
-    let a = open(&rclone, "hist", &ws_a, "PC-A", false);
+    let a = open(&rclone, "hist", &ws_a, "PC-A");
     write(&a, "Docs/a.txt", b"version one");
     write(&a, "Docs/a.txt", b"version two");
     write(&a, "keep.txt", b"keep");
@@ -162,7 +159,7 @@ fn v6_trash_versions_rollback_and_mount_requests_end_to_end() {
     );
     assert!(restored.published, "{restored:?}");
     let ws_b = temp.path().join("pc-b");
-    let b = open(&rclone, "hist", &ws_b, "PC-B", false);
+    let b = open(&rclone, "hist", &ws_b, "PC-B");
     assert_eq!(read(&b, "Docs/a.txt"), b"version two");
     drop(b);
     let trash: Vec<TrashEntry> = op(&rclone, "hist", None, Op::TrashList);
@@ -193,13 +190,13 @@ fn v6_trash_versions_rollback_and_mount_requests_end_to_end() {
         },
     );
     assert!(applied.applied);
-    let b = open(&rclone, "hist", &ws_b, "PC-B", false);
+    let b = open(&rclone, "hist", &ws_b, "PC-B");
     assert_eq!(read(&b, "Docs/a.txt"), b"version one");
     assert!(!b.view().unwrap().contains_key("keep.txt"));
     drop(b);
 
     // A "mounted" PC-A answers requests from its maintenance loop.
-    let a = Arc::new(open(&rclone, "hist", &ws_a, "PC-A", false));
+    let a = Arc::new(open(&rclone, "hist", &ws_a, "PC-A"));
     let registry = crate::monitor::registry::registry_dir().unwrap();
     let entry = crate::monitor::model::MountEntry {
         id: crate::monitor::registry::new_id(),
@@ -259,70 +256,4 @@ fn v6_trash_versions_rollback_and_mount_requests_end_to_end() {
     // The purge mark hides the entry for every PC (here: the cloud listing).
     let trash: Vec<TrashEntry> = op(&rclone, "hist", None, Op::TrashList);
     assert!(trash.is_empty(), "{trash:?}");
-}
-
-#[test]
-#[ignore = "requires rclone; sets process environment"]
-fn v7_retention_keeps_deleted_bytes_and_cloud_restore_uploads_them() {
-    let rclone = rclone();
-    let temp = tempfile::tempdir().unwrap();
-    setup(temp.path(), &rclone, &["hist7"]);
-    // Explicit retention: snapshot GC keeps what the trash/versions need.
-    super::retention::update("hist7", Some(30), Some(20), Some(90)).unwrap();
-    let ws_a = temp.path().join("pc-a");
-    let a = open(&rclone, "hist7", &ws_a, "PC-A", true);
-    write(&a, "notes.txt", b"first text");
-    write(&a, "notes.txt", b"second text");
-    a.peer_read_pins.lock().unwrap().clear();
-    let visible = a.view().unwrap()["notes.txt"].clone();
-    a.pin_read("notes.txt", &visible).unwrap();
-    a.delete("notes.txt").unwrap();
-    a.sync().unwrap();
-    a.sync().unwrap();
-    drop(a);
-    let trash: Vec<TrashEntry> = op(&rclone, "hist7", None, Op::TrashList);
-    assert_eq!(trash.len(), 1, "{trash:?}");
-    let versions: Vec<VersionEntry> = op(
-        &rclone,
-        "hist7",
-        None,
-        Op::VersionsList {
-            path: "/notes.txt".into(),
-        },
-    );
-    assert_eq!(versions.len(), 3, "{versions:?}");
-    assert!(
-        versions[1].restorable && versions[2].restorable,
-        "{versions:?}"
-    );
-    let restored: RestoreReport = op(
-        &rclone,
-        "hist7",
-        None,
-        Op::TrashRestore {
-            ids: vec![trash[0].id.clone()],
-            to: None,
-            into: None,
-        },
-    );
-    assert!(restored.published, "{restored:?}");
-    let b = open(&rclone, "hist7", &temp.path().join("pc-b"), "PC-B", true);
-    b.pull().unwrap();
-    assert_eq!(read(&b, "notes.txt"), b"second text");
-    // An old version restored as a copy, through PC-B's (unmounted) workspace.
-    drop(b);
-    let first = versions[2].id.clone();
-    let copy: RestoreReport = op(
-        &rclone,
-        "hist7",
-        Some(&temp.path().join("pc-b")),
-        Op::VersionsRestore {
-            path: "/notes.txt".into(),
-            id: first,
-            as_copy: true,
-        },
-    );
-    assert!(copy.published, "{copy:?}");
-    let b = open(&rclone, "hist7", &temp.path().join("pc-b"), "PC-B", true);
-    assert_eq!(read(&b, "notes (restored).txt"), b"first text");
 }

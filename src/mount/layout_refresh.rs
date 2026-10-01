@@ -70,8 +70,7 @@ pub(crate) fn validate_membership(saved: &PoolDefinition, current: &PoolDefiniti
 
 /// Counts started work whose resume depends on the workspace's saved layout:
 /// spool directories of uncommitted intents that hold an upload plan, a
-/// completed but unpublished manifest, an incremental recipe or a v7 snapshot
-/// plan, plus unfinished captured uploads of snapshot compaction. Spool left by
+/// completed but unpublished manifest or an incremental recipe. Spool left by
 /// committed intents is ignored: it is never uploaded again.
 pub(crate) fn pending_layout_work<'a>(
     root: &Path,
@@ -99,7 +98,6 @@ pub(crate) fn pending_layout_work<'a>(
     let intent_marker = |dir: &Path, name: &str| {
         name.ends_with(".rpool.upload.json")
             || name.ends_with(".rpool.json")
-            || name == "snapshot-plan.json"
             || name == "recipe.json"
                 && dir
                     .file_name()
@@ -115,11 +113,6 @@ pub(crate) fn pending_layout_work<'a>(
             pending += 1;
         }
     }
-    // Compaction plans themselves hold only manifests; their captured uploads
-    // carry upload plans until `put` finishes and removes them.
-    pending += scan(&root.join("snapshot-compaction"), &|_, name| {
-        name.ends_with(".rpool.upload.json")
-    })?;
     Ok(pending)
 }
 
@@ -218,7 +211,6 @@ mod tests {
             "upload/eligible-k/f.rpool.upload.json",
             "upload/eligible-k/f.rpool.json",
             "upload/peer-incremental-virtual-x/recipe.json",
-            "snapshot-plan.json",
         ] {
             let root = tempfile::tempdir().unwrap();
             spool_file(root.path(), marker);
@@ -239,25 +231,6 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         spool_file(root.path(), "upload/recipe.json");
         assert_eq!(pending_layout_work(root.path(), [ID]).unwrap(), 0);
-    }
-
-    #[test]
-    fn snapshot_compaction_defers_only_while_a_captured_upload_is_unfinished() {
-        let root = tempfile::tempdir().unwrap();
-        let compact = root.path().join("snapshot-compaction");
-        fs::create_dir_all(compact.join("captured/r/eligible-k")).unwrap();
-        fs::write(compact.join("plan.json"), b"plan").unwrap();
-        fs::write(compact.join("captured/r/content"), b"bytes").unwrap();
-        let none: [&str; 0] = [];
-        assert_eq!(pending_layout_work(root.path(), none).unwrap(), 0);
-        let plan = compact.join("captured/r/eligible-k/content.rpool.upload.json");
-        fs::write(&plan, b"plan").unwrap();
-        assert_eq!(pending_layout_work(root.path(), none).unwrap(), 1);
-        let saved = policy();
-        let current = larger_shards(&saved);
-        assert!(resolve(&saved, &current, 1).unwrap().1.is_some());
-        fs::remove_file(plan).unwrap();
-        assert_eq!(pending_layout_work(root.path(), none).unwrap(), 0);
     }
 
     #[cfg(unix)]

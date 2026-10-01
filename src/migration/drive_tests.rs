@@ -35,24 +35,20 @@ struct World {
     builds_left: AtomicUsize,
 }
 
-fn payload(v7: bool, n: char, remotes: &[&str]) -> Manifest {
-    let id = if v7 {
-        format!("peer-v7-{}", n.to_string().repeat(64))
-    } else {
-        format!("virtual-{}", n.to_string().repeat(64))
-    };
+fn payload(n: char, remotes: &[&str]) -> Manifest {
+    let id = format!("virtual-{}", n.to_string().repeat(64));
     manifest(&id, 2 * MIB, MIB, 2, 1, remotes)
 }
 
 /// Pool a,b,c,d loses d. Files: kept (a,b,c), moved1 / moved2 (b,c,d),
 /// gone (two shards on d).
-fn world(v7: bool) -> World {
+fn world() -> World {
     let mut cloud = FakeCloud::default();
     let manifests = vec![
-        payload(v7, '1', &["a:x", "b:x", "c:x"]),
-        payload(v7, '2', &["b:x", "c:x", "d:x"]),
-        payload(v7, '3', &["b:x", "c:x", "d:x"]),
-        payload(v7, '4', &["d:x", "d:x", "c:x"]),
+        payload('1', &["a:x", "b:x", "c:x"]),
+        payload('2', &["b:x", "c:x", "d:x"]),
+        payload('3', &["b:x", "c:x", "d:x"]),
+        payload('4', &["d:x", "d:x", "c:x"]),
     ];
     for m in &manifests {
         cloud.store(m, &[]);
@@ -64,7 +60,7 @@ fn world(v7: bool) -> World {
         .zip(names)
         .map(|(m, name)| drive_file(name, &format!("rev1-{name}"), m))
         .collect();
-    let drive = FakeDrive::new(v7, files);
+    let drive = FakeDrive::new(files);
     let options = PlanOptions::default();
     let (mut plan, mut listed) = plan_listed(
         &cloud,
@@ -119,9 +115,6 @@ impl World {
     }
     fn files(&self) -> BTreeMap<String, DriveFile> {
         by_key(self.drive.files.lock().unwrap().clone())
-    }
-    fn v7(&self) -> bool {
-        self.drive_plan.source.v7
     }
     /// The run's drive part for `pc`: freeze, then the planned entries still
     /// current, through the real state machine.
@@ -185,7 +178,6 @@ impl World {
     fn new_generation(&self) -> GenerationRef {
         GenerationRef {
             epoch: Some(self.drive_plan.epoch.clone()),
-            v7: self.v7(),
         }
     }
 }
@@ -237,7 +229,7 @@ impl Effects for FakeEffects<'_> {
         self.world.now()
     }
     fn new_archive_id(&self) -> Result<String> {
-        new_archive_id(self.world.v7())
+        new_archive_id()
     }
     fn say(&self, _: &str) {}
 }
@@ -251,7 +243,7 @@ impl AdoptIo for FakeIo<'_> {
     fn source(&self) -> &dyn DriveSource {
         &self.world.drive
     }
-    fn sink(&self, epoch: &str, _: bool) -> Result<Box<dyn Sink + '_>> {
+    fn sink(&self, epoch: &str) -> Result<Box<dyn Sink + '_>> {
         Ok(Box::new(self.world.drive.sink(epoch)))
     }
     fn load_manifest(&self, location: &str) -> Result<Manifest> {
@@ -276,7 +268,6 @@ impl AdoptIo for FakeIo<'_> {
             &listings,
             &PlanOptions::default(),
             1,
-            w.v7(),
             files,
         )?;
         let kept = classified
@@ -322,7 +313,7 @@ fn seen(w: &World, generation: &GenerationRef) -> BTreeMap<String, DriveFile> {
 
 #[test]
 fn interrupted_run_resumes_and_adoption_reaches_a_pc_without_workspace() {
-    let w = world(false);
+    let w = world();
     // PC A is interrupted after one file.
     w.builds_left.store(1, SeqCst);
     let first = w.run("pc-a", "cache-a");
@@ -373,20 +364,15 @@ fn interrupted_run_resumes_and_adoption_reaches_a_pc_without_workspace() {
     // PC C never had a workspace: it finds the adoption in the cloud, a new
     // workspace opens the new epoch, and that generation shows the files.
     let known = known_in("p", w.stores(), Some(w.cache("cache-c"))).unwrap();
-    assert_eq!(
-        fresh_workspace(&known, false).unwrap().epoch,
-        w.drive_plan.epoch
-    );
+    assert_eq!(fresh_workspace(&known).unwrap().epoch, w.drive_plan.epoch);
     let generations = vec![
         Generation {
             epoch: None,
-            v7: false,
             newest: 99,
             records: 4,
         },
         Generation {
             epoch: Some(w.drive_plan.epoch.clone()),
-            v7: false,
             newest: 50,
             records: 3,
         },
@@ -397,14 +383,15 @@ fn interrupted_run_resumes_and_adoption_reaches_a_pc_without_workspace() {
     let files = seen(&w, &w.new_generation());
     assert_eq!(files.len(), 3);
     assert!(!files.contains_key("gone.bin"));
-    // Unaffected v6 file keeps its archive; moved ones use the new archives.
+    // Unaffected file keeps its archive; moved ones use new drive archives.
     assert_eq!(
         files["docs/kept.txt"].manifest.archive_id,
         planned(&w, "docs/kept.txt").source_archive_id
     );
     for path in ["moved1.bin", "moved2.bin"] {
+        let id = &files[path].manifest.archive_id;
         assert!(
-            files[path].manifest.archive_id.starts_with("migrate-"),
+            id.starts_with("virtual-") && *id != planned(&w, path).source_archive_id,
             "{path}"
         );
         assert_eq!(files[path].hash, planned(&w, path).hash);
@@ -428,9 +415,9 @@ fn interrupted_run_resumes_and_adoption_reaches_a_pc_without_workspace() {
 
 #[test]
 fn files_changed_after_planning_are_caught_up_on_adoption() {
-    let mut w = world(false);
+    let mut w = world();
     w.run("pc-a", "cache-a");
-    let fresh = payload(false, '5', &["a:x", "b:x", "c:x"]);
+    let fresh = payload('5', &["a:x", "b:x", "c:x"]);
     w.cloud.store(&fresh, &[]);
     {
         let mut files = w.drive.files.lock().unwrap();
@@ -450,11 +437,13 @@ fn files_changed_after_planning_are_caught_up_on_adoption() {
         files["moved1.bin"].hash,
         blake3::hash(b"edited").to_hex().to_string()
     );
-    assert!(files["moved1.bin"]
-        .manifest
-        .archive_id
-        .starts_with("migrate-"));
-    assert!(files["new.txt"].manifest.archive_id.starts_with("virtual-"));
+    // moved1 was relocated into a new drive archive; new.txt kept its own.
+    let moved = &files["moved1.bin"].manifest.archive_id;
+    assert!(moved.starts_with("virtual-") && *moved != payload('2', &TARGET).archive_id);
+    assert_eq!(
+        files["new.txt"].manifest.archive_id,
+        payload('5', &TARGET).archive_id
+    );
     // The caught-up file has its own record under the new revision's key.
     let state = progress(&w.journal("cache-a").records().unwrap());
     assert!(matches!(
@@ -464,35 +453,8 @@ fn files_changed_after_planning_are_caught_up_on_adoption() {
 }
 
 #[test]
-fn v7_adoption_publishes_private_payloads_a_mount_accepts() {
-    let w = world(true);
-    w.run("pc-a", "cache-a");
-    let adoption = w.adopt("cache-a", true).unwrap();
-    assert!(adoption.v7);
-    let files = seen(&w, &w.new_generation());
-    assert_eq!(files.len(), 3);
-    let owners: BTreeSet<_> = files
-        .values()
-        .map(|f| f.manifest.archive_id.clone())
-        .collect();
-    assert_eq!(owners.len(), 3, "one private owner per file");
-    for file in files.values() {
-        assert!(file.manifest.archive_id.starts_with("peer-v7-"));
-        let original = w
-            .drive_plan
-            .entries
-            .iter()
-            .find(|e| e.path == file.path)
-            .unwrap();
-        assert_ne!(file.manifest.archive_id, original.source_archive_id);
-    }
-    let view = w.drive.view(&w.new_generation()).unwrap();
-    assert_eq!(view.history_limit, Some(0));
-}
-
-#[test]
 fn abandoned_migration_lifts_the_freeze_and_cannot_be_adopted() {
-    let w = world(false);
+    let w = world();
     w.builds_left.store(0, SeqCst);
     w.run("pc-a", "cache-a");
     let known = known_in("p", w.stores(), Some(w.cache("cache-z"))).unwrap();
@@ -519,7 +481,7 @@ fn abandoned_migration_lifts_the_freeze_and_cannot_be_adopted() {
 
 #[test]
 fn files_claimed_by_a_running_pc_block_adoption() {
-    let w = world(false);
+    let w = world();
     let journal = w.journal("cache-a");
     let key = planned(&w, "moved1.bin").key.clone();
     journal

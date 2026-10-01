@@ -1159,11 +1159,6 @@
   "ja": "計画に戻る",
   "zh": "返回计划"
  },
- "Drive files are not included yet — use Apply pool changes (Advanced / manual) for a mounted drive.": {
-  "ko": "드라이브 파일은 아직 포함되지 않아요 — 마운트된 드라이브에는 풀 변경 적용(고급 / 수동)을 사용하세요.",
-  "ja": "ドライブのファイルはまだ含まれません — マウントしたドライブには「プール変更を適用」（詳細 / 手動）を使ってください。",
-  "zh": "尚未包含驱动器文件 — 已挂载的驱动器请使用“应用存储池更改”（高级 / 手动）。"
- },
  "Existing migrations": {
   "ko": "기존 이전",
   "ja": "既存の移行",
@@ -1278,11 +1273,6 @@
   "ko": "풀 '{pool}'의 계획 {id}",
   "ja": "プール '{pool}' の計画 {id}",
   "zh": "存储池“{pool}”的计划 {id}"
- },
- "Drive files are not included yet — use Apply pool changes below (Advanced / manual) for a mounted drive.": {
-  "ko": "드라이브 파일은 아직 포함되지 않아요 — 마운트된 드라이브에는 아래의 풀 변경 적용(고급 / 수동)을 사용하세요.",
-  "ja": "ドライブのファイルはまだ含まれません — マウントしたドライブには下の「プール変更を適用」（詳細 / 手動）を使ってください。",
-  "zh": "尚未包含驱动器文件 — 已挂载的驱动器请使用下方的“应用存储池更改”（高级 / 手动）。"
  },
  "Unknown entries could not be checked (provider error). They are retried on the next run and never counted as lost.": {
   "ko": "알 수 없는 항목은 확인하지 못한 항목이에요(공급자 오류). 다음 실행에서 다시 시도하며 손실로 세지 않아요.",

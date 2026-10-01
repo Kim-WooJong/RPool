@@ -2,9 +2,8 @@
 //!
 //! A mark is an immutable, content-addressed JSON record under
 //! `<metadata root>/history/events/<blake3>.json` on every metadata replica
-//! (the v6 `events-v6/<scope>` or v7 `snapshots-v7/<scope>` generation root).
-//! Older RPool never lists `history/`, so marks are invisible to it; they do
-//! not change any v6 event or v7 snapshot. Marks only hide trash entries and
+//! (the `events-v6/<scope>` generation root). Older RPool never lists
+//! `history/`, so marks are invisible to it; they do not change any event. Marks only hide trash entries and
 //! end retention protection; they never delete data themselves.
 use crate::prelude::*;
 

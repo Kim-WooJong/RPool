@@ -36,23 +36,24 @@ const LOG_LINE_LIMIT: usize = 4096;
 const LOG_READ_LIMIT: u64 = 1024 * 1024;
 const LOG_LINES_RETURNED: usize = 200;
 
+/// rclone native mount of the drive's loopback WebDAV server.
 pub(crate) struct MountConfig {
     pub(crate) rclone: String,
-    pub(crate) files_dir: PathBuf,
+    /// An existing directory directly inside the workspace root: it locates
+    /// the workspace metadata (`.rpool/`, lease and log) and is never served.
+    pub(crate) anchor_dir: PathBuf,
     pub(crate) cache_dir: PathBuf,
     pub(crate) target: PathBuf,
-    pub(crate) shared: bool,
-    pub(crate) read_only: bool,
     pub(crate) vfs_cache_gib: u64,
     pub(crate) cache_min_free_gib: u64,
-    pub(crate) webdav: Option<(String, String)>,
+    /// WebDAV URL and bearer token of the drive's server.
+    pub(crate) webdav: (String, String),
     /// OS volume label (Explorer/Finder name); `None` keeps rclone's default.
     pub(crate) volume_name: Option<String>,
 }
 
 pub(crate) struct StopReport {
     pub(crate) forced: bool,
-    pub(crate) cache_preserved: bool,
 }
 
 pub(crate) struct MountProcess {

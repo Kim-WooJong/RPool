@@ -13,8 +13,6 @@ pub(super) fn errno(error: FsError) -> Errno {
         FsError::NoSpace => Errno::ENOSPC,
         FsError::Stale => Errno::ESTALE,
         FsError::InvalidPath => Errno::EINVAL,
-        FsError::CrossDevice => Errno::EXDEV,
-        FsError::Busy => Errno::EBUSY,
         FsError::Io(error) => {
             eprintln!("RPool FUSE I/O error: {error:#}");
             Errno::EIO

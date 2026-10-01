@@ -56,24 +56,13 @@ impl VirtualDrive {
             .collect();
         if !self.pool_sync_roots.is_empty() {
             status.pool_sync_roots = self.pool_sync_roots.clone();
-            status.desired_history_limit = self.pool_history_limit;
-            if !self.peer_retention {
-                status.conflicts = crate::mount::peer_projection::project(&state.events)?.conflicts;
-                status.note.push_str(" Pool-sync metadata is replicated automatically. History limit is saved for future retention; remote history deletion is NOT enabled.");
-            }
+            status.conflicts = crate::mount::peer_projection::project(&state.events)?.conflicts;
+            status
+                .note
+                .push_str(" Pool-sync metadata is replicated automatically.");
         }
         drop(state);
-        if self.peer_retention {
-            status.conflicts = self.snapshot_conflicts()?;
-            status.note.push_str(" V7 private snapshots: automatic history deletion enabled; current/conflict bytes protected, legacy data untouched. Copying needs temporary space.");
-        }
         status.reserve_pending(&self.policy, &pending_sizes)?;
-        if self.peer_retention && status.pending_writes > 0 {
-            // Private retained copies require per-object destinations, not just
-            // plaintext capacity. Do not promise their space from aggregate quota.
-            status.additional_estimate = 0;
-            status.note.push_str(" Pending v7 private-copy cost is not yet fully reserved: additional writable space is conservatively zero until synchronization finishes.");
-        }
         status.logical_ceiling_estimate = status
             .logical_used
             .saturating_add(status.additional_estimate);

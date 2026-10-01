@@ -51,7 +51,7 @@ impl References {
             .insert((owner.into(), source.into()));
     }
 
-    /// Every string of some metadata (drive events, snapshots, other
+    /// Every string of some metadata (drive events, checkpoints, other
     /// migrations): each path component counts as a reference.
     pub(crate) fn add_text(&mut self, source: &str, text: &str) {
         self.add_token_owned(text, NO_OWNER, source);

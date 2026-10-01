@@ -125,8 +125,6 @@ pub(crate) struct CapacityStatus {
     #[serde(default)]
     pub pool_sync_roots: Vec<String>,
     #[serde(default)]
-    pub desired_history_limit: usize,
-    #[serde(default)]
     pub conflicts: Vec<super::peer_projection::Conflict>,
     pub excluded: Vec<Excluded>,
     pub logical_used: u64,
@@ -156,8 +154,6 @@ pub(crate) struct CapacityStatus {
     pub targets: Vec<crate::storage::admin::budget::TargetBudget>,
     #[serde(skip)]
     pub(super) budget: u64,
-    #[serde(skip)]
-    pub(super) known_archive_targets: BTreeSet<String>,
 }
 
 impl CapacityStatus {

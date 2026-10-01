@@ -12,7 +12,6 @@ fn spec(pool: &str, workspace: &str, mountpoint: &str) -> SessionSpec {
         mountpoint: mountpoint.into(),
         frontend: Some(crate::cli::Frontend::Dav),
         reads: Vec::new(),
-        keep_previous: 3,
     }
 }
 

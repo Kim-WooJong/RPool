@@ -385,16 +385,6 @@ fn gate_breaks_old_clients_loudly_and_new_clients_skip_it() {
         .unwrap_err()
         .to_string()
         .contains("unsupported namespace event version"));
-    // v7: a snapshot of another version stops the old analysis.
-    let v7 = Family::v7();
-    let snapshot: super::peer_snapshot_model::Snapshot = serde_json::from_slice(&v7.gate).unwrap();
-    assert_eq!(snapshot.id().unwrap(), v7.gate_id());
-    let all = [(v7.gate_id(), snapshot)].into_iter().collect();
-    let policy = super::peer_snapshot_model::Policy {
-        genesis_id: "1".repeat(64),
-        history_limit: 0,
-    };
-    assert!(super::peer_snapshot_model::analyze(&all, &policy).is_err());
     // New clients skip it and report it.
     let fakes = [Fake::default()];
     add(&fakes, 0..2);

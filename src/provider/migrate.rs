@@ -49,10 +49,7 @@ pub(crate) fn drain_manifest_with_storage(
     if from == to {
         bail!("source and destination provider are identical");
     }
-    if delete_source
-        && (manifest.archive_id.starts_with("virtual-")
-            || manifest.archive_id.starts_with("peer-v7-"))
-    {
+    if delete_source && manifest.archive_id.starts_with("virtual-") {
         bail!("cannot delete virtual-drive archive sources: immutable shared revisions may still reference them; omit --delete-source or reprocess into a fresh archive");
     }
     storage.ensure_destination(to)?;

@@ -9,16 +9,11 @@ fn pool_profiles_restore_all_options_and_isolate_new_pools() {
     form.select_pool("A".into(), &mut settings);
     form.workspace = "/persistent/A".into();
     form.mountpoint = "/mount/A".into();
-    form.shared_root = "crypt:team".into();
-    form.worker_name = "desktop".into();
+    form.pc_name = "desktop".into();
     form.manifests = vec!["archive.json".into()];
     form.interval_seconds = 42;
-    form.pool_retention = true;
-    form.pool_history_limit = 3;
-    form.pool_history_override = true;
-    form.bounded_shared = true;
-    form.shared_coordinator = true;
-    form.shared_keep_previous = 2;
+    form.frontend = crate::cli::Frontend::Dav;
+    form.native_read_only = true;
     form.cache_gib = 23;
     let a = form.profile();
     form.recovery_source = "source".into();
@@ -38,8 +33,7 @@ fn pool_profiles_restore_all_options_and_isolate_new_pools() {
     assert!(form.recovery_reprocess_plan.is_empty());
     assert!(form.manifest_input.is_empty());
     form.workspace = "/persistent/B".into();
-    form.virtual_drive = false;
-    form.pool_sync = false;
+    form.spool_gib = 9;
     let b = form.profile();
     form.select_pool("A".into(), &mut settings);
     assert_eq!(form.profile(), a);
@@ -59,21 +53,37 @@ fn pool_profiles_restore_all_options_and_isolate_new_pools() {
 
 #[test]
 fn legacy_settings_seed_only_safe_cache_defaults_for_each_pool() {
+    // Settings written before the single drive mode still load: removed mode
+    // fields are ignored and the old worker name becomes the PC name.
     let mut settings: crate::gui::settings::GuiSettings =
         serde_json::from_str(r#"{"mount_cache":{"online_drive":false,"native_gib":5}}"#).unwrap();
     assert!(settings.mount_profiles.is_empty());
     let mut form = super::MountForm::from_settings(&settings);
     form.select_pool("legacy".into(), &mut settings);
-    assert!(!form.virtual_drive);
     assert_eq!(form.vfs_cache_gib, 5);
     assert!(form.workspace.is_empty());
-    assert!(!form.pool_retention);
-    let partial: crate::gui::settings::GuiSettings =
-        serde_json::from_str(r#"{"mount_profiles":{"A":{"workspace":"/A"}}}"#).unwrap();
+    let partial: crate::gui::settings::GuiSettings = serde_json::from_str(
+        r#"{"mount_profiles":{"A":{"workspace":"/A","worker_name":"laptop","pool_sync":false,
+            "pool_retention":true,"shared_root":"crypt:team","bounded_shared":true,
+            "keep_previous":7,"cache":{"online_drive":false,"shard_gib":4}}}}"#,
+    )
+    .unwrap();
     let profile = &partial.mount_profiles["A"];
     assert_eq!(profile.workspace, "/A");
-    assert!(!profile.pool_retention);
-    assert!(profile.pool_sync && profile.cache.online_drive);
+    assert_eq!(profile.pc_name, "laptop");
+    assert_eq!(profile.cache.shard_gib, 4);
+    let json = serde_json::to_string(profile).unwrap();
+    for removed in [
+        "worker_name",
+        "pool_sync",
+        "pool_retention",
+        "shared_root",
+        "bounded_shared",
+        "keep_previous",
+        "online_drive",
+    ] {
+        assert!(!json.contains(removed), "{removed}: {json}");
+    }
 }
 
 #[test]
@@ -107,16 +117,15 @@ fn recovery_form_forwards_source_and_skip_aliases_without_mount_or_retention() {
         args.recovery_reprocess_plan,
         Some(form.recovery_reprocess_plan.clone().into())
     );
-    assert!(args.virtual_drive && args.pool_sync);
-    assert!(!args.pool_retention && args.mountpoint.is_none() && !args.sync_only);
+    assert!(args.mountpoint.is_none() && !args.sync_only);
     let invalid = super::MountForm {
-        pool_retention: true,
-        ..Default::default()
+        recovery_source: "relative".into(),
+        ..form
     };
     assert!(invalid.recovery_args(&base.join("stop")).is_err());
 }
 #[test]
-fn native_frontend_choice_reaches_mount_cli_only_for_local_online_drives() {
+fn native_frontend_choice_reaches_mount_cli() {
     use clap::Parser;
     let parse = |form: &super::MountForm, sync_only: bool| {
         let mut args: Vec<std::ffi::OsString> = [
@@ -146,7 +155,6 @@ fn native_frontend_choice_reaches_mount_cli_only_for_local_online_drives() {
         Frontend::Auto,
         "native where available is the default"
     );
-    form.pool_sync = false;
     form.frontend = Frontend::Fuse;
     form.native_read_only = true;
     assert_eq!(parse(&form, false), (Frontend::Fuse, native_here));
@@ -155,27 +163,14 @@ fn native_frontend_choice_reaches_mount_cli_only_for_local_online_drives() {
         (Frontend::Auto, false),
         "sync-only passes nothing"
     );
-    form.pool_sync = true;
-    assert_eq!(
-        parse(&form, false),
-        (Frontend::Fuse, native_here),
-        "pool sync v6 is served natively"
-    );
-    form.pool_retention = true;
-    assert_eq!(
-        parse(&form, false),
-        (Frontend::Fuse, native_here),
-        "pool sync v7 is served natively"
-    );
-    form.pool_retention = false;
-    form.pool_sync = false;
-    form.shared_root = "crypt:team".into();
+    form.frontend = Frontend::Dav;
     assert_eq!(
         form.frontend_args(false),
-        [std::ffi::OsString::from("--frontend=dav")]
+        [std::ffi::OsString::from("--frontend=dav")],
+        "read-only applies to native frontends only"
     );
     // The choice is saved per pool and restored.
-    form.shared_root.clear();
+    form.frontend = Frontend::Fuse;
     let profile = form.profile();
     let json = serde_json::to_string(&profile).unwrap();
     assert!(json.contains("\"frontend\":\"fuse\""), "{json}");
@@ -185,12 +180,11 @@ fn native_frontend_choice_reaches_mount_cli_only_for_local_online_drives() {
     assert_eq!(legacy.frontend, Frontend::Auto);
 }
 #[test]
-fn saved_cache_preferences_reach_mount_cli_and_keep_explicit_replica() {
+fn saved_cache_preferences_reach_mount_cli() {
     use clap::Parser;
-    for online in [true, false] {
+    {
         let mut settings = crate::gui::settings::GuiSettings::default();
         settings.mount_cache = crate::gui::settings::MountCacheSettings {
-            online_drive: online,
             shard_gib: 4,
             native_gib: 5,
             min_free_gib: 3,
@@ -214,14 +208,10 @@ fn saved_cache_preferences_reach_mount_cli_and_keep_explicit_replica() {
         let Some(crate::cli::Commands::Mount(args)) = parsed.command else {
             panic!("mount")
         };
-        assert_eq!(args.virtual_drive, online);
         assert_eq!((args.vfs_cache_gib, args.cache_min_free_gib), (5, 3));
-        if online {
-            assert_eq!((args.cache_gib, args.spool_gib), (4, 8));
-        }
+        assert_eq!((args.cache_gib, args.spool_gib), (4, 8));
     }
     let form = super::MountForm::from_settings(&crate::gui::settings::GuiSettings::default());
-    assert!(form.virtual_drive && form.pool_sync);
     assert!(form.workspace.is_empty());
 }
 use super::*;
@@ -229,18 +219,12 @@ use clap::Parser;
 use std::path::PathBuf;
 #[test]
 fn mount_arguments_roundtrip_and_sync_omits_mountpoint() {
-    for (sync_only, shared) in [(false, false), (true, false), (false, true), (true, true)] {
+    for sync_only in [false, true] {
         let mut args = vec![OsString::from("rpool")];
         args.extend(build_args(
             "-pool 한 글",
             &PathBuf::from("/persistent workspace"),
             "R:",
-            if shared {
-                "crypt:team space/한 글"
-            } else {
-                ""
-            },
-            if shared { "-PC 한 글" } else { "" },
             &[
                 "-manifest 한 글.json".into(),
                 "crypt:path with spaces/manifest.json".into(),
@@ -256,11 +240,6 @@ fn mount_arguments_roundtrip_and_sync_omits_mountpoint() {
         assert_eq!(parsed.pool, "-pool 한 글");
         assert_eq!(parsed.workspace, PathBuf::from("/persistent workspace"));
         assert_eq!(parsed.sync_only, sync_only);
-        assert_eq!(
-            parsed.shared_root.as_deref(),
-            shared.then_some("crypt:team space/한 글")
-        );
-        assert_eq!(parsed.worker_name.as_deref(), shared.then_some("-PC 한 글"));
         assert_eq!(parsed.mountpoint, (!sync_only).then(|| PathBuf::from("R:")));
         assert_eq!(
             parsed.manifests,
@@ -286,7 +265,7 @@ fn render(state: &mut crate::gui::state::GuiState) {
 }
 
 #[test]
-fn mount_screen_renders_in_every_mode_and_capacity_state() {
+fn mount_screen_renders_every_tab_and_capacity_state() {
     let pools = std::collections::BTreeMap::from([(
         "archive".to_string(),
         crate::models::PoolDefinition::default(),
@@ -320,85 +299,16 @@ fn mount_screen_renders_in_every_mode_and_capacity_state() {
     });
     state.mount.session.capacity = Some(capacity);
     render(&mut state);
-    for (online, pool_sync, shared) in [
-        (true, false, ""),
-        (true, false, "crypt:team"),
-        (false, false, ""),
+    for tab in [
+        crate::gui::state::DriveTab::Options,
+        crate::gui::state::DriveTab::Import,
+        crate::gui::state::DriveTab::Maintenance,
     ] {
-        state.mount.virtual_drive = online;
-        state.mount.pool_sync = pool_sync;
-        state.mount.shared_root = shared.into();
+        state.mount.tab = tab;
         render(&mut state);
     }
 }
 
-fn parse_action(form: &super::MountForm, action: u8) -> Result<crate::cli::MountArgs, String> {
-    use clap::Parser;
-    let control = std::env::temp_dir().join("rpool-gui-args-test");
-    let args = form.action_args(action, &control)?;
-    let parsed =
-        crate::cli::Cli::try_parse_from(std::iter::once(OsString::from("rpool")).chain(args))
-            .map_err(|e| e.to_string())?;
-    match parsed.command {
-        Some(crate::cli::Commands::Mount(args)) => Ok(args),
-        _ => Err("not a mount command".into()),
-    }
-}
-
-fn local_online_form() -> super::MountForm {
-    let mut form = super::MountForm {
-        pool: "archive".into(),
-        ..Default::default()
-    };
-    form.workspace = std::env::temp_dir().join("ws").display().to_string();
-    form.mountpoint = "R:".into();
-    form.pool_sync = false;
-    form
-}
-
-#[test]
-fn history_cleanup_previews_before_deleting_and_passes_cli_rules() {
-    let mut form = local_online_form();
-    form.keep_previous = 5;
-    let preview = parse_action(&form, 7).unwrap();
-    assert!(preview.retention_report && !preview.apply_retention);
-    assert_eq!(preview.keep_previous, 5);
-    assert!(preview.mountpoint.is_none());
-    assert!(parse_action(&form, 8).is_err(), "no preview yet");
-    form.session.retention_previewed = Some(form.retention_key());
-    assert!(parse_action(&form, 8).is_err(), "ownership not confirmed");
-    form.retention_confirmed = true;
-    let apply = parse_action(&form, 8).unwrap();
-    assert!(apply.apply_retention && apply.exclusive_archive_ownership);
-    assert_eq!(apply.keep_previous, 5);
-    form.keep_previous = 6;
-    assert!(
-        parse_action(&form, 8).is_err(),
-        "a changed limit needs a new preview"
-    );
-    form.pool_sync = true;
-    assert!(
-        parse_action(&form, 7).is_err(),
-        "pool sync conflicts with retention"
-    );
-}
-
-#[test]
-fn diagnostic_read_only_mount_is_only_for_v7_pool_sync() {
-    let mut form = local_online_form();
-    form.pool_sync = true;
-    form.pool_retention = true;
-    form.diagnostic_read_only = true;
-    let mount = parse_action(&form, 0).unwrap();
-    assert!(mount.diagnostic_read_only && mount.pool_retention && mount.pool_sync);
-    let sync = parse_action(&form, 1).unwrap();
-    assert!(!sync.diagnostic_read_only, "only mounts are diagnostic");
-    form.pool_retention = false;
-    assert!(!parse_action(&form, 0).unwrap().diagnostic_read_only);
-    form.pool_retention = true;
-    form.manifests.push("crypt:a.json".into());
-    assert!(parse_action(&form, 0).is_err());
-}
 #[test]
 fn rclone_import_action_reaches_the_cli_without_mounting() {
     use clap::Parser;
@@ -408,8 +318,6 @@ fn rclone_import_action_reaches_the_cli_without_mounting() {
         ..Default::default()
     };
     form.workspace = control.path().join("ws").display().to_string();
-    form.virtual_drive = true;
-    form.pool_sync = true;
     assert!(
         form.action_args(9, control.path()).is_err(),
         "source required"
@@ -432,10 +340,7 @@ fn rclone_import_action_reaches_the_cli_without_mounting() {
         args.import_conflict,
         crate::mount::rclone_import::OnConflict::Rename
     );
-    assert!(args.mountpoint.is_none() && !args.sync_only && args.pool_sync);
-    form.bounded_shared = true;
-    form.pool_sync = false;
-    assert!(form.action_args(9, control.path()).is_err());
+    assert!(args.mountpoint.is_none() && !args.sync_only);
 }
 #[test]
 fn rclone_import_ignores_listed_archive_imports() {
@@ -445,7 +350,6 @@ fn rclone_import_ignores_listed_archive_imports() {
         ..Default::default()
     };
     form.workspace = control.path().join("ws").display().to_string();
-    form.virtual_drive = true;
     form.import_source = "old:x".into();
     form.manifests = vec!["archive.json".into()];
     let args = form.action_args(9, control.path()).unwrap();
@@ -457,6 +361,125 @@ fn rclone_import_ignores_listed_archive_imports() {
         crate::cli::Cli::try_parse_from(std::iter::once(OsString::from("rpool")).chain(args))
             .is_ok()
     );
+}
+
+/// Every argv the Drive screen builds (each action, with and without the
+/// optional inputs) parses with the real CLI and never carries a removed
+/// mode flag.
+#[test]
+fn every_drive_action_argv_parses_with_the_real_cli() {
+    use clap::Parser;
+    let control = tempfile::tempdir().unwrap();
+    let parse = |args: Vec<OsString>| {
+        let line = format!("{args:?}");
+        let cli =
+            crate::cli::Cli::try_parse_from(std::iter::once(OsString::from("rpool")).chain(args))
+                .unwrap_or_else(|e| panic!("{line}: {e}"));
+        let Some(crate::cli::Commands::Mount(args)) = cli.command else {
+            panic!("mount expected: {line}")
+        };
+        args
+    };
+    let plain = super::MountForm {
+        pool: "p".into(),
+        workspace: control.path().join("ws").display().to_string(),
+        mountpoint: "/mnt/rpool".into(),
+        import_source: "old-crypt:photos".into(),
+        ..Default::default()
+    };
+    let full = super::MountForm {
+        pc_name: "desktop 한 글".into(),
+        manifests: vec!["archive.json".into()],
+        import_destination: "/Imported/".into(),
+        import_rename: true,
+        native_read_only: true,
+        frontend: crate::cli::Frontend::Dav,
+        recovery_reprocess_plan: control.path().join("plan.json").display().to_string(),
+        ..plain_clone(&plain)
+    };
+    for form in [&plain, &full] {
+        for action in [0, 1, 2, 4, 5, 6, 9] {
+            if action == 6 && !form.manifests.is_empty() {
+                assert!(form.action_args(action, control.path()).is_err());
+                continue;
+            }
+            let args = form.action_args(action, control.path()).unwrap();
+            for arg in &args {
+                let arg = arg.to_string_lossy();
+                for removed in [
+                    "--virtual-drive",
+                    "--pool-sync",
+                    "--pool-retention",
+                    "--pool-history-limit",
+                    "--diagnostic-read-only",
+                    "--bounded-shared",
+                    "--shared-",
+                    "--worker-name",
+                    "--retention-report",
+                    "--apply-retention",
+                    "--exclusive-archive-ownership",
+                    "--keep-previous",
+                    "--migrate-excluded",
+                ] {
+                    assert!(!arg.starts_with(removed), "action {action}: {arg}");
+                }
+            }
+            let parsed = parse(args);
+            assert_eq!(parsed.pool, "p");
+            assert_eq!(parsed.mountpoint.is_some(), action == 0, "action {action}");
+            assert_eq!(parsed.sync_only, action == 1, "action {action}");
+            assert_eq!(parsed.capacity_only, action == 2);
+            assert_eq!(parsed.cleanup_cache, action == 4);
+            assert_eq!(parsed.recover_spool, action == 5);
+            assert_eq!(parsed.apply_pool_changes, action == 6);
+            assert_eq!(parsed.import_from.is_some(), action == 9);
+            assert_eq!(
+                parsed.pool_worker.as_deref(),
+                (!form.pc_name.is_empty()).then_some(form.pc_name.as_str())
+            );
+            let manifests = if action == 9 { 0 } else { form.manifests.len() };
+            assert_eq!(parsed.manifests.len(), manifests, "action {action}");
+            assert_eq!((parsed.cache_gib, parsed.spool_gib), (10, 64));
+        }
+        let recovery = super::MountForm {
+            recovery_source: control.path().join("old").display().to_string(),
+            ..plain_clone(form)
+        };
+        let parsed = parse(
+            recovery
+                .recovery_args(&control.path().join("stop"))
+                .unwrap(),
+        );
+        assert!(parsed.account_recovery_from.is_some() && parsed.mountpoint.is_none());
+        assert_eq!(
+            parsed.pool_worker.as_deref(),
+            (!form.pc_name.is_empty()).then_some(form.pc_name.as_str())
+        );
+    }
+    assert!(super::MountForm {
+        frontend: crate::cli::Frontend::Dav,
+        ..plain_clone(&plain)
+    }
+    .action_args(7, control.path())
+    .is_err());
+}
+
+/// The persisted inputs of `form` (sessions are not cloneable).
+fn plain_clone(form: &super::MountForm) -> super::MountForm {
+    super::MountForm {
+        pool: form.pool.clone(),
+        workspace: form.workspace.clone(),
+        mountpoint: form.mountpoint.clone(),
+        pc_name: form.pc_name.clone(),
+        manifests: form.manifests.clone(),
+        import_source: form.import_source.clone(),
+        import_destination: form.import_destination.clone(),
+        import_rename: form.import_rename,
+        frontend: form.frontend,
+        native_read_only: form.native_read_only,
+        recovery_reprocess_plan: form.recovery_reprocess_plan.clone(),
+        ..Default::default()
+    }
 }
 
 /// Every `tr(`/`trf(` literal on the Drive screens has a Korean, Japanese and
@@ -513,9 +536,6 @@ fn drive_texts_translate() {
         .collect();
     assert!(untranslated.is_empty(), "{untranslated:#?}");
     assert_eq!(tr_in(Language::Korean, "Mount"), "마운트");
-    assert_eq!(
-        tr_in(Language::Japanese, "Automatic pool sync"),
-        "自動プール同期"
-    );
+    assert_eq!(tr_in(Language::Japanese, "PC name"), "PC 名");
     assert_eq!(tr_in(Language::Chinese, "Capacity details"), "容量详情");
 }

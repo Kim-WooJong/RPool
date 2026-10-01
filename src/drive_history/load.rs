@@ -1,7 +1,6 @@
 //! Reads a drive's history: from an open workspace (after a metadata pull),
 //! or read-only straight from the cloud like `rpool pool browse` (v6 events
-//! including checkpointed ones; v7 through a throwaway workspace whose pull
-//! only lists/reads records).
+//! including checkpointed ones).
 use super::graph::History;
 use crate::mount::history_bridge::{self as bridge, VirtualDrive};
 use crate::pool::browse_generations::Generation;
@@ -27,12 +26,8 @@ pub(crate) fn from_drive(drive: &VirtualDrive, rclone: &str, now: u64) -> Result
     let (times, time_notes) = super::times::list(rclone, &roots);
     notes.extend(time_notes);
     let purged = purged(rclone, &roots, native_crypt, &mut notes);
-    let history = if bridge::is_v7(drive) {
-        super::source_v7::build(&drive.snapshot_export()?, &times, now, purged)?
-    } else {
-        let (events, unpublished) = bridge::v6_events(drive);
-        super::source_v6::build(events, &times, &unpublished, now, purged)?
-    };
+    let (events, unpublished) = bridge::v6_events(drive);
+    let history = super::source_v6::build(events, &times, &unpublished, now, purged)?;
     Ok(Loaded { history, notes })
 }
 
@@ -83,16 +78,9 @@ pub(crate) fn generation_roots(pool: &str, generation: &Generation) -> Result<Ve
     let policy = pool_definition(pool)?;
     Ok(crate::mount::pool_sync::roots(pool, &policy.remotes)?
         .into_iter()
-        .map(|root| {
-            let root = if generation.v7 {
-                root.replace("/events-v6/", "/snapshots-v7/")
-            } else {
-                root
-            };
-            match &generation.epoch {
-                Some(epoch) => crate::utils::remote_join(&root, &format!("epochs/{epoch}")),
-                None => root,
-            }
+        .map(|root| match &generation.epoch {
+            Some(epoch) => crate::utils::remote_join(&root, &format!("epochs/{epoch}")),
+            None => root,
         })
         .collect())
 }
@@ -107,24 +95,8 @@ pub(crate) fn from_cloud(rclone: &str, pool: &str, now: u64) -> Result<Loaded> {
     let (times, time_notes) = super::times::list(rclone, &roots);
     notes.extend(time_notes);
     let purged = purged(rclone, &roots, policy.native_crypt, &mut notes);
-    let history = if generation.v7 {
-        let temp = tempfile::tempdir()?;
-        let drive = bridge::open_scratch(
-            rclone,
-            pool,
-            &temp.path().join("workspace"),
-            "rpool-history",
-            &generation,
-        )?;
-        super::source_v7::build(&drive.snapshot_export()?, &times, now, purged)?
-    } else {
-        let events = crate::mount::metadata_pool::read_v6(
-            rclone,
-            pool,
-            &policy,
-            generation.epoch.as_deref(),
-        )?;
-        super::source_v6::build(events, &times, &BTreeSet::new(), now, purged)?
-    };
+    let events =
+        crate::mount::metadata_pool::read_v6(rclone, pool, &policy, generation.epoch.as_deref())?;
+    let history = super::source_v6::build(events, &times, &BTreeSet::new(), now, purged)?;
     Ok(Loaded { history, notes })
 }

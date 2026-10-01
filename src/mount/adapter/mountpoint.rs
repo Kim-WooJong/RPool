@@ -3,11 +3,11 @@
 use super::*;
 
 pub(crate) fn validate_mountpoint(config: &MountConfig) -> Result<()> {
-    if !config.files_dir.is_absolute() || !config.cache_dir.is_absolute() {
+    if !config.anchor_dir.is_absolute() || !config.cache_dir.is_absolute() {
         bail!("mount source and cache must be absolute paths");
     }
     let source = config
-        .files_dir
+        .anchor_dir
         .canonicalize()
         .context("mount source directory does not exist")?;
     if !source.is_dir() {

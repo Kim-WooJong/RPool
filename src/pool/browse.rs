@@ -17,7 +17,7 @@ pub(crate) struct BrowseEntry {
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct PoolBrowse {
     pub pool: String,
-    /// "v6", "v7" or "none" (the pool has no pool-sync drive yet).
+    /// "v6" or "none" (the pool has no pool-sync drive yet).
     pub mode: String,
     /// Sorted by path; directories are listed explicitly (also implied ones).
     pub entries: Vec<BrowseEntry>,
@@ -28,10 +28,6 @@ pub(crate) struct PoolBrowse {
 /// Lists the drive of `pool` from its cloud metadata. Read-only. Blocking:
 /// call it off the UI thread.
 ///
-/// v7 (private snapshots) is preferred when present: a pool moved to v7
-/// keeps its legacy v6 events untouched, and a v7 mount shows the v7 drive.
-/// v7 is interpreted by a throwaway pool-sync workspace in a temp dir whose
-/// pull only lists/reads records (no publication, registration or upload);
 /// v6 events are collected and projected directly without any workspace.
 pub(crate) fn browse(rclone: &str, pool: &str) -> anyhow::Result<PoolBrowse> {
     use anyhow::Context;
@@ -59,16 +55,10 @@ pub(crate) fn browse(rclone: &str, pool: &str) -> anyhow::Result<PoolBrowse> {
     // interpreted as a drive (for example only name records).
     for (index, generation) in generations.iter().enumerate() {
         let epoch = generation.epoch.as_deref();
-        let found = if generation.v7 {
-            crate::mount::pool_sync::browse_v7(rclone, pool, epoch)?
-                .map(|(files, conflicts)| ("v7", files, conflicts))
-        } else {
-            // Includes checkpointed events (deleted from the event folder).
-            let events = crate::mount::metadata_pool::read_v6(rclone, pool, &policy, epoch)?;
-            project_events(events)?.map(|(files, conflicts)| ("v6", files, conflicts))
-        };
-        if let Some((mode, files, conflicts)) = found {
-            let mut result = listing(pool, mode, files, &conflicts);
+        // Includes checkpointed events (deleted from the event folder).
+        let events = crate::mount::metadata_pool::read_v6(rclone, pool, &policy, epoch)?;
+        if let Some((files, conflicts)) = project_events(events)? {
+            let mut result = listing(pool, "v6", files, &conflicts);
             if let Some(epoch) = epoch {
                 result.notes.insert(
                     0,

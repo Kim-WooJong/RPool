@@ -16,13 +16,6 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
             )),
             |_| {},
             |ui| {
-                if !form.virtual_drive {
-                    theme::hint(
-                        ui,
-                        tr("A full replica has no shard cache or spool to maintain."),
-                    );
-                    return;
-                }
                 ui.horizontal_wrapped(|ui| {
                     if ui
                         .button(tr("Trim clean cache"))

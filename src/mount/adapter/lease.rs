@@ -42,7 +42,7 @@ impl MountLease {
         source: &Path,
         cache: &Path,
         target: &Path,
-        webdav: Option<&(String, String)>,
+        webdav: &(String, String),
     ) -> Result<Self> {
         let metadata = source
             .parent()
@@ -95,12 +95,12 @@ impl MountLease {
             source: source.into(),
             cache: cache.into(),
             target,
-            cache_mode: if webdav.is_some() { "full" } else { "writes" }.into(),
-            backend_identity: webdav.map(|(url, token)| {
-                blake3::hash(format!("webdav-other:{url}:{token}").as_bytes())
+            cache_mode: "full".into(),
+            backend_identity: Some(
+                blake3::hash(format!("webdav-other:{}:{}", webdav.0, webdav.1).as_bytes())
                     .to_hex()
-                    .to_string()
-            }),
+                    .to_string(),
+            ),
         };
         let identity_path = metadata.join("mount-identity.json");
         reject_link(&identity_path)?;

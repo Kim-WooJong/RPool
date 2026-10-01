@@ -95,7 +95,7 @@ pub(crate) fn toolbar(ui: &mut egui::Ui, form: &mut DriveForm, rclone: &str) {
             status_badge(ui, tr("No drive"), StatusTone::Neutral);
         }
         Some(DriveLoad::Ready(tree)) => {
-            status_badge(ui, &tree.mode, StatusTone::Success);
+            status_badge(ui, tr("Drive"), StatusTone::Success);
             // Kept on one line: it moves to the next row as a whole.
             ui.add(
                 egui::Label::new(

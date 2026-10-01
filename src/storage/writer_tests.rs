@@ -349,8 +349,8 @@ fn migration_replica_failure_retains_all_source_shards() {
 fn destructive_drain_rejects_virtual_archives_before_any_copy() {
     let f = Fixture::new(false);
     let mut manifest = f.manifest(&f.writer(vec![]));
-    for prefix in ["virtual-", "peer-v7-"] {
-        manifest.archive_id = format!("{prefix}{}", "a".repeat(64));
+    {
+        manifest.archive_id = format!("virtual-{}", "a".repeat(64));
         let output = f.temp.path().join("must-not-publish.json");
         let error = crate::provider::drain_manifest_with_storage(
             &f.writer(vec![]),

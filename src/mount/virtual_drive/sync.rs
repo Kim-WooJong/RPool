@@ -3,34 +3,13 @@
 use super::*;
 
 impl VirtualDrive {
-    /// Metadata refresh never uploads dirty spool.
+    /// Metadata refresh never uploads dirty spool. Without pool-sync roots
+    /// (test fixture only) the namespace is local and there is nothing to pull.
     pub(crate) fn pull(&self) -> Result<()> {
-        if self.peer_retention {
-            return self.pull_snapshots();
+        if self.pool_sync_roots.is_empty() {
+            return Ok(());
         }
-        if !self.pool_sync_roots.is_empty() {
-            return self.pull_pool();
-        }
-        if self.bounded_shared {
-            return self.pull_checkpoint();
-        }
-        if let Some(root) = &self.shared_root {
-            let transport = SharedTransport::new(&self.rclone, root)?;
-            let known = self.state.lock().unwrap().events.clone();
-            let bytes = transport.list_missing(&known.keys().cloned().collect())?;
-            let mut events = BTreeMap::new();
-            for (id, bytes) in bytes {
-                events.insert(id, serde_json::from_slice::<Event>(&bytes)?);
-            }
-            let mut s = self.state.lock().unwrap();
-            let mut next = s.clone();
-            let incoming_ids: Vec<_> = events.keys().cloned().collect();
-            next.ingest(events)?;
-            next.published.extend(incoming_ids);
-            next.save(&self.root)?;
-            *s = next;
-        }
-        Ok(())
+        self.pull_pool()
     }
     /// Uploads pending intents. The capacity snapshot is not cleared here:
     /// it already reserves pending sizes, and `quota` reports no additional
@@ -38,15 +17,6 @@ impl VirtualDrive {
     pub(crate) fn sync(&self) -> Result<()> {
         // Never publish into a drive generation a pool migration froze or replaced.
         crate::mount::adoption_fence::check_publish(self)?;
-        if self.peer_retention {
-            return self.sync_snapshots();
-        }
-        if self.bounded_shared {
-            return self.sync_checkpoint();
-        }
-        if self.root.join("retention-journal.json").exists() {
-            bail!("resume interrupted retention before syncing");
-        }
         let _gate = self
             .sync_gate
             .lock()
@@ -112,20 +82,16 @@ impl VirtualDrive {
                     Some(manifest) => manifest,
                     None => {
                         crate::mount::namespace::durable_json(&full_route, &archive_id)?;
-                        let (manifest, manifest_remotes) =
-                            crate::mount::workspace::upload_eligible_tracked(
-                                &self.rclone,
-                                &self.policy,
-                                &self.pool,
-                                &staged,
-                                &archive_id,
-                            )?;
-                        self.record_owned_archive(&intent, &manifest, &manifest_remotes)?;
+                        let (manifest, _) = crate::mount::upload::upload_eligible_tracked(
+                            &self.rclone,
+                            &self.policy,
+                            &self.pool,
+                            &staged,
+                            &archive_id,
+                        )?;
                         manifest
                     }
                 };
-                // Composite peer manifests borrow immutable objects from older
-                // archives. They must never enter the exclusive ownership ledger.
                 Some(Content {
                     hash: intent.hash.clone(),
                     size: intent.size,
@@ -138,20 +104,6 @@ impl VirtualDrive {
         }
         if !self.pool_sync_roots.is_empty() {
             self.publish_pool()?;
-        } else if let Some(root) = &self.shared_root {
-            let transport = SharedTransport::new(&self.rclone, root)?;
-            let unpublished: Vec<_> = {
-                let s = self.state.lock().unwrap();
-                s.unpublished_ordered()?
-            };
-            for (id, event) in unpublished {
-                transport.publish(&id, &serde_json::to_vec(&event)?)?;
-                let mut s = self.state.lock().unwrap();
-                let mut next = s.clone();
-                next.published.insert(id);
-                next.save(&self.root)?;
-                *s = next;
-            }
         }
         self.cleanup_committed_spool()?;
         Ok(())

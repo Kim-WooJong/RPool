@@ -23,19 +23,8 @@ pub(super) fn show(ui: &mut egui::Ui, form: &MountForm) {
                 ui.small(tr("Last sync snapshot, not a live cloud view."));
             }
             ui.small(trf(
-                "{roots} metadata destinations · previous-version limit {limit} · history deletion {state}",
-                &[
-                    ("roots", &status.roots.len()),
-                    ("limit", &status.desired_history_limit),
-                    (
-                        "state",
-                        &if status.history_deletion_enabled {
-                            tr("on")
-                        } else {
-                            tr("off")
-                        },
-                    ),
-                ],
+                "{roots} metadata destinations",
+                &[("roots", &status.roots.len())],
             ));
             for conflict in &status.conflicts {
                 ui.collapsing(&conflict.path, |ui| {
@@ -48,7 +37,9 @@ pub(super) fn show(ui: &mut egui::Ui, form: &MountForm) {
                         });
                     }
                     if conflict.original_unavailable {
-                        ui.label(tr("No common original (for example, created concurrently)."));
+                        ui.label(tr(
+                            "No common original (for example, created concurrently).",
+                        ));
                     }
                     if conflict.ambiguous_original {
                         ui.label(tr("Several common originals — review manually."));
@@ -67,9 +58,9 @@ pub(super) fn show(ui: &mut egui::Ui, form: &MountForm) {
                             }
                         });
                     }
-                    ui.small(
-                        tr("All variants are kept; nothing is merged or discarded automatically."),
-                    );
+                    ui.small(tr(
+                        "All variants are kept; nothing is merged or discarded automatically.",
+                    ));
                 });
             }
         });

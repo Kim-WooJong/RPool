@@ -189,11 +189,6 @@
   "ja": "インデックス済みアーカイブを選択…",
   "zh": "选择已索引的归档…"
  },
- "Collapse all": {
-  "ko": "모두 접기",
-  "ja": "すべて折りたたむ",
-  "zh": "全部折叠"
- },
  "Compare every replica with a reference manifest, and rewrite missing or damaged ones.": {
   "ko": "모든 복제본을 기준 매니페스트와 비교하고, 누락되거나 손상된 복제본을 다시 써요.",
   "ja": "すべてのレプリカを基準マニフェストと比較し、欠落または破損したものを書き直します。",
@@ -743,11 +738,6 @@
   "ko": "파일, 아카이브 ID, 리모트 검색…",
   "ja": "ファイル、アーカイブ ID、リモートを検索…",
   "zh": "搜索文件、归档 ID、远程…"
- },
- "Search names and paths…": {
-  "ko": "이름과 경로 검색…",
-  "ja": "名前とパスを検索…",
-  "zh": "搜索名称和路径…"
  },
  "Select a file to inspect it.": {
   "ko": "파일을 선택하면 자세히 볼 수 있어요.",

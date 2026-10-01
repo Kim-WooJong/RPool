@@ -55,10 +55,6 @@ pub(crate) fn apply_card(ui: &mut egui::Ui, state: &mut GuiState) {
     theme::card_section(ui, tr("Apply a changed pool to a drive"), Some(tr("After adding or removing accounts in Pools: unmount, then apply. The pool name and workspace stay; current files, conflicts and sealed writes are verified in a new metadata generation first.")), |_| {}, |ui| {
         target(ui, state);
         let (form, settings) = (&mut state.mount, &mut state.settings);
-        if !(form.virtual_drive && form.pool_sync) {
-            theme::hint(ui, tr("Needs an online drive with Automatic pool sync."));
-            return;
-        }
         ui.add_enabled_ui(!form.session.runner.is_running(), |ui| {
             ui.label(tr("Completed Reprocess plan (optional):"));
             reprocess_plan(ui, form);
@@ -72,7 +68,7 @@ pub(crate) fn apply_card(ui: &mut egui::Ui, state: &mut GuiState) {
 
 pub(crate) fn recover_card(ui: &mut egui::Ui, state: &mut GuiState) {
     theme::card_section(ui, tr("Recover after losing an account"), Some(tr("Copies the verified contents of an old workspace into a NEW pool and workspace. The original is kept.")), |_| {}, |ui| {
-        ui.label(tr("1. In Pools, save the remaining accounts as a NEW pool. In Drive, select it with a NEW empty workspace, Automatic pool sync, and history deletion off."));
+        ui.label(tr("1. In Pools, save the remaining accounts as a NEW pool. In Drive, select it with a NEW empty workspace."));
         target(ui, state);
         let (form, settings) = (&mut state.mount, &mut state.settings);
         ui.add_enabled_ui(!form.session.runner.is_running(), |ui| {

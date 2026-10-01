@@ -254,9 +254,10 @@ fn e2e_plan_from_env() {
     let options = PlanOptions {
         probe_full: std::env::var("RPOOL_E2E_FULL").is_ok(),
         workers: 2,
+        skip_drive: true,
         ..Default::default()
     };
-    let plan = plan("rclone", &pool, &options).unwrap();
+    let (plan, _) = plan_with_drive("rclone", &pool, &options).unwrap();
     fs::write(out, serde_json::to_vec_pretty(&plan).unwrap()).unwrap();
 }
 

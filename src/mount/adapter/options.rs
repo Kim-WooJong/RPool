@@ -26,12 +26,8 @@ pub(in crate::mount) fn volume_label(pool: &str) -> String {
 
 /// The NFS server closes a VFS handle after each WRITE RPC. Without delayed
 /// write-back, every close uploads the growing whole file through WebDAV.
-pub(in crate::mount) fn vfs_cache_policy(webdav: bool) -> (&'static str, &'static str) {
-    if webdav {
-        ("full", "60s")
-    } else {
-        ("writes", "0s")
-    }
+pub(in crate::mount) fn vfs_cache_policy() -> (&'static str, &'static str) {
+    ("full", "60s")
 }
 
 pub(super) fn native_mount_command() -> &'static str {

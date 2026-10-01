@@ -1,5 +1,4 @@
-//! When records reached the cloud. Neither v6 events nor v7 snapshots carry
-//! a timestamp (adding a field would change their content-addressed ids, so
+//! When records reached the cloud. v6 events carry no timestamp (adding a field would change their content-addressed ids, so
 //! older RPool would reject them). The object ModTime of a record in the
 //! cloud listing is used instead: the upload time, identical on every PC.
 //! Records only present in a metadata checkpoint (listing deleted after the
@@ -31,7 +30,7 @@ fn record_id(path: &str) -> Option<&str> {
         && id
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
-    (valid && (dir == "events" || dir.ends_with("/events"))).then_some(id)
+    (valid && dir == "events").then_some(id)
 }
 
 /// Earliest time per record over the given replica listings.
@@ -93,10 +92,8 @@ mod tests {
         let times = from_listings(&[
             vec![
                 item(&format!("events/{id}.json"), "2026-09-30T00:00:10Z"),
-                item(
-                    &format!("snapshots/events/{other}.json"),
-                    "2026-09-30T00:00:05.5Z",
-                ),
+                item(&format!("events/{other}.json"), "2026-09-30T00:00:05.5Z"),
+                item(&format!("nested/events/{id}.json"), "2020-01-01T00:00:00Z"),
                 item(
                     &format!("checkpoints/heads/{id}.json"),
                     "2020-01-01T00:00:00Z",

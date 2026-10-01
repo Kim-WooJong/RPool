@@ -25,20 +25,10 @@ pub(crate) struct PlanOptions {
     pub skip_drive: bool,
 }
 
-/// Builds a plan for `pool` (the saved pool is the target policy). Read-only:
-/// nothing is written anywhere. Blocking; may take a while.
-/// Archives only (shared signature; `create` plans the drive too).
-#[allow(dead_code)]
-pub(crate) fn plan(rclone: &str, pool: &str, options: &PlanOptions) -> Result<Plan> {
-    let options = PlanOptions {
-        skip_drive: true,
-        ..options.clone()
-    };
-    plan_with_drive(rclone, pool, &options).map(|(plan, _)| plan)
-}
-
-/// [`plan`] plus the drive part (unless `options.skip_drive`): the drive's
-/// files read from the cloud, classified against the same listings. Read-only.
+/// Builds a plan for `pool` (the saved pool is the target policy) with the
+/// drive part (unless `options.skip_drive`): the drive's files read from the
+/// cloud, classified against the same listings. Read-only: nothing is
+/// written anywhere. Blocking; may take a while.
 pub(crate) fn plan_with_drive(
     rclone: &str,
     pool: &str,
@@ -339,8 +329,8 @@ pub(crate) fn plan_with(
 }
 
 /// `plan_with`, skipping archives in `replaced` (already migrated originals).
-/// Shared signature; production planning uses [`plan_listed`].
-#[allow(dead_code)]
+/// Production planning uses [`plan_listed`].
+#[cfg(test)]
 pub(crate) fn plan_with_replaced(
     cloud: &dyn Cloud,
     pool: &str,
@@ -505,12 +495,12 @@ pub(super) fn plan_listed(
     if enumerated.drive_skipped > 0 {
         notes.push(if options.skip_drive {
             format!(
-                "{} drive archive(s) (virtual-*, peer-v7-*) are not included: the drive was left out of this plan",
+                "{} drive archive(s) (virtual-*) are not included: the drive was left out of this plan",
                 enumerated.drive_skipped
             )
         } else {
             format!(
-                "{} drive archive(s) (virtual-*, peer-v7-*) are not migrated as archives: the drive's visible files are planned in its own part and adopted into a new drive generation",
+                "{} drive archive(s) (virtual-*) are not migrated as archives: the drive's visible files are planned in its own part and adopted into a new drive generation",
                 enumerated.drive_skipped
             )
         });

@@ -121,12 +121,8 @@ mod tests {
         DriveAdoption {
             version: 1,
             migration_id: "m1".into(),
-            source: GenerationRef {
-                epoch: None,
-                v7: false,
-            },
+            source: GenerationRef { epoch: None },
             epoch: "e".repeat(64),
-            v7: false,
             files: 1,
             dropped: vec![],
             pc_id: "pc".into(),

@@ -4,7 +4,7 @@
 //! available (`metadata_pool::read_v6` without a workspace, or the
 //! workspace's own events). Bytes are referenced again on restore; v6 has no
 //! payload GC, so every content revision stays restorable.
-use super::graph::{History, Payload, Projection, Rev, RevContent};
+use super::graph::{History, Rev, RevContent};
 use crate::mount::history_bridge::Event;
 use crate::prelude::*;
 
@@ -31,17 +31,16 @@ pub(crate) fn build(
                 content: event.content.as_ref().map(|c| RevContent {
                     hash: c.hash.clone(),
                     size: c.size,
-                    restorable: true,
                 }),
                 author: event.worker.clone(),
                 time,
             },
         );
         if let Some(content) = &event.content {
-            payloads.insert(id.clone(), Payload::Event(content.clone()));
+            payloads.insert(id.clone(), content.clone());
         }
     }
-    History::new("v6", revs, payloads, Projection::V6(events), purged)
+    History::new(revs, payloads, events, purged)
 }
 
 #[cfg(test)]

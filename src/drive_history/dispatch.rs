@@ -30,8 +30,8 @@ fn same_dir(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// `is_drive`: whether a mounted workspace is a v6/v7 online drive (replica
-/// mounts run no maintenance loop and would never answer).
+/// `is_drive`: whether a mounted workspace is an online (pool-sync) drive
+/// (other mounts run no maintenance loop and would never answer).
 pub(crate) fn route(
     pool: &str,
     workspace: Option<&Path>,
@@ -166,13 +166,7 @@ fn unpublished(drive: &VirtualDrive) -> Result<bool> {
     if !bridge::pending_paths(drive).is_empty() {
         return Ok(true);
     }
-    if bridge::is_v7(drive) {
-        let export = drive.snapshot_export()?;
-        Ok(export.snapshots.values().any(|s| !s.published)
-            || export.names.values().any(|n| !n.published))
-    } else {
-        Ok(!bridge::v6_events(drive).1.is_empty())
-    }
+    Ok(!bridge::v6_events(drive).1.is_empty())
 }
 
 fn scratch(rclone: &str, pool: &str, op: &Op) -> Result<Answer> {
@@ -187,9 +181,8 @@ fn scratch(rclone: &str, pool: &str, op: &Op) -> Result<Answer> {
     let keep = unpublished(&drive).unwrap_or(true);
     drop(drive);
     let retry = format!(
-        "unpublished changes are kept in {}; finish with `rpool mount --virtual-drive --pool-sync{} --sync-only --pool {pool} --workspace \"{}\"`",
+        "unpublished changes are kept in {}; finish with `rpool mount --virtual-drive --pool-sync --sync-only --pool {pool} --workspace \"{}\"`",
         dir.display(),
-        if generation.v7 { " --pool-retention" } else { "" },
         dir.display()
     );
     if !keep {

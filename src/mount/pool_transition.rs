@@ -21,8 +21,6 @@ struct Journal {
     policy_hash: String,
     source_hashes: BTreeMap<String, String>,
     reprocess_plan: Option<PathBuf>,
-    peer_retention: bool,
-    history_limit: usize,
     entries: BTreeMap<String, Entry>,
     ready: bool,
     activated: bool,
@@ -43,48 +41,18 @@ fn check_destination(
         .values()
         .filter_map(|e| e.intent.as_ref().map(|i| i.id.clone()))
         .collect();
-    let allowed = if drive.peer_retention {
-        Some(drive.transition_snapshot_events(&ids)?)
-    } else {
-        None
-    };
     let state = drive.state.lock().unwrap();
-    let events: BTreeSet<String> = allowed.unwrap_or_else(|| {
-        state
-            .committed_intents
-            .iter()
-            .filter(|(id, _)| ids.contains(*id))
-            .map(|(_, event)| event.clone())
-            .collect()
-    });
+    let events: BTreeSet<String> = state
+        .committed_intents
+        .iter()
+        .filter(|(id, _)| ids.contains(*id))
+        .map(|(_, event)| event.clone())
+        .collect();
     if state.pending.iter().any(|i| !ids.contains(&i.id))
         || state.events.keys().any(|id| !events.contains(id))
         || !state.directories.is_subset(directories)
     {
         bail!("transition destination changed; preserve stage and original workspace");
-    }
-    Ok(())
-}
-
-fn completion_valid(drive: &VirtualDrive, path: &str, intent: &Intent) -> Result<()> {
-    if !drive.peer_retention {
-        return recovery::completion_valid(drive, path, intent);
-    }
-    let allowed = drive.transition_snapshot_events(&BTreeSet::from([intent.id.clone()]))?;
-    let state = drive.state.lock().unwrap();
-    let committed = state
-        .committed_intents
-        .get(&intent.id)
-        .context("transition intent not committed")?;
-    if !state.published.contains(committed) {
-        bail!("transition committed intent is not fully published");
-    }
-    let resolved = state.resolved()?;
-    let visible = resolved
-        .get(path)
-        .context("transition destination file missing")?;
-    if !allowed.contains(&visible.event_id) || state.pending.iter().any(|i| i.path == path) {
-        bail!("transition destination changed or publication incomplete");
     }
     Ok(())
 }
@@ -126,7 +94,7 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
     let _transition_lock = lock_workspace_transition(&args.workspace)?;
     let _stop = super::lifecycle::StopControl::new(args.stop_file.clone())?;
     recovery::check_stop(args.stop_file.as_deref())?;
-    if !args.virtual_drive || !args.pool_sync || args.account_recovery_from.is_some() {
+    if args.account_recovery_from.is_some() {
         bail!("apply pool changes requires the selected virtual pool-sync workspace, not account recovery");
     }
     let parent = args
@@ -202,8 +170,8 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
         &source_path,
         super::shard_cache::ShardCache::new(temporary_cache.path().join("cache"), cache_limit)?,
     )?;
-    if source.pool != args.pool || source.peer_retention != args.pool_retention {
-        bail!("transition must preserve selected pool name and v6/v7 protocol");
+    if source.pool != args.pool {
+        bail!("transition must preserve selected pool name");
     }
     let hashes = recovery::source_hashes(&source)?;
     let aliases = |remotes: &[String]| -> BTreeSet<String> {
@@ -222,18 +190,8 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
         .map(|p| crate::pool::completed_reprocess_replacements(p))
         .transpose()?
         .unwrap_or_default();
-    let history_limit = args
-        .pool_history_limit
-        .map(|n| n as usize)
-        .unwrap_or(source.pool_history_limit);
-    if history_limit > 10_000 {
-        bail!("history limit exceeds 10000");
-    }
     let mut journal = if let Some(j) = saved.take() {
-        if j.source_hashes != hashes
-            || j.peer_retention != source.peer_retention
-            || j.history_limit != history_limit
-        {
+        if j.source_hashes != hashes {
             bail!("original source changed; transition cannot resume");
         }
         j
@@ -250,8 +208,6 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
             policy_hash,
             source_hashes: hashes,
             reprocess_plan: plan,
-            peer_retention: source.peer_retention,
-            history_limit,
             entries: BTreeMap::new(),
             ready: false,
             activated: false,
@@ -310,16 +266,9 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
             &args.pool,
             &initializing,
             "pool-transition",
-            None,
             cache_limit,
-            false,
-            true,
-            journal.peer_retention,
             &journal.epoch,
         )?;
-        if journal.peer_retention {
-            super::pool_sync::Config::load(&initializing, Some(journal.history_limit))?;
-        }
         drop(initialized);
         fs::rename(&initializing, &destination_path)?;
         sync_parent(&destination_path)?;
@@ -329,11 +278,7 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
         &args.pool,
         &destination_path,
         "pool-transition",
-        None,
         cache_limit,
-        false,
-        true,
-        journal.peer_retention,
     )?;
     let binding: serde_json::Value =
         crate::utils::read_json(&destination_path.join("virtual.json"))?;
@@ -344,10 +289,6 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
         .spool_gib
         .checked_mul(1073741824)
         .context("spool limit overflow")?;
-    destination.pool_history_limit = journal.history_limit;
-    if journal.peer_retention {
-        super::pool_sync::Config::load(&destination_path, Some(journal.history_limit))?;
-    }
     let directories = source.state.lock().unwrap().directories.clone();
     let view = source.view()?;
     if journal.entries.keys().any(|p| !view.contains_key(p)) {
@@ -371,7 +312,7 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
             bail!("source revision changed");
         }
         if journal.entries[path].complete {
-            completion_valid(
+            recovery::completion_valid(
                 &destination,
                 path,
                 journal.entries[path]
@@ -399,7 +340,7 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
                 bail!("transition destination path changed");
             }
             if let Some(manifest) =
-                recovery::matching_replacement(&source, revision, &replacements, &allowed)?
+                recovery::matching_replacement(revision, &replacements, &allowed)?
             {
                 let hash = recovery::verify_replacement(
                     &source,
@@ -416,8 +357,8 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
                         manifest: manifest.clone(),
                     },
                 };
-                // Copy with a v6-style source wrapper is inappropriate for v7 snapshot lookup;
-                // read the verified replacement directly into a fresh, destination-owned upload.
+                // Read the verified replacement directly into a fresh,
+                // destination-owned upload.
                 let mut target = OpenOptions::new()
                     .create(true)
                     .truncate(true)
@@ -467,7 +408,7 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
         }
         check_destination(&destination, &journal, &directories)?;
         destination.sync()?;
-        completion_valid(&destination, path, &intent)?;
+        recovery::completion_valid(&destination, path, &intent)?;
         journal.entries.get_mut(path).unwrap().complete = true;
         persist(&journal_path, &journal)?;
     }
@@ -479,7 +420,7 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
     destination.sync()?;
     check_destination(&destination, &journal, &directories)?;
     for (path, entry) in &journal.entries {
-        completion_valid(
+        recovery::completion_valid(
             &destination,
             path,
             entry.intent.as_ref().context("completion intent missing")?,
@@ -580,8 +521,6 @@ mod tests {
             policy_hash: "hash".into(),
             source_hashes: BTreeMap::new(),
             reprocess_plan: None,
-            peer_retention: false,
-            history_limit: 0,
             entries: BTreeMap::new(),
             ready: true,
             activated: false,

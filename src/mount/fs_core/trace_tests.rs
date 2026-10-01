@@ -264,14 +264,6 @@ fn step(core: &FsCore, model: &mut Model, rng: &mut Rng, context: &str) -> bool 
                 assert_eq!(outcome(&result), "NotFound", "{context}: rename");
                 return false;
             };
-            // v7 cannot express some renames while intents are pending; the
-            // source is sealed first and nothing moves.
-            if matches!(outcome(&result).as_str(), "CrossDevice" | "Busy") {
-                if model.files[file].dirty {
-                    model.ack(file);
-                }
-                return false;
-            }
             assert_eq!(outcome(&result), "Ok", "{context}: rename {path} -> {to}");
             if path != to {
                 if model.files[file].dirty {
@@ -334,17 +326,16 @@ fn release_all(core: &FsCore, model: &mut Model) {
 }
 
 /// A local or pool-sync (v6) fixture core, fresh or reopened from disk.
-/// `mode`: 0 local, 6 pool sync v6, 7 v7 private snapshots.
+/// `mode`: 0 local (test fixture), 6 pool sync v6.
 fn open_core(root: &Path, reopen: bool, mode: u32) -> FsCore {
     let mut drive = if reopen {
         fixture_reopen(root)
     } else {
         fixture(root)
     };
-    if mode >= 6 {
+    if mode == 6 {
         drive.pool_sync_roots = vec!["crypt:pool".into()];
         drive.state.lock().unwrap().version = mode;
-        drive.peer_retention = mode == 7;
     }
     FsCore::new(Arc::new(drive)).unwrap()
 }
@@ -355,7 +346,6 @@ fn randomized_traces_match_the_reference_model_through_crashes() {
     for (peer, seed) in (0..SEEDS)
         .map(|s| (0, s))
         .chain((0..SEEDS / 2).map(|s| (6, s)))
-        .chain((0..SEEDS / 2).map(|s| (7, s)))
     {
         let root = tempfile::tempdir().unwrap();
         let mut core = open_core(root.path(), false, peer);
@@ -373,11 +363,6 @@ fn randomized_traces_match_the_reference_model_through_crashes() {
         }
         release_all(&core, &mut model);
         check_paths(&core, &model, &format!("seed {seed} final"));
-        if peer == 7 {
-            // v7 commits through sync_snapshots, which needs remote IO.
-            total_crashes += crashes;
-            continue;
-        }
         super::tests::commit_all(&core.drive);
         let view = core.drive.view().unwrap();
         let expected: Vec<&String> = model.paths.keys().collect();

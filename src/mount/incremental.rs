@@ -97,8 +97,7 @@ pub(crate) fn upload(
         &status.eligible,
         |shards| verify(&storage, shards),
         |path, part_id| {
-            super::workspace::upload_eligible_tracked(rclone, policy, pool, path, part_id)
-                .map(|v| v.0)
+            super::upload::upload_eligible_tracked(rclone, policy, pool, path, part_id).map(|v| v.0)
         },
         |manifest, remotes| {
             crate::manifest::replicate_manifest_with_storage(

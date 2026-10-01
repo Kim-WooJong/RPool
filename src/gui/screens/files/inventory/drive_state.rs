@@ -338,7 +338,7 @@ mod tests {
     fn sample() -> PoolBrowse {
         PoolBrowse {
             pool: "family".into(),
-            mode: "v7".into(),
+            mode: "v6".into(),
             entries: vec![
                 entry("Photos", 0, true),
                 entry("Photos/2024", 0, true),
@@ -355,7 +355,7 @@ mod tests {
     #[test]
     fn tree_nests_sorts_and_totals() {
         let tree = DriveTree::build(sample());
-        assert_eq!(tree.mode, "v7");
+        assert_eq!(tree.mode, "v6");
         assert_eq!((tree.files, tree.dirs, tree.bytes), (5, 4, 45));
         let roots: Vec<_> = tree
             .children(None)

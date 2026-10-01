@@ -39,18 +39,6 @@ fn conflict_line(ui: &mut egui::Ui, form: &mut MountForm, conflict: &Conflict) {
     });
 }
 
-fn mode(form: &MountForm) -> &'static str {
-    match (form.virtual_drive, form.pool_sync, form.bounded_shared) {
-        (false, _, _) => tr("full local replica"),
-        (true, true, _) => tr("online drive · automatic pool sync"),
-        (true, false, true) => tr("online drive · legacy shared (bounded)"),
-        (true, false, false) if !form.shared_root.trim().is_empty() => {
-            tr("online drive · legacy shared")
-        }
-        (true, false, false) => tr("online drive · this PC only"),
-    }
-}
-
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let (form, settings) = (&mut state.mount, &mut state.settings);
     theme::card(ui).show(ui, |ui| {
@@ -65,7 +53,6 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
             let pool = if form.pool.is_empty() { tr("No pool selected") } else { form.pool.as_str() };
             let target = if form.mountpoint.trim().is_empty() { tr("no mountpoint") } else { form.mountpoint.trim() };
             ui.label(egui::RichText::new(format!("{pool} › {target}")).strong());
-            ui.label(egui::RichText::new(mode(form)).weak());
             ui.label(egui::RichText::new(if form.native_selected() { tr("· native") } else { "· WebDAV" }).weak());
         });
         ui.add_space(theme::SUBSECTION_GAP);

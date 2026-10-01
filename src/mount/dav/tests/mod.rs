@@ -96,7 +96,7 @@ fn fragmented_write_is_one_seal_and_short_body_is_not_sealed() {
 fn range_put_checks_body_length_not_resulting_file_length() {
     let temp = tempfile::tempdir().unwrap();
     let drive = Arc::new(super::super::virtual_drive::fixture(temp.path()));
-    let server = Server::start(drive.clone(), false).unwrap();
+    let server = Server::start(drive.clone()).unwrap();
     assert!(request(&server, "PUT", "/file", "", b"abcdef", true).starts_with("HTTP/1.1 201"));
     let response = request(
         &server,
@@ -125,7 +125,7 @@ fn range_put_checks_body_length_not_resulting_file_length() {
 fn repeated_full_prefix_puts_have_distinct_acknowledged_revisions() {
     let temp = tempfile::tempdir().unwrap();
     let drive = Arc::new(super::super::virtual_drive::fixture(temp.path()));
-    let server = Server::start(drive.clone(), false).unwrap();
+    let server = Server::start(drive.clone()).unwrap();
     for prefix in 1..=16 {
         let body = vec![b'x'; prefix * 32768];
         let response = request(&server, "PUT", "/file", "", &body, true);
@@ -160,7 +160,7 @@ fn real_http_auth_put_range_listing_and_quota() {
             .as_secs(),
         ..Default::default()
     });
-    let server = Server::start(drive.clone(), false).unwrap();
+    let server = Server::start(drive.clone()).unwrap();
     assert!(request(&server, "GET", "/file", "", b"", false).starts_with("HTTP/1.1 401"));
     assert!(request(&server, "PUT", "/file", "", b"hello", true).starts_with("HTTP/1.1 201"));
     assert_eq!(drive.state.lock().unwrap().pending.len(), 1);
@@ -261,38 +261,13 @@ fn real_http_auth_put_range_listing_and_quota() {
     assert!(!bad.starts_with("HTTP/1.1 201"));
 }
 #[test]
-fn diagnostic_http_rejects_writes_before_spool_mutation() {
-    let temp = tempfile::tempdir().unwrap();
-    let drive = Arc::new(super::super::virtual_drive::fixture(temp.path()));
-    let server = Server::start(drive.clone(), true).unwrap();
-    assert!(
-        request(&server, "PROPFIND", "/", "Depth: 0\r\n", b"", true).starts_with("HTTP/1.1 207")
-    );
-    for method in [
-        "PUT",
-        "MKCOL",
-        "DELETE",
-        "MOVE",
-        "COPY",
-        "LOCK",
-        "PROPPATCH",
-    ] {
-        assert!(
-            request(&server, method, "/file", "", b"data", true).starts_with("HTTP/1.1 403"),
-            "{method} was not rejected"
-        );
-    }
-    assert!(drive.state.lock().unwrap().pending.is_empty());
-    assert!(drive.state.lock().unwrap().directories.is_empty());
-}
-#[test]
 fn pool_sync_http_range_requests_never_mix_replaced_revisions() {
     let temp = tempfile::tempdir().unwrap();
     let mut fixture = super::super::virtual_drive::fixture(temp.path());
     fixture.pool_sync_roots = vec!["crypt:pool".into()];
     fixture.state.lock().unwrap().version = 6;
     let drive = Arc::new(fixture);
-    let server = Server::start(drive.clone(), false).unwrap();
+    let server = Server::start(drive.clone()).unwrap();
     assert!(request(&server, "PUT", "/file", "", b"abcdef", true).starts_with("HTTP/1.1 201"));
     let first = request(&server, "GET", "/file", "Range: bytes=0-2\r\n", b"", true);
     assert!(

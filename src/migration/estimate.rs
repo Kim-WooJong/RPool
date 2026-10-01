@@ -47,17 +47,6 @@ pub(crate) fn relocate_transfer(
     copy_transfer(manifest, states, moving, features)
 }
 
-/// A full copy of an archive whose shards all stay on their remotes (a v7
-/// drive payload copied into a new generation's private owner): every kept
-/// shard is copied as `relocate_transfer` counts it.
-pub(crate) fn private_copy_transfer(
-    manifest: &Manifest,
-    states: &[ShardState],
-    features: &dyn Fn(&str) -> Option<CopyFeatures>,
-) -> Result<Transfer> {
-    copy_transfer(manifest, states, &BTreeSet::new(), features)
-}
-
 fn copy_transfer(
     manifest: &Manifest,
     states: &[ShardState],

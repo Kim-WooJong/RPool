@@ -12,10 +12,10 @@ impl MountProcess {
         #[cfg(not(target_os = "macos"))]
         let target = config.target.clone();
         std::fs::create_dir_all(&config.cache_dir).context("cannot create durable VFS cache")?;
-        let files = config.files_dir.canonicalize()?;
+        let anchor = config.anchor_dir.canonicalize()?;
         let cache = config.cache_dir.canonicalize()?;
-        let lease = MountLease::prepare(&files, &cache, &target, config.webdav.as_ref())?;
-        let log_path = files
+        let lease = MountLease::prepare(&anchor, &cache, &target, &config.webdav)?;
+        let log_path = anchor
             .parent()
             .context("workspace root missing")?
             .join(".rpool")
@@ -31,16 +31,12 @@ impl MountProcess {
             .map(|b| format!("{b:02x}"))
             .collect::<String>();
         let credential = base64(format!("rpool:{password}").as_bytes());
-        let mut source = std::ffi::OsString::from(":local:");
-        source.push(files.as_os_str());
-        if config.webdav.is_some() {
-            source = ":webdav:".into();
-        }
-        let (cache_mode, write_back) = vfs_cache_policy(config.webdav.is_some());
+        let (cache_mode, write_back) = vfs_cache_policy();
+        let (url, token) = &config.webdav;
         let mut command = Command::new(&config.rclone);
         command
             .arg(native_mount_command())
-            .arg(source)
+            .arg(":webdav:")
             .arg(&target)
             .args([
                 "--vfs-cache-mode",
@@ -58,20 +54,14 @@ impl MountProcess {
             // a pipe would kill rclone (SIGPIPE) while the kernel mount still needs it.
             .stdin(Stdio::null())
             .stdout(Stdio::from(log.try_clone()?))
-            .stderr(Stdio::from(log));
-        if let Some((url, token)) = &config.webdav {
-            command
-                .env("RCLONE_WEBDAV_URL", url)
-                .env("RCLONE_WEBDAV_BEARER_TOKEN", token)
-                .env("RCLONE_WEBDAV_VENDOR", "other")
-                .env("RCLONE_WEBDAV_USER", "")
-                .env("RCLONE_WEBDAV_PASS", "")
-                .env("RCLONE_WEBDAV_BEARER_TOKEN_COMMAND", "")
-                .args(["--dir-cache-time", "2s", "--vfs-read-chunk-size", "0"]);
-        }
-        if config.read_only {
-            command.arg("--read-only");
-        }
+            .stderr(Stdio::from(log))
+            .env("RCLONE_WEBDAV_URL", url)
+            .env("RCLONE_WEBDAV_BEARER_TOKEN", token)
+            .env("RCLONE_WEBDAV_VENDOR", "other")
+            .env("RCLONE_WEBDAV_USER", "")
+            .env("RCLONE_WEBDAV_PASS", "")
+            .env("RCLONE_WEBDAV_BEARER_TOKEN_COMMAND", "")
+            .args(["--dir-cache-time", "2s", "--vfs-read-chunk-size", "0"]);
         if let Some(name) = config.volume_name.as_deref().map(volume_label) {
             command.arg("--volname").arg(name);
         }
@@ -80,12 +70,10 @@ impl MountProcess {
             config.vfs_cache_gib,
             config.cache_min_free_gib,
         );
-        if config.shared {
-            // Only rclone may evict its clean, unused cache entries. Short
-            // retention allows an unmounted shared reconciliation without
-            // deleting potentially dirty cache files ourselves.
-            command.args(["--vfs-cache-max-age", "1s"]);
-        }
+        // Only rclone may evict its clean, unused cache entries. Short
+        // retention allows an unmounted reconciliation without deleting
+        // potentially dirty cache files ourselves.
+        command.args(["--vfs-cache-max-age", "1s"]);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -115,7 +103,7 @@ impl MountProcess {
             return Err(error).context("cannot record mount child; uncertain lease retained unless child termination was confirmed");
         }
         let mut secrets = vec![password, credential.clone()];
-        secrets.extend(config.webdav.as_ref().map(|(_, token)| token.clone()));
+        secrets.push(config.webdav.1.clone());
         let logs = Mutex::new(MountLog::new(log_path, secrets));
         Ok(Self {
             child,
@@ -173,11 +161,6 @@ impl MountProcess {
         }
     }
 
-    /// These counters describe rclone's LOCAL VFS cache, never cloud commit status.
-    pub(crate) fn vfs_stats(&self) -> Result<serde_json::Value> {
-        serde_json::from_slice(&self.rc("vfs/stats")?).context("invalid rclone VFS statistics")
-    }
-
     pub(crate) fn logs(&self) -> Vec<String> {
         self.logs
             .lock()
@@ -225,16 +208,10 @@ impl MountProcess {
         }
         if self.stopped {
             self.lease.clear_if_unmounted(&self.target)?;
-            return Ok(StopReport {
-                forced: false,
-                cache_preserved: true,
-            });
+            return Ok(StopReport { forced: false });
         }
         if self.poll()?.is_some() {
-            return Ok(StopReport {
-                forced: false,
-                cache_preserved: true,
-            });
+            return Ok(StopReport { forced: false });
         }
         // Deliver delayed saves to the still-serving WebDAV backend before rclone quits.
         match drain_writeback(self.address, &self.credential, WRITEBACK_DRAIN_LIMIT) {
@@ -253,10 +230,7 @@ impl MountProcess {
         let deadline = Instant::now() + grace;
         while Instant::now() < deadline {
             if self.poll()?.is_some() {
-                return Ok(StopReport {
-                    forced: false,
-                    cache_preserved: true,
-                });
+                return Ok(StopReport { forced: false });
             }
             thread::sleep(Duration::from_millis(50));
         }
@@ -276,10 +250,7 @@ impl MountProcess {
             self.child.wait().context("cannot reap mount process")?;
             self.stopped = true;
             self.lease.clear_if_unmounted(&self.target)?;
-            Ok(StopReport {
-                forced: true,
-                cache_preserved: true,
-            })
+            Ok(StopReport { forced: true })
         }
     }
 

@@ -63,10 +63,6 @@ fn rclone(
     settings: &mut crate::gui::settings::GuiSettings,
 ) {
     theme::card_section(ui, tr("Files stored with rclone"), Some(tr("Copies any rclone path (for example an old crypt remote) into this drive and uploads it as pool shards. Unmount first. The source is only read.")), |_| {}, |ui| {
-        if !form.virtual_drive || form.bounded_shared {
-            theme::hint(ui, tr("Needs an online drive with This PC only or Automatic pool sync."));
-            return;
-        }
         egui::Grid::new("rclone-import-grid").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
             let width = (ui.available_width() - 120.0).clamp(160.0, 320.0);
             ui.label(tr("Source"));

@@ -9,11 +9,6 @@
   "ja": "（キャッシュ全体）",
   "zh": "（整个缓存）"
  },
- "1. In Pools, save the remaining accounts as a NEW pool. In Drive, select it with a NEW empty workspace, Automatic pool sync, and history deletion off.": {
-  "ko": "1. 풀에서 남은 계정을 새 풀로 저장하세요. 드라이브에서 그 풀을 고르고, 새 빈 워크스페이스·자동 풀 동기화·기록 삭제 끔으로 설정하세요.",
-  "ja": "1. プールで残りのアカウントを新しいプールとして保存します。ドライブでそれを選び、新しい空のワークスペース、自動プール同期、履歴削除オフに設定します。",
-  "zh": "1. 在存储池中将剩余账户保存为新的存储池。在驱动器中选择它，并使用新的空工作区、自动存储池同步，且关闭历史删除。"
- },
  "2. The original workspace (unmount it first):": {
   "ko": "2. 원본 워크스페이스(먼저 마운트 해제):",
   "ja": "2. 元のワークスペース（先にマウント解除）:",
@@ -24,25 +19,10 @@
   "ja": "3. 復旧レポートを確認してから、新しいプールを通常どおりマウントします。復旧できるのはローカルで把握しているファイル、確定済みの書き込み、競合のみで、欠損データはファイルごとに報告されます。",
   "zh": "3. 查看恢复报告，然后正常挂载新的存储池。只有本地已知的文件、已封存的写入和冲突可以恢复；缺失的数据会按文件报告。"
  },
- "A diagnostic read-only mount cannot import archives; remove the manifest imports.": {
-  "ko": "진단용 읽기 전용 마운트는 아카이브를 가져올 수 없어요. 매니페스트 가져오기를 제거하세요.",
-  "ja": "診断用の読み取り専用マウントではアーカイブをインポートできません。マニフェストのインポートを削除してください。",
-  "zh": "诊断只读挂载无法导入归档；请移除清单导入。"
- },
- "A full replica has no shard cache or spool to maintain.": {
-  "ko": "전체 복제본에는 관리할 샤드 캐시나 스풀이 없어요.",
-  "ja": "完全な複製には、管理するシャードキャッシュやスプールはありません。",
-  "zh": "完整副本没有需要维护的分片缓存或暂存区。"
- },
  "A previous WebDAV mount stopped before rclone saved these writes. Restored files are pending upload like any other save. Recovered copies sit next to a file that may have changed since; compare and keep what you need. Nothing was overwritten.": {
   "ko": "이전 WebDAV 마운트가 rclone이 이 쓰기를 저장하기 전에 중지됐어요. 복원된 파일은 다른 저장과 마찬가지로 업로드 대기 중이에요. 복구된 사본은 그 사이 바뀌었을 수 있는 파일 옆에 있으니, 비교해서 필요한 것을 남기세요. 덮어쓴 것은 없어요.",
   "ja": "以前の WebDAV マウントが、rclone がこれらの書き込みを保存する前に停止しました。復元したファイルは通常の保存と同様にアップロード待ちです。復旧したコピーは、その後変更された可能性のあるファイルの隣にあります。比較して必要なものを残してください。上書きされたものはありません。",
   "zh": "之前的 WebDAV 挂载在 rclone 保存这些写入之前就已停止。已恢复的文件与其他保存一样等待上传。恢复的副本位于可能已更改的文件旁边，请比较后保留所需内容。没有任何内容被覆盖。"
- },
- "A replica keeps the complete copy; the OS cache target does not limit it.": {
-  "ko": "복제본은 전체 사본을 보관하며, OS 캐시 목표로 제한되지 않아요.",
-  "ja": "複製は完全なコピーを保持します。OS キャッシュの目標による制限はありません。",
-  "zh": "副本保留完整拷贝；不受操作系统缓存目标限制。"
  },
  "Account": {
   "ko": "계정",
@@ -58,11 +38,6 @@
   "ko": "풀에서 계정을 추가하거나 제거한 뒤: 마운트를 해제하고 적용하세요. 풀 이름과 워크스페이스는 그대로이고, 현재 파일·충돌·봉인된 쓰기를 먼저 새 메타데이터 세대에서 검증해요.",
   "ja": "プールでアカウントを追加・削除した後: マウントを解除してから適用します。プール名とワークスペースはそのままで、現在のファイル・競合・確定済みの書き込みを新しいメタデータ世代で先に検証します。",
   "zh": "在存储池中添加或移除账户后：先卸载再应用。存储池名称和工作区保持不变；当前文件、冲突和已封存的写入会先在新的元数据世代中验证。"
- },
- "All files are visible; contents download on demand and clean cache is trimmed automatically. Cloud files are never deleted by trimming.": {
-  "ko": "모든 파일이 보이고, 내용은 필요할 때 내려받으며 깨끗한 캐시는 자동으로 정리돼요. 정리로 클라우드 파일이 삭제되는 일은 없어요.",
-  "ja": "すべてのファイルが表示され、内容は必要に応じてダウンロードされ、クリーンなキャッシュは自動で削減されます。削減によってクラウドのファイルが削除されることはありません。",
-  "zh": "所有文件均可见；内容按需下载，干净缓存会自动清理。清理绝不会删除云端文件。"
  },
  "All variants are kept; nothing is merged or discarded automatically.": {
   "ko": "모든 변형이 보존돼요. 자동으로 병합하거나 버리는 것은 없어요.",
@@ -89,45 +64,15 @@
   "ja": "プールの変更を適用",
   "zh": "应用存储池更改"
  },
- "Apply pool changes requires Online drive + Automatic pool sync and no explicit imports.": {
-  "ko": "'풀 변경 적용'에는 온라인 드라이브 + 자동 풀 동기화가 필요하고, 명시적 가져오기가 없어야 해요.",
-  "ja": "「プールの変更を適用」には、オンラインドライブ + 自動プール同期で、明示的なインポートがないことが必要です。",
-  "zh": "“应用存储池更改”需要在线驱动器 + 自动存储池同步，且没有显式导入。"
- },
- "Automatic history deletion (v7)": {
-  "ko": "자동 기록 삭제(v7)",
-  "ja": "履歴の自動削除（v7）",
-  "zh": "自动删除历史（v7）"
- },
- "Automatic pool sync": {
-  "ko": "자동 풀 동기화",
-  "ja": "自動プール同期",
-  "zh": "自动存储池同步"
- },
  "Automatic — native where available (default)": {
   "ko": "자동 — 가능하면 네이티브(기본값)",
   "ja": "自動 — 利用可能ならネイティブ（既定）",
   "zh": "自动 — 可用时使用原生（默认）"
  },
- "Available for online drives with Sync = This PC only. Pool-sync drives collect history automatically with v7 (Options › Version history).": {
-  "ko": "동기화가 '이 PC만'인 온라인 드라이브에서 쓸 수 있어요. 풀 동기화 드라이브는 v7로 기록을 자동 정리해요(옵션 › 버전 기록).",
-  "ja": "同期が「この PC のみ」のオンラインドライブで利用できます。プール同期ドライブは v7 で履歴を自動的に整理します（オプション › バージョン履歴）。",
-  "zh": "适用于同步方式为“仅此电脑”的在线驱动器。存储池同步驱动器通过 v7 自动清理历史（选项 › 版本历史）。"
- },
  "Background interval": {
   "ko": "백그라운드 간격",
   "ja": "バックグラウンド間隔",
   "zh": "后台间隔"
- },
- "Bounded shared history (latest cloud state wins)": {
-  "ko": "제한된 공유 기록(최신 클라우드 상태 우선)",
-  "ja": "上限付き共有履歴（最新のクラウド状態を優先）",
-  "zh": "有限共享历史（以最新云端状态为准）"
- },
- "Bounded shared history requires virtual mode and a shared encrypted root.": {
-  "ko": "제한된 공유 기록에는 가상 모드와 암호화된 공유 루트가 필요해요.",
-  "ja": "上限付き共有履歴には仮想モードと暗号化共有ルートが必要です。",
-  "zh": "有限共享历史需要虚拟模式和加密的共享根目录。"
  },
  "Cache & pending writes": {
   "ko": "캐시 및 대기 중인 쓰기",
@@ -249,21 +194,6 @@
   "ja": "マウント解除を要求できませんでした: {error}",
   "zh": "无法请求卸载：{error}"
  },
- "Delete obsolete versions": {
-  "ko": "오래된 버전 삭제",
-  "ja": "古いバージョンを削除",
-  "zh": "删除过时版本"
- },
- "Deletes exact remote objects. Resumable; provider trash or versioning may delay quota recovery.": {
-  "ko": "정확한 원격 객체를 삭제해요. 이어서 할 수 있으며, 공급자의 휴지통이나 버전 관리 때문에 할당량 회복이 늦어질 수 있어요.",
-  "ja": "対象のリモートオブジェクトを正確に削除します。再開可能です。プロバイダーのごみ箱やバージョン管理により容量の回復が遅れる場合があります。",
-  "zh": "删除确切的远程对象。可断点续做；提供商的回收站或版本控制可能会延迟配额恢复。"
- },
- "Deleting obsolete versions. The operation is resumable; do not remove the retention journal.": {
-  "ko": "오래된 버전을 삭제하고 있어요. 이어서 할 수 있는 작업이니 보존 저널을 지우지 마세요.",
-  "ja": "古いバージョンを削除しています。再開可能な操作です。保持ジャーナルは削除しないでください。",
-  "zh": "正在删除过时版本。此操作可断点续做；请勿删除保留日志。"
- },
  "Deletion request": {
   "ko": "삭제 요청",
   "ja": "削除要求",
@@ -314,11 +244,6 @@
   "ja": "未使用の Windows ドライブ文字、または既存の空の Unix マウントディレクトリを入力してください。",
   "zh": "请输入未使用的 Windows 驱动器号，或已存在的空 Unix 挂载目录。"
  },
- "Enter both a shared root and a worker name, or leave both empty for local-only mode.": {
-  "ko": "공유 루트와 작업자 이름을 모두 입력하거나, 로컬 전용 모드라면 둘 다 비워 두세요.",
-  "ja": "共有ルートとワーカー名の両方を入力するか、ローカル専用モードなら両方を空欄にしてください。",
-  "zh": "请同时填写共享根目录和工作者名称，或在仅本地模式下都留空。"
- },
  "Enter the rclone source as remote:path (for example old-crypt:photos).": {
   "ko": "rclone 원본을 remote:path 형식으로 입력하세요(예: old-crypt:photos).",
   "ja": "rclone のソースを remote:path の形式で入力してください（例: old-crypt:photos）。",
@@ -354,35 +279,10 @@
   "ja": "空き / 合計",
   "zh": "可用 / 总计"
  },
- "Full local replica": {
-  "ko": "전체 로컬 복제본",
-  "ja": "完全なローカル複製",
-  "zh": "完整本地副本"
- },
  "History": {
   "ko": "기록",
   "ja": "履歴",
   "zh": "历史"
- },
- "History cleanup": {
-  "ko": "기록 정리",
-  "ja": "履歴の整理",
-  "zh": "历史清理"
- },
- "History cleanup needs an online drive with Sync = This PC only (no pool sync or shared root).": {
-  "ko": "기록 정리에는 동기화가 '이 PC만'인 온라인 드라이브가 필요해요(풀 동기화나 공유 루트 없음).",
-  "ja": "履歴の整理には、同期が「この PC のみ」のオンラインドライブが必要です（プール同期や共有ルートなし）。",
-  "zh": "历史清理需要同步方式为“仅此电脑”的在线驱动器（不使用存储池同步或共享根目录）。"
- },
- "History collection needs temporary space. Keep the saved mode for an existing workspace.": {
-  "ko": "기록 정리에는 임시 공간이 필요해요. 기존 워크스페이스는 저장된 모드를 유지하세요.",
-  "ja": "履歴の整理には一時領域が必要です。既存のワークスペースでは保存済みのモードを維持してください。",
-  "zh": "历史清理需要临时空间。现有工作区请保持已保存的模式。"
- },
- "How many previous versions each file keeps. Every PC must use the same limit.": {
-  "ko": "파일마다 이전 버전을 몇 개 보관할지 정해요. 모든 PC가 같은 한도를 써야 해요.",
-  "ja": "各ファイルが保持する以前のバージョン数です。すべての PC で同じ上限を使用する必要があります。",
-  "zh": "每个文件保留的旧版本数量。所有电脑必须使用相同的上限。"
  },
  "How often sync runs. Capacity is measured at least every 60 s regardless.": {
   "ko": "동기화 실행 주기예요. 용량은 이와 관계없이 최소 60초마다 측정돼요.",
@@ -419,40 +319,15 @@
   "ja": "名前が重複したら \"name (imported N)\" としてインポート",
   "zh": "名称冲突时以 \"name (imported N)\" 导入"
  },
- "Importing needs an online drive with This PC only or Automatic pool sync.": {
-  "ko": "가져오기에는 '이 PC만' 또는 자동 풀 동기화를 쓰는 온라인 드라이브가 필요해요.",
-  "ja": "インポートには「この PC のみ」または自動プール同期のオンラインドライブが必要です。",
-  "zh": "导入需要使用“仅此电脑”或自动存储池同步的在线驱动器。"
- },
  "Importing. The source is only read; imported files upload in batches. Stop anytime and start again to resume.": {
   "ko": "가져오는 중이에요. 원본은 읽기만 하고, 가져온 파일은 묶음 단위로 업로드돼요. 언제든 멈췄다가 다시 시작하면 이어서 해요.",
   "ja": "インポート中です。ソースは読み取るだけで、インポートしたファイルはバッチ単位でアップロードされます。いつでも停止でき、再度開始すると続きから再開します。",
   "zh": "正在导入。源仅被读取；导入的文件分批上传。可随时停止，再次开始即可继续。"
  },
- "Incoming shared changes are applied when unmounted or at the next start. Protect the local plaintext copy.": {
-  "ko": "들어오는 공유 변경은 마운트 해제 시나 다음 시작 때 적용돼요. 로컬 평문 사본을 잘 보호하세요.",
-  "ja": "受信した共有の変更は、マウント解除時または次回起動時に適用されます。ローカルの平文コピーを保護してください。",
-  "zh": "传入的共享更改会在卸载时或下次启动时应用。请保护好本地明文副本。"
- },
  "Keep disk free": {
   "ko": "디스크 여유 유지",
   "ja": "ディスクの空きを確保",
   "zh": "保留磁盘空间"
- },
- "Keep previous versions per file": {
-  "ko": "파일당 보존할 이전 버전",
-  "ja": "ファイルごとに保持する以前のバージョン",
-  "zh": "每个文件保留的旧版本数"
- },
- "Keeps a complete plaintext copy on this PC. Needs disk space for everything.": {
-  "ko": "이 PC에 전체 평문 사본을 보관해요. 모든 파일만큼의 디스크 공간이 필요해요.",
-  "ja": "この PC に完全な平文コピーを保持します。すべてを収めるディスク容量が必要です。",
-  "zh": "在此电脑上保留完整的明文副本。需要能容纳全部内容的磁盘空间。"
- },
- "Keeps current files, the chosen number of previous versions and unresolved conflicts.": {
-  "ko": "현재 파일, 선택한 개수의 이전 버전, 해결되지 않은 충돌을 보관해요.",
-  "ja": "現在のファイル、指定した数の以前のバージョン、未解決の競合を保持します。",
-  "zh": "保留当前文件、所选数量的旧版本以及未解决的冲突。"
  },
  "Kept entries were not imported (incomplete or unreadable). Inspect the folder and delete it yourself when done.": {
   "ko": "보존된 항목은 가져오지 않았어요(불완전하거나 읽을 수 없음). 폴더를 확인한 뒤 직접 삭제하세요.",
@@ -478,11 +353,6 @@
   "ko": "마지막 동기화 스냅샷이며, 실시간 클라우드 보기가 아니에요.",
   "ja": "最後の同期時点のスナップショットです。クラウドのライブ表示ではありません。",
   "zh": "上次同步的快照，并非实时云端视图。"
- },
- "Lists what would be removed. Nothing is uploaded or deleted.": {
-  "ko": "삭제될 항목을 나열해요. 업로드하거나 삭제하는 것은 없어요.",
-  "ja": "削除される項目を一覧表示します。アップロードや削除は行いません。",
-  "zh": "列出将被删除的内容。不会上传或删除任何内容。"
  },
  "Local cache": {
   "ko": "로컬 캐시",
@@ -523,21 +393,6 @@
   "ko": "{age}초 전에 측정됐어요. 용량을 다시 측정할 때까지 드라이브는 여유 공간을 0바이트로 보고해요. 마운트 중에는 자동으로 측정돼요.",
   "ja": "{age} 秒前に測定しました。容量を再測定するまでドライブの空き容量は 0 バイトと報告されます。マウント中は自動で測定されます。",
   "zh": "{age} 秒前测量。在重新测量容量之前，驱动器报告的可用空间为 0 字节；挂载期间会自动测量。"
- },
- "Migrate active archives — keep originals": {
-  "ko": "활성 아카이브 마이그레이션 — 원본 보존",
-  "ja": "アクティブなアーカイブを移行 — 元データを保持",
-  "zh": "迁移活动归档 — 保留原始数据"
- },
- "Migration switches active references only after verified copying; originals are kept. Unmount and drain the OS cache first.": {
-  "ko": "마이그레이션은 복사가 검증된 뒤에만 활성 참조를 전환하고 원본은 보존해요. 먼저 마운트를 해제하고 OS 캐시를 비우세요.",
-  "ja": "移行はコピーの検証後にのみアクティブな参照を切り替え、元のデータは保持されます。先にマウントを解除し、OS キャッシュを書き出してください。",
-  "zh": "迁移仅在复制验证后才切换活动引用，原始数据会保留。请先卸载并清空操作系统缓存。"
- },
- "Mode": {
-  "ko": "모드",
-  "ja": "モード",
-  "zh": "模式"
  },
  "Modification times are not kept. Names the drive cannot store are skipped and listed. Many small files upload slowly (each becomes its own set of shards).": {
   "ko": "수정 시간은 보존되지 않아요. 드라이브에 저장할 수 없는 이름은 건너뛰고 목록에 표시해요. 작은 파일이 많으면 업로드가 느려요(파일마다 샤드 세트가 따로 생김).",
@@ -594,11 +449,6 @@
   "ja": "マウントしました。他の作業も引き続き利用できます。",
   "zh": "已挂载。其他任务仍可使用。"
  },
- "Mounts an existing v7 pool read-only for inspection: no background sync, upload or history collection. Not saved; applies to the next Mount only.": {
-  "ko": "기존 v7 풀을 점검용 읽기 전용으로 마운트해요. 백그라운드 동기화, 업로드, 기록 정리를 하지 않아요. 저장되지 않으며 다음 마운트에만 적용돼요.",
-  "ja": "既存の v7 プールを点検用に読み取り専用でマウントします。バックグラウンド同期、アップロード、履歴の整理は行いません。保存されず、次回のマウントにのみ適用されます。",
-  "zh": "以只读方式挂载现有的 v7 存储池以供检查：不进行后台同步、上传或历史清理。不会保存；仅对下次挂载生效。"
- },
  "Native FUSE (Linux)": {
   "ko": "네이티브 FUSE(Linux)",
   "ja": "ネイティブ FUSE（Linux）",
@@ -608,26 +458,6 @@
   "ko": "네이티브 WinFsp(Windows)",
   "ja": "ネイティブ WinFsp（Windows）",
   "zh": "原生 WinFsp（Windows）"
- },
- "Native frontends serve online drives with This PC only or Automatic pool sync. WebDAV is used for shared-root and bounded shared modes.": {
-  "ko": "네이티브 프런트엔드는 '이 PC만' 또는 자동 풀 동기화를 쓰는 온라인 드라이브에 쓰여요. 공유 루트와 제한된 공유 모드에는 WebDAV를 사용해요.",
-  "ja": "ネイティブのフロントエンドは「この PC のみ」または自動プール同期のオンラインドライブで使われます。共有ルートと上限付き共有モードでは WebDAV を使用します。",
-  "zh": "原生前端用于“仅此电脑”或自动存储池同步的在线驱动器。共享根目录和有限共享模式使用 WebDAV。"
- },
- "Needs an online drive with Automatic pool sync.": {
-  "ko": "자동 풀 동기화를 쓰는 온라인 드라이브가 필요해요.",
-  "ja": "自動プール同期のオンラインドライブが必要です。",
-  "zh": "需要使用自动存储池同步的在线驱动器。"
- },
- "Needs an online drive with This PC only or Automatic pool sync.": {
-  "ko": "'이 PC만' 또는 자동 풀 동기화를 쓰는 온라인 드라이브가 필요해요.",
-  "ja": "「この PC のみ」または自動プール同期のオンラインドライブが必要です。",
-  "zh": "需要使用“仅此电脑”或自动存储池同步的在线驱动器。"
- },
- "Next mount: diagnostic read-only": {
-  "ko": "다음 마운트: 진단용 읽기 전용",
-  "ja": "次回のマウント: 診断用の読み取り専用",
-  "zh": "下次挂载：诊断只读"
  },
  "No account answered a quota query.": {
   "ko": "할당량 조회에 응답한 계정이 없어요.",
@@ -709,16 +539,6 @@
   "ja": "古い履歴は隣接するバックアップに残ります。他の PC は適用するまで古い世代を使い続けます。時間と容量がかかる場合があります。",
   "zh": "旧历史保留在同级备份中。其他电脑在各自应用之前继续使用旧世代。这可能需要时间和空间。"
  },
- "Older shared mode through one encrypted shared root and a worker name per PC.": {
-  "ko": "암호화된 공유 루트 하나와 PC별 작업자 이름을 쓰는 이전 공유 모드예요.",
-  "ja": "1 つの暗号化共有ルートと PC ごとのワーカー名を使う旧共有モードです。",
-  "zh": "通过一个加密共享根目录和每台电脑的工作者名称实现的旧版共享模式。"
- },
- "Online drive (recommended)": {
-  "ko": "온라인 드라이브(권장)",
-  "ja": "オンラインドライブ（推奨）",
-  "zh": "在线驱动器（推荐）"
- },
  "Only after Unmount hangs. Can interrupt uploads; edits stay in the local cache. Restart the same workspace to recover.": {
   "ko": "마운트 해제가 멈췄을 때만 쓰세요. 업로드가 중단될 수 있지만 편집 내용은 로컬 캐시에 남아요. 같은 워크스페이스로 다시 시작하면 복구돼요.",
   "ja": "マウント解除が応答しない場合のみ使用してください。アップロードが中断される場合がありますが、編集内容はローカルキャッシュに残ります。同じワークスペースで再起動すると復旧します。",
@@ -769,36 +589,6 @@
   "ja": "プール {pool} はすでにマウント済みか処理中です。先にマウントを解除してください。",
   "zh": "池 {pool} 已挂载或正在运行。请先卸载。"
  },
- "Preview finished; review the list in the log. Delete obsolete versions is now available for this limit.": {
-  "ko": "미리보기가 끝났어요. 로그에서 목록을 검토하세요. 이제 이 한도로 '오래된 버전 삭제'를 쓸 수 있어요.",
-  "ja": "プレビューが完了しました。ログで一覧を確認してください。この上限で「古いバージョンを削除」が使えるようになりました。",
-  "zh": "预览完成；请在日志中查看列表。现在可以按此上限使用“删除过时版本”。"
- },
- "Preview obsolete versions": {
-  "ko": "오래된 버전 미리보기",
-  "ja": "古いバージョンをプレビュー",
-  "zh": "预览过时版本"
- },
- "Preview obsolete versions for this pool, workspace and limit, and confirm exclusive ownership, before deleting.": {
-  "ko": "삭제하기 전에 이 풀, 워크스페이스, 한도로 오래된 버전을 미리 보고 단독 소유를 확인하세요.",
-  "ja": "削除する前に、このプール・ワークスペース・上限で古いバージョンをプレビューし、専有であることを確認してください。",
-  "zh": "删除前，请按此存储池、工作区和上限预览过时版本，并确认独占所有权。"
- },
- "Previewing obsolete versions; nothing is uploaded or deleted. Check the log for the list.": {
-  "ko": "오래된 버전을 미리 보고 있어요. 업로드하거나 삭제하는 것은 없어요. 목록은 로그에서 확인하세요.",
-  "ja": "古いバージョンをプレビューしています。アップロードや削除は行いません。一覧はログで確認してください。",
-  "zh": "正在预览过时版本；不会上传或删除任何内容。请在日志中查看列表。"
- },
- "Previous versions": {
-  "ko": "이전 버전",
-  "ja": "以前のバージョン",
-  "zh": "旧版本"
- },
- "Previous versions per file": {
-  "ko": "파일당 이전 버전 수",
-  "ja": "ファイルごとの以前のバージョン数",
-  "zh": "每个文件的旧版本数"
- },
  "Process force-stopped. Local files and VFS cache are retained; restart the same workspace to recover pending changes.": {
   "ko": "프로세스를 강제로 중지했어요. 로컬 파일과 VFS 캐시는 유지돼요. 같은 워크스페이스로 다시 시작하면 대기 중인 변경을 복구해요.",
   "ja": "プロセスを強制停止しました。ローカルのファイルと VFS キャッシュは保持されます。同じワークスペースで再起動すると保留中の変更を復旧できます。",
@@ -829,20 +619,10 @@
   "ja": "ローカルで把握しているソースビューの復旧コピーが完了しました。復旧レポートを確認してから、この移行先を通常どおりマウントして読み取りや新しい書き込みに使用してください。元のワークスペースは保持されています。",
   "zh": "已完成本地已知源视图的恢复复制。请查看恢复报告，然后正常挂载此目标以读取和写入新内容。原始工作区已保留。"
  },
- "Recovery destination must use Online drive + Automatic pool sync, with automatic history deletion OFF.": {
-  "ko": "복구 대상은 온라인 드라이브 + 자동 풀 동기화를 쓰고, 자동 기록 삭제는 꺼야 해요.",
-  "ja": "復旧先はオンラインドライブ + 自動プール同期を使用し、自動履歴削除をオフにする必要があります。",
-  "zh": "恢复目标必须使用在线驱动器 + 自动存储池同步，并关闭自动历史删除。"
- },
  "Recovery stopped or is incomplete. See log and destination recovery report; original data is retained. Resume with the same source/destination, or mount the destination to use already recovered files and save new files.": {
   "ko": "복구가 중지됐거나 완료되지 않았어요. 로그와 대상 복구 보고서를 확인하세요. 원본 데이터는 보존돼요. 같은 원본/대상으로 이어서 하거나, 대상을 마운트해 이미 복구된 파일을 쓰고 새 파일을 저장할 수 있어요.",
   "ja": "復旧が停止したか、完了していません。ログと移行先の復旧レポートを確認してください。元のデータは保持されています。同じソース/移行先で再開するか、移行先をマウントして復旧済みのファイルを使い、新しいファイルを保存できます。",
   "zh": "恢复已停止或未完成。请查看日志和目标的恢复报告；原始数据已保留。可使用相同的源/目标继续，或挂载目标以使用已恢复的文件并保存新文件。"
- },
- "Removes tracked obsolete versions from the cloud for this workspace. Current files, pending writes and unresolved conflicts are kept.": {
-  "ko": "이 워크스페이스에서 추적 중인 오래된 버전을 클라우드에서 삭제해요. 현재 파일, 대기 중인 쓰기, 해결되지 않은 충돌은 유지돼요.",
-  "ja": "このワークスペースで追跡している古いバージョンをクラウドから削除します。現在のファイル、保留中の書き込み、未解決の競合は保持されます。",
-  "zh": "从云端删除此工作区跟踪的过时版本。当前文件、待处理写入和未解决的冲突会保留。"
  },
  "Removes verified clean cache only; pending writes and history stay.": {
   "ko": "검증된 깨끗한 캐시만 지워요. 대기 중인 쓰기와 기록은 남아요.",
@@ -864,20 +644,10 @@
   "ja": "復元済み: {path}",
   "zh": "已恢复：{path}"
  },
- "Run the preview for the current limit first; changing the limit, pool or workspace needs a new preview.": {
-  "ko": "먼저 현재 한도로 미리보기를 실행하세요. 한도, 풀, 워크스페이스를 바꾸면 다시 미리보기해야 해요.",
-  "ja": "まず現在の上限でプレビューを実行してください。上限、プール、ワークスペースを変更した場合は再度プレビューが必要です。",
-  "zh": "请先按当前上限运行预览；更改上限、存储池或工作区后需要重新预览。"
- },
  "Run while unmounted. Cloud data and pending writes are never deleted here.": {
   "ko": "마운트 해제 상태에서 실행하세요. 여기서는 클라우드 데이터와 대기 중인 쓰기를 절대 지우지 않아요.",
   "ja": "マウント解除中に実行してください。ここでクラウドのデータや保留中の書き込みが削除されることはありません。",
   "zh": "请在卸载状态下运行。此处绝不会删除云端数据和待处理写入。"
- },
- "Save a future history limit in the workspace": {
-  "ko": "앞으로 쓸 기록 한도를 워크스페이스에 저장",
-  "ja": "今後の履歴上限をワークスペースに保存",
-  "zh": "在工作区中保存未来的历史上限"
  },
  "Saved per pool on this PC; also saved on every start.": {
   "ko": "이 PC에 풀별로 저장돼요. 시작할 때마다 함께 저장돼요.",
@@ -899,25 +669,10 @@
   "ja": "プールを選択",
   "zh": "选择存储池"
  },
- "Served files keep their revision for this mount; incoming changes appear as named copies. Empty folders stay local.": {
-  "ko": "제공 중인 파일은 이 마운트 동안 해당 리비전을 유지하고, 들어오는 변경은 이름이 붙은 사본으로 나타나요. 빈 폴더는 로컬에만 남아요.",
-  "ja": "提供中のファイルはこのマウントの間そのリビジョンを保ち、受信した変更は名前付きのコピーとして表示されます。空のフォルダーはローカルに残ります。",
-  "zh": "已提供的文件在本次挂载期间保持其版本；传入的更改会以命名副本出现。空文件夹仅保留在本地。"
- },
  "Several common originals — review manually.": {
   "ko": "공통 원본이 여러 개예요 — 직접 검토하세요.",
   "ja": "共通の元ファイルが複数あります — 手動で確認してください。",
   "zh": "存在多个共同原始文件 — 请手动检查。"
- },
- "Shared root": {
-  "ko": "공유 루트",
-  "ja": "共有ルート",
-  "zh": "共享根目录"
- },
- "Shared root (legacy)": {
-  "ko": "공유 루트(레거시)",
-  "ja": "共有ルート（旧方式）",
-  "zh": "共享根目录（旧版）"
  },
  "Shown in conflict file names.": {
   "ko": "충돌 파일 이름에 표시돼요.",
@@ -933,21 +688,6 @@
   "ko": "원본",
   "ja": "ソース",
   "zh": "源"
- },
- "Step 1": {
-  "ko": "1단계",
-  "ja": "ステップ 1",
-  "zh": "第 1 步"
- },
- "Step 2": {
-  "ko": "2단계",
-  "ja": "ステップ 2",
-  "zh": "第 2 步"
- },
- "Step 3": {
-  "ko": "3단계",
-  "ja": "ステップ 3",
-  "zh": "第 3 步"
  },
  "Stop": {
   "ko": "중지",
@@ -968,16 +708,6 @@
   "ko": "정상적으로 중지해요. 대기 중인 로컬 변경은 보존되고 다음 시작이나 동기화 때 업로드돼요.",
   "ja": "正常に停止します。保留中のローカルの変更は保持され、次回の起動または同期時にアップロードされます。",
   "zh": "正常停止。待处理的本地更改会保留，并在下次启动或同步时上传。"
- },
- "Sync": {
-  "ko": "동기화",
-  "ja": "同期",
-  "zh": "同步"
- },
- "Sync metadata lives in every pool destination. Use the same pool on each PC; no coordinator needed.": {
-  "ko": "동기화 메타데이터는 풀의 모든 대상에 저장돼요. PC마다 같은 풀을 쓰면 되고 코디네이터는 필요 없어요.",
-  "ja": "同期メタデータはプールのすべての保存先に置かれます。各 PC で同じプールを使用してください。コーディネーターは不要です。",
-  "zh": "同步元数据存放在存储池的每个目标中。每台电脑使用同一存储池即可，无需协调器。"
  },
  "Sync now": {
   "ko": "지금 동기화",
@@ -1008,21 +738,6 @@
   "ko": "영구 워크스페이스는 절대 경로여야 해요.",
   "ja": "永続ワークスペースには絶対パスを使用してください。",
   "zh": "持久工作区必须使用绝对路径。"
- },
- "These archives belong only to this workspace (no other PC or pool uses them)": {
-  "ko": "이 아카이브는 이 워크스페이스 전용이에요(다른 PC나 풀에서 쓰지 않음)",
-  "ja": "これらのアーカイブはこのワークスペース専用です（他の PC やプールでは使用していません）",
-  "zh": "这些归档仅属于此工作区（没有其他电脑或存储池使用）"
- },
- "This PC is the one coordinator": {
-  "ko": "이 PC가 유일한 코디네이터",
-  "ja": "この PC を唯一のコーディネーターにする",
-  "zh": "此电脑为唯一协调器"
- },
- "This PC only": {
-  "ko": "이 PC만",
-  "ja": "この PC のみ",
-  "zh": "仅此电脑"
  },
  "This build was made without WinFsp support; WebDAV is used.": {
   "ko": "이 빌드는 WinFsp 지원 없이 만들어져 WebDAV를 사용해요.",
@@ -1084,11 +799,6 @@
   "ja": "使用量にはパリティが含まれず、OS キャッシュにまだある書き込みも含まれない場合があります。保持されたクラウド履歴は物理容量を消費します。",
   "zh": "用量不含奇偶校验，也可能不含仍在操作系统缓存中的写入。保留的云端历史占用物理配额。"
  },
- "Use a NEW workspace when switching from a full replica. Saves stay local until the cloud copy is verified.": {
-  "ko": "전체 복제본에서 전환할 때는 새 워크스페이스를 쓰세요. 저장한 내용은 클라우드 사본이 검증될 때까지 로컬에 남아요.",
-  "ja": "完全な複製から切り替える場合は新しいワークスペースを使用してください。保存内容はクラウドのコピーが検証されるまでローカルに残ります。",
-  "zh": "从完整副本切换时请使用新的工作区。保存的内容会留在本地，直到云端副本验证完成。"
- },
  "Use {letter}": {
   "ko": "{letter} 사용",
   "ja": "{letter} を使用",
@@ -1099,35 +809,15 @@
   "ja": "検証済みのクラウドデータをローカルに保持します。最も長く使われていないものから削減されます。復旧グループ全体が収まる必要があります。",
   "zh": "在本地保留已验证的云端数据；最久未使用的最先清理。必须能容纳一整个恢复组。"
  },
- "Version history (pool sync)": {
-  "ko": "버전 기록(풀 동기화)",
-  "ja": "バージョン履歴（プール同期）",
-  "zh": "版本历史（存储池同步）"
- },
  "WebDAV via rclone mount": {
   "ko": "rclone mount를 통한 WebDAV",
   "ja": "rclone mount 経由の WebDAV",
   "zh": "通过 rclone mount 使用 WebDAV"
  },
- "Which pool, how it syncs, and where it appears on this PC.": {
-  "ko": "어떤 풀을, 어떻게 동기화하고, 이 PC의 어디에 표시할지 정해요.",
-  "ja": "どのプールを、どう同期し、この PC のどこに表示するかを設定します。",
-  "zh": "选择存储池、同步方式以及在此电脑上的显示位置。"
- },
  "WinFsp not installed — install WinFsp for the native drive (then restart RPool); WebDAV is used meanwhile.": {
   "ko": "WinFsp가 설치되지 않았어요 — 네이티브 드라이브를 쓰려면 WinFsp를 설치하고 RPool을 다시 시작하세요. 그동안은 WebDAV를 사용해요.",
   "ja": "WinFsp がインストールされていません — ネイティブドライブを使うには WinFsp をインストールし、RPool を再起動してください。それまでは WebDAV を使用します。",
   "zh": "未安装 WinFsp — 如需原生驱动器请安装 WinFsp（然后重启 RPool）；在此期间使用 WebDAV。"
- },
- "Without v7 the limit is stored only; nothing is deleted automatically.": {
-  "ko": "v7이 아니면 한도만 저장되고 자동으로 삭제되는 것은 없어요.",
-  "ja": "v7 でない場合は上限が保存されるだけで、自動削除は行われません。",
-  "zh": "未启用 v7 时仅保存上限；不会自动删除任何内容。"
- },
- "Worker name": {
-  "ko": "작업자 이름",
-  "ja": "ワーカー名",
-  "zh": "工作者名称"
  },
  "Workspace": {
   "ko": "워크스페이스",
@@ -1138,11 +828,6 @@
   "ko": "쓰기 가능",
   "ja": "書き込み可",
   "zh": "可写入"
- },
- "full local replica": {
-  "ko": "전체 로컬 복제본",
-  "ja": "完全なローカル複製",
-  "zh": "完整本地副本"
  },
  "manifest path or remote": {
   "ko": "매니페스트 경로 또는 원격",
@@ -1184,26 +869,6 @@
   "ja": "オン",
   "zh": "开"
  },
- "online drive · automatic pool sync": {
-  "ko": "온라인 드라이브 · 자동 풀 동기화",
-  "ja": "オンラインドライブ · 自動プール同期",
-  "zh": "在线驱动器 · 自动存储池同步"
- },
- "online drive · legacy shared": {
-  "ko": "온라인 드라이브 · 레거시 공유",
-  "ja": "オンラインドライブ · 旧方式の共有",
-  "zh": "在线驱动器 · 旧版共享"
- },
- "online drive · legacy shared (bounded)": {
-  "ko": "온라인 드라이브 · 레거시 공유(제한)",
-  "ja": "オンラインドライブ · 旧方式の共有（上限付き）",
-  "zh": "在线驱动器 · 旧版共享（有限）"
- },
- "online drive · this PC only": {
-  "ko": "온라인 드라이브 · 이 PC만",
-  "ja": "オンラインドライブ · この PC のみ",
-  "zh": "在线驱动器 · 仅此电脑"
- },
  "optional completed plan.json": {
   "ko": "선택 사항: 완료된 plan.json",
   "ja": "任意: 完了した plan.json",
@@ -1219,11 +884,6 @@
   "ja": "元のワークスペース",
   "zh": "原始工作区"
  },
- "required, unique per PC": {
-  "ko": "필수, PC마다 고유",
-  "ja": "必須。PC ごとに一意",
-  "zh": "必填，每台电脑唯一"
- },
  "shown below": {
   "ko": "아래에 표시 중",
   "ja": "下に表示中",
@@ -1233,11 +893,6 @@
   "ko": "동기화 또는 유지 관리",
   "ja": "同期またはメンテナンス",
   "zh": "同步或维护"
- },
- "{active} active archives and {manifests} known manifests reference excluded accounts.": {
-  "ko": "활성 아카이브 {active}개와 알려진 매니페스트 {manifests}개가 제외된 계정을 참조해요.",
-  "ja": "アクティブなアーカイブ {active} 件と既知のマニフェスト {manifests} 件が除外されたアカウントを参照しています。",
-  "zh": "{active} 个活动归档和 {manifests} 个已知清单引用了已排除的账户。"
  },
  "{declared} of {total} measured accounts declared": {
   "ko": "측정된 계정 {total}개 중 {declared}개 선언됨",
@@ -1264,10 +919,10 @@
   "ja": "{phase}: ファイル {done}/{total} · インポート {imported} · スキップ {skipped} · 失敗 {failed}",
   "zh": "{phase}：文件 {done}/{total} · 已导入 {imported} · 已跳过 {skipped} · 失败 {failed}"
  },
- "{roots} metadata destinations · previous-version limit {limit} · history deletion {state}": {
-  "ko": "메타데이터 대상 {roots}개 · 이전 버전 한도 {limit} · 기록 삭제 {state}",
-  "ja": "メタデータの保存先 {roots} 件 · 以前のバージョンの上限 {limit} · 履歴削除 {state}",
-  "zh": "{roots} 个元数据目标 · 旧版本上限 {limit} · 历史删除 {state}"
+ "{roots} metadata destinations": {
+  "ko": "메타데이터 대상 {roots}개",
+  "ja": "メタデータの保存先 {roots} 件",
+  "zh": "{roots} 个元数据目标"
  },
  "{size} MiB shards · {data} data + {parity} parity · {placement}": {
   "ko": "샤드 {size} MiB · 데이터 {data} + 패리티 {parity} · {placement}",
@@ -1288,5 +943,25 @@
   "ko": "· 네이티브",
   "ja": "· ネイティブ",
   "zh": "· 原生"
+ },
+ "Which pool, and where it appears on this PC.": {
+  "ko": "어떤 풀을 이 PC의 어디에 표시할지 정해요.",
+  "ja": "どのプールを、この PC のどこに表示するかを設定します。",
+  "zh": "选择存储池以及在此电脑上的显示位置。"
+ },
+ "Use the same pool on every PC; sync metadata lives in the pool, no coordinator needed. Saves stay local until the cloud copy is verified.": {
+  "ko": "PC마다 같은 풀을 쓰면 돼요. 동기화 메타데이터는 풀에 저장되고 코디네이터는 필요 없어요. 저장한 내용은 클라우드 사본이 검증될 때까지 로컬에 남아요.",
+  "ja": "各 PC で同じプールを使用してください。同期メタデータはプールに置かれ、コーディネーターは不要です。保存内容はクラウドのコピーが検証されるまでローカルに残ります。",
+  "zh": "每台电脑使用同一存储池即可；同步元数据存放在存储池中，无需协调器。保存的内容会留在本地，直到云端副本验证完成。"
+ },
+ "1. In Pools, save the remaining accounts as a NEW pool. In Drive, select it with a NEW empty workspace.": {
+  "ko": "1. 풀에서 남은 계정을 새 풀로 저장하세요. 드라이브에서 그 풀을 고르고 새 빈 워크스페이스를 지정하세요.",
+  "ja": "1. プールで残りのアカウントを新しいプールとして保存します。ドライブでそれを選び、新しい空のワークスペースを指定します。",
+  "zh": "1. 在存储池中将剩余账户保存为新的存储池。在驱动器中选择它，并使用新的空工作区。"
+ },
+ "Apply pool changes needs no listed archive imports; remove them first.": {
+  "ko": "'풀 변경 적용'은 가져올 아카이브 목록이 비어 있어야 해요. 먼저 목록에서 지워 주세요.",
+  "ja": "「プールの変更を適用」は、インポートするアーカイブが一覧にない状態で実行します。先に削除してください。",
+  "zh": "“应用存储池更改”要求未列出待导入的归档；请先将其移除。"
  }
 }

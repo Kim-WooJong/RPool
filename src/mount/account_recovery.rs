@@ -102,12 +102,8 @@ pub(super) fn copy_revision(
                 destination.write_spool_bytes(&mut target, &buffer[..count])?;
             }
         }
-        Revision::Cloud { id, content } => {
-            let manifest = if source.peer_retention {
-                source.recovery_snapshot_manifest(id)?
-            } else {
-                content.manifest.clone()
-            };
+        Revision::Cloud { content, .. } => {
+            let manifest = content.manifest.clone();
             crate::manifest::validate_manifest(&manifest)?;
             if manifest.original_size != revision.size() {
                 bail!("source revision size mismatch");
@@ -166,11 +162,7 @@ pub(super) fn copy_revision(
 }
 
 pub(super) fn source_hashes(source: &VirtualDrive) -> Result<BTreeMap<String, String>> {
-    let mut paths = vec!["virtual.json", "namespace.json"];
-    if source.peer_retention {
-        paths.extend(["peer-v7-state.json", "pool-sync-config.json"]);
-    }
-    paths
+    ["virtual.json", "namespace.json"]
         .into_iter()
         .map(|name| Ok((name.into(), digest(&source.root.join(name))?)))
         .collect()
@@ -202,19 +194,14 @@ fn approve_destination(drive: &VirtualDrive, approved: bool) -> Result<()> {
     Ok(())
 }
 pub(super) fn matching_replacement(
-    source: &VirtualDrive,
     revision: &Revision,
     replacements: &[(Manifest, Manifest)],
     allowed: &[String],
 ) -> Result<Option<Manifest>> {
-    let Revision::Cloud { id, content } = revision else {
+    let Revision::Cloud { content, .. } = revision else {
         return Ok(None);
     };
-    let retained = if source.peer_retention {
-        source.recovery_snapshot_manifest(id)?
-    } else {
-        content.manifest.clone()
-    };
+    let retained = content.manifest.clone();
     let fingerprint = crate::manifest::manifest_fingerprint(&retained)?;
     let original_fingerprint = crate::manifest::manifest_fingerprint(&content.manifest)?;
     for (original, replacement) in replacements {
@@ -299,9 +286,6 @@ fn verify_replacement_with(
 
 pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
     check_stop(args.stop_file.as_deref())?;
-    if !args.virtual_drive || !args.pool_sync || args.pool_retention {
-        bail!("account recovery destination must use virtual pool-sync v6 mode");
-    }
     let source_path = args
         .account_recovery_from
         .as_ref()
@@ -434,17 +418,8 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
             .prefix(".rpool-recovery-initialize-")
             .tempdir_in(destination.parent().context("destination parent missing")?)?
             .keep();
-        let staged = VirtualDrive::open(
-            rclone,
-            &args.pool,
-            &stage,
-            "account-recovery",
-            None,
-            cache_limit,
-            false,
-            true,
-            false,
-        )?;
+        let staged =
+            VirtualDrive::open(rclone, &args.pool, &stage, "account-recovery", cache_limit)?;
         durable_json(&stage.join("account-recovery.json"), &journal)?;
         drop(staged); // Windows must release the workspace lock before directory rename.
         if destination.exists() {
@@ -458,11 +433,7 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
         &args.pool,
         &destination,
         "account-recovery",
-        None,
         cache_limit,
-        false,
-        true,
-        false,
     )?;
     destination_drive.spool_limit = args
         .spool_gib
@@ -551,9 +522,7 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
                 if destination_drive.view()?.contains_key(path) {
                     bail!("destination changed; refusing overwrite");
                 }
-                if let Some(manifest) =
-                    matching_replacement(&source, revision, &replacements, &allowed)?
-                {
+                if let Some(manifest) = matching_replacement(revision, &replacements, &allowed)? {
                     let hash = verify_replacement(
                         &source,
                         revision,
@@ -762,10 +731,9 @@ mod tests {
                 manifest: original.clone(),
             },
         };
-        let matched =
-            matching_replacement(&source, &revision, &[(original.clone(), replacement)], &[])
-                .unwrap()
-                .unwrap();
+        let matched = matching_replacement(&revision, &[(original.clone(), replacement)], &[])
+            .unwrap()
+            .unwrap();
         let hash =
             verify_replacement(&source, &revision, &matched, &BTreeSet::new(), None).unwrap();
         assert_eq!(hash, blake3::hash(b"").to_hex().as_str());
@@ -788,7 +756,6 @@ mod tests {
         let mut unrelated = original;
         unrelated.archive_id = "different-source".into();
         assert!(matching_replacement(
-            &source,
             &revision,
             &[(unrelated, empty_manifest("reprocess-new"))],
             &[]
@@ -868,7 +835,6 @@ mod tests {
             },
         };
         let matched = matching_replacement(
-            &source,
             &imported,
             &[(original.clone(), replacement.clone())],
             &["healthy:".into()],

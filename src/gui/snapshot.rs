@@ -26,10 +26,6 @@ const PAGES: &[(&str, Setter)] = &[
         s.page = Page::Drive;
         s.mount.tab = DriveTab::Options;
     }),
-    ("drive-history", |s| {
-        s.page = Page::Drive;
-        s.mount.tab = DriveTab::History;
-    }),
     ("drive-import", |s| {
         s.page = Page::Drive;
         s.mount.tab = DriveTab::Import;

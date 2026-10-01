@@ -49,23 +49,16 @@ impl Default for GuiSettings {
 pub(crate) struct MountProfile {
     pub(crate) workspace: String,
     pub(crate) mountpoint: String,
-    pub(crate) shared_root: String,
-    pub(crate) worker_name: String,
+    /// Display name in pool-sync conflicts (`--pool-worker`). Older settings
+    /// stored it as `worker_name`.
+    #[serde(alias = "worker_name")]
+    pub(crate) pc_name: String,
     pub(crate) manifests: Vec<String>,
     pub(crate) interval_seconds: u64,
-    pub(crate) bounded_shared: bool,
-    pub(crate) pool_sync: bool,
-    pub(crate) pool_retention: bool,
-    pub(crate) pool_history_limit: u32,
-    pub(crate) pool_history_override: bool,
-    pub(crate) shared_coordinator: bool,
-    pub(crate) shared_keep_previous: usize,
     pub(crate) cache: MountCacheSettings,
-    /// Filesystem frontend; native ones apply to local online drives only.
+    /// Filesystem frontend.
     pub(crate) frontend: crate::cli::Frontend,
     pub(crate) native_read_only: bool,
-    /// Previous versions kept by local history cleanup (`--keep-previous`).
-    pub(crate) keep_previous: usize,
 }
 
 impl Default for MountProfile {
@@ -77,21 +70,12 @@ impl Default for MountProfile {
             } else {
                 String::new()
             },
-            shared_root: Default::default(),
-            worker_name: Default::default(),
+            pc_name: Default::default(),
             manifests: Default::default(),
             interval_seconds: 30,
-            bounded_shared: Default::default(),
-            pool_sync: true,
-            pool_retention: Default::default(),
-            pool_history_limit: Default::default(),
-            pool_history_override: Default::default(),
-            shared_coordinator: Default::default(),
-            shared_keep_previous: Default::default(),
             cache: Default::default(),
             frontend: Default::default(),
             native_read_only: Default::default(),
-            keep_previous: 3,
         }
     }
 }
@@ -100,7 +84,6 @@ impl Default for MountProfile {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct MountCacheSettings {
-    pub(crate) online_drive: bool,
     pub(crate) shard_gib: u64,
     pub(crate) native_gib: u64,
     pub(crate) min_free_gib: u64,
@@ -110,7 +93,6 @@ pub(crate) struct MountCacheSettings {
 impl Default for MountCacheSettings {
     fn default() -> Self {
         Self {
-            online_drive: true,
             shard_gib: 10,
             native_gib: 10,
             min_free_gib: 2,
@@ -143,19 +125,13 @@ pub(crate) fn load(startup_rclone: &str) -> GuiSettings {
         settings.encryption = Default::default();
     }
     if settings.mount_cache.validate().is_err() {
-        let online_drive = settings.mount_cache.online_drive;
         settings.mount_cache = MountCacheSettings::default();
-        settings.mount_cache.online_drive = online_drive;
     }
     for profile in settings.mount_profiles.values_mut() {
         if profile.cache.validate().is_err() {
-            let online_drive = profile.cache.online_drive;
             profile.cache = MountCacheSettings::default();
-            profile.cache.online_drive = online_drive;
         }
         profile.interval_seconds = profile.interval_seconds.clamp(2, 86400);
-        profile.pool_history_limit = profile.pool_history_limit.min(10000);
-        profile.shared_keep_previous = profile.shared_keep_previous.min(100);
     }
     if startup_rclone != "rclone" {
         settings.rclone = startup_rclone.to_string();
@@ -193,15 +169,16 @@ mod tests {
     }
 
     #[test]
-    fn cache_preferences_persist_and_old_settings_default_online() {
-        let old: GuiSettings = serde_json::from_str(r#"{"workers":7}"#).unwrap();
-        assert!(old.mount_cache.online_drive);
+    fn cache_preferences_persist_and_old_settings_load() {
+        let old: GuiSettings = serde_json::from_str(
+            r#"{"workers":7,"mount_cache":{"online_drive":false,"native_gib":10}}"#,
+        )
+        .unwrap();
         assert_eq!(old.mount_cache, MountCacheSettings::default());
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("gui-settings.json");
         let mut settings = old;
         settings.mount_cache = MountCacheSettings {
-            online_drive: false,
             shard_gib: 4,
             native_gib: 5,
             min_free_gib: 0,
@@ -221,7 +198,6 @@ mod tests {
         {
             let settings = GuiSettings {
                 mount_cache: MountCacheSettings {
-                    online_drive: true,
                     shard_gib: shard,
                     native_gib: native,
                     min_free_gib: free,

@@ -1,8 +1,8 @@
-//! One home for the pool-metadata size bounds shared by v5, v6 and v7 readers.
+//! One home for the pool-metadata size bounds of the v6 readers.
 
 /// Largest single metadata object (record, checkpoint chunk, head or mark).
 pub(crate) const RECORD_BYTES_MAX: usize = 8 * 1024 * 1024;
-/// The pre-checkpoint bootstrap budget. v5 still enforces it; v6/v7 use it as
+/// The pre-checkpoint bootstrap budget. v6 uses it as
 /// the page size of a streamed read, and older RPool versions fail beyond it.
 pub(crate) const LEGACY_BOOTSTRAP_RECORDS: usize = 10_000;
 pub(crate) const LEGACY_BOOTSTRAP_BYTES: usize = 64 * 1024 * 1024;

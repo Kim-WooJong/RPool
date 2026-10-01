@@ -1,4 +1,4 @@
-//! The `rpool mount --virtual-drive` entry point and its network monitor.
+//! The `rpool mount` entry point and its network monitor.
 
 use super::*;
 
@@ -9,19 +9,10 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         println!("Exported {} local writes under recovered-writes; partial uploads are explicitly labelled. Checkpoints, spool and remote history unchanged.", paths.len());
         return Ok(());
     }
-    if args.migrate_excluded {
-        bail!("Active archive migration currently uses replica workspaces; virtual history is retained");
-    }
     if args.stop_file.as_ref().is_some_and(|p| p.exists()) {
         bail!("stop file already exists");
     }
-    let frontend = args.frontend.resolve(&args);
-    if args.frontend != crate::cli::Frontend::Auto
-        && frontend != crate::cli::Frontend::Dav
-        && (args.bounded_shared || args.shared_root.is_some() || !args.virtual_drive)
-    {
-        bail!("native frontends serve online drives in local or pool-sync mode; use --frontend dav for bounded shared or shared-root workspaces");
-    }
+    let frontend = args.frontend.resolve();
     if frontend != crate::cli::Frontend::Dav {
         // Only an explicit choice gets here unavailable; `auto` already fell back.
         frontend.ensure_available()?;
@@ -31,33 +22,20 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     }
     let stop = crate::mount::lifecycle::StopControl::new(args.stop_file.clone())?;
     let generated_worker;
-    let worker = if args.pool_sync {
-        if let Some(worker) = &args.pool_worker {
-            worker.as_str()
-        } else {
-            let saved = args.workspace.join("pool-worker.json");
-            generated_worker = if saved.exists() {
-                crate::utils::read_json::<String>(&saved)?
-            } else {
-                format!("pc-{}", &random_id()?[..12])
-            };
-            &generated_worker
-        }
+    let worker = if let Some(worker) = &args.pool_worker {
+        worker.as_str()
     } else {
-        args.worker_name.as_deref().unwrap_or("local")
+        let saved = args.workspace.join("pool-worker.json");
+        generated_worker = if saved.exists() {
+            crate::utils::read_json::<String>(&saved)?
+        } else {
+            format!("pc-{}", &random_id()?[..12])
+        };
+        &generated_worker
     };
     println!("Opening virtual workspace");
     // A pool migration may have adopted the drive into a new generation.
-    let adopted = if args.pool_sync {
-        crate::mount::adoption_fence::before_open(
-            rclone,
-            &args.pool,
-            &args.workspace,
-            args.pool_retention,
-        )?
-    } else {
-        None
-    };
+    let adopted = crate::mount::adoption_fence::before_open(rclone, &args.pool, &args.workspace)?;
     let cache_limit = args
         .cache_gib
         .checked_mul(1073741824)
@@ -68,35 +46,12 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
             &args.pool,
             &args.workspace,
             worker,
-            args.shared_root.as_deref(),
             cache_limit,
-            args.bounded_shared,
-            args.pool_sync,
-            args.pool_retention,
             &epoch,
         )?,
-        None => VirtualDrive::open(
-            rclone,
-            &args.pool,
-            &args.workspace,
-            worker,
-            args.shared_root.as_deref(),
-            cache_limit,
-            args.bounded_shared,
-            args.pool_sync,
-            args.pool_retention,
-        )?,
+        None => VirtualDrive::open(rclone, &args.pool, &args.workspace, worker, cache_limit)?,
     };
-    if args.pool_sync {
-        drive.pool_history_limit = crate::mount::pool_sync::Config::load(
-            &drive.root,
-            args.pool_history_limit.map(|v| v as usize),
-        )?
-        .history_limit;
-        durable_json(&drive.root.join("pool-worker.json"), &worker)?;
-    }
-    drive.checkpoint_coordinator = args.shared_coordinator;
-    drive.checkpoint_keep = args.shared_keep_previous;
+    durable_json(&drive.root.join("pool-worker.json"), &worker)?;
     drive.spool_limit = args
         .spool_gib
         .checked_mul(1073741824)
@@ -122,21 +77,6 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
             eprintln!("Layout status unavailable: {error:#}");
         }
     }
-    if args.apply_retention {
-        let report = drive.apply_retention(args.keep_previous, args.exclusive_archive_ownership)?;
-        println!("Retention completed: {} obsolete tracked archives, {} exact objects removed ({} logical data bytes; backend trash/versioning may delay quota recovery).", report.obsolete_archives, report.objects.len(), report.reclaimable_bytes);
-        return Ok(());
-    }
-    if drive.root.join("retention-journal.json").exists() {
-        bail!("Interrupted retention: resume --apply-retention --exclusive-archive-ownership before mounting or syncing. Do not remove the journal.");
-    }
-    if args.retention_report {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&drive.retention_report(args.keep_previous)?)?
-        );
-        return Ok(());
-    }
     for source in &args.manifests {
         drive.import(source)?;
     }
@@ -153,19 +93,13 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         drive.pull()?;
     } else if args.sync_only {
         drive.sync()?;
-    } else if drive.bounded_shared && drive.checkpoint_coordinator {
-        // Coordinator sync also initializes a new shared root. Retain that
-        // bootstrap until a separate metadata-only initialization exists.
-        drive.sync().context("Cloud synchronization required before opening this shared drive; local work is retained")?;
-    } else if drive.bounded_shared || !drive.pool_sync_roots.is_empty() {
+    } else {
         // Refresh the authoritative namespace, but do not delay mounting for
-        // pending uploads, private copies, replication or remote collection.
-        // Failed metadata discovery remains fatal; durable local work is retained.
+        // pending uploads, replication or remote collection. Failed metadata
+        // discovery remains fatal; durable local work is retained.
         drive.pull().context(
             "Cloud metadata required before opening this shared drive; local work is retained",
         )?;
-    } else if let Err(e) = drive.pull() {
-        eprintln!("Virtual metadata refresh pending, durable local state retained: {e:#}");
     }
     println!(
         "Cloud pre-mount phase completed in {:.3}s",
@@ -175,16 +109,14 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     let status_file = args.status_file.clone();
     let report = Arc::new(move || {
         let drive = &report_drive;
-        if !drive.pool_sync_roots.is_empty() {
-            if let Some(path) = &status_file {
-                let destination = path.with_file_name("pool-sync-status.json");
-                let result = drive
-                    .pool_status()
-                    .and_then(|status| durable_json(&destination, &status));
-                if let Err(error) = result {
-                    let _ = fs::remove_file(&destination);
-                    eprintln!("Pool sync status unavailable: {error:#}");
-                }
+        if let Some(path) = &status_file {
+            let destination = path.with_file_name("pool-sync-status.json");
+            let result = drive
+                .pool_status()
+                .and_then(|status| durable_json(&destination, &status));
+            if let Err(error) = result {
+                let _ = fs::remove_file(&destination);
+                eprintln!("Pool sync status unavailable: {error:#}");
             }
         }
         match drive.refresh_capacity() {
@@ -225,13 +157,9 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     }
     // Lives until this function returns: registry entry and live status.
     let _monitor = net_monitor(&drive, &args, frontend);
-    if drive.bounded_shared {
-        drive.isolate_previous_native_cache()?;
-    } else if frontend != crate::cli::Frontend::Dav || !drive.pool_sync_roots.is_empty() {
-        // rclone may not replay its cache here (native frontend, or peers may
-        // have written since), so RPool imports the unsaved writes itself.
-        drive.recover_previous_cache()?;
-    }
+    // rclone may not replay its cache here (native frontend, or peers may
+    // have written since), so RPool imports the unsaved writes itself.
+    drive.recover_previous_cache()?;
     if frontend != crate::cli::Frontend::Dav {
         return crate::mount::frontend::run_native(
             drive,
@@ -246,27 +174,19 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         );
     }
     println!("Starting virtual filesystem and native mount");
-    let server = crate::mount::dav::Server::start(drive.clone(), args.diagnostic_read_only)?;
+    let server = crate::mount::dav::Server::start(drive.clone())?;
     let mut mount =
         crate::mount::adapter::MountProcess::start(crate::mount::adapter::MountConfig {
             rclone: rclone.into(),
-            files_dir: drive.root.join("anchor"),
+            anchor_dir: drive.root.join("anchor"),
             cache_dir: drive.root.join("vfs-cache"),
             vfs_cache_gib: args.vfs_cache_gib,
             cache_min_free_gib: args.cache_min_free_gib,
             target: args.mountpoint.context("mountpoint required")?,
-            shared: true,
-            read_only: args.diagnostic_read_only,
-            webdav: Some((format!("http://{}/", server.address), server.token.clone())),
+            webdav: (format!("http://{}/", server.address), server.token.clone()),
             volume_name: Some(args.pool.clone()),
         })?;
-    if !drive.pool_sync_roots.is_empty() {
-        println!("Pool sync ready: metadata inside {} pool roots; no coordinator. Previous versions={}, automatic private-snapshot collection={}. Legacy v6 data is untouched.", drive.pool_sync_roots.len(), drive.pool_history_limit, drive.peer_retention);
-    } else if drive.bounded_shared {
-        println!("Shared drive starting: cloud-authoritative namespace synchronized; file bytes download on demand. Local writes await coordinator acceptance; no distributed locking guarantee.");
-    } else {
-        println!("Virtual drive starting: metadata-only listing, verified shard reads, durable local write spool. Incoming updates to served paths appear as incoming revision copies until remount; no distributed locking guarantee.");
-    }
+    println!("Pool sync ready: metadata inside {} pool roots; no coordinator. File bytes download on demand; no distributed locking guarantee.", drive.pool_sync_roots.len());
     let start = std::time::Instant::now();
     let mut ready = false;
     let mut maintenance = crate::mount::maintenance::Maintenance::new(
@@ -294,7 +214,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
             if !ready && start.elapsed() > std::time::Duration::from_secs(30) {
                 bail!("virtual mount readiness timeout; state retained");
             }
-            if !args.diagnostic_read_only && ready {
+            if ready {
                 maintenance.poll(&drive, &report, &stop.flag)?;
             }
             std::thread::sleep(std::time::Duration::from_millis(250));

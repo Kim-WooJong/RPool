@@ -10,14 +10,13 @@ use crate::migration::drive_model::{DrivePlan, DriveStatus, GenerationRef};
 use crate::presentation::format_bytes;
 use eframe::egui;
 
-/// "v6 original" / "v7 epoch 0123456789ab" in the GUI language.
+/// "original layout" / "layout 0123456789ab" in the GUI language.
 pub(crate) fn generation_text(generation: &GenerationRef) -> String {
-    let kind = if generation.v7 { "v7" } else { "v6" };
     match &generation.epoch {
-        None => trf("{kind} original layout", &[("kind", &kind)]),
+        None => tr("original layout").into(),
         Some(epoch) => trf(
-            "{kind} layout {epoch}",
-            &[("kind", &kind), ("epoch", &&epoch[..epoch.len().min(12)])],
+            "layout {epoch}",
+            &[("epoch", &&epoch[..epoch.len().min(12)])],
         ),
     }
 }

@@ -1,12 +1,9 @@
 //! What drive history (`crate::drive_history`) uses from the mount: opening
-//! a pool-sync workspace, its v6 events / v7 snapshot export, and writing a
+//! a pool-sync workspace, its v6 events, and writing a
 //! restored revision. Every write is an ordinary new revision of the drive
 //! (the same records a mounted PC publishes); nothing here removes history.
 pub(crate) use super::namespace::valid_path;
-pub(crate) use super::peer_snapshot::history::Export;
-#[cfg(test)]
-pub(crate) use super::peer_snapshot::history::{ExportName, ExportRevision, ExportSnapshot};
-pub(crate) use super::shared_model::{peer_path, Content, Event};
+pub(crate) use super::shared_model::{Content, Event};
 pub(crate) use super::shared_transport::SharedTransport as Transport;
 #[cfg(test)]
 pub(crate) use super::virtual_drive::Revision;
@@ -22,7 +19,7 @@ struct Binding {
     pool: String,
 }
 
-/// Opens an existing, unmounted v6/v7 pool-sync workspace of `pool` (takes
+/// Opens an existing, unmounted pool-sync workspace of `pool` (takes
 /// its lock, like a mount; fails while it is mounted).
 pub(crate) fn open_workspace(rclone: &str, pool: &str, root: &Path) -> Result<VirtualDrive> {
     let binding: Binding = crate::utils::read_json(&root.join("virtual.json"))
@@ -30,26 +27,12 @@ pub(crate) fn open_workspace(rclone: &str, pool: &str, root: &Path) -> Result<Vi
     if binding.pool != pool {
         bail!("workspace belongs to pool {}, not {pool}", binding.pool);
     }
-    let v7 = match binding.version {
-        6 => false,
-        7 => true,
-        _ => bail!("trash/versions/rollback need an automatic pool-sync (v6/v7) workspace"),
-    };
+    if binding.version != super::virtual_drive::FORMAT_VERSION {
+        bail!("trash/versions/rollback need an automatic pool-sync (v6) workspace");
+    }
     let worker: String = crate::utils::read_json(&root.join("pool-worker.json"))
         .context("workspace has no pool worker label; mount it once first")?;
-    let mut drive = VirtualDrive::open(
-        rclone,
-        pool,
-        root,
-        &worker,
-        None,
-        CACHE_BYTES,
-        false,
-        true,
-        v7,
-    )?;
-    drive.pool_history_limit = super::pool_sync::Config::load(&drive.root, None)?.history_limit;
-    Ok(drive)
+    VirtualDrive::open(rclone, pool, root, &worker, CACHE_BYTES)
 }
 
 /// A fresh scratch workspace on the pool's newest drive generation, used to
@@ -62,42 +45,13 @@ pub(crate) fn open_scratch(
     worker: &str,
     generation: &crate::pool::browse_generations::Generation,
 ) -> Result<VirtualDrive> {
-    let v7 = generation.v7;
-    let mut drive = match &generation.epoch {
-        Some(epoch) => VirtualDrive::open_with_epoch(
-            rclone,
-            pool,
-            root,
-            worker,
-            None,
-            CACHE_BYTES,
-            false,
-            true,
-            v7,
-            epoch,
-        )?,
-        None => VirtualDrive::open(
-            rclone,
-            pool,
-            root,
-            worker,
-            None,
-            CACHE_BYTES,
-            false,
-            true,
-            v7,
-        )?,
-    };
-    if v7 {
-        // The history limit is part of the v7 policy identity: adopt the pool's.
-        if !drive.pull_snapshots_adopting_policy()? {
-            bail!("the pool has no v7 drive records");
+    let drive = match &generation.epoch {
+        Some(epoch) => {
+            VirtualDrive::open_with_epoch(rclone, pool, root, worker, CACHE_BYTES, epoch)?
         }
-        // Saved so a later `mount --sync-only` of this scratch uses the same policy.
-        super::pool_sync::Config::load(&drive.root, Some(drive.pool_history_limit))?;
-    } else {
-        drive.pull()?;
-    }
+        None => VirtualDrive::open(rclone, pool, root, worker, CACHE_BYTES)?,
+    };
+    drive.pull()?;
     durable_worker(&drive.root, worker)?;
     Ok(drive)
 }
@@ -106,9 +60,6 @@ fn durable_worker(root: &Path, worker: &str) -> Result<()> {
     super::namespace::durable_json(&root.join("pool-worker.json"), &worker)
 }
 
-pub(crate) fn is_v7(drive: &VirtualDrive) -> bool {
-    drive.peer_retention
-}
 pub(crate) fn roots(drive: &VirtualDrive) -> &[String] {
     &drive.pool_sync_roots
 }
@@ -143,7 +94,7 @@ pub(crate) fn pending_paths(drive: &VirtualDrive) -> BTreeSet<String> {
 impl VirtualDrive {
     /// A history change is based on what the drive shows now: record the
     /// visible revision of `path` as its edit baseline (what reading the file
-    /// does), so v7 captures the current original, not an older read.
+    /// does).
     pub(crate) fn history_base_on_visible(&self, path: &str) -> Result<()> {
         let Some(super::virtual_drive::Revision::Cloud { id, .. }) =
             self.view()?.get(path).cloned()
@@ -163,7 +114,7 @@ impl VirtualDrive {
     /// event (descending from what is at `path` now) referencing the same
     /// immutable manifest. Older RPool reads it as a normal edit.
     pub(crate) fn history_put_content(&self, path: &str, content: Content) -> Result<String> {
-        if self.peer_retention || self.bounded_shared || self.pool_sync_roots.is_empty() {
+        if self.pool_sync_roots.is_empty() {
             bail!("metadata-only restore needs a v6 pool-sync drive");
         }
         valid_path(path)?;
@@ -185,47 +136,6 @@ impl VirtualDrive {
             },
         );
         Ok(id)
-    }
-
-    /// Writes the bytes of `manifest` as a new local version of `path`
-    /// (v7: the next sync uploads them as this workspace's own payload).
-    pub(crate) fn history_put_bytes(&self, path: &str, manifest: &Manifest) -> Result<()> {
-        valid_path(path)?;
-        let visible = self.view()?.get(path).cloned();
-        let intent = self.begin_observed(path, visible.as_ref())?;
-        let target = self.spool_path(&intent);
-        let result = (|| {
-            let mut output = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&target)?;
-            let reader = crate::storage::reader::StorageReader::rclone(&self.rclone);
-            let mut offset = 0;
-            while offset < manifest.original_size {
-                let bytes = self.cache.read(
-                    &reader,
-                    manifest,
-                    offset,
-                    4 << 20,
-                    self.policy.workers,
-                    self.policy.retries,
-                )?;
-                if bytes.is_empty() {
-                    bail!("short read of the restored version");
-                }
-                self.write_spool_bytes(&mut output, &bytes)?;
-                offset += bytes.len() as u64;
-            }
-            output.sync_all()?;
-            Ok(())
-        })();
-        if let Err(error) = result {
-            let _ = self.discard_unsealed(&intent);
-            return Err(
-                error.context("could not read the version's data (it may have been collected)")
-            );
-        }
-        self.seal(intent)
     }
 }
 

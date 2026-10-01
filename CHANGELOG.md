@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **One drive mode.** `rpool mount` always runs the virtual drive with pool
+  sync (v6). Removed, with their code, options and GUI: the v7 peer-snapshot
+  format (`--pool-retention`, `--pool-history-limit`,
+  `--diagnostic-read-only`), v5 bounded shared workspaces (`--bounded-shared`,
+  `--shared-coordinator`, `--shared-keep-previous`), v3 shared roots
+  (`--shared-root`, `--worker-name`), the "this PC only" drive with offline
+  retention (`--retention-report`, `--apply-retention`,
+  `--exclusive-archive-ownership`, `--keep-previous`), the full local replica
+  (`rpool mount` without `--virtual-drive`, `--migrate-excluded`), and the
+  now implicit `--virtual-drive` / `--pool-sync`. Removed flags are rejected;
+  workspaces of removed modes do not open ("create a new workspace"). Trash,
+  versions and rollback (Files › Library) replace v7's history settings;
+  the Drive page loses its mode, History and v7 options. The PC name is
+  `--pool-worker` (old GUI profiles keep it). Drive migration names drive
+  payloads `virtual-*`. About 12,000 lines removed; clippy is clean.
+
 - **Trash, file versions and rollback for the drive.** Nothing destroys
   history: restoring and rolling back publish new revisions that older RPool
   reads as ordinary edits.
