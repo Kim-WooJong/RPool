@@ -1,6 +1,7 @@
 //! Debug builds only: `RPOOL_GUI_SNAPSHOTS=<dir> rpool gui` visits every page
 //! at several window sizes, saves each frame as `<dir>/<size>-<page>.ppm`,
 //! then closes. Used to review the layout without screen-recording rights.
+use super::screens::files::inventory::drive_sample::{self, SampleView};
 use super::state::{DriveTab, FilesSection, GuiState, MaintenanceSection, Page, StorageSection};
 use eframe::egui;
 use std::path::PathBuf;
@@ -35,6 +36,32 @@ const PAGES: &[(&str, Setter)] = &[
     ("files-library", |s| {
         s.page = Page::Files;
         s.files_section = FilesSection::Inventory;
+    }),
+    ("files-library-sample", |s| {
+        library_sample(s, Default::default())
+    }),
+    ("files-library-icons", |s| {
+        library_sample(
+            s,
+            SampleView {
+                folder: "Photos/2024",
+                selected: Some("Photos/2024/IMG_0001.jpg"),
+                icons: true,
+                ..Default::default()
+            },
+        )
+    }),
+    ("files-library-search", |s| {
+        library_sample(
+            s,
+            SampleView {
+                folder: "Photos",
+                selected: Some("Photos/2024/trip/beach.png"),
+                query: "png",
+                search_all: true,
+                ..Default::default()
+            },
+        )
     }),
     ("files-upload", |s| {
         s.page = Page::Files;
@@ -76,6 +103,19 @@ const PAGES: &[(&str, Setter)] = &[
     ("settings", |s| s.page = Page::Settings),
 ];
 
+/// `RPOOL_GUI_SNAPSHOT_LIBRARY=1`: Files › Library on the nested sample
+/// drive (as the first pool); otherwise the plain Library page.
+fn library_sample(s: &mut GuiState, view: SampleView) {
+    s.page = Page::Files;
+    s.files_section = FilesSection::Inventory;
+    if std::env::var_os("RPOOL_GUI_SNAPSHOT_LIBRARY").is_none() {
+        return;
+    }
+    if let Some(pool) = s.pool_names.first().cloned() {
+        drive_sample::show(&mut s.inventory.drive, &pool, view);
+    }
+}
+
 pub(crate) struct Snapshots {
     dir: PathBuf,
     step: usize,
@@ -110,6 +150,18 @@ impl Snapshots {
                 state.mount.select_pool(name.clone(), &mut state.settings);
                 state.pools.selected = name;
                 super::screens::storage::pools::load_selected(state);
+            }
+            // `RPOOL_GUI_SNAPSHOT_LIBRARY=1` needs a pool to show the sample
+            // drive under; an empty config gets a "family" pool name only.
+            if std::env::var_os("RPOOL_GUI_SNAPSHOT_LIBRARY").is_some()
+                && state.pool_names.is_empty()
+            {
+                state.pool_names.push("family".into());
+            }
+            // `RPOOL_GUI_SNAPSHOT_PROVIDERS=1` shows seven fake connected
+            // providers (types, usage, encryption) on Storage › Providers.
+            if std::env::var_os("RPOOL_GUI_SNAPSHOT_PROVIDERS").is_some() {
+                super::screens::storage::providers::sample::providers(state);
             }
             // `RPOOL_GUI_SNAPSHOT_MONITOR=1` shows two fake mounted pools on
             // the Monitoring page.

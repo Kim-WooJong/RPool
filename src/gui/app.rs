@@ -149,6 +149,7 @@ impl RpoolGui {
                     self.state.usage_reports = snapshot.reports;
                     self.state.crypt_remotes = snapshot.crypt_remotes;
                     self.state.backing_remotes = snapshot.backing_remotes;
+                    self.state.provider_details = snapshot.providers;
                     self.state.providers.missing_encryption = snapshot.missing_encryption;
                     self.state.providers.discovery_known = true;
                     self.state.usage_error = snapshot.warning;

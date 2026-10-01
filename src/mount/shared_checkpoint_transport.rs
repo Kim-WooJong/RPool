@@ -160,7 +160,7 @@ impl CheckpointIo for RcloneIo {
         let storage = StorageWriter::rclone(&self.rclone);
         for shard in &value.content.manifest.shards {
             storage.ensure_destination(&shard.object)?;
-            storage.reader().verify(shard, true)?;
+            storage.reader().verify_unchanged(shard)?;
         }
         Ok(())
     }

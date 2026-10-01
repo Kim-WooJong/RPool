@@ -66,6 +66,9 @@ pub(crate) struct ObjectMetadata {
     /// Opaque version/ETag if the backend exposes one. Presence does NOT imply
     /// conditional-update support (target.md §3.6).
     pub(crate) version: Option<String>,
+    /// Provider modification time as reported (opaque text), if any. Used only
+    /// to notice that an object changed since this process verified it.
+    pub(crate) modified: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

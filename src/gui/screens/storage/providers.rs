@@ -6,6 +6,12 @@ use crate::gui::widgets::{local_file_field, output_file_field};
 use eframe::egui;
 use std::ffi::OsString;
 
+mod card;
+mod grid;
+mod model;
+#[cfg(any(test, debug_assertions))]
+pub(crate) mod sample;
+
 #[derive(Debug, Default)]
 pub(crate) struct ProviderForm {
     pub(crate) connection: Option<crate::provider::onboarding::ConnectionSetup>,
@@ -157,44 +163,65 @@ fn connect_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) 
 
 fn list_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     let count = state.backing_remotes.len();
-    theme::card_section(
+    let mut refresh = false;
+    let setup = theme::card_section(
         ui,
         &trf("Connected providers · {count}", &[("count", &count)]),
         None,
         |ui| {
-            if ui
+            refresh = ui
                 .add_enabled(!task.is_running(), egui::Button::new(tr("Refresh")))
-                .clicked()
-            {
-                state.providers.refresh_requested = true;
-            }
+                .clicked();
         },
         |ui| {
             if count == 0 {
                 theme::hint(ui, tr("No providers yet. Connect one above."));
-                return;
+                return None;
             }
+            let running = task.is_running()
+                && task.task_name() == Some(crate::gui::app::AUTO_ENCRYPTION_TASK);
+            let idle = !task.is_running() && state.providers.connection.is_none();
             let height = theme::list_height(ui.ctx().content_rect().height());
+            let mut setup = None;
             egui::ScrollArea::vertical()
-            .id_salt("base-provider-list")
-            .max_height(height)
-            .auto_shrink([false, true])
-            .show(ui, |ui| {
-                egui::Grid::new("provider-grid").num_columns(2).striped(true).spacing([24.0, 6.0]).show(ui, |ui| {
-                    for provider in &state.backing_remotes {
-                        ui.strong(provider);
-                        let missing = state.providers.missing_encryption.contains(provider);
-                        ui.label(encryption_status(
-                            state.providers.discovery_known, missing,
-                            task.is_running() && task.task_name() == Some(crate::gui::app::AUTO_ENCRYPTION_TASK),
-                            state.providers.encryption_failed,
-                        )).on_hover_text(tr("Configuration status only; cloud access and key recovery are not verified by this indicator."));
-                        ui.end_row();
+                .id_salt("base-provider-list")
+                .max_height(height)
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    let cards = model::cards(state, running);
+                    let per_row = grid::columns(ui.available_width(), cards.len());
+                    for (row, chunk) in cards.chunks(per_row).enumerate() {
+                        if row > 0 {
+                            ui.add_space(grid::GAP);
+                        }
+                        ui.horizontal_top(|ui| {
+                            ui.spacing_mut().item_spacing.x = grid::GAP;
+                            let gaps = grid::GAP * (per_row - 1) as f32;
+                            let width = ((ui.available_width() - gaps) / per_row as f32).floor();
+                            for card in chunk {
+                                let size = egui::vec2(width, 0.0);
+                                let layout = egui::Layout::top_down(egui::Align::Min);
+                                ui.allocate_ui_with_layout(size, layout, |ui| {
+                                    ui.set_width(width);
+                                    if card::show(ui, card, idle) {
+                                        setup = Some(card.name.to_string());
+                                    }
+                                });
+                            }
+                        });
                     }
                 });
-            });
+            setup
         },
     );
+    if refresh {
+        state.providers.refresh_requested = true;
+    }
+    if let Some(name) = setup {
+        state.providers.apply_defaults(&state.settings.encryption);
+        state.providers.backing_provider = name;
+        state.providers.setup_open = true;
+    }
 }
 
 fn health_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {

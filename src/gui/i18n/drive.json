@@ -749,6 +749,11 @@
   "ja": "保留中の書き込みの上限",
   "zh": "待处理写入上限"
  },
+ "Pool layout change is deferred: {n} pending upload(s) use the previous layout; the new layout applies on the next mount after they finish.": {
+  "ko": "풀 레이아웃 변경이 미뤄졌어요: 대기 중인 업로드 {n}개가 이전 레이아웃을 사용해요. 이 업로드가 끝난 뒤 다음 마운트부터 새 레이아웃이 적용돼요.",
+  "ja": "プールのレイアウト変更は保留中です: 保留中のアップロード {n} 件が以前のレイアウトを使用します。これらが完了した後の次回のマウントから新しいレイアウトが適用されます。",
+  "zh": "池布局变更已推迟：{n} 个待处理上传使用之前的布局；这些上传完成后，下次挂载时将应用新布局。"
+ },
  "Pool sync · no conflicts": {
   "ko": "풀 동기화 · 충돌 없음",
   "ja": "プール同期 · 競合なし",
@@ -1024,6 +1029,11 @@
   "ja": "このビルドは WinFsp 非対応のため、WebDAV を使用します。",
   "zh": "此版本未包含 WinFsp 支持；将使用 WebDAV。"
  },
+ "This mount: {active} · next mount: {requested}": {
+  "ko": "이번 마운트: {active} · 다음 마운트: {requested}",
+  "ja": "今回のマウント: {active} · 次回のマウント: {requested}",
+  "zh": "本次挂载：{active} · 下次挂载：{requested}"
+ },
  "This mountpoint is already used by pool {pool}. Choose another one.": {
   "ko": "이 마운트 위치는 풀 {pool}이(가) 이미 쓰고 있어요. 다른 위치를 고르세요.",
   "ja": "このマウント先はプール {pool} が使用しています。別のマウント先を選んでください。",
@@ -1258,6 +1268,11 @@
   "ko": "메타데이터 대상 {roots}개 · 이전 버전 한도 {limit} · 기록 삭제 {state}",
   "ja": "メタデータの保存先 {roots} 件 · 以前のバージョンの上限 {limit} · 履歴削除 {state}",
   "zh": "{roots} 个元数据目标 · 旧版本上限 {limit} · 历史删除 {state}"
+ },
+ "{size} MiB shards · {data} data + {parity} parity · {placement}": {
+  "ko": "샤드 {size} MiB · 데이터 {data} + 패리티 {parity} · {placement}",
+  "ja": "シャード {size} MiB · データ {data} + パリティ {parity} · {placement}",
+  "zh": "分片 {size} MiB · 数据 {data} + 校验 {parity} · {placement}"
  },
  "{size} can be written now": {
   "ko": "지금 {size} 쓸 수 있어요",

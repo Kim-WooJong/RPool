@@ -28,6 +28,8 @@ pub(crate) struct MountSession {
     pub(super) capacity: Option<crate::mount::capacity::CapacityStatus>,
     pub(super) capacity_read: std::time::Instant,
     pub(super) pool_status: Option<crate::mount::pool_sync::Status>,
+    /// A pool layout change the running mount deferred (pending old-layout uploads).
+    pub(super) layout_status: Option<crate::mount::layout_refresh::Deferral>,
     /// Unsaved WebDAV writes the last mount recovered from rclone's cache.
     pub(super) cache_recovery: Vec<crate::mount::cache_recovery::RecoveryReport>,
     pub(super) import_status: Option<crate::mount::rclone_import::Status>,
@@ -47,6 +49,7 @@ impl Default for MountSession {
             capacity: None,
             capacity_read: std::time::Instant::now(),
             pool_status: None,
+            layout_status: None,
             cache_recovery: Vec::new(),
             import_status: None,
             recovering_accounts: false,
@@ -81,6 +84,13 @@ impl MountSession {
                 self.pool_status = std::fs::read(control.path().join("pool-sync-status.json"))
                     .ok()
                     .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+                self.layout_status = std::fs::read(
+                    control
+                        .path()
+                        .join(crate::mount::layout_refresh::STATUS_FILE),
+                )
+                .ok()
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok());
                 self.import_status = std::fs::read(control.path().join("import-status.json"))
                     .ok()
                     .and_then(|bytes| serde_json::from_slice(&bytes).ok());

@@ -89,6 +89,7 @@ impl OpenDalMemory {
             size: m.content_length(),
             is_dir: m.is_dir(),
             version: None,
+            modified: None,
         })
     }
     fn read_locked(

@@ -71,7 +71,7 @@ pub(crate) fn validate_upload_journal(
             continue;
         }
         storage.ensure_destination(&shard.object)?;
-        match storage.reader().verify(shard, true) {
+        match storage.reader().verify_unchanged(shard) {
             Ok(()) => {}
             Err(error) if is_recoverable_loss(&error) => removed.push(*index),
             Err(error) => return Err(error),

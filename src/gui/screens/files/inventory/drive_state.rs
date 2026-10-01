@@ -2,8 +2,9 @@
 //! background listing per pool, and a folder tree built from the flat,
 //! read-only listing returned by `crate::pool::browse::browse`.
 
+use super::explorer::ExplorerState;
 use crate::pool::browse::PoolBrowse;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::mpsc::{Receiver, TryRecvError};
 
 pub(crate) type BrowseResult = Result<PoolBrowse, String>;
@@ -33,6 +34,8 @@ pub(crate) struct DriveTree {
     pub(crate) files: usize,
     pub(crate) dirs: usize,
     pub(crate) bytes: u64,
+    /// Node id by normalized path, for jumping to a folder by its path.
+    index: HashMap<String, usize>,
 }
 
 impl DriveTree {
@@ -64,7 +67,32 @@ impl DriveTree {
             }
         }
         tree.finish();
+        tree.index = index;
         tree
+    }
+
+    /// The node at a normalized path ("" is the drive root, not a node).
+    pub(crate) fn find(&self, path: &str) -> Option<usize> {
+        self.index.get(path).copied()
+    }
+
+    /// The folder at `path`: `Some(None)` for the root, `Some(Some(id))` for
+    /// a folder, `None` when the path is missing or names a file.
+    pub(crate) fn folder(&self, path: &str) -> Option<Option<usize>> {
+        if path.is_empty() {
+            return Some(None);
+        }
+        self.find(path)
+            .filter(|&id| self.nodes[id].is_dir)
+            .map(Some)
+    }
+
+    /// Sorted entries of a folder (`None` is the root).
+    pub(crate) fn children(&self, folder: Option<usize>) -> &[usize] {
+        match folder {
+            Some(id) => &self.nodes[id].children,
+            None => &self.roots,
+        }
     }
 
     fn ensure_dir(&mut self, index: &mut HashMap<String, usize>, path: &str) -> usize {
@@ -145,30 +173,17 @@ impl DriveTree {
             node.children = std::mem::take(sorted);
         }
     }
+}
 
-    /// Rows of the tree as `(node, depth)`: only children of expanded
-    /// folders are visited, so a collapsed large drive stays cheap.
-    pub(crate) fn visible(&self, expanded: &BTreeSet<String>) -> Vec<(usize, usize)> {
-        let mut rows = Vec::new();
-        let mut stack: Vec<(usize, usize)> = self.roots.iter().rev().map(|&id| (id, 0)).collect();
-        while let Some((id, depth)) = stack.pop() {
-            rows.push((id, depth));
-            let node = &self.nodes[id];
-            if node.is_dir && expanded.contains(&node.path) {
-                stack.extend(node.children.iter().rev().map(|&child| (child, depth + 1)));
-            }
-        }
-        rows
+impl DriveNode {
+    /// The lowercased name, for case-insensitive search.
+    pub(crate) fn lower_name(&self) -> &str {
+        self.lower.rsplit('/').next().unwrap_or(&self.lower)
     }
 
-    /// Entries whose path contains `query` (case-insensitive), by path.
-    pub(crate) fn search(&self, query: &str) -> Vec<usize> {
-        let query = query.trim().to_lowercase();
-        let mut found: Vec<usize> = (0..self.nodes.len())
-            .filter(|&id| self.nodes[id].lower.contains(&query))
-            .collect();
-        found.sort_by(|a, b| self.nodes[*a].path.cmp(&self.nodes[*b].path));
-        found
+    /// Path of the containing folder ("" for top-level entries).
+    pub(crate) fn folder_path(&self) -> &str {
+        parent_of(&self.path).unwrap_or("")
     }
 }
 
@@ -194,7 +209,8 @@ pub(crate) struct DriveForm {
     /// The pool being browsed; empty until one is picked (no "All pools").
     pub(crate) pool: String,
     pub(crate) query: String,
-    pub(crate) expanded: BTreeSet<String>,
+    /// Current folder, history, sort, view and selection of the explorer.
+    pub(crate) explorer: ExplorerState,
     results: BTreeMap<String, DriveLoad>,
     /// Listing runs off the UI thread: reading cloud metadata takes seconds.
     pending: Option<(String, Receiver<BrowseResult>)>,
@@ -218,12 +234,23 @@ impl DriveForm {
     pub(crate) fn select(&mut self, pool: String) {
         if pool != self.pool {
             self.pool = pool;
-            self.expanded.clear();
+            self.query.clear();
+            self.explorer = ExplorerState::default();
         }
     }
 
     pub(crate) fn current(&self) -> Option<&DriveLoad> {
         self.results.get(&self.pool)
+    }
+
+    /// The pool, its listing, the explorer and the search, borrowed apart.
+    pub(crate) fn parts(&mut self) -> (&str, Option<&DriveLoad>, &mut ExplorerState, &mut String) {
+        (
+            &self.pool,
+            self.results.get(&self.pool),
+            &mut self.explorer,
+            &mut self.query,
+        )
     }
 
     pub(crate) fn is_loading(&self) -> bool {
@@ -278,12 +305,6 @@ impl DriveForm {
         };
         self.results.insert(pool, load);
     }
-
-    pub(crate) fn toggle(&mut self, path: &str) {
-        if !self.expanded.remove(path) {
-            self.expanded.insert(path.to_string());
-        }
-    }
 }
 
 #[cfg(test)]
@@ -316,26 +337,17 @@ mod tests {
         }
     }
 
-    fn names(tree: &DriveTree, rows: &[(usize, usize)]) -> Vec<(String, usize)> {
-        rows.iter()
-            .map(|&(id, depth)| (tree.nodes[id].name.clone(), depth))
-            .collect()
-    }
-
     #[test]
     fn tree_nests_sorts_and_totals() {
         let tree = DriveTree::build(sample());
         assert_eq!(tree.mode, "v7");
         assert_eq!((tree.files, tree.dirs, tree.bytes), (5, 4, 45));
-        let collapsed = tree.visible(&BTreeSet::new());
-        assert_eq!(
-            names(&tree, &collapsed),
-            vec![
-                ("docs".to_string(), 0),
-                ("Photos".to_string(), 0),
-                ("readme.md".to_string(), 0)
-            ]
-        );
+        let roots: Vec<_> = tree
+            .children(None)
+            .iter()
+            .map(|&id| tree.nodes[id].name.as_str())
+            .collect();
+        assert_eq!(roots, ["docs", "Photos", "readme.md"]);
         let photos = tree.nodes.iter().find(|n| n.path == "Photos").unwrap();
         assert_eq!(
             (photos.size, photos.files, photos.children.len()),
@@ -348,42 +360,20 @@ mod tests {
     }
 
     #[test]
-    fn only_expanded_folders_show_children() {
+    fn paths_resolve_to_folders_and_files() {
         let tree = DriveTree::build(sample());
-        let expanded = BTreeSet::from(["Photos".to_string(), "Photos/2024".to_string()]);
+        assert_eq!(tree.folder(""), Some(None));
+        let photos = tree.folder("Photos").unwrap().unwrap();
+        assert_eq!(tree.children(Some(photos)).len(), 2);
+        assert_eq!(tree.folder("readme.md"), None, "a file is not a folder");
+        assert_eq!(tree.folder("missing"), None);
+        let file = tree.find("Photos/2024/A.jpg").unwrap();
+        assert_eq!(tree.nodes[file].lower_name(), "a.jpg");
+        assert_eq!(tree.nodes[file].folder_path(), "Photos/2024");
         assert_eq!(
-            names(&tree, &tree.visible(&expanded)),
-            vec![
-                ("docs".to_string(), 0),
-                ("Photos".to_string(), 0),
-                ("2024".to_string(), 1),
-                ("A.jpg".to_string(), 2),
-                ("b.jpg".to_string(), 2),
-                ("cover.png".to_string(), 1),
-                ("readme.md".to_string(), 0),
-            ]
+            tree.nodes[tree.find("readme.md").unwrap()].folder_path(),
+            ""
         );
-        // A collapsed parent hides an expanded child.
-        let expanded = BTreeSet::from(["Photos/2024".to_string()]);
-        assert_eq!(tree.visible(&expanded).len(), 3);
-    }
-
-    #[test]
-    fn search_is_case_insensitive_and_flat() {
-        let tree = DriveTree::build(sample());
-        let found: Vec<_> = tree
-            .search(" JPG ")
-            .into_iter()
-            .map(|id| tree.nodes[id].path.clone())
-            .collect();
-        assert_eq!(found, vec!["Photos/2024/A.jpg", "Photos/2024/b.jpg"]);
-        let found: Vec<_> = tree
-            .search("notes")
-            .into_iter()
-            .map(|id| tree.nodes[id].path.clone())
-            .collect();
-        assert_eq!(found, vec!["docs/notes", "docs/notes/todo.txt"]);
-        assert!(tree.search("missing").is_empty());
     }
 
     #[test]
@@ -431,10 +421,11 @@ mod tests {
         form.apply("b".into(), Err("offline".into()));
         assert!(!form.needs_load());
         assert!(matches!(form.current(), Some(DriveLoad::Ready(tree)) if tree.files == 5));
-        form.toggle("Photos");
-        assert!(form.expanded.contains("Photos"));
+        form.explorer.nav.open("Photos");
+        form.query = "jpg".into();
         form.select("b".into());
-        assert!(form.expanded.is_empty());
+        assert_eq!(form.explorer.nav.current(), "");
+        assert!(form.query.is_empty());
         assert!(matches!(form.current(), Some(DriveLoad::Failed(e)) if e == "offline"));
         form.sync_pools(&["a".to_string()]);
         assert_eq!(form.pool, "a");

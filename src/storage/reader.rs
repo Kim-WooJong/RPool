@@ -5,6 +5,7 @@ use super::rclone::{RcloneBackend, RcloneContext};
 use super::reference::{BackendId, ObjectKey, ObjectRef};
 use super::registry::BackendRegistry;
 use super::traits::{ObjectMetadata, OperationContext, ReadRange, StorageBackend};
+use super::verified::Fingerprint;
 use crate::prelude::*;
 use crate::utils::write_all_at;
 
@@ -89,6 +90,14 @@ pub(crate) fn is_restore_unavailable(error: &anyhow::Error) -> bool {
                     | StorageErrorKind::RateLimited
             )
         )
+}
+
+fn fingerprint(metadata: &ObjectMetadata) -> Fingerprint {
+    Fingerprint {
+        size: metadata.size,
+        modified: metadata.modified.clone(),
+        version: metadata.version.clone(),
+    }
 }
 
 fn corrupt(found: impl Into<String>, expected: impl Into<String>) -> StorageError {
@@ -212,15 +221,72 @@ impl StorageReader {
         }
         Ok(bytes)
     }
+    /// Always reads the whole object when `full` (never trusts memory); a
+    /// successful full read is remembered for `verify_unchanged`.
     pub(crate) fn verify(&self, shard: &Shard, full: bool) -> Result<()> {
-        let size = self.stat(&shard.object)?.size;
+        let metadata = self.stat(&shard.object)?;
+        let size = metadata.size;
         if size != shard.size {
+            self.forget_verified(&shard.object);
             return Err(corrupt(format!("size:{size}"), format!("size:{}", shard.size)).into());
         }
         if full {
-            self.verified_read(shard, &mut std::io::sink())?;
+            match self.verified_route() {
+                Some(route) => self.full_read_recorded(&route, shard, fingerprint(&metadata))?,
+                None => self.verified_read(shard, &mut std::io::sink())?,
+            }
         }
         Ok(())
+    }
+    /// Full verification that may reuse a full verified read made earlier in
+    /// this process, when the object's stat fingerprint has not changed since
+    /// (see `storage::verified`). Still stats the object every time. Use it only
+    /// to re-confirm objects this process already uploaded or checked; explicit
+    /// verify/scrub/repair keep using `verify(shard, true)`.
+    pub(crate) fn verify_unchanged(&self, shard: &Shard) -> Result<()> {
+        let route = self.verified_route();
+        let metadata = self.stat(&shard.object)?;
+        if metadata.size != shard.size {
+            if let Some(route) = &route {
+                super::verified::forget(route, &shard.object);
+            }
+            return Err(corrupt(
+                format!("size:{}", metadata.size),
+                format!("size:{}", shard.size),
+            )
+            .into());
+        }
+        let Some(route) = route else {
+            return self.verified_read(shard, &mut std::io::sink());
+        };
+        let fingerprint = fingerprint(&metadata);
+        if super::verified::unchanged(&route, shard, &fingerprint) {
+            return Ok(());
+        }
+        self.full_read_recorded(&route, shard, fingerprint)
+    }
+    /// Forgets any in-process proof for `object` (it is about to change).
+    pub(crate) fn forget_verified(&self, object: &str) {
+        if let Some(route) = self.verified_route() {
+            super::verified::forget(&route, object);
+        }
+    }
+    fn full_read_recorded(&self, route: &str, shard: &Shard, seen: Fingerprint) -> Result<()> {
+        match self.verified_read(shard, &mut std::io::sink()) {
+            Ok(()) => {
+                super::verified::record(route, shard, seen);
+                Ok(())
+            }
+            Err(error) => {
+                super::verified::forget(route, &shard.object);
+                Err(error)
+            }
+        }
+    }
+    /// Only rclone-addressed readers take part: their addresses are stable
+    /// names under one rclone config.
+    fn verified_route(&self) -> Option<String> {
+        self.legacy.as_ref().map(RcloneContext::route_identity)
     }
     pub(crate) fn probe(&self, shard: &Shard, full: bool) -> Probe {
         match self.stat(&shard.object) {

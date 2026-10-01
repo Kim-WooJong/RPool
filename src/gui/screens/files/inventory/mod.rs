@@ -2,12 +2,15 @@ mod data;
 mod details;
 mod drive;
 mod drive_state;
+mod explorer;
 mod filters;
 mod rebuild;
 mod state;
 mod table;
 
 use crate::gui::i18n::{tr, trf};
+#[cfg(any(test, debug_assertions))]
+pub(crate) use explorer::sample as drive_sample;
 pub(crate) use state::InventoryForm;
 use state::LibraryView;
 

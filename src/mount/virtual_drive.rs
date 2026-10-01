@@ -29,61 +29,6 @@ fn workspace_metadata_roots(
     }
     Ok(roots)
 }
-fn validate_policy_refresh(
-    root: &Path,
-    saved: &PoolDefinition,
-    current: &PoolDefinition,
-) -> Result<()> {
-    crate::pool::validate_pool(current)?;
-    let mut saved_remotes = crate::remote_root::apply_remote_roots(saved.remotes.clone())?;
-    let mut current_remotes = crate::remote_root::apply_remote_roots(current.remotes.clone())?;
-    saved_remotes.sort();
-    current_remotes.sort();
-    if saved_remotes != current_remotes {
-        bail!("pool membership changed; apply pool changes before mounting this workspace");
-    }
-    let layout_changed = saved.shard_size != current.shard_size
-        || saved.placement != current.placement
-        || saved.data_shards != current.data_shards
-        || saved.parity_shards != current.parity_shards;
-    if !layout_changed {
-        return Ok(());
-    }
-    fn has_upload_state(path: &Path) -> Result<bool> {
-        if !path.exists() {
-            return Ok(false);
-        }
-        for entry in fs::read_dir(path)? {
-            let entry = entry?;
-            let kind = entry.file_type()?;
-            if kind.is_symlink() {
-                bail!("upload state contains a symlink; preserve workspace");
-            }
-            if kind.is_dir() {
-                if has_upload_state(&entry.path())? {
-                    return Ok(true);
-                }
-            } else {
-                let name = entry.file_name();
-                let name = name.to_string_lossy();
-                if name.ends_with(".rpool.upload.json") || name == "snapshot-plan.json" {
-                    return Ok(true);
-                }
-            }
-        }
-        Ok(false)
-    }
-    if has_upload_state(&root.join("spool"))?
-        || root.join("snapshot-compaction").exists()
-            && fs::read_dir(root.join("snapshot-compaction"))?
-                .next()
-                .is_some()
-    {
-        bail!("finish existing upload/snapshot plans with the previous pool layout before applying layout changes; pending data retained");
-    }
-    Ok(())
-}
-
 #[derive(Clone, Debug)]
 pub(crate) enum Revision {
     Cloud {
@@ -131,6 +76,8 @@ pub(crate) struct VirtualDrive {
     pub peer_read_pins: Mutex<BTreeMap<String, String>>,
     pub checkpoint_coordinator: bool,
     pub checkpoint_keep: usize,
+    /// A pool layout change this mount keeps for later (pending old-layout work).
+    pub layout_deferral: Option<super::layout_refresh::Deferral>,
     _lock: File,
 }
 impl VirtualDrive {
@@ -193,6 +140,7 @@ impl VirtualDrive {
             peer_read_pins: Mutex::new(BTreeMap::new()),
             checkpoint_coordinator: false,
             checkpoint_keep: 0,
+            layout_deferral: None,
             _lock: lock,
         })
     }
@@ -412,7 +360,7 @@ impl VirtualDrive {
         {
             bail!("workspace pool/shared-root changed; keep this workspace and use Apply pool changes to transition its account membership. Reprocess alone does not update mount metadata");
         }
-        validate_policy_refresh(&root, &binding.policy, &current_policy)?;
+        super::layout_refresh::validate_membership(&binding.policy, &current_policy)?;
         for name in ["spool", "clean-cache", "anchor", ".rpool"] {
             fs::create_dir_all(root.join(name))?;
             checked_directory(&root.join(name))?;
@@ -435,8 +383,16 @@ impl VirtualDrive {
             state.save(&root)?;
         }
         let cache = ShardCache::new(root.join("clean-cache"), cache_limit)?;
-        if serde_json::to_value(&binding.policy)? != serde_json::to_value(&current_policy)? {
-            binding.policy = current_policy;
+        // Started uploads resume with the layout they were planned with; a
+        // layout change waits for them (see `layout_refresh`).
+        let pending = super::layout_refresh::pending_layout_work(
+            &root,
+            state.pending.iter().map(|intent| intent.id.as_str()),
+        )?;
+        let (effective_policy, layout_deferral) =
+            super::layout_refresh::resolve(&binding.policy, &current_policy, pending)?;
+        if serde_json::to_value(&binding.policy)? != serde_json::to_value(&effective_policy)? {
+            binding.policy = effective_policy;
             durable_json(&config, &binding)?;
         }
         Ok(Self {
@@ -460,6 +416,7 @@ impl VirtualDrive {
             peer_read_pins: Mutex::new(BTreeMap::new()),
             checkpoint_coordinator: false,
             checkpoint_keep: 0,
+            layout_deferral,
             _lock: lock,
         })
     }
@@ -1418,6 +1375,22 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         "Virtual workspace opened in {:.3}s",
         workspace_started.elapsed().as_secs_f64()
     );
+    if let Some(deferral) = &drive.layout_deferral {
+        println!("{}", deferral.message());
+    }
+    if let Some(path) = &args.status_file {
+        let destination = path.with_file_name(super::layout_refresh::STATUS_FILE);
+        let result = match &drive.layout_deferral {
+            Some(deferral) => durable_json(&destination, deferral),
+            None => match fs::remove_file(&destination) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+                _ => Ok(()),
+            },
+        };
+        if let Err(error) = result {
+            eprintln!("Layout status unavailable: {error:#}");
+        }
+    }
     if args.apply_retention {
         let report = drive.apply_retention(args.keep_previous, args.exclusive_archive_ownership)?;
         println!("Retention completed: {} obsolete tracked archives, {} exact objects removed ({} logical data bytes; backend trash/versioning may delay quota recovery).", report.obsolete_archives, report.objects.len(), report.reclaimable_bytes);
@@ -1792,6 +1765,7 @@ fn fixture_with(root: &Path, state: Namespace) -> VirtualDrive {
         peer_read_pins: Mutex::new(BTreeMap::new()),
         checkpoint_coordinator: false,
         checkpoint_keep: 0,
+        layout_deferral: None,
         _lock: File::create(root.join("virtual.lock")).unwrap(),
     }
 }
@@ -1806,48 +1780,6 @@ mod policy_refresh_tests {
             remotes: vec!["one:explicit".into()],
             ..PoolDefinition::default()
         }
-    }
-
-    #[test]
-    fn policy_refresh_preserves_spool_and_allows_execution_knobs() {
-        let root = tempfile::tempdir().unwrap();
-        fs::create_dir_all(root.path().join("spool/pending")).unwrap();
-        let pending = root.path().join("spool/pending/content");
-        fs::write(&pending, b"pending bytes").unwrap();
-        fs::write(
-            root.path().join("spool/pending/source.rpool.upload.json"),
-            b"saved plan",
-        )
-        .unwrap();
-        let saved = policy();
-        let mut current = saved.clone();
-        current.workers += 1;
-        current.retries += 1;
-        validate_policy_refresh(root.path(), &saved, &current).unwrap();
-        assert_eq!(fs::read(&pending).unwrap(), b"pending bytes");
-        current.shard_size = crate::models::shard_size::ShardSize::from_mib(
-            current.shard_size.exact_mib().unwrap() + 1,
-        )
-        .unwrap();
-        assert!(validate_policy_refresh(root.path(), &saved, &current).is_err());
-        assert_eq!(fs::read(&pending).unwrap(), b"pending bytes");
-    }
-
-    #[test]
-    fn policy_refresh_accepts_fresh_layout_but_rejects_membership_and_invalid_policy() {
-        let root = tempfile::tempdir().unwrap();
-        let saved = policy();
-        let mut current = saved.clone();
-        current.shard_size = crate::models::shard_size::ShardSize::from_mib(
-            current.shard_size.exact_mib().unwrap() + 1,
-        )
-        .unwrap();
-        validate_policy_refresh(root.path(), &saved, &current).unwrap();
-        current.remotes.push("two:explicit".into());
-        assert!(validate_policy_refresh(root.path(), &saved, &current).is_err());
-        current = saved.clone();
-        current.workers = 0;
-        assert!(validate_policy_refresh(root.path(), &saved, &current).is_err());
     }
 
     #[test]

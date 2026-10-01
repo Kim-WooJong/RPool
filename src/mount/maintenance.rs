@@ -1,6 +1,10 @@
 //! Background upkeep of a mounted drive. `sync` and capacity reporting run in
 //! separate workers, so a long upload never leaves the capacity snapshot (and
 //! with it the OS free-space report) stale. Each worker runs at most once at a time.
+//! An idle mount therefore downloads only metadata each interval: the event
+//! listings of the sync poll (records other PCs added are fetched once) and the
+//! capacity `about` call. Uploaded shards are read back once; later re-checks in
+//! the same process only stat them (`storage::verified`).
 use super::virtual_drive::VirtualDrive;
 use crate::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};

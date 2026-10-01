@@ -48,7 +48,8 @@ impl Io for LiveIo<'_> {
     fn verify(&self, m: &Manifest) -> Result<()> {
         let reader = crate::storage::reader::StorageReader::rclone(&self.drive.rclone);
         for s in &m.shards {
-            reader.verify(s, true)?;
+            // Every payload was read back when it was uploaded or copied.
+            reader.verify_unchanged(s)?;
         }
         Ok(())
     }

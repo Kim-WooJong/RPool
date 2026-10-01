@@ -69,7 +69,7 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
 fn verify(storage: &StorageWriter, shards: &[Shard]) -> Result<()> {
     for shard in shards {
         storage.ensure_destination(&shard.object)?;
-        storage.reader().verify(shard, true)?;
+        storage.reader().verify_unchanged(shard)?;
     }
     Ok(())
 }

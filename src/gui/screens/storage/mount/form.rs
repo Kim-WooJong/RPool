@@ -395,6 +395,7 @@ impl MountForm {
         session.recovering_accounts = true;
         session.capacity = None;
         session.pool_status = None;
+        session.layout_status = None;
         session.notice = Some(tr("Copying the locally known file view into the new destination. This does not mount a drive or remove source data. Review unresolved files in the report before treating recovery as complete.").into());
         Ok(())
     }
@@ -592,6 +593,7 @@ impl MountForm {
         let session = &mut self.session;
         session.capacity = None;
         session.pool_status = None;
+        session.layout_status = None;
         session.import_status = None;
         session.runner.start_rpool(
             match action {

@@ -11,6 +11,7 @@ mod drive_section;
 mod form;
 mod identity_summary;
 mod import;
+mod layout_notice;
 mod log;
 mod maintenance;
 mod options;

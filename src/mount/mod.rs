@@ -7,6 +7,7 @@ mod dav;
 mod frontend;
 mod fs_core;
 mod incremental;
+pub(crate) mod layout_refresh;
 mod lifecycle;
 mod maintenance;
 mod namespace;

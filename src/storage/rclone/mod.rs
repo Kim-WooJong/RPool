@@ -139,6 +139,19 @@ impl RcloneContext {
     fn op(&self, address: &str, direction: traffic::Direction) -> traffic::Op {
         traffic::Op::begin(self.meter_name(address).as_deref(), direction)
     }
+    /// Which rclone binary and config resolve addresses (paths only, no
+    /// secrets): the same address under another config is another object.
+    pub(crate) fn route_identity(&self) -> String {
+        let config = match &self.config {
+            ConfigSelection::Inherited => self
+                .environment
+                .iter()
+                .find(|(key, _)| key == "RCLONE_CONFIG")
+                .map(|(_, value)| PathBuf::from(value)),
+            ConfigSelection::File(path) => Some(path.clone()),
+        };
+        format!("{:?}|{:?}", self.executable, config)
+    }
     pub(crate) fn inherited(executable: &str) -> Self {
         Self::new(executable.into(), ConfigSelection::Inherited)
     }
@@ -363,10 +376,16 @@ impl RcloneContext {
                 .and_then(Value::as_u64)
                 .ok_or_else(|| invalid("missing stat Size"))?
         };
+        // Objects only: a directory's time moves whenever its children change.
+        let modified = (!is_dir)
+            .then(|| value.get("ModTime").and_then(Value::as_str))
+            .flatten()
+            .map(str::to_owned);
         Ok(ObjectMetadata {
             size,
             is_dir,
             version: None,
+            modified,
         })
     }
     pub(crate) fn read_raw(

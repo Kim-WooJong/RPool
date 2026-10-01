@@ -1098,5 +1098,80 @@
   "ko": "{task} 작업이 취소됐어요.",
   "ja": "{task} はキャンセルされました。",
   "zh": "{task}已取消。"
+ },
+ "List": {
+  "ko": "목록",
+  "ja": "リスト",
+  "zh": "列表"
+ },
+ "Icons": {
+  "ko": "아이콘",
+  "ja": "アイコン",
+  "zh": "图标"
+ },
+ "Search all folders": {
+  "ko": "모든 폴더 검색",
+  "ja": "すべてのフォルダを検索",
+  "zh": "搜索所有文件夹"
+ },
+ "Search all folders…": {
+  "ko": "모든 폴더에서 검색…",
+  "ja": "すべてのフォルダで検索…",
+  "zh": "在所有文件夹中搜索…"
+ },
+ "Search this folder…": {
+  "ko": "이 폴더에서 검색…",
+  "ja": "このフォルダ内を検索…",
+  "zh": "在此文件夹中搜索…"
+ },
+ "Search the whole drive by name instead of the current folder.": {
+  "ko": "현재 폴더 대신 드라이브 전체에서 이름으로 검색해요.",
+  "ja": "現在のフォルダではなく、ドライブ全体を名前で検索します。",
+  "zh": "按名称搜索整个驱动器，而不仅是当前文件夹。"
+ },
+ "Nothing selected": {
+  "ko": "선택한 항목이 없어요",
+  "ja": "何も選択されていません",
+  "zh": "未选择任何项目"
+ },
+ "Show in folder": {
+  "ko": "폴더에서 보기",
+  "ja": "フォルダで表示",
+  "zh": "在文件夹中显示"
+ },
+ "Folder": {
+  "ko": "폴더",
+  "ja": "フォルダ",
+  "zh": "文件夹"
+ },
+ "This folder is empty.": {
+  "ko": "이 폴더는 비어 있어요.",
+  "ja": "このフォルダは空です。",
+  "zh": "此文件夹为空。"
+ },
+ "{n} match": {
+  "ko": "일치 {n}개",
+  "ja": "{n} 件一致",
+  "zh": "{n} 个匹配"
+ },
+ "{n} matches": {
+  "ko": "일치 {n}개",
+  "ja": "{n} 件一致",
+  "zh": "{n} 个匹配"
+ },
+ "Back (Alt+Left)": {
+  "ko": "뒤로 (Alt+←)",
+  "ja": "戻る (Alt+←)",
+  "zh": "后退 (Alt+←)"
+ },
+ "Forward (Alt+Right)": {
+  "ko": "앞으로 (Alt+→)",
+  "ja": "進む (Alt+→)",
+  "zh": "前进 (Alt+→)"
+ },
+ "Up one folder (Backspace)": {
+  "ko": "상위 폴더로 (Backspace)",
+  "ja": "1 つ上のフォルダへ (Backspace)",
+  "zh": "上一级文件夹 (Backspace)"
  }
 }

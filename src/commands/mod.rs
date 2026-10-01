@@ -21,7 +21,7 @@ pub(crate) use repair::repair;
 pub(crate) use scrub::scrub;
 pub(crate) use status::status;
 pub(crate) use usage::usage;
-pub(crate) use verify::{verify, verify_with_storage};
+pub(crate) use verify::{reverify_with_storage, verify, verify_with_storage};
 
 pub(crate) use put::put_with_storage;
 

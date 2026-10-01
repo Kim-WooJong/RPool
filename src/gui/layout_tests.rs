@@ -5,6 +5,7 @@ use super::state::{DriveTab, FilesSection, GuiState, MaintenanceSection, Page, S
 use super::task::TaskRunner;
 use super::usage_refresh::UsageRefresh;
 use eframe::egui;
+use files::inventory::drive_sample::SampleView;
 use storage::migration::state::Step;
 
 fn state() -> GuiState {
@@ -22,6 +23,13 @@ fn migration(state: &mut GuiState, step: Step) {
     state.storage_section = StorageSection::Changes;
     state.migration = storage::migration::tests::sample_form("family", step);
     state.migration.show_advanced = true;
+}
+
+/// Files › Library on the nested sample drive of the pool "family".
+fn library(state: &mut GuiState, view: SampleView) {
+    state.page = Page::Files;
+    state.files_section = FilesSection::Inventory;
+    files::inventory::drive_sample::show(&mut state.inventory.drive, "family", view);
 }
 
 fn page(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner, usage: &mut UsageRefresh) {
@@ -98,6 +106,30 @@ fn every_page_fits_small_medium_and_large_windows() {
             s.page = Page::Files;
             s.files_section = FilesSection::Inventory
         },
+        |s| library(s, Default::default()),
+        |s| {
+            library(
+                s,
+                SampleView {
+                    folder: "Photos/2024",
+                    selected: Some("Photos/2024/IMG_0001.jpg"),
+                    icons: true,
+                    ..Default::default()
+                },
+            )
+        },
+        |s| {
+            library(
+                s,
+                SampleView {
+                    folder: "Photos/2024/burst",
+                    selected: Some("Photos/2024/burst/DSC_0003_a_rather_long_camera_file_name.jpg"),
+                    query: "jpg",
+                    search_all: true,
+                    ..Default::default()
+                },
+            )
+        },
         |s| {
             s.page = Page::Files;
             s.files_section = FilesSection::Upload
@@ -107,6 +139,11 @@ fn every_page_fits_small_medium_and_large_windows() {
             s.files_section = FilesSection::Restore
         },
         |s| {
+            s.page = Page::Storage;
+            s.storage_section = StorageSection::Providers
+        },
+        |s| {
+            storage::providers::sample::providers(s);
             s.page = Page::Storage;
             s.storage_section = StorageSection::Providers
         },

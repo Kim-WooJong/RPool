@@ -3,6 +3,7 @@
 # `auto` frontend (native FUSE on Linux) inside this container: propagation,
 # delete, concurrent-edit conflicts, atomic save, and ciphertext-only remotes.
 # MODE=v7 adds --pool-retention (private snapshots with history deletion).
+# NATIVE_CRYPT=0 writes through rclone crypt instead of native crypt.
 set -eu
 fail() { echo "FAIL: $*"; exit 1; }
 cd /src
@@ -11,7 +12,8 @@ RPOOL=/target/debug/rpool
 command -v rclone >/dev/null || { apt-get update -qq >/dev/null && apt-get install -y -qq unzip >/dev/null && curl -sS https://rclone.org/install.sh | bash >/dev/null; }
 rclone version | head -1
 RETENTION=""; [ "${MODE:-v6}" = v7 ] && RETENTION="--pool-retention --pool-history-limit 1"
-echo "mode: ${MODE:-v6}"
+NC="--native-crypt"; [ "${NATIVE_CRYPT:-1}" = 0 ] && NC=""
+echo "mode: ${MODE:-v6} native_crypt: ${NATIVE_CRYPT:-1}"
 E=/e2e-pool; rm -rf $E; mkdir -p $E/home $E/cfg $E/mntA $E/mntB $E/ws
 export HOME=$E/home RPOOL_CONFIG_DIR=$E/cfg
 for i in 1 2 3; do
@@ -19,7 +21,7 @@ for i in 1 2 3; do
   rclone config create b$i local >/dev/null
   rclone config create c$i crypt remote=b$i:$E/data$i password=$(rclone obscure "pw$i") >/dev/null
 done
-$RPOOL pool set shared --remote c1: --remote c2: --remote c3: --data-shards 2 --parity-shards 1 --shard-mib 1 --native-crypt >/dev/null
+$RPOOL pool set shared --remote c1: --remote c2: --remote c3: --data-shards 2 --parity-shards 1 --shard-mib 1 $NC >/dev/null
 DOMAINS="--capacity-domain b1=a1 --capacity-domain b2=a2 --capacity-domain b3=a3 --failure-domain b1=g1 --failure-domain b2=g2 --failure-domain b3=g3"
 start() { # name
   rm -f $E/stop$1

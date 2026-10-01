@@ -208,3 +208,38 @@ fn closing_requests_a_graceful_stop_of_every_session() {
     std::fs::remove_dir_all(dir_a).unwrap();
     std::fs::remove_dir_all(dir_b).unwrap();
 }
+
+#[test]
+fn a_deferred_layout_change_is_read_from_the_mount_status() {
+    use crate::mount::layout_refresh::{Deferral, Layout, STATUS_FILE};
+    let mut settings = GuiSettings::default();
+    let mut form = MountForm::from_settings(&settings);
+    let control = tempfile::tempdir().unwrap();
+    let layout = |mib: u64, parity| Layout {
+        shard_size: mib << 20,
+        placement: crate::models::Placement::RoundRobin,
+        data_shards: 2,
+        parity_shards: parity,
+    };
+    let deferral = Deferral {
+        pending: 2,
+        active: layout(1, 1),
+        requested: layout(2, 0),
+    };
+    std::fs::write(
+        control.path().join(STATUS_FILE),
+        serde_json::to_vec(&deferral).unwrap(),
+    )
+    .unwrap();
+    mount(
+        &mut form,
+        &mut settings,
+        "A",
+        "/ws/A",
+        "/mnt/A",
+        Some(control),
+    );
+    form.session.capacity_read -= std::time::Duration::from_secs(2);
+    form.poll();
+    assert_eq!(form.session.layout_status, Some(deferral));
+}

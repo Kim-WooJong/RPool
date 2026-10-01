@@ -131,7 +131,7 @@ impl PayloadIo for StorageWriter {
             Err(e) if missing(&e) => Ok(false),
             Err(e) => Err(e),
             Ok(_) => {
-                self.reader().verify(shard, true)?;
+                self.reader().verify_unchanged(shard)?;
                 Ok(true)
             }
         }
@@ -139,7 +139,8 @@ impl PayloadIo for StorageWriter {
     fn copy(&self, source: &Shard, target: &Shard) -> Result<()> {
         self.ensure_destination(&source.object)?;
         self.copy_verified(source, &target.object, 1)?;
-        self.reader().verify(target, true)
+        // copy_verified read the new object back in full.
+        self.reader().verify_unchanged(target)
     }
     fn remove(&self, object: &str) -> Result<()> {
         self.ensure_destination(object)?;

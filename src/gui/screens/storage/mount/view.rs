@@ -54,12 +54,14 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     if inputs(state) != before && state.mount.pool == before_pool {
         state.mount.session.capacity = None;
         state.mount.session.pool_status = None;
+        state.mount.session.layout_status = None;
     }
 }
 
 fn overview(ui: &mut egui::Ui, state: &mut GuiState) {
     super::sessions_strip::show(ui, state);
     super::status_bar::show(ui, state);
+    super::layout_notice::show(ui, &state.mount);
     ui.add_space(theme::SUBSECTION_GAP);
     theme::two_up(ui, state, super::drive_section::show, |ui, state| {
         super::capacity_panel::show(ui, state);

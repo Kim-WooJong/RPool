@@ -227,6 +227,7 @@ impl StorageBackend for LocalBackend {
             size: metadata.len(),
             is_dir: false,
             version: None,
+            modified: None,
         })
     }
     fn read(

@@ -1,7 +1,7 @@
 use crate::gui::theme;
 use eframe::egui;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum StatusTone {
     Neutral,
     Success,

@@ -78,7 +78,7 @@ impl StorageWriter {
     /// errors propagate; they are not permission to overwrite an unknown object.
     pub(crate) fn reusable(&self, shard: &Shard) -> Result<bool> {
         self.ensure_destination(&shard.object)?;
-        match self.reader.verify(shard, true) {
+        match self.reader.verify_unchanged(shard) {
             Ok(()) => Ok(true),
             Err(error) if is_recoverable_loss(&error) => Ok(false),
             Err(error) => Err(error),
@@ -115,6 +115,8 @@ impl StorageWriter {
         if self.reusable(shard)? {
             return Ok(());
         }
+        // The object is about to be replaced: its new readback is always full.
+        self.reader.forget_verified(&shard.object);
         let routed = match &self.native {
             Some(native) => native.route(self.reader.operation_context(), &shard.object)?,
             None => None,
@@ -183,6 +185,7 @@ impl StorageWriter {
     }
     pub(crate) fn delete(&self, raw: &str) -> Result<()> {
         let (backend, key) = self.reader.resolve(raw)?;
+        self.reader.forget_verified(raw);
         backend.delete(self.reader.operation_context(), &key)?;
         Ok(())
     }

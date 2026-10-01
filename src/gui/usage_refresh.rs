@@ -12,7 +12,41 @@ pub(crate) struct UsageSnapshot {
     pub(crate) reports: Vec<QuotaReport>,
     pub(crate) crypt_remotes: Vec<String>,
     pub(crate) backing_remotes: Vec<String>,
+    /// Backend type (`drive`, `dropbox`, …) and wrapping crypt remotes of
+    /// each backing provider, for the provider cards.
+    pub(crate) providers: ProviderDetails,
     pub(crate) warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ProviderDetails {
+    pub(crate) kinds: std::collections::BTreeMap<String, String>,
+    pub(crate) crypts: std::collections::BTreeMap<String, Vec<String>>,
+}
+
+impl ProviderDetails {
+    fn from_catalog(
+        catalog: &crate::storage::admin::RemoteCatalog,
+        backing: &[String],
+        crypts: &[String],
+    ) -> Self {
+        let mut details = Self::default();
+        for name in backing {
+            if let Some(kind) = catalog.backend_kind(name) {
+                details.kinds.insert(name.clone(), kind.to_string());
+            }
+        }
+        for crypt in crypts {
+            if let Ok(target) = catalog.placement_target(crypt) {
+                details
+                    .crypts
+                    .entry(target)
+                    .or_default()
+                    .push(crypt.clone());
+            }
+        }
+        details
+    }
 }
 
 pub(crate) struct UsageRefresh {
@@ -51,6 +85,8 @@ impl UsageRefresh {
                 let catalog_signature = format!("{catalog:?}");
                 let crypt_remotes = catalog.crypt_remotes();
                 let backing_remotes = catalog.backing_remotes();
+                let providers =
+                    ProviderDetails::from_catalog(&catalog, &backing_remotes, &crypt_remotes);
                 // Discovery is useful even when a provider cannot report capacity.
                 let capacity = (|| {
                     let physical = catalog.physical_remotes()?;
@@ -74,6 +110,7 @@ impl UsageRefresh {
                     reports,
                     crypt_remotes,
                     backing_remotes,
+                    providers,
                     warning,
                 })
             })();
@@ -187,6 +224,10 @@ mod tests {
         assert!(snapshot.needs_encryption);
         assert_eq!(snapshot.backing_remotes, vec!["base", "new"]);
         assert_eq!(snapshot.crypt_remotes, vec!["base_crypt:"]);
+        assert_eq!(snapshot.providers.kinds["base"], "drive");
+        assert_eq!(snapshot.providers.kinds["new"], "dropbox");
+        assert_eq!(snapshot.providers.crypts["base"], vec!["base_crypt:"]);
+        assert!(!snapshot.providers.crypts.contains_key("new"));
         assert_eq!(
             snapshot
                 .reports

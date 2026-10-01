@@ -13,6 +13,27 @@ pub(crate) fn verify_with_storage(
     full: bool,
     workers: usize,
 ) -> Result<()> {
+    verify_shards(reader, manifest_src, full, workers, false)
+}
+
+/// Full verification of an archive this process just uploaded or verified:
+/// unchanged objects already read back in full are not downloaded again
+/// (`StorageReader::verify_unchanged`). Not for the `verify` command.
+pub(crate) fn reverify_with_storage(
+    reader: &StorageReader,
+    manifest_src: &str,
+    workers: usize,
+) -> Result<()> {
+    verify_shards(reader, manifest_src, true, workers, true)
+}
+
+fn verify_shards(
+    reader: &StorageReader,
+    manifest_src: &str,
+    full: bool,
+    workers: usize,
+    reuse: bool,
+) -> Result<()> {
     ensure_positive(workers, "workers")?;
     let manifest = load_manifest_with_storage(reader, manifest_src)?;
     validate_manifest(&manifest)?;
@@ -26,7 +47,11 @@ pub(crate) fn verify_with_storage(
             .shards
             .par_iter()
             .map(|shard| {
-                let result = reader.verify(shard, full);
+                let result = if reuse {
+                    reader.verify_unchanged(shard)
+                } else {
+                    reader.verify(shard, full)
+                };
                 (shard.index, shard.kind, result)
             })
             .collect()

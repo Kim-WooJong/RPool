@@ -120,6 +120,7 @@ impl StorageBackend for MemoryBackend {
             size: entry.bytes.len() as u64,
             is_dir: false,
             version: Some(entry.version),
+            modified: None,
         })
     }
 

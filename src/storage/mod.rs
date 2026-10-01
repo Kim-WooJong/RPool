@@ -17,11 +17,14 @@ mod remote_config;
 pub(crate) mod scheduler;
 pub(crate) mod source;
 pub(crate) mod traits;
+pub(crate) mod verified;
 pub(crate) mod writer;
 
 pub(crate) use data_upload::upload_one_data_shard;
 pub(crate) use remote_config::list_crypt_remotes;
 
+#[cfg(all(test, unix))]
+mod verified_tests;
 #[cfg(test)]
 mod writer_tests;
 

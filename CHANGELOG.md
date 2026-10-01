@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- **Fix: uploaded data was downloaded again right after its upload was
+  verified.** The same process read every new shard back 2 times (v6) or 3
+  times (v7): once after the upload (kept), again in the post-upload verify,
+  and again when publishing a v7 snapshot. A process-wide record of objects
+  already fully verified now skips the full read when a fresh stat shows the
+  same size and modification time; the first readback of every upload and
+  explicit `verify`/scrub/repair/migration reads are unchanged. Measured in
+  Docker (FUSE, RS 2+1): received bytes during upload went from 2–3x sent
+  to sent + a few KB; idle traffic stays at the event-folder listing
+  (≈1–2 KB per remote per sync) with no shard reads
+  (`scripts/linux-docker/idle-traffic-e2e.sh`).
+- **Fix: a workspace could not be mounted after changing upload options**
+  ("finish existing upload/snapshot plans with the previous pool layout…").
+  Pending uploads now finish with the previous layout during that mount and
+  the new shard size/placement/K/M applies on the first mount with nothing
+  pending; CLI and the Drive page say so. Membership changes still need
+  "Apply pool changes" (`scripts/linux-docker/layout-change-e2e.sh`).
+- **Files › Library works like a file explorer** (names only): path bar,
+  Back/Forward/Up, folders first, sortable Name/Size/Type, double-click to
+  open a folder, List or Icons view, search in the folder or the whole drive.
+- **Storage › Providers shows connected providers as a grid of cards**
+  (1–4 columns by window width) with usage, type, encryption status and the
+  crypt remotes on each provider.
+
 - **Network monitoring of mounted pools.** Every mount process counts the
   bytes it moves to and from each account (in the rclone layer): sent,
   acknowledged by the provider, verified by readback, and received, plus

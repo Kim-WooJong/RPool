@@ -663,7 +663,13 @@ pub(super) fn upload_eligible_registered(
         Some(pool.into()),
     )?;
     let path = append_suffix(&staged, ".rpool.json");
-    crate::commands::verify(rclone, &path.to_string_lossy(), true, policy.workers)?;
+    // put read every shard back already; this re-check only stats objects it
+    // proved in this process and fully reads anything else.
+    crate::commands::reverify_with_storage(
+        &crate::storage::reader::StorageReader::rclone(rclone),
+        &path.to_string_lossy(),
+        policy.workers,
+    )?;
     let manifest: Manifest = read_json(&path)?;
     let publication =
         crate::manifest::publication_remotes(&manifest, &status.eligible, policy.placement);
@@ -678,7 +684,7 @@ fn finalize_completed_upload(
     workers: usize,
     retries: u32,
 ) -> Result<()> {
-    crate::commands::verify_with_storage(storage.reader(), &path.to_string_lossy(), true, workers)?;
+    crate::commands::reverify_with_storage(storage.reader(), &path.to_string_lossy(), workers)?;
     // put persists the local manifest BEFORE remote metadata replication. A
     // local completed manifest is not proof that publication finished.
     crate::manifest::replicate_manifest_with_storage(storage, manifest, remotes, retries)?;
