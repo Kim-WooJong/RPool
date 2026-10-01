@@ -1,6 +1,6 @@
 use crate::gui::i18n::{tr, trf};
 use crate::gui::navigation;
-use crate::gui::screens::{dashboard, files, jobs, maintenance, settings, storage};
+use crate::gui::screens::{dashboard, files, jobs, maintenance, monitoring, settings, storage};
 use crate::gui::state::{self, GuiState, Page};
 use crate::gui::task::{JobStatus, TaskRunner};
 use crate::gui::theme;
@@ -93,6 +93,8 @@ impl RpoolGui {
 
     fn poll_background(&mut self) {
         self.state.mount.poll();
+        // Keeps the live graphs filling while another page is shown.
+        self.state.monitoring.poll(std::time::Instant::now());
         let connection_result = self
             .state
             .providers
@@ -182,17 +184,26 @@ impl RpoolGui {
 impl eframe::App for RpoolGui {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll_background();
+        // Closing asks every mounted pool to unmount gracefully; the child
+        // processes finish their writes after the window is gone.
+        if ui.ctx().input(|input| input.viewport().close_requested()) {
+            self.state.mount.stop_all();
+        }
         #[cfg(debug_assertions)]
         if let Some(snapshots) = &mut self.snapshots {
             snapshots.tick(ui.ctx(), &mut self.state);
         }
 
         if self.task.is_running()
-            || self.state.mount.is_running()
+            || self.state.mount.any_running()
             || self.usage.is_running()
             || self.state.providers.connection.is_some()
         {
             ui.ctx().request_repaint_after(Duration::from_millis(100));
+        }
+        if !self.state.monitoring.mounts.is_empty() {
+            ui.ctx()
+                .request_repaint_after(monitoring::state_poll_interval());
         }
 
         let window = ui.ctx().content_rect();
@@ -231,13 +242,7 @@ impl eframe::App for RpoolGui {
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         egui::widgets::global_theme_preference_switch(ui);
-                        if self.state.mount.is_running() {
-                            crate::gui::widgets::status_badge(
-                                ui,
-                                tr("Drive mounted"),
-                                crate::gui::widgets::StatusTone::Success,
-                            );
-                        }
+                        mount_badge(ui, &self.state);
                         if self.task.is_running() {
                             ui.label(self.task.task_name().unwrap_or(tr("operation")));
                             ui.spinner();
@@ -277,6 +282,7 @@ impl eframe::App for RpoolGui {
             Page::Drive => storage::mount::show(ui, &mut self.state),
             Page::Files => files::show(ui, &mut self.state, &mut self.task),
             Page::Storage => storage::show(ui, &mut self.state, &mut self.task),
+            Page::Monitoring => monitoring::show(ui, &mut self.state),
             Page::Jobs => jobs::show(ui, &mut self.state, &mut self.task),
             Page::Maintenance => maintenance::show(ui, &mut self.state, &mut self.task),
             Page::Settings => settings::show(ui, &mut self.state, &mut self.task),
@@ -295,12 +301,49 @@ impl eframe::App for RpoolGui {
     }
 }
 
+/// How many drives are mounted (and which pool the Drive page shows), or
+/// that a drive sync/maintenance run is busy.
+fn mount_badge(ui: &mut egui::Ui, state: &GuiState) {
+    use crate::gui::widgets::{status_badge, StatusTone};
+    let sessions = storage::mount::mounted_sessions(state);
+    let mounted: Vec<_> = sessions.iter().filter(|s| s.mounted).collect();
+    let pools = sessions
+        .iter()
+        .map(|s| s.pool.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let (label, tone) = match mounted.as_slice() {
+        [] if sessions.is_empty() => return,
+        [] => (tr("Drive task running").to_string(), StatusTone::Neutral),
+        [_] => (tr("Drive mounted").to_string(), StatusTone::Success),
+        _ => {
+            let shown = sessions
+                .iter()
+                .find(|s| s.selected)
+                .map_or("", |s| s.pool.as_str());
+            let label = if shown.is_empty() {
+                trf("{n} drives mounted", &[("n", &mounted.len())])
+            } else {
+                trf(
+                    "{n} drives mounted · {pool}",
+                    &[("n", &mounted.len()), ("pool", &shown)],
+                )
+            };
+            (label, StatusTone::Success)
+        }
+    };
+    ui.scope(|ui| status_badge(ui, &label, tone))
+        .response
+        .on_hover_text(pools);
+}
+
 fn page_title(page: Page) -> &'static str {
     match page {
         Page::Dashboard => tr("Overview"),
         Page::Drive => tr("Drive"),
         Page::Files => tr("Files"),
         Page::Storage => tr("Storage"),
+        Page::Monitoring => tr("Monitoring"),
         Page::Maintenance => tr("Health"),
         Page::Jobs => tr("Activity"),
         Page::Settings => tr("Settings"),

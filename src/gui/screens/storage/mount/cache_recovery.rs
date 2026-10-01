@@ -29,10 +29,10 @@ fn dismiss(workspace: &str) -> std::io::Result<()> {
 }
 
 pub(super) fn show(ui: &mut egui::Ui, form: &mut MountForm) {
-    if form.cache_recovery.is_empty() {
+    if form.session.cache_recovery.is_empty() {
         return;
     }
-    let reports = &form.cache_recovery;
+    let reports = &form.session.cache_recovery;
     let copies: usize = reports.iter().map(|r| r.copied.len()).sum();
     let kept: usize = reports.iter().map(|r| r.kept.len()).sum();
     let restored: usize = reports.iter().map(|r| r.imported.len()).sum();
@@ -82,9 +82,9 @@ pub(super) fn show(ui: &mut egui::Ui, form: &mut MountForm) {
         });
     if dismissed {
         match dismiss(&form.workspace) {
-            Ok(()) => form.cache_recovery.clear(),
+            Ok(()) => form.session.cache_recovery.clear(),
             Err(e) => {
-                form.notice = Some(trf(
+                form.session.notice = Some(trf(
                     "Cannot dismiss recovery report: {error}",
                     &[("error", &e)],
                 ))

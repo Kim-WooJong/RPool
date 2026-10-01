@@ -1,6 +1,6 @@
 //! Every page and sub-tab renders at a small, a medium and a large window,
 //! in dark and light mode, without panics or content wider than the window.
-use super::screens::{dashboard, files, jobs, maintenance, settings, storage};
+use super::screens::{dashboard, files, jobs, maintenance, monitoring, settings, storage};
 use super::state::{DriveTab, FilesSection, GuiState, MaintenanceSection, Page, StorageSection};
 use super::task::TaskRunner;
 use super::usage_refresh::UsageRefresh;
@@ -30,6 +30,7 @@ fn page(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner, usage: &
         Page::Drive => storage::mount::show(ui, state),
         Page::Files => files::show(ui, state, task),
         Page::Storage => storage::show(ui, state, task),
+        Page::Monitoring => monitoring::show(ui, state),
         Page::Maintenance => maintenance::show(ui, state, task),
         Page::Jobs => jobs::show(ui, state, task),
         Page::Settings => settings::show(ui, state, task),
@@ -69,6 +70,11 @@ fn every_page_fits_small_medium_and_large_windows() {
     let pages: &[fn(&mut GuiState)] = &[
         |s| s.page = Page::Dashboard,
         |s| {
+            s.page = Page::Drive;
+            s.mount.tab = DriveTab::Drive
+        },
+        |s| {
+            storage::mount::session_tests::with_two_sessions(s);
             s.page = Page::Drive;
             s.mount.tab = DriveTab::Drive
         },
@@ -141,6 +147,15 @@ fn every_page_fits_small_medium_and_large_windows() {
         |s| {
             s.page = Page::Maintenance;
             s.maintenance_section = MaintenanceSection::Diagnostics
+        },
+        |s| s.page = Page::Monitoring,
+        |s| {
+            s.page = Page::Monitoring;
+            s.monitoring = monitoring::sample::state(crate::utils::now_unix(), false);
+        },
+        |s| {
+            s.page = Page::Monitoring;
+            s.monitoring = monitoring::sample::state(crate::utils::now_unix(), true);
         },
         |s| s.page = Page::Jobs,
         |s| s.page = Page::Settings,

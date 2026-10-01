@@ -4,6 +4,7 @@ mod history;
 mod inventory;
 mod manifest;
 mod mount;
+mod mount_monitor;
 pub(crate) mod pool;
 mod provider;
 mod remote_root;
@@ -19,6 +20,7 @@ pub(crate) use history::{HistoryArgs, HistoryCommands};
 pub(crate) use inventory::{InventoryArgs, InventoryCommands};
 pub(crate) use manifest::{ManifestArgs, ManifestCommands};
 pub(crate) use mount::{Frontend, MountArgs};
+pub(crate) use mount_monitor::{parse_monitor, MonitorArgs};
 pub(crate) use pool::{PoolArgs, PoolCommands};
 pub(crate) use provider::{ProviderArgs, ProviderCommands};
 pub(crate) use remote_root::{RemoteRootArgs, RemoteRootCommands};
@@ -47,6 +49,9 @@ pub(crate) enum Commands {
     Gui,
 
     /// Mount a persistent local-first read/write workspace backed by a pool.
+    ///
+    /// `rpool mount monitor [--workspace DIR | --pool NAME] [--watch] [--json]
+    /// [--history-minutes N]` shows the live network traffic of running mounts.
     Mount(MountArgs),
 
     /// Split a local file into logical shards and upload them in parallel.

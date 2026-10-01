@@ -60,7 +60,10 @@ impl Drop for ChildGuard {
 
 /// Provider answers that reject a write before performing it. Only these exact
 /// signals make a failed mutation retriable; a `429` must stand alone.
+/// WebDAV `423 Locked` refuses the request before any byte is written (a
+/// briefly locked resource or parent folder, e.g. while sibling uploads run).
 const REJECTED_WRITE_SIGNALS: &[&str] = &[
+    "423 locked",
     "too_many_write_operations",
     "too_many_requests",
     "ratelimitexceeded", // also userRateLimitExceeded
@@ -152,12 +155,26 @@ pub(super) fn classify(status: ExitStatus, stderr: &[u8], mutation: bool) -> Sto
 }
 
 /// Bounded pipe buffers. Captured stderr is never exposed in public error text.
+#[cfg(test)]
 pub(super) fn run(
+    command: &mut Command,
+    ctx: &OperationContext,
+    source: Option<&mut dyn Read>,
+    sink: &mut dyn Write,
+    mutation: bool,
+) -> Result<u64, StorageError> {
+    run_metered(command, ctx, source, sink, mutation, None)
+}
+
+/// [`run`] that counts each stdin chunk rclone accepted as sent and each
+/// stdout chunk as received bytes of `meter`.
+pub(super) fn run_metered(
     command: &mut Command,
     ctx: &OperationContext,
     mut source: Option<&mut dyn Read>,
     sink: &mut dyn Write,
     mutation: bool,
+    meter: Option<&super::traffic::Op>,
 ) -> Result<u64, StorageError> {
     check(ctx)?;
     command
@@ -247,6 +264,9 @@ pub(super) fn run(
                         }
                         result => result.map_err(|_| io_error())?,
                     }
+                    if let Some(meter) = meter {
+                        meter.sent(n as u64);
+                    }
                     total = total.checked_add(n as u64).ok_or_else(io_error)?;
                 }
                 drop(stdin);
@@ -263,6 +283,9 @@ pub(super) fn run(
                     }
                     check(ctx)?;
                     sink.write_all(&buffer[..n]).map_err(sink_error)?;
+                    if let Some(meter) = meter {
+                        meter.received(n as u64);
+                    }
                     total = total.checked_add(n as u64).ok_or_else(io_error)?;
                 }
             }

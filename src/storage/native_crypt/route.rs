@@ -125,9 +125,12 @@ impl NativeCrypt {
         })?;
         validate_base(dump, &config.remote)?;
         let cipher = Cipher::new(&config).map_err(|_| invalid("crypt key derivation failed"))?;
+        // Base traffic is this crypt remote's traffic in the monitor.
+        let mut context = self.context.clone();
+        context.attribute_traffic(remote_name(&config.remote)?, alias);
         let base = RcloneBackend::for_crypt_base(
             BackendId::new(format!("native-crypt-base-{alias}"))?,
-            self.context.clone(),
+            context,
             config.remote.clone(),
             BaseAccess(()),
         )?;

@@ -7,6 +7,36 @@ background Pool uploads. It needs full local disk space and a native mount backe
 (WinFsp on Windows, FUSE on Linux, built-in NFS on macOS); deletion
 retains earlier cloud versions. See [mount setup and recovery](docs/MOUNT.md).
 
+## Monitoring mounted pools
+
+```text
+rpool mount monitor [--workspace DIR | --pool NAME] [--watch] [--json] [--history-minutes N]
+```
+
+Every running `rpool mount` (CLI or GUI) counts its own cloud traffic per
+account and registers itself in `<config dir>/mounts/`. `rpool mount monitor`
+lists all running mounts, or the one selected, with uptime, upload queue
+(files, bytes, oldest), last successful metadata sync and alerts, plus one row
+per pool account: upload/download rate over 10 s, totals, active transfers,
+ok/failed operations, rate-limit retries and the last error. `--watch`
+refreshes every second until Ctrl-C; `--json` prints `[{entry, status}]` (one
+line per refresh with `--watch`), with `--history-minutes` also the
+per-minute `history`. Nothing is monitored for pools that are not mounted.
+
+- **sent**: bytes handed to rclone for uploads; **acked**: of those, uploads
+  rclone finished successfully; **verified**: bytes read back and checked after
+  an upload; **received**: bytes downloaded (file reads, readbacks, metadata
+  listings). Native-crypt pools count ciphertext for sent/acked (a few bytes
+  per 64 KiB more than verified). Totals start with the mount process.
+- Server-side copies (migrations) count as operations without bytes.
+- Alerts: *stalled* (uploads pending, no upload bytes for 180 s), *errors*
+  (failed operations in the last minute), *unreachable* (an account had only
+  failures for at least a minute).
+- Files in the workspace: `.rpool/net-status.json` (rewritten every second,
+  removed on clean unmount; older than 10 s means not live) and
+  `.rpool/net-history/YYYY-MM-DD.jsonl` (UTC days, one line per account and
+  minute with traffic, kept 90 days).
+
 ## Pool change migration (archives)
 
 After removing an account or changing K/M, shard size or native crypt with

@@ -20,7 +20,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
         );
         return;
     }
-    ui.add_enabled_ui(!form.runner.is_running(), |ui| {
+    ui.add_enabled_ui(!form.session.runner.is_running(), |ui| {
         theme::card_section(ui, tr("Delete obsolete versions"), Some(tr("Removes tracked obsolete versions from the cloud for this workspace. Current files, pending writes and unresolved conflicts are kept.")), |_| {}, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label(tr("Keep previous versions per file"));
@@ -35,7 +35,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
             {
                 run(form, settings, |form, rclone| form.start_action(rclone, 7));
             }
-            let previewed = form.retention_previewed.as_ref() == Some(&form.retention_key());
+            let previewed = form.session.retention_previewed.as_ref() == Some(&form.retention_key());
             ui.label(egui::RichText::new(tr("Step 2")).strong());
             ui.add_enabled_ui(previewed, |ui| {
                 ui.checkbox(

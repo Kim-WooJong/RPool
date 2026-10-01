@@ -7,6 +7,8 @@ pub(crate) enum Page {
     Drive,
     Files,
     Storage,
+    /// Live and past network traffic of the mounted pools.
+    Monitoring,
     /// Health checks: archive verify/status, integrity, metadata, diagnostics.
     Maintenance,
     Jobs,

@@ -153,7 +153,7 @@ fn history(ui: &mut egui::Ui, form: &mut MountForm) {
 
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let (form, settings) = (&mut state.mount, &mut state.settings);
-    ui.add_enabled_ui(!form.runner.is_running(), |ui| {
+    ui.add_enabled_ui(!form.session.runner.is_running(), |ui| {
         let virtual_drive = form.virtual_drive;
         let pool_sync = form.virtual_drive && form.pool_sync;
         theme::two_up(ui, form, cache, |ui, form| {
@@ -169,12 +169,12 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
                 .on_hover_text(tr("Saved per pool on this PC; also saved on every start."))
                 .clicked()
             {
-                form.notice = Some(match form.save_mount_settings(settings) {
+                form.session.notice = Some(match form.save_mount_settings(settings) {
                     Ok(()) => tr("Mount settings saved for this pool on this PC.").into(),
                     Err(error) => error,
                 });
             }
-            if let Some(notice) = &form.notice {
+            if let Some(notice) = &form.session.notice {
                 ui.label(notice);
             }
         });

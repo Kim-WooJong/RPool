@@ -26,6 +26,7 @@ fn inputs(state: &GuiState) -> impl PartialEq {
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let before = inputs(state);
+    let before_pool = state.mount.pool.clone();
     let history = if state.mount.retention_allowed() {
         tr("History cleanup")
     } else {
@@ -49,13 +50,15 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
         DriveTab::Import => super::import::show(ui, state),
         DriveTab::Maintenance => super::maintenance::show(ui, state),
     });
-    if inputs(state) != before {
-        state.mount.capacity = None;
-        state.mount.pool_status = None;
+    // Selecting another pool restores that pool's session as it was.
+    if inputs(state) != before && state.mount.pool == before_pool {
+        state.mount.session.capacity = None;
+        state.mount.session.pool_status = None;
     }
 }
 
 fn overview(ui: &mut egui::Ui, state: &mut GuiState) {
+    super::sessions_strip::show(ui, state);
     super::status_bar::show(ui, state);
     ui.add_space(theme::SUBSECTION_GAP);
     theme::two_up(ui, state, super::drive_section::show, |ui, state| {

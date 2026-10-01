@@ -14,6 +14,11 @@ mod import;
 mod log;
 mod maintenance;
 mod options;
+mod session;
+#[cfg(test)]
+pub(crate) mod session_tests;
+pub(crate) mod sessions;
+mod sessions_strip;
 mod status_bar;
 #[cfg(test)]
 mod tests;
@@ -22,4 +27,6 @@ mod view;
 
 use args::build_args;
 pub(crate) use form::MountForm;
+#[allow(unused_imports)] // For the Monitoring page.
+pub(crate) use sessions::{mounted_sessions, MountedSession};
 pub(crate) use view::show;

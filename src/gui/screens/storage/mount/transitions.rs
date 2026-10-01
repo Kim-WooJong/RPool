@@ -59,7 +59,7 @@ pub(crate) fn apply_card(ui: &mut egui::Ui, state: &mut GuiState) {
             theme::hint(ui, tr("Needs an online drive with Automatic pool sync."));
             return;
         }
-        ui.add_enabled_ui(!form.runner.is_running(), |ui| {
+        ui.add_enabled_ui(!form.session.runner.is_running(), |ui| {
             ui.label(tr("Completed Reprocess plan (optional):"));
             reprocess_plan(ui, form);
             if theme::primary_button(ui, true, tr("Apply pool changes")).clicked() {
@@ -75,7 +75,7 @@ pub(crate) fn recover_card(ui: &mut egui::Ui, state: &mut GuiState) {
         ui.label(tr("1. In Pools, save the remaining accounts as a NEW pool. In Drive, select it with a NEW empty workspace, Automatic pool sync, and history deletion off."));
         target(ui, state);
         let (form, settings) = (&mut state.mount, &mut state.settings);
-        ui.add_enabled_ui(!form.runner.is_running(), |ui| {
+        ui.add_enabled_ui(!form.session.runner.is_running(), |ui| {
             ui.label(tr("2. The original workspace (unmount it first):"));
             directory_field(ui, &mut form.recovery_source, tr("original workspace"));
             ui.label(tr("Unavailable remote aliases to skip, one per line (no colon or path):"));
@@ -87,11 +87,11 @@ pub(crate) fn recover_card(ui: &mut egui::Ui, state: &mut GuiState) {
                     .save_mount_settings(settings)
                     .and_then(|()| form.start_account_recovery(&settings.rclone));
                 if let Err(error) = result {
-                    form.notice = Some(error);
+                    form.session.notice = Some(error);
                 }
             }
             theme::hint(ui, tr("3. Check the recovery report, then mount the new pool normally. Only locally known files, sealed writes and conflicts can be recovered; missing data is reported per file."));
-            if let Some(notice) = &form.notice {
+            if let Some(notice) = &form.session.notice {
                 ui.label(notice);
             }
         });

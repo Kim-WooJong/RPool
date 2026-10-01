@@ -1519,6 +1519,8 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         println!("Mount cancelled before native startup; local data retained");
         return Ok(());
     }
+    // Lives until this function returns: registry entry and live status.
+    let _monitor = net_monitor(&drive, &args, frontend);
     if drive.bounded_shared {
         drive.isolate_previous_native_cache()?;
     } else if frontend != crate::cli::Frontend::Dav || !drive.pool_sync_roots.is_empty() {
@@ -1635,6 +1637,49 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     drop(server);
     joined?;
     outcome
+}
+
+/// Network monitor of a mounted virtual drive; its queue is the drive's
+/// pending intents.
+fn net_monitor(
+    drive: &Arc<VirtualDrive>,
+    args: &crate::cli::MountArgs,
+    frontend: crate::cli::Frontend,
+) -> crate::monitor::runtime::MountMonitor {
+    use crate::monitor::{runtime, sampler::PendingItem};
+    let queue_drive = drive.clone();
+    let queue: runtime::QueueFn = Box::new(move || {
+        let Ok(state) = queue_drive.state.lock() else {
+            return Vec::new();
+        };
+        state
+            .pending
+            .iter()
+            .map(|intent| PendingItem {
+                id: intent.id.clone(),
+                size: intent.size,
+                spool: intent
+                    .spool
+                    .is_some()
+                    .then(|| queue_drive.spool_path(intent)),
+            })
+            .collect()
+    });
+    runtime::MountMonitor::start(
+        runtime::Spec {
+            pool: drive.pool.clone(),
+            workspace: args.workspace.clone(),
+            mountpoint: args
+                .mountpoint
+                .as_deref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+            frontend: frontend.cli_value().into(),
+            remotes: drive.policy.remotes.clone(),
+            rclone: drive.rclone.clone(),
+        },
+        queue,
+    )
 }
 
 fn checked_directory(path: &Path) -> Result<()> {

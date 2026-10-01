@@ -93,6 +93,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         return Ok(());
     }
     let target = args.mountpoint.context("mountpoint required")?;
+    let target_text = target.display().to_string();
     // Before mounting there can be no new VFS writes. Existing cache is checked
     // independently; pending recovery never grants permission to replace files.
     if workspace.is_shared() {
@@ -118,6 +119,18 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         webdav: None,
         volume_name: Some(args.pool.clone()),
     })?;
+    // Local workspaces report traffic; their scan queue is not itemised.
+    let _monitor = crate::monitor::runtime::MountMonitor::start(
+        crate::monitor::runtime::Spec {
+            pool: workspace.pool_name().to_owned(),
+            workspace: args.workspace.clone(),
+            mountpoint: target_text,
+            frontend: crate::cli::Frontend::Dav.cli_value().into(),
+            remotes: workspace.policy().remotes.clone(),
+            rclone: rclone.to_owned(),
+        },
+        Box::new(Vec::new),
+    );
     println!("Mount process started. Waiting for filesystem readiness; close files before requesting unmount.");
     let mut last_scan = Instant::now();
     let startup = Instant::now();
@@ -147,8 +160,11 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         if ready_reported && last_scan.elapsed() >= Duration::from_secs(args.interval_seconds) {
             match workspace.sync_once() {
                 Ok(report) => {
-                    if let Err(error) = workspace.sync_shared(false) {
-                        eprintln!("Shared sync pending; local data retained: {error:#}");
+                    match workspace.sync_shared(false) {
+                        Ok(_) => crate::monitor::runtime::note_sync(),
+                        Err(error) => {
+                            eprintln!("Shared sync pending; local data retained: {error:#}")
+                        }
                     }
                     println!("writeback uploaded={} logically_deleted={} unchanged={} pending={}; open/cached writes may still be pending", report.uploaded, report.deleted, report.unchanged, report.pending);
                     for warning in report.warnings {

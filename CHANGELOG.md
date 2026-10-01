@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- **Network monitoring of mounted pools.** Every mount process counts the
+  bytes it moves to and from each account (in the rclone layer): sent,
+  acknowledged by the provider, verified by readback, and received, plus
+  1 s / 10 s rates, running transfers, ok/failed/retried operations and the
+  last error. It writes `<workspace>/.rpool/net-status.json` every second,
+  per-minute history to `.rpool/net-history/<day>.jsonl` (kept 90 days),
+  and registers itself under `<config>/mounts/` while it runs. Alerts:
+  uploads waiting but nothing sent for 3 minutes, errors in the last minute,
+  an account failing for a minute. Only mounted pools are monitored.
+  - GUI: a new **Monitoring** page (left menu) with a card per mounted pool
+    (also pools mounted from the CLI): queue, last sync, alert banners and,
+    per account, an Uploading/Downloading/Idle badge, a 10-minute rate
+    chart, totals and errors; a History tab with 1 h / 24 h / 7 d / 30 d.
+  - CLI: `rpool mount monitor [--pool P | --workspace W] [--watch] [--json]
+    [--history-minutes N]`.
+- **Several pools mounted at once from the GUI.** Each mounted pool has its
+  own session; switching pools on the Drive page never stops another one,
+  a "Mounted pools" strip lists them with Unmount/Show, and closing the
+  window stops all. Starting is refused when the pool, the workspace (also
+  nested) or the mountpoint is already used — by this GUI or by a mount
+  started from the CLI or another GUI — and a free drive letter is offered.
+- WebDAV `423 Locked` answers to a write are retried with backoff (the
+  write was refused before anything was stored).
+- Checked: Linux FUSE in Docker with two pools mounted at once
+  (`scripts/linux-docker/monitor-e2e.sh`: traffic, drained queue, registry,
+  CLI text/json, cleanup and history), plus the pool sync, migration and
+  server-copy suites with and without native crypt.
+
 - **Fix (Windows): files written to a WinFsp drive were not saved**
   (`RPool WinFsp cleanup/close of <file>: Access is denied (os error 5)`).
   Sealing a written file flushed it through a read-only handle; Windows'

@@ -1,11 +1,16 @@
 //! Mount screen state, persistence per pool, and the actions it starts.
 use super::build_args;
+use super::session::{MountSession, SessionSpec};
 use crate::gui::i18n::{tr, trf};
-use crate::gui::task::{JobStatus, TaskRunner};
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::Path;
 
 pub(crate) struct MountForm {
+    /// The selected pool's session (idle when that pool does not run).
+    pub(super) session: MountSession,
+    /// Sessions of other pools that ran when another pool was selected.
+    pub(super) background: BTreeMap<String, MountSession>,
     pub(super) pool: String,
     pub(super) workspace: String,
     pub(super) mountpoint: String,
@@ -14,21 +19,12 @@ pub(crate) struct MountForm {
     pub(super) manifests: Vec<String>,
     pub(super) manifest_input: String,
     pub(super) interval_seconds: u64,
-    pub(super) runner: TaskRunner,
-    pub(super) control: Option<tempfile::TempDir>,
-    pub(super) stopping: bool,
-    pub(super) notice: Option<String>,
-    pub(super) capacity: Option<crate::mount::capacity::CapacityStatus>,
-    pub(super) capacity_read: std::time::Instant,
     pub(super) virtual_drive: bool,
     pub(super) bounded_shared: bool,
     pub(super) pool_sync: bool,
     pub(super) pool_retention: bool,
     pub(super) pool_history_limit: u32,
     pub(super) pool_history_override: bool,
-    pub(super) pool_status: Option<crate::mount::pool_sync::Status>,
-    /// Unsaved WebDAV writes the last mount recovered from rclone's cache.
-    pub(super) cache_recovery: Vec<crate::mount::cache_recovery::RecoveryReport>,
     pub(super) shared_coordinator: bool,
     pub(super) shared_keep_previous: usize,
     pub(super) cache_gib: u64,
@@ -42,24 +38,25 @@ pub(crate) struct MountForm {
     pub(super) import_destination: String,
     pub(super) import_batch_gib: u64,
     pub(super) import_rename: bool,
-    pub(super) import_status: Option<crate::mount::rclone_import::Status>,
     /// Selected Drive page tab.
     pub(crate) tab: crate::gui::state::DriveTab,
     pub(super) recovery_skip_remotes: String,
     pub(super) recovery_reprocess_plan: String,
-    pub(super) recovering_accounts: bool,
     pub(super) keep_previous: usize,
     pub(super) diagnostic_read_only: bool,
-    pub(super) last_action: u8,
-    pub(super) retention_previewed: Option<(String, String, usize)>,
     pub(super) retention_confirmed: bool,
     pub(super) frontend: crate::cli::Frontend,
     pub(super) native_read_only: bool,
 }
 
+/// Pseudo action for [`MountForm::spec_for`]: account recovery.
+pub(super) const RECOVERY: u8 = u8::MAX;
+
 impl Default for MountForm {
     fn default() -> Self {
         Self {
+            session: MountSession::default(),
+            background: BTreeMap::new(),
             pool: String::new(),
             workspace: String::new(),
             mountpoint: if cfg!(windows) {
@@ -72,19 +69,12 @@ impl Default for MountForm {
             manifests: Vec::new(),
             manifest_input: String::new(),
             interval_seconds: 30,
-            runner: TaskRunner::default(),
-            control: None,
-            stopping: false,
-            notice: None,
-            capacity: None,
             virtual_drive: true,
             bounded_shared: false,
             pool_sync: true,
             pool_retention: false,
             pool_history_limit: 0,
             pool_history_override: false,
-            pool_status: None,
-            cache_recovery: Vec::new(),
             shared_coordinator: false,
             shared_keep_previous: 0,
             cache_gib: 10,
@@ -96,19 +86,14 @@ impl Default for MountForm {
             import_destination: String::new(),
             import_batch_gib: 4,
             import_rename: false,
-            import_status: None,
             tab: crate::gui::state::DriveTab::default(),
             recovery_skip_remotes: String::new(),
             recovery_reprocess_plan: String::new(),
-            recovering_accounts: false,
             keep_previous: 3,
             diagnostic_read_only: false,
-            last_action: 0,
-            retention_previewed: None,
             retention_confirmed: false,
             frontend: Default::default(),
             native_read_only: false,
-            capacity_read: std::time::Instant::now(),
         }
     }
 }
@@ -116,17 +101,18 @@ impl Default for MountForm {
 impl MountForm {
     pub(crate) fn use_reprocess_plan(&mut self, path: &Path) {
         self.recovery_reprocess_plan = path.display().to_string();
-        self.notice = Some(tr("Reprocess plan selected. Open Recover after account removal, choose the original workspace and a new destination pool/workspace. Only validated completed replacements will be reused.").into());
+        self.session.notice = Some(tr("Reprocess plan selected. Open Recover after account removal, choose the original workspace and a new destination pool/workspace. Only validated completed replacements will be reused.").into());
     }
     pub(crate) fn from_settings(settings: &crate::gui::settings::GuiSettings) -> Self {
         let cache = &settings.mount_cache;
-        let mut form = Self::default();
-        form.virtual_drive = cache.online_drive;
-        form.cache_gib = cache.shard_gib;
-        form.vfs_cache_gib = cache.native_gib;
-        form.cache_min_free_gib = cache.min_free_gib;
-        form.spool_gib = cache.spool_gib;
-        form
+        Self {
+            virtual_drive: cache.online_drive,
+            cache_gib: cache.shard_gib,
+            vfs_cache_gib: cache.native_gib,
+            cache_min_free_gib: cache.min_free_gib,
+            spool_gib: cache.spool_gib,
+            ..Self::default()
+        }
     }
 
     pub(super) fn cache_settings(&self) -> crate::gui::settings::MountCacheSettings {
@@ -190,14 +176,20 @@ impl MountForm {
                 .mount_profiles
                 .insert(self.pool.clone(), self.profile());
         }
-        let profile = settings
-            .mount_profiles
-            .get(&pool)
-            .cloned()
-            .unwrap_or_else(|| crate::gui::settings::MountProfile {
-                cache: settings.mount_cache.clone(),
-                ..Default::default()
-            });
+        let saved = settings.mount_profiles.get(&pool).cloned();
+        let fresh = saved.is_none();
+        let profile = saved.unwrap_or_else(|| crate::gui::settings::MountProfile {
+            cache: settings.mount_cache.clone(),
+            ..Default::default()
+        });
+        // Keep a running session; an idle one only holds the last result.
+        let previous = std::mem::replace(
+            &mut self.session,
+            self.background.remove(&pool).unwrap_or_default(),
+        );
+        if previous.is_running() {
+            self.background.insert(self.pool.clone(), previous);
+        }
         self.pool = pool;
         self.workspace = profile.workspace;
         self.mountpoint = profile.mountpoint;
@@ -215,7 +207,6 @@ impl MountForm {
         self.frontend = profile.frontend;
         self.native_read_only = profile.native_read_only;
         self.keep_previous = profile.keep_previous;
-        self.retention_previewed = None;
         self.retention_confirmed = false;
         self.virtual_drive = profile.cache.online_drive;
         self.cache_gib = profile.cache.shard_gib;
@@ -226,9 +217,9 @@ impl MountForm {
         self.recovery_source.clear();
         self.recovery_skip_remotes.clear();
         self.recovery_reprocess_plan.clear();
-        self.capacity = None;
-        self.pool_status = None;
-        self.notice = None;
+        if fresh {
+            self.avoid_taken_drive_letter();
+        }
     }
 
     /// A native frontend needs a local online drive: no pool sync or shared root.
@@ -280,64 +271,66 @@ impl MountForm {
 
     /// Forget the shown capacity (for example after identities changed).
     pub(crate) fn invalidate_capacity(&mut self) {
-        self.capacity = None;
-    }
-
-    pub(crate) fn is_running(&self) -> bool {
-        self.runner.is_running()
-    }
-
-    pub(crate) fn poll(&mut self) {
-        let terminal = self.runner.poll();
-        if terminal.is_some() || self.capacity_read.elapsed() >= std::time::Duration::from_secs(1) {
-            if let Some(control) = &self.control {
-                self.pool_status = std::fs::read(control.path().join("pool-sync-status.json"))
-                    .ok()
-                    .and_then(|bytes| serde_json::from_slice(&bytes).ok());
-                self.import_status = std::fs::read(control.path().join("import-status.json"))
-                    .ok()
-                    .and_then(|bytes| serde_json::from_slice(&bytes).ok());
-                self.capacity = std::fs::read(control.path().join("capacity.json"))
-                    .ok()
-                    .and_then(|bytes| serde_json::from_slice(&bytes).ok());
-            }
-            self.cache_recovery = super::cache_recovery::load(&self.workspace);
-            self.capacity_read = std::time::Instant::now();
+        self.session.capacity = None;
+        for session in self.background.values_mut() {
+            session.capacity = None;
         }
-        if let Some(status) = terminal {
-            self.notice = Some(if self.recovering_accounts {
-                match status {
-                    JobStatus::Completed => tr("Recovery copy completed for the locally known source view. Inspect the recovery report, then mount this destination normally for reading and new writes. Original workspace retained.").into(),
-                    _ => tr("Recovery stopped or is incomplete. See log and destination recovery report; original data is retained. Resume with the same source/destination, or mount the destination to use already recovered files and save new files.").into(),
-                }
-            } else {
-                match status {
-                JobStatus::Completed => tr("Mount/sync process finished. Check the log for writeback results; local workspace and VFS cache are retained.").into(),
-                JobStatus::Cancelled => tr("Process force-stopped. Local files and VFS cache are retained; restart the same workspace to recover pending changes.").into(),
-                _ => tr("Mount/sync failed. Check the log; local files and cache are retained. Windows mounts require WinFsp.").into(),
-            }
-            });
-            if self.last_action == 7 {
-                self.retention_previewed =
-                    (status == JobStatus::Completed).then(|| self.retention_key());
-                if status == JobStatus::Completed {
-                    self.notice = Some(tr("Preview finished; review the list in the log. Delete obsolete versions is now available for this limit.").into());
-                }
-            }
-            self.stopping = false;
-            self.control = None;
+    }
+
+    /// Whether the selected pool's session runs.
+    pub(crate) fn is_running(&self) -> bool {
+        self.session.is_running()
+    }
+
+    /// Polls every session; the selected one reads the edited workspace.
+    pub(crate) fn poll(&mut self) {
+        self.session.poll(&self.workspace);
+        for session in self.background.values_mut() {
+            let workspace = session
+                .spec
+                .as_ref()
+                .map(|s| s.workspace.clone())
+                .unwrap_or_default();
+            session.poll(&workspace);
         }
     }
 
     pub(super) fn request_stop(&mut self) -> Result<(), String> {
-        let control = self
-            .control
-            .as_ref()
-            .ok_or(tr("No mount control directory is available"))?;
-        std::fs::write(control.path().join("stop"), b"stop\n")
-            .map_err(|error| trf("Could not request unmount: {error}", &[("error", &error)]))?;
-        self.stopping = true;
-        Ok(())
+        self.session.request_stop()
+    }
+
+    /// What `action` would start with now; `RECOVERY` for account recovery.
+    pub(super) fn spec_for(&self, action: u8) -> SessionSpec {
+        let mount = action == 0;
+        SessionSpec {
+            pool: self.pool.trim().into(),
+            workspace: self.workspace.trim().into(),
+            mountpoint: if mount {
+                self.mountpoint.trim().into()
+            } else {
+                String::new()
+            },
+            frontend: mount.then(|| {
+                if self.native_selected() {
+                    crate::cli::Frontend::native_here().unwrap_or(crate::cli::Frontend::Dav)
+                } else {
+                    crate::cli::Frontend::Dav
+                }
+            }),
+            reads: if action == RECOVERY && !self.recovery_source.trim().is_empty() {
+                vec![self.recovery_source.trim().into()]
+            } else {
+                Vec::new()
+            },
+            keep_previous: self.keep_previous,
+        }
+    }
+
+    fn check_conflict(&self, action: u8) -> Result<(), String> {
+        match self.conflict(action) {
+            Some(conflict) => Err(conflict.message()),
+            None => Ok(()),
+        }
     }
 
     pub(super) fn start(&mut self, rclone: &str, sync_only: bool) -> Result<(), String> {
@@ -392,14 +385,17 @@ impl MountForm {
                 )
             })?;
         let args = self.recovery_args(&control.path().join("stop"))?;
-        self.runner
+        self.check_conflict(RECOVERY)?;
+        let spec = self.spec_for(RECOVERY);
+        let session = &mut self.session;
+        session
+            .runner
             .start_rpool("Recover into remaining-account pool", rclone, args)?;
-        self.control = Some(control);
-        self.recovering_accounts = true;
-        self.stopping = false;
-        self.capacity = None;
-        self.pool_status = None;
-        self.notice = Some(tr("Copying the locally known file view into the new destination. This does not mount a drive or remove source data. Review unresolved files in the report before treating recovery as complete.").into());
+        session.started(control, spec, 0);
+        session.recovering_accounts = true;
+        session.capacity = None;
+        session.pool_status = None;
+        session.notice = Some(tr("Copying the locally known file view into the new destination. This does not mount a drive or remove source data. Review unresolved files in the report before treating recovery as complete.").into());
         Ok(())
     }
 
@@ -423,7 +419,7 @@ impl MountForm {
     pub(super) fn retention_ready(&self) -> bool {
         self.retention_allowed()
             && self.retention_confirmed
-            && self.retention_previewed.as_ref() == Some(&self.retention_key())
+            && self.session.retention_previewed.as_ref() == Some(&self.retention_key())
     }
 
     /// Validated `rpool mount` arguments for `action`: 0 mount, 1 sync, 2
@@ -590,10 +586,14 @@ impl MountForm {
                 )
             })?;
         let args = self.action_args(action, control.path())?;
-        self.capacity = None;
-        self.pool_status = None;
-        self.import_status = None;
-        self.runner.start_rpool(
+        self.check_conflict(action)?;
+        let spec = self.spec_for(action);
+        let diagnostic = self.diagnostic_read_only && self.pool_retention && self.pool_sync;
+        let session = &mut self.session;
+        session.capacity = None;
+        session.pool_status = None;
+        session.import_status = None;
+        session.runner.start_rpool(
             match action {
                 2 => "Check pool capacity",
                 3 => "Migrate active archives (retain originals)",
@@ -604,23 +604,19 @@ impl MountForm {
                 8 => "Delete obsolete versions",
                 9 => "Import from rclone",
                 _ if sync_only => "Sync local workspace",
-                _ if self.diagnostic_read_only && self.pool_retention && self.pool_sync => {
-                    "Diagnostic read-only mount"
-                }
+                _ if diagnostic => "Diagnostic read-only mount",
                 _ => "Mount workspace",
             },
             rclone,
             args,
         )?;
-        self.control = Some(control);
-        self.recovering_accounts = false;
-        self.stopping = false;
-        self.last_action = action;
+        session.started(control, spec, action);
+        session.recovering_accounts = false;
         if action == 8 {
-            self.retention_previewed = None;
+            session.retention_previewed = None;
             self.retention_confirmed = false;
         }
-        self.notice = Some(match action {
+        self.session.notice = Some(match action {
             7 => tr("Previewing obsolete versions; nothing is uploaded or deleted. Check the log for the list."),
             8 => tr("Deleting obsolete versions. The operation is resumable; do not remove the retention journal."),
             9 => tr("Importing. The source is only read; imported files upload in batches. Stop anytime and start again to resume."),
@@ -629,18 +625,5 @@ impl MountForm {
             0 => tr("Mount process started; this is not yet proof that the drive is mounted or cloud changes are committed. See log for readiness and sync status."),
         }.into());
         Ok(())
-    }
-}
-
-impl Drop for MountForm {
-    fn drop(&mut self) {
-        if self.runner.is_running() {
-            let _ = self.request_stop();
-            // Child may still be importing or uploading when the window closes.
-            // Preserve the sentinel until the child observes it; never cancel forcibly.
-            if let Some(control) = self.control.take() {
-                let _ = control.keep();
-            }
-        }
     }
 }

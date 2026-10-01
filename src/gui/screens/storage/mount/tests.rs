@@ -78,8 +78,10 @@ fn legacy_settings_seed_only_safe_cache_defaults_for_each_pool() {
 
 #[test]
 fn recovery_form_forwards_source_and_skip_aliases_without_mount_or_retention() {
-    let mut form = super::MountForm::default();
-    form.pool = "recovered-pool".into();
+    let mut form = super::MountForm {
+        pool: "recovered-pool".into(),
+        ..Default::default()
+    };
     let base = std::env::temp_dir();
     form.workspace = base.join("new destination 한 글").display().to_string();
     form.recovery_source = base.join("original source 한 글").display().to_string();
@@ -107,8 +109,10 @@ fn recovery_form_forwards_source_and_skip_aliases_without_mount_or_retention() {
     );
     assert!(args.virtual_drive && args.pool_sync);
     assert!(!args.pool_retention && args.mountpoint.is_none() && !args.sync_only);
-    let mut invalid = super::MountForm::default();
-    invalid.pool_retention = true;
+    let invalid = super::MountForm {
+        pool_retention: true,
+        ..Default::default()
+    };
     assert!(invalid.recovery_args(&base.join("stop")).is_err());
 }
 #[test]
@@ -302,10 +306,10 @@ fn mount_screen_renders_in_every_mode_and_capacity_state() {
     capacity.eligible = vec!["a_crypt:".into()];
     capacity.additional_estimate = 3 << 30;
     capacity.observed_unix = now;
-    state.mount.capacity = Some(capacity.clone());
+    state.mount.session.capacity = Some(capacity.clone());
     render(&mut state);
     assert!(
-        state.mount.capacity.is_some(),
+        state.mount.session.capacity.is_some(),
         "rendering keeps the measurement"
     );
     capacity.eligible.clear();
@@ -314,7 +318,7 @@ fn mount_screen_renders_in_every_mode_and_capacity_state() {
         reason: "Quota query: cancelled".into(),
         temporary: true,
     });
-    state.mount.capacity = Some(capacity);
+    state.mount.session.capacity = Some(capacity);
     render(&mut state);
     for (online, pool_sync, shared) in [
         (true, false, ""),
@@ -342,8 +346,10 @@ fn parse_action(form: &super::MountForm, action: u8) -> Result<crate::cli::Mount
 }
 
 fn local_online_form() -> super::MountForm {
-    let mut form = super::MountForm::default();
-    form.pool = "archive".into();
+    let mut form = super::MountForm {
+        pool: "archive".into(),
+        ..Default::default()
+    };
     form.workspace = std::env::temp_dir().join("ws").display().to_string();
     form.mountpoint = "R:".into();
     form.pool_sync = false;
@@ -359,7 +365,7 @@ fn history_cleanup_previews_before_deleting_and_passes_cli_rules() {
     assert_eq!(preview.keep_previous, 5);
     assert!(preview.mountpoint.is_none());
     assert!(parse_action(&form, 8).is_err(), "no preview yet");
-    form.retention_previewed = Some(form.retention_key());
+    form.session.retention_previewed = Some(form.retention_key());
     assert!(parse_action(&form, 8).is_err(), "ownership not confirmed");
     form.retention_confirmed = true;
     let apply = parse_action(&form, 8).unwrap();
@@ -397,8 +403,10 @@ fn diagnostic_read_only_mount_is_only_for_v7_pool_sync() {
 fn rclone_import_action_reaches_the_cli_without_mounting() {
     use clap::Parser;
     let control = tempfile::tempdir().unwrap();
-    let mut form = super::MountForm::default();
-    form.pool = "p".into();
+    let mut form = super::MountForm {
+        pool: "p".into(),
+        ..Default::default()
+    };
     form.workspace = control.path().join("ws").display().to_string();
     form.virtual_drive = true;
     form.pool_sync = true;
@@ -432,8 +440,10 @@ fn rclone_import_action_reaches_the_cli_without_mounting() {
 #[test]
 fn rclone_import_ignores_listed_archive_imports() {
     let control = tempfile::tempdir().unwrap();
-    let mut form = super::MountForm::default();
-    form.pool = "p".into();
+    let mut form = super::MountForm {
+        pool: "p".into(),
+        ..Default::default()
+    };
     form.workspace = control.path().join("ws").display().to_string();
     form.virtual_drive = true;
     form.import_source = "old:x".into();

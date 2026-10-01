@@ -6,7 +6,7 @@ use crate::gui::widgets::{status_badge, StatusTone};
 use eframe::egui;
 
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
-    let Some(capacity) = &state.mount.capacity else {
+    let Some(capacity) = &state.mount.session.capacity else {
         return;
     };
     let total = capacity.targets.len();

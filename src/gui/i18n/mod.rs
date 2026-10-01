@@ -69,11 +69,12 @@ pub(crate) fn language() -> Language {
 
 /// Every table file. Each part of the GUI owns one, so translators do not
 /// edit the same file.
-const TABLES: [(&str, &str); 4] = [
+const TABLES: [(&str, &str); 5] = [
     ("core", include_str!("core.json")),
     ("drive", include_str!("drive.json")),
     ("storage", include_str!("storage.json")),
     ("files_health", include_str!("files_health.json")),
+    ("monitoring", include_str!("monitoring.json")),
 ];
 
 #[derive(Deserialize)]
@@ -149,7 +150,12 @@ pub(crate) fn duration_text(english: &str) -> String {
 
 /// "now", "5m ago", "3h ago", "2d ago" in the current language.
 pub(crate) fn relative_age(timestamp: u64) -> String {
-    let elapsed = crate::utils::now_unix().saturating_sub(timestamp);
+    relative_age_at(crate::utils::now_unix(), timestamp)
+}
+
+/// [`relative_age`] measured from `now` (for testable view models).
+pub(crate) fn relative_age_at(now: u64, timestamp: u64) -> String {
+    let elapsed = now.saturating_sub(timestamp);
     match elapsed {
         0..=59 => tr("now").into(),
         60..=3_599 => trf("{n}m ago", &[("n", &(elapsed / 60))]),

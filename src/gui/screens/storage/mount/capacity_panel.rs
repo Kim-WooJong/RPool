@@ -74,7 +74,7 @@ fn now() -> u64 {
 
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let form = &mut state.mount;
-    let Some(capacity) = &form.capacity else {
+    let Some(capacity) = &form.session.capacity else {
         theme::card_section(
             ui,
             tr("Capacity"),
@@ -199,7 +199,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
                     ui.small(tr("Migration switches active references only after verified copying; originals are kept. Unmount and drain the OS cache first."));
                     migrate = ui
                         .add_enabled(
-                            !form.virtual_drive && !form.runner.is_running() && capacity.affected_active > 0 && !capacity.eligible.is_empty(),
+                            !form.virtual_drive && !form.session.runner.is_running() && capacity.affected_active > 0 && !capacity.eligible.is_empty(),
                             egui::Button::new(tr("Migrate active archives — keep originals")),
                         )
                         .clicked();

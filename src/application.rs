@@ -7,7 +7,11 @@ use anyhow::Result;
 use clap::Parser;
 
 pub(crate) fn run() -> Result<()> {
-    let cli = Cli::parse();
+    let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    if let Some(parsed) = crate::cli::parse_monitor(&argv) {
+        return crate::monitor::command::run(&parsed.unwrap_or_else(|error| error.exit()));
+    }
+    let cli = Cli::parse_from(argv);
 
     let Some(command) = cli.command.as_ref() else {
         return gui::launch(&cli.rclone);

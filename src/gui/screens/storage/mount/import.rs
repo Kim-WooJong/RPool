@@ -79,10 +79,10 @@ fn rclone(
         });
         ui.checkbox(&mut form.import_rename, tr("Import name clashes as \"name (imported N)\""))
             .on_hover_text(tr("Off: a file that already exists in the drive is skipped and listed."));
-        if theme::primary_button(ui, !form.runner.is_running(), tr("Import")).clicked() {
+        if theme::primary_button(ui, !form.session.runner.is_running(), tr("Import")).clicked() {
             run(form, settings, |form, rclone| form.start_action(rclone, 9));
         }
-        if let Some(status) = &form.import_status {
+        if let Some(status) = &form.session.import_status {
             ui.label(trf("{phase}: {done}/{total} files · {imported} imported · {skipped} skipped · {failed} failed", &[("phase", &status.phase), ("done", &status.files_done), ("total", &status.files_total), ("imported", &status.imported), ("skipped", &status.skipped.len()), ("failed", &status.failed.len())]));
             egui::ScrollArea::vertical().id_salt("import-issues").max_height(160.0).auto_shrink([false, true]).show(ui, |ui| {
                 for (path, reason) in status.skipped.iter().chain(&status.failed) {
@@ -96,7 +96,7 @@ fn rclone(
 
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let (form, settings) = (&mut state.mount, &mut state.settings);
-    ui.add_enabled_ui(!form.runner.is_running(), |ui| {
+    ui.add_enabled_ui(!form.session.runner.is_running(), |ui| {
         theme::two_up(ui, form, |ui, form| rclone(ui, form, settings), manifests);
     });
 }

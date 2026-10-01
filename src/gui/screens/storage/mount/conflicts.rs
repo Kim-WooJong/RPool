@@ -4,7 +4,7 @@ use crate::gui::i18n::{tr, trf};
 use eframe::egui;
 
 pub(super) fn show(ui: &mut egui::Ui, form: &MountForm) {
-    let Some(status) = &form.pool_status else {
+    let Some(status) = &form.session.pool_status else {
         return;
     };
     let title = if status.conflicts.is_empty() {
@@ -19,7 +19,7 @@ pub(super) fn show(ui: &mut egui::Ui, form: &MountForm) {
         .id_salt("mount-conflicts")
         .default_open(!status.conflicts.is_empty())
         .show(ui, |ui| {
-            if !form.runner.is_running() {
+            if !form.session.runner.is_running() {
                 ui.small(tr("Last sync snapshot, not a live cloud view."));
             }
             ui.small(trf(

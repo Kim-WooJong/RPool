@@ -724,6 +724,7 @@ fn rejected_write_signals_are_exact() {
         "HTTP error 429 (429 Too Many Requests) returned body: \"\"",
         "failed: status code 429",
         "Error 429: slow down",
+        "Post request rcat error: Update mkParentDir failed: Locked: 423 Locked",
     ] {
         assert!(
             process::mutation_rejected(rejected.as_bytes()),
@@ -737,6 +738,7 @@ fn rejected_write_signals_are_exact() {
         "object 4290 bytes",
         "HTTP error 500 (500 Internal Server Error)",
         "status code 4291",
+        "file is locked by another process",
         "",
     ] {
         assert!(!process::mutation_rejected(unsure.as_bytes()), "{unsure}");
@@ -782,4 +784,93 @@ fn a_fake_rclone_disables_the_daemon_and_reads_use_subprocesses() {
         .unwrap();
     assert_eq!(bytes, b"bcd");
     assert!(daemon::get(&context).is_none(), "permanent fallback");
+}
+
+#[test]
+fn traffic_counters_count_exact_bytes_outcomes_and_retries() {
+    use super::traffic::snapshot;
+    let (dir, mut context) = setup(
+        r#"{"metw":{"type":"crypt"},"metr":{"type":"crypt"},"metb":{"type":"crypt"},"metcrypt":{"type":"crypt"}}"#,
+    );
+    let ctx = deadline();
+    // Upload: stdin bytes are sent, acknowledged on exit 0. No parent folder
+    // at the remote root, so no mkdir.
+    context
+        .write_raw(
+            &ctx,
+            "metw:obj",
+            &mut &[7u8; 10][..],
+            Some(10),
+            &WriteOptions::default(),
+        )
+        .unwrap();
+    let t = snapshot("metw");
+    assert_eq!((t.sent_bytes, t.acked_bytes, t.received_bytes), (10, 10, 0));
+    assert_eq!((t.ok_ops, t.failed_ops, t.active_uploads), (1, 0, 0));
+    assert!(t.last_ok_unix.is_some() && t.upload_rate_10s >= 0.0);
+    // A lost acknowledgement: sent but not acked, one failure.
+    context
+        .write_raw(
+            &ctx,
+            "metw:lost",
+            &mut &[7u8; 4][..],
+            Some(4),
+            &WriteOptions::default(),
+        )
+        .unwrap_err();
+    let t = snapshot("metw");
+    assert_eq!((t.sent_bytes, t.acked_bytes, t.failed_ops), (14, 10, 1));
+    assert!(t.last_error.unwrap().contains("did not acknowledge"));
+    // Reads (subprocess): stdout bytes are received.
+    let mut sink = Vec::new();
+    context.read_raw(&ctx, "metr:x", None, &mut sink).unwrap();
+    let range = ReadRange::new(2, 3).unwrap();
+    context
+        .read_raw(&ctx, "metr:x", Some(&range), &mut sink)
+        .unwrap();
+    assert_eq!(sink, b"abcdefcde");
+    context.stat_raw(&ctx, "metr:x").unwrap();
+    let t = snapshot("metr");
+    // Two reads plus the stat's lsjson output (24 bytes).
+    assert_eq!(
+        (t.received_bytes, t.ok_ops, t.active_downloads),
+        (9 + 24, 3, 0)
+    );
+    // A missing object is a definite answer, not a failure; auth is.
+    context.stat_raw(&ctx, "metr:missing").unwrap_err();
+    context
+        .read_raw(&ctx, "metr:auth", None, &mut sink)
+        .unwrap_err();
+    let t = snapshot("metr");
+    assert_eq!((t.ok_ops, t.failed_ops), (4, 1));
+    let error = t.last_error.unwrap();
+    assert!(
+        error.contains("authentication") && !error.contains("secret-marker"),
+        "{error}"
+    );
+    assert!(t.failing_since_unix.is_some());
+    // Provider-rejected mutations: each backoff is a retry of one operation.
+    let counter = dir.path().join("config file.json.busy");
+    context.delete_raw(&ctx, "metb:busy-twice").unwrap();
+    std::fs::remove_file(&counter).unwrap();
+    context
+        .delete_raw(&OperationContext::none(), "metb:busyforever")
+        .unwrap_err();
+    let t = snapshot("metb");
+    assert_eq!((t.ok_ops, t.failed_ops, t.retries), (1, 1, 2 + 3));
+    // Native crypt base traffic counts for its crypt remote.
+    context.attribute_traffic("metbase", "metcrypt");
+    context
+        .write_ungated(
+            &ctx,
+            "metbase:obj",
+            &mut &[1u8; 5][..],
+            None,
+            &WriteOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(snapshot("metcrypt").acked_bytes, 5);
+    assert_eq!(snapshot("metbase"), super::traffic::Traffic::default());
+    // Admin calls without an address are not metered.
+    context.config_dump(&ctx).unwrap();
 }

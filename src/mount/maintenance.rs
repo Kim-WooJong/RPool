@@ -77,8 +77,9 @@ impl Maintenance {
                 if cancelled.load(Ordering::Acquire) {
                     return;
                 }
-                if let Err(e) = drive.sync() {
-                    eprintln!("Virtual sync pending: {e:#}");
+                match drive.sync() {
+                    Ok(()) => crate::monitor::runtime::note_sync(),
+                    Err(e) => eprintln!("Virtual sync pending: {e:#}"),
                 }
             })
         })

@@ -13,6 +13,10 @@ mod limit;
 mod process;
 #[cfg(test)]
 mod tests;
+pub(crate) mod traffic;
+#[cfg(all(test, unix))]
+#[path = "traffic_rclone_tests.rs"]
+mod traffic_rclone_tests;
 
 pub(crate) use daemon::ShutdownGuard as DaemonShutdownGuard;
 
@@ -56,6 +60,9 @@ pub(crate) struct RcloneContext {
     /// Read-only calls may use the shared `rclone rcd` daemon. Off in unit
     /// tests unless a test opts in, so tests never start real daemons.
     daemon_allowed: bool,
+    /// (base remote name, crypt remote name): traffic on the base counts for
+    /// the crypt remote (native crypt writes address the base).
+    traffic_alias: Option<(String, String)>,
 }
 
 struct BoundedVec {
@@ -114,7 +121,23 @@ impl RcloneContext {
             config,
             environment: std::env::vars_os().collect(),
             daemon_allowed: !cfg!(test),
+            traffic_alias: None,
         }
+    }
+    /// Counts traffic on remote `base` (a remote name) for `alias`.
+    pub(crate) fn attribute_traffic(&mut self, base: &str, alias: &str) {
+        self.traffic_alias = Some((base.to_owned(), alias.to_owned()));
+    }
+    /// The remote name `address`'s traffic is counted for.
+    fn meter_name(&self, address: &str) -> Option<String> {
+        let name = remote_name(address).ok()?;
+        Some(match &self.traffic_alias {
+            Some((base, alias)) if base == name => alias.clone(),
+            _ => name.to_owned(),
+        })
+    }
+    fn op(&self, address: &str, direction: traffic::Direction) -> traffic::Op {
+        traffic::Op::begin(self.meter_name(address).as_deref(), direction)
     }
     pub(crate) fn inherited(executable: &str) -> Self {
         Self::new(executable.into(), ConfigSelection::Inherited)
@@ -145,13 +168,19 @@ impl RcloneContext {
             Some(address) => permit(ctx, address)?,
             None => None,
         };
-        process::run(
+        let op = address.map(|address| self.op(address, traffic::Direction::Other));
+        let result = process::run_metered(
             &mut self.command(&args.iter().map(OsString::from).collect::<Vec<_>>()),
             ctx,
             None,
             &mut sink,
             false,
-        )?;
+            op.as_ref(),
+        );
+        if let Some(op) = op {
+            op.finish(&result);
+        }
+        result?;
         Ok(sink.bytes)
     }
     /// Recursive `lsjson` of a user tree, which may be far larger than admin
@@ -162,13 +191,19 @@ impl RcloneContext {
         address: &str,
     ) -> Result<Vec<u8>, StorageError> {
         if let Some(daemon) = daemon::get(self) {
-            let outcome = {
-                let _permit = permit(ctx, address)?;
-                daemon.list(ctx, address, LIST_LIMIT)
-            };
-            match outcome {
-                Ok(bytes) => return Ok(bytes),
-                Err(daemon::Failure::Definite(error)) => return Err(error),
+            let _permit = permit(ctx, address)?;
+            let op = self.op(address, traffic::Direction::Other);
+            match daemon.list(ctx, address, LIST_LIMIT) {
+                Ok(bytes) => {
+                    op.received(bytes.len() as u64);
+                    op.finish(&Ok::<(), StorageError>(()));
+                    return Ok(bytes);
+                }
+                Err(daemon::Failure::Definite(error)) => {
+                    let result = Err(error);
+                    op.finish(&result);
+                    return result;
+                }
                 Err(daemon::Failure::Fallback) => {}
             }
         }
@@ -178,13 +213,17 @@ impl RcloneContext {
         };
         let args = ["lsjson", "-R", "--no-mimetype", "--", address];
         let _permit = permit(ctx, address)?;
-        process::run(
+        let op = self.op(address, traffic::Direction::Other);
+        let result = process::run_metered(
             &mut self.command(&args.iter().map(OsString::from).collect::<Vec<_>>()),
             ctx,
             None,
             &mut sink,
             false,
-        )?;
+            Some(&op),
+        );
+        op.finish(&result);
+        result?;
         Ok(sink.bytes)
     }
     pub(crate) fn config_dump(&self, ctx: &OperationContext) -> Result<Value, StorageError> {
@@ -277,17 +316,21 @@ impl RcloneContext {
             } else {
                 json!({"showHash": true, "hashTypes": hashes})
             };
-            let outcome = {
-                let _permit = permit(ctx, address)?;
-                daemon.stat(ctx, address, opt)
-            };
-            match outcome {
+            let _permit = permit(ctx, address)?;
+            let op = self.op(address, traffic::Direction::Other);
+            let answered = match daemon.stat(ctx, address, opt) {
                 Ok(item) => {
-                    return serde_json::to_vec(&item)
-                        .map_err(|_| invalid("invalid rclone stat JSON"))
+                    Some(serde_json::to_vec(&item).map_err(|_| invalid("invalid rclone stat JSON")))
                 }
-                Err(daemon::Failure::Definite(error)) => return Err(error),
-                Err(daemon::Failure::Fallback) => {}
+                Err(daemon::Failure::Definite(error)) => Some(Err(error)),
+                Err(daemon::Failure::Fallback) => None,
+            };
+            if let Some(result) = answered {
+                if let Ok(bytes) = &result {
+                    op.received(bytes.len() as u64);
+                }
+                op.finish(&result);
+                return result;
             }
         }
         let mut args = vec!["lsjson", "--stat"];
@@ -354,29 +397,49 @@ impl RcloneContext {
             remaining: count.unwrap_or(u64::MAX),
         };
         let mut written = 0u64;
+        let mut op = None;
         if let Some(daemon) = daemon::get(self) {
             let outcome = {
                 let _permit = permit(ctx, address)?;
-                daemon.read(ctx, address, offset, count, &mut bounded, &mut written)
+                let op = op.insert(self.op(address, traffic::Direction::Download));
+                let mut metered = traffic::Metered {
+                    sink: &mut bounded,
+                    op,
+                };
+                daemon.read(ctx, address, offset, count, &mut metered, &mut written)
             };
             match outcome {
                 Ok(()) => {
-                    return Ok(ReadReceipt {
+                    let result = Ok(ReadReceipt {
                         bytes_read: written,
                         version: None,
-                    })
+                    });
+                    if let Some(op) = op {
+                        op.finish(&result);
+                    }
+                    return result;
                 }
-                Err(daemon::Failure::Definite(error)) => return Err(error),
+                Err(daemon::Failure::Definite(error)) => {
+                    let result = Err(error);
+                    if let Some(op) = op {
+                        op.finish(&result);
+                    }
+                    return result;
+                }
                 Err(daemon::Failure::Fallback) => {}
             }
         }
         // Resume after whatever the daemon already delivered.
         let count = count.map(|count| count - written);
         if count == Some(0) {
-            return Ok(ReadReceipt {
+            let result = Ok(ReadReceipt {
                 bytes_read: written,
                 version: None,
             });
+            if let Some(op) = op {
+                op.finish(&result);
+            }
+            return result;
         }
         let mut args = vec![OsString::from("cat")];
         if range.is_some() || written > 0 {
@@ -387,11 +450,21 @@ impl RcloneContext {
         }
         args.extend(["--".into(), address.into()]);
         let _permit = permit(ctx, address)?;
-        let bytes_read = process::run(&mut self.command(&args), ctx, None, &mut bounded, false)?;
-        Ok(ReadReceipt {
+        let op = op.unwrap_or_else(|| self.op(address, traffic::Direction::Download));
+        let result = process::run_metered(
+            &mut self.command(&args),
+            ctx,
+            None,
+            &mut bounded,
+            false,
+            Some(&op),
+        )
+        .map(|bytes_read| ReadReceipt {
             bytes_read: written + bytes_read,
             version: None,
-        })
+        });
+        op.finish(&result);
+        result
     }
     pub(crate) fn read_all_raw(
         &self,
@@ -446,15 +519,21 @@ impl RcloneContext {
         // The source stream is consumed, so a rejected upload is reported as
         // retriable (RateLimited) instead of being retried here.
         let _permits = self.mutation_permits(ctx, address)?;
-        let size = process::run(
+        let op = self.op(address, traffic::Direction::Upload);
+        let result = process::run_metered(
             &mut self.command(&args),
             ctx,
             Some(source),
             &mut io::sink(),
             true,
-        )?;
+            Some(&op),
+        );
+        if let Ok(size) = result {
+            op.acked(size);
+        }
+        op.finish(&result);
         Ok(WriteReceipt {
-            size,
+            size: result?,
             version: None,
         })
     }
@@ -484,7 +563,7 @@ impl RcloneContext {
         ]
         .map(OsString::from);
         self.ensure_parent_dir(ctx, destination);
-        self.retry_rejected(ctx, destination, &args)
+        self.retry_rejected(ctx, destination, &args, traffic::Direction::Upload)
     }
     /// Copies one object from `source` to `destination` with `rclone copyto`,
     /// never overwriting: an existing destination is refused before the copy,
@@ -534,7 +613,7 @@ impl RcloneContext {
         ]
         .map(OsString::from);
         self.ensure_parent_dir(ctx, destination);
-        self.retry_rejected(ctx, destination, &args)
+        self.retry_rejected(ctx, destination, &args, traffic::Direction::Upload)
     }
     /// `rclone backend features <remote>`: server-side copy support and hashes.
     pub(crate) fn backend_features(
@@ -646,7 +725,7 @@ impl RcloneContext {
             address,
         ]
         .map(OsString::from);
-        self.retry_rejected(ctx, address, &args)
+        self.retry_rejected(ctx, address, &args, traffic::Direction::Other)
     }
     /// Removes one EMPTY folder (`rclone rmdir`); a folder that still holds
     /// anything is refused by rclone. Never a purge.
@@ -665,7 +744,7 @@ impl RcloneContext {
             address,
         ]
         .map(OsString::from);
-        self.retry_rejected(ctx, address, &args)
+        self.retry_rejected(ctx, address, &args, traffic::Direction::Other)
     }
     /// Starts the shared read daemon now (when allowed), so a later timed
     /// read does not include the daemon's own start-up.
@@ -722,22 +801,40 @@ impl RcloneContext {
         ctx: &OperationContext,
         address: &str,
         args: &[OsString],
+        direction: traffic::Direction,
     ) -> Result<(), StorageError> {
         let mut attempt = 0;
+        let mut op = None;
         loop {
             let result = {
                 let _permits = self.mutation_permits(ctx, address)?;
-                process::run(&mut self.command(args), ctx, None, &mut io::sink(), true)
+                let op = op.get_or_insert_with(|| self.op(address, direction));
+                process::run_metered(
+                    &mut self.command(args),
+                    ctx,
+                    None,
+                    &mut io::sink(),
+                    true,
+                    Some(op),
+                )
             };
             match result {
                 Err(error)
                     if error.kind() == crate::storage::error::StorageErrorKind::RateLimited
                         && attempt < REJECTED_RETRIES =>
                 {
+                    if let Some(op) = &op {
+                        op.retry();
+                    }
                     backoff(ctx, attempt)?;
                     attempt += 1;
                 }
-                result => return result.map(drop),
+                result => {
+                    if let Some(op) = op {
+                        op.finish(&result);
+                    }
+                    return result.map(drop);
+                }
             }
         }
     }

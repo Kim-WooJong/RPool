@@ -139,10 +139,11 @@ impl StorageWriter {
                         .into());
                     }
                     // Readback failure never restarts the mutation in this call.
-                    return self
-                        .reader
+                    self.reader
                         .verify(shard, true)
-                        .map_err(|e| e.context(ReadbackFailed));
+                        .map_err(|e| e.context(ReadbackFailed))?;
+                    super::rclone::traffic::credit_verified(&shard.object, shard.size);
+                    return Ok(());
                 }
                 Err(error) if error.is_retriable() && attempt < retries.max(1) => {}
                 Err(error) => return Err(error.into()),

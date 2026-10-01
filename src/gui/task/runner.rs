@@ -437,6 +437,36 @@ fn quote(value: &str) -> String {
 }
 
 #[cfg(test)]
+impl TaskRunner {
+    /// Reports running without a child process (session tests and layout fixtures).
+    pub(crate) fn fake_running(&mut self, task_name: &str) {
+        self.current_task = Some(TaskInfo::running(
+            task_name.into(),
+            String::new(),
+            TaskInvocation {
+                task_name: task_name.into(),
+                args: Vec::new(),
+            },
+        ));
+        self.running = true;
+    }
+
+    /// Delivers a finished event to a [`Self::fake_running`] runner; the next
+    /// `poll` reports it.
+    pub(crate) fn fake_finish(&mut self, success: bool) {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        sender
+            .send(TaskEvent::Finished(TaskOutcome {
+                success,
+                code: Some(if success { 0 } else { 1 }),
+                cancelled: false,
+            }))
+            .unwrap();
+        self.receiver = Some(receiver);
+    }
+}
+
+#[cfg(test)]
 mod bounded_output_tests {
     use super::*;
 

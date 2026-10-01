@@ -7,7 +7,7 @@ use eframe::egui;
 
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let (form, settings) = (&mut state.mount, &mut state.settings);
-    ui.add_enabled_ui(!form.runner.is_running(), |ui| {
+    ui.add_enabled_ui(!form.session.runner.is_running(), |ui| {
         theme::card_section(
             ui,
             tr("Local cache"),

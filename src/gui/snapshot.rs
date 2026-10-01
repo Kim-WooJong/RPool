@@ -60,6 +60,18 @@ const PAGES: &[(&str, Setter)] = &[
         s.page = Page::Maintenance;
         s.maintenance_section = MaintenanceSection::Integrity;
     }),
+    ("monitoring", |s| {
+        s.page = Page::Monitoring;
+        if let Some(first) = s.monitoring.mounts.first_mut() {
+            first.tab = super::screens::monitoring::CardTab::Live;
+        }
+    }),
+    ("monitoring-history", |s| {
+        s.page = Page::Monitoring;
+        if let Some(first) = s.monitoring.mounts.first_mut() {
+            first.tab = super::screens::monitoring::CardTab::History;
+        }
+    }),
     ("activity", |s| s.page = Page::Jobs),
     ("settings", |s| s.page = Page::Settings),
 ];
@@ -98,6 +110,12 @@ impl Snapshots {
                 state.mount.select_pool(name.clone(), &mut state.settings);
                 state.pools.selected = name;
                 super::screens::storage::pools::load_selected(state);
+            }
+            // `RPOOL_GUI_SNAPSHOT_MONITOR=1` shows two fake mounted pools on
+            // the Monitoring page.
+            if std::env::var_os("RPOOL_GUI_SNAPSHOT_MONITOR").is_some() {
+                state.monitoring =
+                    super::screens::monitoring::sample::state(crate::utils::now_unix(), false);
             }
             // `RPOOL_GUI_SNAPSHOT_SPEEDTEST=<report.json>` shows that speed
             // test result on the Pools and Providers cards.

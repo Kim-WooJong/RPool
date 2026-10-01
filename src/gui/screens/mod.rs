@@ -4,6 +4,8 @@ pub(crate) mod files;
 pub(crate) mod jobs;
 #[path = "maintenance/mod.rs"]
 pub(crate) mod maintenance;
+#[path = "monitoring/mod.rs"]
+pub(crate) mod monitoring;
 pub(crate) mod portable_config;
 pub(crate) mod settings;
 pub(crate) mod storage;

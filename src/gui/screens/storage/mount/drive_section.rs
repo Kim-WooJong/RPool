@@ -65,7 +65,8 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
         )),
         |_| {},
         |ui| {
-            ui.add_enabled_ui(!form.runner.is_running(), |ui| {
+            // Pools switch while one runs; the running pool's settings are locked.
+            ui.scope(|ui| {
         egui::Grid::new("mount-drive-grid")
             .num_columns(2)
             .spacing([16.0, 10.0])
@@ -82,6 +83,9 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
                     });
                 form.select_pool(selected, settings);
                 ui.end_row();
+                if form.session.is_running() {
+                    ui.disable();
+                }
 
                 ui.label(tr("Mode"));
                 ui.horizontal_wrapped(|ui| {

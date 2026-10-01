@@ -1,5 +1,4 @@
 //! JSON contract of the monitoring files (shared by mount, CLI and GUI).
-#![allow(dead_code)] // Contract stub: remove once mount, CLI and GUI use it.
 use serde::{Deserialize, Serialize};
 
 pub(crate) const STATUS_VERSION: u32 = 1;

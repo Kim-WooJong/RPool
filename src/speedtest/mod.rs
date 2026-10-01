@@ -30,3 +30,4 @@ mod transfer;
 mod integration_tests;
 
 pub(crate) use command::{run_pool, run_remotes};
+pub(crate) use remote::backend_type;

@@ -10,6 +10,7 @@ const ITEMS: &[(Page, &str, &str)] = &[
     (Page::Drive, "💾", "Drive"),
     (Page::Files, "📁", "Files"),
     (Page::Storage, "☁", "Storage"),
+    (Page::Monitoring, "📈", "Monitoring"),
     (Page::Maintenance, "✔", "Health"),
     (Page::Jobs, "📋", "Activity"),
     (Page::Settings, "⚙", "Settings"),
@@ -39,7 +40,7 @@ pub(crate) fn show(ui: &mut egui::Ui, page: &mut Page, compact: bool) {
     }
     ui.add_space(18.0);
     for (index, &(target, icon, label)) in ITEMS.iter().enumerate() {
-        if index == 5 {
+        if index == 6 {
             ui.add_space(10.0);
             ui.separator();
             ui.add_space(4.0);

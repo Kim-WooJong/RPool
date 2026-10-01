@@ -835,7 +835,7 @@ fn sync_metadata_directory(path: &Path) -> Result<()> {
 }
 
 #[cfg(unix)]
-fn process_alive(pid: u32) -> Result<bool> {
+pub(crate) fn process_alive(pid: u32) -> Result<bool> {
     let pid = i32::try_from(pid).context("invalid recorded mount PID")?;
     if pid <= 0 {
         bail!("invalid recorded mount PID");
@@ -856,7 +856,7 @@ fn process_alive(pid: u32) -> Result<bool> {
 }
 
 #[cfg(windows)]
-fn process_alive(pid: u32) -> Result<bool> {
+pub(crate) fn process_alive(pid: u32) -> Result<bool> {
     if pid == 0 {
         bail!("invalid recorded mount PID");
     }
@@ -894,7 +894,7 @@ fn process_alive(pid: u32) -> Result<bool> {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn process_alive(_: u32) -> Result<bool> {
+pub(crate) fn process_alive(_: u32) -> Result<bool> {
     bail!("process liveness unavailable on this platform")
 }
 

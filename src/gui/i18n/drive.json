@@ -289,6 +289,11 @@
   "ja": "ドライブ文字",
   "zh": "驱动器号"
  },
+ "Drive task running": {
+  "ko": "드라이브 작업 실행 중",
+  "ja": "ドライブの処理を実行中",
+  "zh": "驱动器任务运行中"
+ },
  "Drive:": {
   "ko": "드라이브:",
   "ja": "ドライブ:",
@@ -579,6 +584,11 @@
   "ja": "マウント/同期プロセスが終了しました。書き戻しの結果はログで確認してください。ローカルのワークスペースと VFS キャッシュは保持されます。",
   "zh": "挂载/同步进程已结束。请在日志中查看回写结果；本地工作区和 VFS 缓存会保留。"
  },
+ "Mounted pools": {
+  "ko": "마운트된 풀",
+  "ja": "マウント中のプール",
+  "zh": "已挂载的池"
+ },
  "Mounted. Other jobs stay available.": {
   "ko": "마운트됐어요. 다른 작업도 계속 쓸 수 있어요.",
   "ja": "マウントしました。他の作業も引き続き利用できます。",
@@ -748,6 +758,11 @@
   "ko": "풀 동기화 · 충돌 그룹 {n}개",
   "ja": "プール同期 · 競合グループ {n} 件",
   "zh": "存储池同步 · {n} 个冲突组"
+ },
+ "Pool {pool} is already mounted or busy. Unmount it first.": {
+  "ko": "풀 {pool}은(는) 이미 마운트되어 있거나 작업 중이에요. 먼저 마운트를 해제하세요.",
+  "ja": "プール {pool} はすでにマウント済みか処理中です。先にマウントを解除してください。",
+  "zh": "池 {pool} 已挂载或正在运行。请先卸载。"
  },
  "Preview finished; review the list in the log. Delete obsolete versions is now available for this limit.": {
   "ko": "미리보기가 끝났어요. 로그에서 목록을 검토하세요. 이제 이 한도로 '오래된 버전 삭제'를 쓸 수 있어요.",
@@ -929,6 +944,11 @@
   "ja": "ステップ 3",
   "zh": "第 3 步"
  },
+ "Stop": {
+  "ko": "중지",
+  "ja": "停止",
+  "zh": "停止"
+ },
  "Stopping": {
   "ko": "중지 중",
   "ja": "停止中",
@@ -1004,6 +1024,21 @@
   "ja": "このビルドは WinFsp 非対応のため、WebDAV を使用します。",
   "zh": "此版本未包含 WinFsp 支持；将使用 WebDAV。"
  },
+ "This mountpoint is already used by pool {pool}. Choose another one.": {
+  "ko": "이 마운트 위치는 풀 {pool}이(가) 이미 쓰고 있어요. 다른 위치를 고르세요.",
+  "ja": "このマウント先はプール {pool} が使用しています。別のマウント先を選んでください。",
+  "zh": "此挂载点已被池 {pool} 使用。请选择其他挂载点。"
+ },
+ "This mountpoint is already used by pool {pool}. Free drive letter: {free}.": {
+  "ko": "이 마운트 위치는 풀 {pool}이(가) 이미 쓰고 있어요. 비어 있는 드라이브 문자: {free}.",
+  "ja": "このマウント先はプール {pool} が使用しています。空いているドライブ文字: {free}。",
+  "zh": "此挂载点已被池 {pool} 使用。可用的驱动器号：{free}。"
+ },
+ "This workspace is already used by the running pool {pool}. Choose another workspace or unmount {pool} first.": {
+  "ko": "이 워크스페이스는 실행 중인 풀 {pool}이(가) 이미 쓰고 있어요. 다른 워크스페이스를 고르거나 먼저 {pool}의 마운트를 해제하세요.",
+  "ja": "このワークスペースは実行中のプール {pool} が使用しています。別のワークスペースを選ぶか、先に {pool} のマウントを解除してください。",
+  "zh": "此工作区已被正在运行的池 {pool} 使用。请选择其他工作区，或先卸载 {pool}。"
+ },
  "Trim clean cache": {
   "ko": "깨끗한 캐시 정리",
   "ja": "クリーンなキャッシュを削減",
@@ -1043,6 +1078,11 @@
   "ko": "전체 복제본에서 전환할 때는 새 워크스페이스를 쓰세요. 저장한 내용은 클라우드 사본이 검증될 때까지 로컬에 남아요.",
   "ja": "完全な複製から切り替える場合は新しいワークスペースを使用してください。保存内容はクラウドのコピーが検証されるまでローカルに残ります。",
   "zh": "从完整副本切换时请使用新的工作区。保存的内容会留在本地，直到云端副本验证完成。"
+ },
+ "Use {letter}": {
+  "ko": "{letter} 사용",
+  "ja": "{letter} を使用",
+  "zh": "使用 {letter}"
  },
  "Verified cloud data kept locally; least recently used is trimmed first. A whole recovery group must fit.": {
   "ko": "검증된 클라우드 데이터를 로컬에 보관해요. 가장 오래 안 쓴 것부터 정리돼요. 복구 그룹 하나가 통째로 들어가야 해요.",
@@ -1174,6 +1214,16 @@
   "ja": "必須。PC ごとに一意",
   "zh": "必填，每台电脑唯一"
  },
+ "shown below": {
+  "ko": "아래에 표시 중",
+  "ja": "下に表示中",
+  "zh": "显示在下方"
+ },
+ "sync or maintenance": {
+  "ko": "동기화 또는 유지 관리",
+  "ja": "同期またはメンテナンス",
+  "zh": "同步或维护"
+ },
  "{active} active archives and {manifests} known manifests reference excluded accounts.": {
   "ko": "활성 아카이브 {active}개와 알려진 매니페스트 {manifests}개가 제외된 계정을 참조해요.",
   "ja": "アクティブなアーカイブ {active} 件と既知のマニフェスト {manifests} 件が除外されたアカウントを参照しています。",
@@ -1183,6 +1233,21 @@
   "ko": "측정된 계정 {total}개 중 {declared}개 선언됨",
   "ja": "測定した {total} 個のアカウントのうち {declared} 個が宣言済み",
   "zh": "已测量的 {total} 个账户中 {declared} 个已声明"
+ },
+ "{mounted} mounted · {running} running": {
+  "ko": "마운트 {mounted}개 · 실행 중 {running}개",
+  "ja": "マウント {mounted} 件 · 実行中 {running} 件",
+  "zh": "已挂载 {mounted} 个 · 运行中 {running} 个"
+ },
+ "{n} drives mounted": {
+  "ko": "드라이브 {n}개 마운트됨",
+  "ja": "{n} 台のドライブをマウント済み",
+  "zh": "已挂载 {n} 个驱动器"
+ },
+ "{n} drives mounted · {pool}": {
+  "ko": "드라이브 {n}개 마운트됨 · {pool}",
+  "ja": "{n} 台のドライブをマウント済み · {pool}",
+  "zh": "已挂载 {n} 个驱动器 · {pool}"
  },
  "{phase}: {done}/{total} files · {imported} imported · {skipped} skipped · {failed} failed": {
   "ko": "{phase}: 파일 {done}/{total}개 · 가져옴 {imported} · 건너뜀 {skipped} · 실패 {failed}",
