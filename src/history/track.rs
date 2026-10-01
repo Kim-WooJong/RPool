@@ -73,6 +73,9 @@ pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> 
             PoolCommands::Set { name, .. } => ("pool-set".to_string(), Some(name.clone())),
             PoolCommands::Remove { name } => ("pool-remove".to_string(), Some(name.clone())),
             PoolCommands::Migrate(args) => crate::commands::pool::migrate_history(args),
+            PoolCommands::SpeedTest { name, .. } => {
+                ("pool-speed-test".to_string(), Some(name.clone()))
+            }
         },
         Commands::Manifest(args) => match &args.command {
             ManifestCommands::Replicate { manifest, .. } => {
@@ -111,6 +114,9 @@ pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> 
                 ("provider-encrypt".to_string(), Some(name.clone()))
             }
             ProviderCommands::Health { pool, .. } => ("provider-health".to_string(), pool.clone()),
+            ProviderCommands::SpeedTest { remotes, .. } => {
+                ("provider-speed-test".to_string(), Some(remotes.join(", ")))
+            }
             ProviderCommands::Drain {
                 manifest, from, to, ..
             } => (

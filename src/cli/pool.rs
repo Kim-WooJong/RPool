@@ -91,6 +91,35 @@ pub(crate) enum PoolCommands {
     /// Move stored archives onto the pool's current (saved) policy after
     /// accounts or coding changed: plan, run/resume, status, lost files.
     Migrate(MigrateArgs),
+
+    /// Measure every account of a saved pool (latency, upload, download) and
+    /// show which one limits the pool. Writes random test files under
+    /// `<remote>/.rpool-speedtest/<run id>/`, reads them back, verifies and
+    /// deletes them. Remotes are tested one after another, so each number is
+    /// that account alone; the pool estimate combines them with the pool's
+    /// coding and placement.
+    SpeedTest {
+        name: String,
+        #[command(flatten)]
+        size: SpeedTestSizeArgs,
+    },
+}
+
+/// Test volume and output options shared by `pool speed-test` and
+/// `provider speed-test`.
+#[derive(Args, Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SpeedTestSizeArgs {
+    /// Total MiB written to (and read back from) each remote.
+    #[arg(long, value_name = "N", default_value_t = 16, value_parser = clap::value_parser!(u64).range(1..=4096))]
+    pub size_mib: u64,
+    /// Number of files the size is split into per remote (default: one per
+    /// 4 MiB). `--files 1` tests one large file; many files test per-file
+    /// overhead. Each file must be at least 4 KiB.
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..=4096))]
+    pub files: Option<u64>,
+    /// Print one JSON report instead of the table.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -241,6 +270,58 @@ mod capacity_tests {
             })) if name == "my-pool"
         ));
         assert!(crate::cli::Cli::try_parse_from(["rpool", "pool", "browse"]).is_err());
+    }
+
+    #[test]
+    fn speed_test_commands_parse() {
+        use crate::cli::{Cli, Commands, ProviderArgs, ProviderCommands};
+        let size = |args: &[&str]| match Cli::try_parse_from(args).unwrap().command {
+            Some(Commands::Pool(super::PoolArgs {
+                command: super::PoolCommands::SpeedTest { name, size },
+            })) => (Some(name), size),
+            Some(Commands::Provider(ProviderArgs {
+                command: ProviderCommands::SpeedTest { remotes, size },
+            })) => (Some(remotes.join(",")), size),
+            other => panic!("unexpected {other:?}"),
+        };
+        let (name, s) = size(&["rpool", "pool", "speed-test", "p"]);
+        assert_eq!(name.as_deref(), Some("p"));
+        assert_eq!((s.size_mib, s.files, s.json), (16, None, false));
+        let (_, s) = size(&[
+            "rpool",
+            "pool",
+            "speed-test",
+            "p",
+            "--size-mib",
+            "4096",
+            "--files",
+            "1",
+            "--json",
+        ]);
+        assert_eq!((s.size_mib, s.files, s.json), (4096, Some(1), true));
+        let (remotes, s) = size(&[
+            "rpool",
+            "provider",
+            "speed-test",
+            "--remote",
+            "a:x",
+            "--remote",
+            "b:",
+            "--files",
+            "4096",
+        ]);
+        assert_eq!(remotes.as_deref(), Some("a:x,b:"));
+        assert_eq!(s.files, Some(4096));
+        for bad in [
+            vec!["rpool", "pool", "speed-test"],
+            vec!["rpool", "pool", "speed-test", "p", "--size-mib", "0"],
+            vec!["rpool", "pool", "speed-test", "p", "--size-mib", "4097"],
+            vec!["rpool", "pool", "speed-test", "p", "--files", "0"],
+            vec!["rpool", "pool", "speed-test", "p", "--files", "4097"],
+            vec!["rpool", "provider", "speed-test"],
+        ] {
+            assert!(Cli::try_parse_from(&bad).is_err(), "{bad:?}");
+        }
     }
 
     fn migrate(args: &[&str]) -> super::MigrateCommands {

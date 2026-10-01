@@ -129,6 +129,7 @@ impl RpoolGui {
         if let Some(status) = task_finished {
             storage::pools::handle_task_completion(&mut self.state, &self.task, status);
             storage::reprocess::handle_task_completion(&mut self.state, &self.task, status);
+            storage::speed_test::handle_task_completion(&mut self.state, &self.task, status);
             maintenance::handle_task_completion(&mut self.state, &self.task, status);
         }
         files::upload::poll_batch(&mut self.state, &mut self.task);

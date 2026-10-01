@@ -59,6 +59,18 @@ pub(crate) enum ProviderCommands {
         json: bool,
     },
 
+    /// Measure latency and upload/download speed of each given crypt remote,
+    /// one after another, without a pool. Writes random test files under
+    /// `<remote>/.rpool-speedtest/<run id>/`, reads them back, verifies and
+    /// deletes them.
+    SpeedTest {
+        /// Crypt remote to test (repeat for several).
+        #[arg(long = "remote", required = true)]
+        remotes: Vec<String>,
+        #[command(flatten)]
+        size: crate::cli::pool::SpeedTestSizeArgs,
+    },
+
     /// Copy all shards assigned to one provider to another provider and update the manifest.
     Drain {
         /// Local manifest path or rclone path to manifest.json.

@@ -1418,5 +1418,210 @@
   "ko": "동시에 옮길 아카이브 수예요 (1 = 하나씩 차례로). 아카이브마다 풀의 작업자 수도 함께 쓰므로, 값이 클수록 동시 전송이 많아져요.",
   "ja": "同時に移行するアーカイブの数です（1 = 1 つずつ順番に）。各アーカイブはプールのワーカーも使うため、値が大きいほど同時転送が増えます。",
   "zh": "同时迁移的归档数量（1 = 逐个依次进行）。每个归档还会使用存储池的工作线程，因此数值越大，同时进行的传输越多。"
+ },
+ "Number of files": {
+  "ko": "파일 수",
+  "ja": "ファイル数",
+  "zh": "文件数"
+ },
+ "4 files, 16 MiB per account. Finds a slow account in about a minute.": {
+  "ko": "계정마다 파일 4개, 16 MiB예요. 보통 1분 정도면 느린 계정을 찾을 수 있어요.",
+  "ja": "アカウントごとに 4 ファイル、16 MiB です。通常 1 分ほどで遅いアカウントが見つかります。",
+  "zh": "每个账户 4 个文件，共 16 MiB。通常约一分钟即可找出较慢的账户。"
+ },
+ "About {size} will be uploaded and downloaded per account; this can take a long time on slow accounts ({duration} at 5–50 MB/s).": {
+  "ko": "계정마다 약 {size}를 업로드하고 다운로드해요. 느린 계정에서는 오래 걸릴 수 있어요 (5–50 MB/s 기준 {duration}).",
+  "ja": "アカウントごとに約 {size} をアップロードしてダウンロードします。遅いアカウントでは長時間かかることがあります（5–50 MB/s で {duration}）。",
+  "zh": "每个账户将上传并下载约 {size}；在较慢的账户上可能需要很长时间（按 5–50 MB/s 计算为 {duration}）。"
+ },
+ "Custom": {
+  "ko": "직접 설정",
+  "ja": "カスタム",
+  "zh": "自定义"
+ },
+ "Each file must be at least 4 KiB; use fewer files or a larger size.": {
+  "ko": "파일 하나는 4 KiB 이상이어야 해요. 파일 수를 줄이거나 크기를 늘려 주세요.",
+  "ja": "各ファイルは 4 KiB 以上が必要です。ファイル数を減らすか、サイズを大きくしてください。",
+  "zh": "每个文件至少需要 4 KiB；请减少文件数或增大总大小。"
+ },
+ "File size": {
+  "ko": "파일 크기",
+  "ja": "ファイルサイズ",
+  "zh": "文件大小"
+ },
+ "Files must be 1 to {max}.": {
+  "ko": "파일 수는 1에서 {max} 사이여야 해요.",
+  "ja": "ファイル数は 1〜{max} にしてください。",
+  "zh": "文件数必须在 1 到 {max} 之间。"
+ },
+ "Files of 64 KiB": {
+  "ko": "64 KiB 파일 개수",
+  "ja": "64 KiB のファイル数",
+  "zh": "64 KiB 文件个数"
+ },
+ "Large file": {
+  "ko": "큰 파일",
+  "ja": "大きなファイル",
+  "zh": "大文件"
+ },
+ "Many small files": {
+  "ko": "작은 파일 여러 개",
+  "ja": "多数の小さなファイル",
+  "zh": "大量小文件"
+ },
+ "No encrypted providers found yet.": {
+  "ko": "아직 찾은 암호화 저장소가 없어요.",
+  "ja": "暗号化されたプロバイダーはまだ見つかっていません。",
+  "zh": "尚未找到加密存储提供商。"
+ },
+ "Pool '{name}', {n} accounts": {
+  "ko": "풀 '{name}', 계정 {n}개",
+  "ja": "プール「{name}」、アカウント {n} 個",
+  "zh": "存储池“{name}”，{n} 个账户"
+ },
+ "Run speed test": {
+  "ko": "속도 테스트 실행",
+  "ja": "速度テストを実行",
+  "zh": "运行速度测试"
+ },
+ "Select and load a saved pool to test its accounts.": {
+  "ko": "저장된 풀을 선택하고 불러오면 그 계정들을 테스트할 수 있어요.",
+  "ja": "保存済みのプールを選んで読み込むと、そのアカウントをテストできます。",
+  "zh": "选择并加载已保存的存储池后即可测试其账户。"
+ },
+ "Size must be 1 to {max} MiB.": {
+  "ko": "크기는 1에서 {max} MiB 사이여야 해요.",
+  "ja": "サイズは 1〜{max} MiB にしてください。",
+  "zh": "大小必须在 1 到 {max} MiB 之间。"
+ },
+ "Size per account (MiB)": {
+  "ko": "계정당 크기 (MiB)",
+  "ja": "アカウントあたりのサイズ (MiB)",
+  "zh": "每个账户的大小 (MiB)"
+ },
+ "Some accounts failed the speed test; see the errors below.": {
+  "ko": "일부 계정이 속도 테스트에 실패했어요. 아래 오류를 확인해 주세요.",
+  "ja": "一部のアカウントが速度テストに失敗しました。下のエラーを確認してください。",
+  "zh": "部分账户的速度测试失败；请查看下方错误。"
+ },
+ "Speed test": {
+  "ko": "속도 테스트",
+  "ja": "速度テスト",
+  "zh": "速度测试"
+ },
+ "Speed test failed; see Jobs for details.": {
+  "ko": "속도 테스트에 실패했어요. 자세한 내용은 작업 화면에서 확인해 주세요.",
+  "ja": "速度テストに失敗しました。詳細はジョブで確認してください。",
+  "zh": "速度测试失败；详情请查看任务页面。"
+ },
+ "Speed test running…": {
+  "ko": "속도 테스트 중이에요…",
+  "ja": "速度テスト実行中…",
+  "zh": "速度测试进行中…"
+ },
+ "Speed test was cancelled. Test files may be left in a '{dir}' folder on the accounts.": {
+  "ko": "속도 테스트를 취소했어요. 계정에 '{dir}' 폴더로 테스트 파일이 남아 있을 수 있어요.",
+  "ja": "速度テストをキャンセルしました。アカウントに「{dir}」フォルダーのテストファイルが残っている場合があります。",
+  "zh": "速度测试已取消。账户中可能残留“{dir}”文件夹内的测试文件。"
+ },
+ "Start large test": {
+  "ko": "큰 테스트 시작",
+  "ja": "大きなテストを開始",
+  "zh": "开始大型测试"
+ },
+ "This is a large test. Click Start large test to confirm.": {
+  "ko": "큰 테스트예요. 진행하려면 '큰 테스트 시작'을 눌러 주세요.",
+  "ja": "大きなテストです。続けるには「大きなテストを開始」を押してください。",
+  "zh": "这是一次大型测试。点击“开始大型测试”以确认。"
+ },
+ "Tick the remotes to test.": {
+  "ko": "테스트할 리모트를 선택해 주세요.",
+  "ja": "テストするリモートにチェックを入れてください。",
+  "zh": "请勾选要测试的远程。"
+ },
+ "Writes random test files to each ticked remote, reads them back and deletes them. Remotes are tested one after another.": {
+  "ko": "선택한 리모트마다 무작위 테스트 파일을 쓰고, 다시 읽은 뒤 삭제해요. 리모트는 하나씩 차례로 테스트해요.",
+  "ja": "チェックした各リモートにランダムなテストファイルを書き込み、読み戻してから削除します。リモートは 1 つずつ順番にテストします。",
+  "zh": "向每个勾选的远程写入随机测试文件，读回后删除。远程会逐个依次测试。"
+ },
+ "Writes random test files to every account of this pool, reads them back and deletes them. Accounts are tested one after another.": {
+  "ko": "이 풀의 모든 계정에 무작위 테스트 파일을 쓰고, 다시 읽은 뒤 삭제해요. 계정은 하나씩 차례로 테스트해요.",
+  "ja": "このプールのすべてのアカウントにランダムなテストファイルを書き込み、読み戻してから削除します。アカウントは 1 つずつ順番にテストします。",
+  "zh": "向此存储池的每个账户写入随机测试文件，读回后删除。账户会逐个依次测试。"
+ },
+ "{mode} per account ({size}); {total} in total for {n} accounts, written and read back.": {
+  "ko": "계정당 {mode} ({size}), 계정 {n}개 합계 {total}를 쓰고 다시 읽어요.",
+  "ja": "アカウントごとに {mode}（{size}）、{n} 個のアカウントで合計 {total} を書き込んで読み戻します。",
+  "zh": "每个账户 {mode}（{size}）；{n} 个账户共写入并读回 {total}。"
+ },
+ "Expected pool speed: upload {upload} (limited by {up}), download {download} (limited by {down})": {
+  "ko": "예상 풀 속도: 업로드 {upload} ({up} 때문에 제한), 다운로드 {download} ({down} 때문에 제한)",
+  "ja": "予想されるプール速度: アップロード {upload}（{up} が上限）、ダウンロード {download}（{down} が上限）",
+  "zh": "预计存储池速度：上传 {upload}（受 {up} 限制），下载 {download}（受 {down} 限制）"
+ },
+ "Expected pool speed: upload {upload}, download {download}": {
+  "ko": "예상 풀 속도: 업로드 {upload}, 다운로드 {download}",
+  "ja": "予想されるプール速度: アップロード {upload}、ダウンロード {download}",
+  "zh": "预计存储池速度：上传 {upload}，下载 {download}"
+ },
+ "Expected pool speed: upload {upload}, download {download} — limited by {remote}": {
+  "ko": "예상 풀 속도: 업로드 {upload}, 다운로드 {download} — {remote} 때문에 제한돼요",
+  "ja": "予想されるプール速度: アップロード {upload}、ダウンロード {download} — {remote} が上限です",
+  "zh": "预计存储池速度：上传 {upload}，下载 {download} —— 受 {remote} 限制"
+ },
+ "First operation: {time}": {
+  "ko": "첫 작업: {time}",
+  "ja": "最初の操作: {time}",
+  "zh": "首次操作：{time}"
+ },
+ "Last result": {
+  "ko": "최근 결과",
+  "ja": "最新の結果",
+  "zh": "最近结果"
+ },
+ "Latency: {time}": {
+  "ko": "지연 시간: {time}",
+  "ja": "レイテンシ: {time}",
+  "zh": "延迟：{time}"
+ },
+ "Slow start": {
+  "ko": "느린 시작",
+  "ja": "起動が遅い",
+  "zh": "启动缓慢"
+ },
+ "Slowest for downloads": {
+  "ko": "다운로드가 가장 느려요",
+  "ja": "ダウンロードが最も遅い",
+  "zh": "下载最慢"
+ },
+ "Slowest for uploads": {
+  "ko": "업로드가 가장 느려요",
+  "ja": "アップロードが最も遅い",
+  "zh": "上传最慢"
+ },
+ "The first request after start; includes the provider's cold start.": {
+  "ko": "시작 후 첫 요청이에요. 저장소의 초기 기동 시간이 포함돼요.",
+  "ja": "開始後の最初のリクエストです。プロバイダーのコールドスタートを含みます。",
+  "zh": "启动后的首个请求；包含提供商的冷启动时间。"
+ },
+ "These test folders could not be deleted. You can delete them yourself; they only hold test data.": {
+  "ko": "이 테스트 폴더들은 삭제하지 못했어요. 테스트 데이터만 들어 있으니 직접 삭제해도 돼요.",
+  "ja": "これらのテストフォルダーは削除できませんでした。テストデータだけなので、手動で削除してかまいません。",
+  "zh": "以下测试文件夹无法删除。其中只有测试数据，您可以自行删除。"
+ },
+ "This result comes from a newer RPool; some details may be missing.": {
+  "ko": "더 새로운 RPool이 만든 결과라 일부 내용이 빠졌을 수 있어요.",
+  "ja": "より新しい RPool による結果のため、一部の詳細が表示されない場合があります。",
+  "zh": "此结果来自较新版本的 RPool，部分详情可能缺失。"
+ },
+ "{mode} per account": {
+  "ko": "계정당 {mode}",
+  "ja": "アカウントごとに {mode}",
+  "zh": "每个账户 {mode}"
+ },
+ "{n} files/s": {
+  "ko": "초당 {n}개 파일",
+  "ja": "毎秒 {n} ファイル",
+  "zh": "每秒 {n} 个文件"
  }
 }

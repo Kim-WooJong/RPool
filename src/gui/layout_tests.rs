@@ -112,6 +112,16 @@ fn every_page_fits_small_medium_and_large_windows() {
             s.page = Page::Storage;
             s.storage_section = StorageSection::Changes
         },
+        |s| {
+            storage::speed_test::tests::with_sample_result(s);
+            s.page = Page::Storage;
+            s.storage_section = StorageSection::Pools
+        },
+        |s| {
+            storage::speed_test::tests::with_sample_result(s);
+            s.page = Page::Storage;
+            s.storage_section = StorageSection::Providers
+        },
         |s| migration(s, Step::Plan),
         |s| migration(s, Step::Review),
         |s| migration(s, Step::Run),

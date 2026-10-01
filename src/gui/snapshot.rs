@@ -99,6 +99,32 @@ impl Snapshots {
                 state.pools.selected = name;
                 super::screens::storage::pools::load_selected(state);
             }
+            // `RPOOL_GUI_SNAPSHOT_SPEEDTEST=<report.json>` shows that speed
+            // test result on the Pools and Providers cards.
+            if let Some(path) = std::env::var_os("RPOOL_GUI_SNAPSHOT_SPEEDTEST") {
+                use super::screens::storage::speed_test::{ReportView, Target};
+                match std::fs::read(&path)
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+                {
+                    Some(report) => {
+                        let report: crate::speedtest::model::SpeedTestReport = report;
+                        let names: Vec<String> =
+                            report.remotes.iter().map(|r| r.remote.clone()).collect();
+                        if state.crypt_remotes.is_empty() {
+                            state.crypt_remotes = names.clone();
+                        }
+                        state.speed_test.remotes = names;
+                        let view = ReportView::new(&report);
+                        let results = &mut state.speed_test.results;
+                        if let Some(pool) = state.pool_names.first() {
+                            results.insert(Target::Pool(pool.clone()), view.clone());
+                        }
+                        results.insert(Target::Remotes, view);
+                    }
+                    None => eprintln!("snapshot: cannot read speed test report {path:?}"),
+                }
+            }
         }
         let Some((size, dims, page, set)) = self.current() else {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);

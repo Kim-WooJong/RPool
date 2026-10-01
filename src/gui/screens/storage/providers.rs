@@ -100,6 +100,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             |ui, s| health_card(ui, s.0, s.1),
         );
         list_card(ui, state, task);
+        super::speed_test::providers_card(ui, state, task);
     });
     encryption_dialog(ui.ctx(), state, task);
 }

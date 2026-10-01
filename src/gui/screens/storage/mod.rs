@@ -5,6 +5,7 @@ mod pool_picker;
 pub(crate) mod pools;
 pub(crate) mod providers;
 pub(crate) mod reprocess;
+pub(crate) mod speed_test;
 
 pub(crate) use pools::PoolForm;
 pub(crate) use providers::ProviderForm;

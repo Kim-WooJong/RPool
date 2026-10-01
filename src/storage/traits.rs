@@ -198,13 +198,6 @@ impl OperationContext {
         }
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "Retained backend contract; production callers currently use the legacy operation subset"
-        )
-    )]
     pub(crate) fn with_deadline_and_cancel(deadline: Instant, cancel: Arc<AtomicBool>) -> Self {
         Self {
             deadline: Some(deadline),

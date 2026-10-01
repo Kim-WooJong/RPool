@@ -1,11 +1,4 @@
 //! JSON contract of `rpool … speed-test --json` (shared by CLI and GUI).
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "contract stub; implemented by the speed test work"
-    )
-)]
 use serde::{Deserialize, Serialize};
 
 pub(crate) const REPORT_VERSION: u32 = 1;
@@ -44,8 +37,9 @@ pub(crate) struct RemoteSpeed {
     pub ok: bool,
     /// First error, one line, no secrets.
     pub error: Option<String>,
-    /// First operation on this remote in this process (includes provider
-    /// cold start; e.g. ~30 s on some providers), milliseconds.
+    /// The slower of the first metadata call and the first read on this
+    /// remote in this process: provider cold start (e.g. ~30 s on some
+    /// providers), paid once per RPool process. Milliseconds.
     pub first_op_ms: Option<u64>,
     /// Median of later small operations, milliseconds.
     pub latency_ms: Option<u64>,

@@ -648,6 +648,30 @@ impl RcloneContext {
         .map(OsString::from);
         self.retry_rejected(ctx, address, &args)
     }
+    /// Removes one EMPTY folder (`rclone rmdir`); a folder that still holds
+    /// anything is refused by rclone. Never a purge.
+    pub(crate) fn rmdir_raw(
+        &self,
+        ctx: &OperationContext,
+        address: &str,
+    ) -> Result<(), StorageError> {
+        let args = [
+            "rmdir",
+            "--retries",
+            "1",
+            "--low-level-retries",
+            "1",
+            "--",
+            address,
+        ]
+        .map(OsString::from);
+        self.retry_rejected(ctx, address, &args)
+    }
+    /// Starts the shared read daemon now (when allowed), so a later timed
+    /// read does not include the daemon's own start-up.
+    pub(crate) fn warm_read_daemon(&self) {
+        let _ = daemon::get(self);
+    }
     /// General per-remote slot plus the write slot of the storage namespace
     /// behind `address`. Resolution happens before any slot is taken.
     fn mutation_permits(

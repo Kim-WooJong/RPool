@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **Storage speed test: find the slow account of a pool.** `rpool pool
+  speed-test <NAME>` and `rpool provider speed-test --remote R…` write random
+  test files to every account (one account after another), read them back,
+  verify them (BLAKE3) and delete them, then report per account: first
+  operation (provider cold start, e.g. Drime ~32 s), latency, upload and
+  download rate (KB/s below 1 MB/s; files/s for many-file runs), the upload
+  and download bottleneck and, for a pool, the expected pool speed from its
+  RS coding and placement. `--size-mib` 1–4096 per account and `--files`
+  1–4096 choose one large file or many small ones; data is streamed (never
+  held in memory or staged), free space is checked first, Ctrl-C stops and
+  still cleans up, and folders that could not be deleted are listed.
+  `--json` prints the report the GUI shows.
+  - GUI: a "Speed test" card in Storage › Pools (selected pool) and
+    Storage › Providers (ticked remotes) with Quick / Large file (256 MiB–4
+    GiB) / Many small files / Custom presets, a confirmation from 1 GiB,
+    live progress, and per-account bars with bottleneck and slow-start
+    badges.
+  - Real accounts: 7 accounts at 16 MiB; a 4-account cloud pool (Drime is
+    the bottleneck: 0.4 MB/s up, 32 s cold start); 1 GiB single files on
+    SMB/SFTP; 64 small files. No test folder left behind.
+
 - **Fix: uploads into a new folder no longer race to create it.** Parallel
   shard uploads let rclone create the same new parent folder several times
   at once, and some servers reject the loser: `put` to a pool with an SFTP

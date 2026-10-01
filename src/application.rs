@@ -169,6 +169,9 @@ fn dispatch(cli: Cli) -> Result<()> {
             ),
             PoolCommands::Remove { name } => commands::pool::remove(&name),
             PoolCommands::Migrate(args) => commands::pool::migrate(&cli.rclone, args),
+            PoolCommands::SpeedTest { name, size } => {
+                crate::speedtest::run_pool(&cli.rclone, &name, size)
+            }
         },
         Commands::Manifest(args) => match args.command {
             ManifestCommands::Replicate {
@@ -300,6 +303,9 @@ fn dispatch(cli: Cli) -> Result<()> {
                 workers,
                 json,
             } => commands::provider::health(&cli.rclone, remotes, pool.as_deref(), workers, json),
+            ProviderCommands::SpeedTest { remotes, size } => {
+                crate::speedtest::run_remotes(&cli.rclone, remotes, size)
+            }
             ProviderCommands::Drain {
                 manifest,
                 from,

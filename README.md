@@ -16,6 +16,31 @@ bytes, ETA and unrecoverable files, then `rpool pool migrate run <POOL> --id
 resume. `status`, `lost` and `abandon` take the same `--id`. Originals are
 never deleted. See [the design](docs/POOL_MIGRATION_DESIGN.md).
 
+## Storage speed test
+
+```text
+rpool pool speed-test <POOL> [--size-mib N] [--files N] [--json]
+rpool provider speed-test --remote c1:rpool --remote c2:rpool [--size-mib N] [--files N] [--json]
+```
+
+Shows which account limits a pool. Each remote gets `--size-mib` (default 16,
+max 4096) of random data split into `--files` files (default one per 4 MiB;
+`--files 1` = one large file, many files = per-file overhead; each file at
+least 4 KiB), written under `<remote>/.rpool-speedtest/<run id>/` with the
+pool's write path (rclone crypt, or RPool encryption for `--native-crypt`
+pools), read back through rclone crypt, BLAKE3-compared and deleted. Remotes
+are tested **one after another** (clean per-account numbers), each with
+`min(pool workers or 4, files)` parallel transfers. Reported per remote: first
+operation (includes provider cold start), median latency, upload and download
+rate, backend type. For a pool, the upload/download bottleneck is the account
+with the largest share-to-speed ratio under the pool's placement, and the
+estimate is `k/(k+m) / max(share_i / up_i)` for writes and
+`1 / max(data_share_i / down_i)` for reads. A failed remote is reported and
+the test continues (exit code 0); a remote that reports too little free space
+fails before writing. Ctrl-C (or the GUI's Stop) on macOS/Linux stops promptly
+and still deletes the test files; anything that could not be deleted is listed
+as a leftover folder. Data is streamed, never staged locally.
+
 ## 0.8.0: native crypt writes and native mount frontends
 
 This batch adds several opt-in features. Each pool can have RPool encrypt its shards itself in rclone crypt format (`pool set --native-crypt`). A filesystem core with crash- and trace-tested durability rules (`fsync`/close is the local acknowledgement) backs a native Linux FUSE frontend (`mount --virtual-drive --frontend fuse`). A Windows WinFsp frontend (built into Windows builds by default, not yet run on Windows) uses the same core. `config paths` is new, and portable bundles now carry encryption preferences. The DAV frontend and rclone crypt writes remain the defaults. See `docs/NATIVE_MOUNT_CRYPT_PLAN.md`.
