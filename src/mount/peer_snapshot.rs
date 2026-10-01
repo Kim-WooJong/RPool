@@ -271,7 +271,7 @@ impl VirtualDrive {
                 {
                     bail!("captured original integrity failure");
                 }
-                File::open(&output)?.sync_all()?;
+                crate::utils::sync_file(&output)?;
                 // Persist the newly created anchor path before admitting the edit.
                 // A durable file without durable directory entries can disappear
                 // on power loss while its replacement remains in the local spool.

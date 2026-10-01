@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Fix (Windows): files written to a WinFsp drive were not saved**
+  (`RPool WinFsp cleanup/close of <file>: Access is denied (os error 5)`).
+  Sealing a written file flushed it through a read-only handle; Windows'
+  `FlushFileBuffers` needs write access (Unix `fsync` does not), so every
+  written file failed to seal. The flush now uses a write handle on Windows
+  (no create/truncate; Unix unchanged), the same pattern is fixed in rename
+  and workspace/peer-snapshot state saves, namespace/intent replacement
+  retries briefly on transient sharing errors (antivirus, indexers), and
+  the log names the failing step and path. Compiled for Windows here; to be
+  verified on Windows by copying a file (also 4 GiB) to the drive.
+
 - **Storage speed test: find the slow account of a pool.** `rpool pool
   speed-test <NAME>` and `rpool provider speed-test --remote R…` write random
   test files to every account (one account after another), read them back,

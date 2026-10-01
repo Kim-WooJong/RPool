@@ -125,7 +125,7 @@ impl Generation {
     /// Durable local acknowledgement: fsync the image, record and publish the
     /// intent as pending. On error the generation stays unsealed.
     pub(super) fn seal(&self, drive: &VirtualDrive) -> Result<()> {
-        self.file.sync_all()?;
+        self.file.sync_all().context("seal: flush spool image")?;
         drive.seal(self.intent.clone())
     }
     /// Drop never-acknowledged bytes.

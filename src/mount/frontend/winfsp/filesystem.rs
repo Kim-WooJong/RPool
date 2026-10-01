@@ -230,21 +230,24 @@ impl FileSystemInterface for RpoolWinFs {
         let Ok(open) = self.open_of(file_context) else {
             return;
         };
-        let result = if flags.is(CleanupFlags::DELETE) {
+        let (operation, result) = if flags.is(CleanupFlags::DELETE) {
             if open.directory {
-                self.core.rmdir(&open.path)
+                ("rmdir", self.core.rmdir(&open.path))
             } else {
-                self.core.delete(&open.path)
+                ("delete", self.core.delete(&open.path))
             }
         } else {
             match open.handle {
-                Some(handle) => self.core.flush(handle),
-                None => Ok(()),
+                Some(handle) => ("flush", self.core.flush(handle)),
+                None => return,
             }
         };
         // Cleanup cannot fail; unsealed bytes stay in the spool for recovery.
         if let Err(error) = result {
-            eprintln!("RPool WinFsp cleanup of {}: {error}", open.path);
+            eprintln!(
+                "RPool WinFsp cleanup ({operation}) of {}: {error}",
+                open.path
+            );
         }
     }
 
@@ -255,7 +258,7 @@ impl FileSystemInterface for RpoolWinFs {
         };
         if let Some(handle) = open.handle {
             if let Err(error) = self.core.release(handle) {
-                eprintln!("RPool WinFsp close of {}: {error}", open.path);
+                eprintln!("RPool WinFsp close (release) of {}: {error}", open.path);
             }
         }
     }

@@ -1,3 +1,4 @@
+mod durable;
 mod file_io;
 mod hash;
 mod json;
@@ -6,6 +7,8 @@ mod pattern;
 mod time;
 mod validation;
 
+#[allow(unused_imports, reason = "some helpers serve only one OS")]
+pub(crate) use durable::{open_for_sync, persist_replacing, sync_file};
 pub(crate) use file_io::{read_exact_at, write_all_at};
 pub(crate) use hash::hash_file_range;
 pub(crate) use json::{json_u64, read_json, save_json_atomic};

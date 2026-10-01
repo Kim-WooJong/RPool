@@ -203,7 +203,7 @@ impl Workspace {
                 validate_component(&old.original_name)?;
                 let staged = content.join(&old.original_name);
                 restore(&old_path, &staged)?;
-                File::open(&staged)?.sync_all()?;
+                crate::utils::sync_file(&staged)?;
                 if fs::metadata(&staged)?.len() != entry.size
                     || hash_file_range(&staged, 0, entry.size)? != entry.hash
                 {

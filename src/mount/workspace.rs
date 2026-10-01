@@ -197,7 +197,7 @@ impl Workspace {
             self.catalog.policy.workers,
             self.catalog.policy.retries,
         )?;
-        File::open(&staged)?.sync_all()?;
+        crate::utils::sync_file(&staged)?;
         let hash = hash_file_range(&staged, 0, manifest.original_size)?;
         atomic_json(&archive, &manifest)?;
         // Hard-link publication is create-if-absent (rename would overwrite a racing edit).

@@ -291,7 +291,7 @@ impl Workspace {
             {
                 bail!("shared download failed content verification");
             }
-            File::open(&output)?.sync_all()?;
+            crate::utils::sync_file(&output)?;
         }
         // Backups survive crashes and open external file handles. Never unlink
         // displaced contents; an interrupted pass is conservatively re-uploaded

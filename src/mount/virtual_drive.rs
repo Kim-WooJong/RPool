@@ -715,12 +715,18 @@ impl VirtualDrive {
     }
     fn prepare_seal(&self, mut intent: Intent) -> Result<Intent> {
         let path = self.spool_path(&intent);
-        let file = File::open(&path)?;
+        // Windows cannot flush through a read-only handle (os error 5).
+        let file = crate::utils::open_for_sync(&path)
+            .with_context(|| format!("seal: open spool {}", path.display()))?;
         super::crash::point("seal.before_fsync")?;
-        file.sync_all()?;
+        file.sync_all()
+            .with_context(|| format!("seal: flush spool {}", path.display()))?;
         intent.size = file.metadata()?.len();
-        intent.hash = crate::utils::hash_file_range(&path, 0, intent.size)?;
-        durable_json(&path.parent().unwrap().join("intent.json"), &intent)?;
+        drop(file);
+        intent.hash = crate::utils::hash_file_range(&path, 0, intent.size)
+            .with_context(|| format!("seal: hash spool {}", path.display()))?;
+        durable_json(&path.parent().unwrap().join("intent.json"), &intent)
+            .context("seal: record intent")?;
         super::crash::point("seal.after_intent_record")?;
         #[cfg(unix)]
         {
@@ -738,7 +744,7 @@ impl VirtualDrive {
         let mut next = s.clone();
         next.pending.push(intent.clone());
         super::crash::point("seal.before_namespace_save")?;
-        next.save(&self.root)?;
+        next.save(&self.root).context("seal: save namespace")?;
         super::crash::point("seal.after_namespace_save")?;
         *s = next;
         self.pins.lock().unwrap().insert(
@@ -979,7 +985,7 @@ impl VirtualDrive {
                 let size = revision.size();
                 let output = self.spool_path(&destination);
                 self.copy_revision_to_spool(&revision, &output)?;
-                File::open(&output)?.sync_all()?;
+                crate::utils::sync_file(&output)?;
                 destination.size = size;
                 destination.hash = crate::utils::hash_file_range(&output, 0, size)?;
                 destination = self.prepare_seal(destination)?;

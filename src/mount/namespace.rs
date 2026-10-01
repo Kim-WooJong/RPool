@@ -76,9 +76,11 @@ pub(crate) fn durable_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     let dir = path.parent().context("state parent missing")?;
     let mut temp = tempfile::NamedTempFile::new_in(dir)?;
     serde_json::to_writer(&mut temp, value)?;
-    temp.as_file().sync_all()?;
+    temp.as_file()
+        .sync_all()
+        .with_context(|| format!("flush temporary for {}", path.display()))?;
     super::crash::point("durable.before_persist")?;
-    temp.persist(path).map_err(|e| e.error)?;
+    crate::utils::persist_replacing(temp, path)?;
     #[cfg(unix)]
     File::open(dir)?.sync_all()?;
     Ok(())
