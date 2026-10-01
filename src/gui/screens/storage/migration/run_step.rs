@@ -174,6 +174,9 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     theme::hint(ui, tr("Drive files are not included yet — use Apply pool changes (Advanced / manual) for a mounted drive."));
 }
 
+/// Height factor of the existing-migrations list.
+const EXISTING_SCALE: f32 = 3.0;
+
 /// Migrations of the selected pool found in the cloud.
 pub(super) fn existing(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     ui.horizontal_wrapped(|ui| {
@@ -204,8 +207,10 @@ pub(super) fn existing(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskR
     }
     let idle = !task.is_running();
     let rows = state.migration.statuses.clone();
-    let height = (rows.len() as f32 * (theme::ROW_HEIGHT + 4.0) + 40.0)
-        .min(theme::list_height(ui.ctx().content_rect().height()));
+    // Three times the rows' height (and cap): one or two migrations in a
+    // one-line box were hard to read.
+    let height = (EXISTING_SCALE * (rows.len() as f32 * (theme::ROW_HEIGHT + 4.0) + 40.0))
+        .min(EXISTING_SCALE * theme::list_height(ui.ctx().content_rect().height()));
     let size = egui::vec2(ui.available_width(), height);
     let mut action: Option<(u8, String)> = None;
     theme::fixed_pane_wide(ui, "migration-existing", size, |ui| {
