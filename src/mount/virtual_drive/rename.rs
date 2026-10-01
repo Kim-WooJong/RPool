@@ -70,17 +70,21 @@ impl VirtualDrive {
             .context("rename source missing")?;
         let mut destination = self.move_destination(to)?;
         let deletion = self.deletion_for(from, &revision)?;
-        match revision {
-            Revision::Cloud { content, .. } => {
-                let mut s = self.state.lock().unwrap();
-                let mut next = s.clone();
-                if let Some(dep) = &destination.depends_on {
-                    // Preserve cloud bytes without hydration while waiting on earlier local intents.
-                    // An explicit synchronous commit of the already committed dependency is safe.
-                    if !next.committed_intents.contains_key(dep) {
-                        bail!("destination has pending local work; sync before moving this cloud revision");
-                    }
-                }
+        // A cloud revision moves as metadata only: the new path references the
+        // same archive. Pending deletions at the destination (a file deleted
+        // there and not yet synced) are committed first, since they upload
+        // nothing. Only a pending write at the destination, which this move
+        // replaces, must upload first; the move then queues behind it as a
+        // local copy instead of failing.
+        if let Revision::Cloud { content, .. } = &revision {
+            let mut s = self.state.lock().unwrap();
+            let mut next = s.clone();
+            next.settle_deletions(to)?;
+            let ready = destination
+                .depends_on
+                .as_ref()
+                .is_none_or(|dep| next.committed_intents.contains_key(dep));
+            if ready {
                 let id = next.commit(&destination, Some(content.clone()))?;
                 next.commit(&deletion, None)?;
                 crate::mount::crash::point("rename.before_namespace_save")?;
@@ -88,36 +92,41 @@ impl VirtualDrive {
                 *s = next;
                 let mut pins = self.pins.lock().unwrap();
                 pins.remove(from);
-                pins.insert(to.into(), Revision::Cloud { id, content });
-            }
-            revision => {
-                let size = revision.size();
-                let output = self.spool_path(&destination);
-                self.copy_revision_to_spool(&revision, &output)?;
-                crate::utils::sync_file(&output)?;
-                destination.size = size;
-                destination.hash = crate::utils::hash_file_range(&output, 0, size)?;
-                destination = self.prepare_seal(destination)?;
-                let mut s = self.state.lock().unwrap();
-                let mut next = s.clone();
-                next.pending.push(destination.clone());
-                next.pending.push(deletion);
-                crate::mount::crash::point("rename.before_namespace_save")?;
-                next.save(&self.root)?;
-                *s = next;
-                let mut pins = self.pins.lock().unwrap();
-                pins.remove(from);
                 pins.insert(
                     to.into(),
-                    Revision::Local {
-                        id: destination.id.clone(),
-                        path: self.spool_path(&destination),
-                        size,
-                        _lease: self.local_lease(&destination.id),
+                    Revision::Cloud {
+                        id,
+                        content: content.clone(),
                     },
                 );
+                return Ok(());
             }
         }
+        let size = revision.size();
+        let output = self.spool_path(&destination);
+        self.copy_revision_to_spool(&revision, &output)?;
+        crate::utils::sync_file(&output)?;
+        destination.size = size;
+        destination.hash = crate::utils::hash_file_range(&output, 0, size)?;
+        destination = self.prepare_seal(destination)?;
+        let mut s = self.state.lock().unwrap();
+        let mut next = s.clone();
+        next.pending.push(destination.clone());
+        next.pending.push(deletion);
+        crate::mount::crash::point("rename.before_namespace_save")?;
+        next.save(&self.root)?;
+        *s = next;
+        let mut pins = self.pins.lock().unwrap();
+        pins.remove(from);
+        pins.insert(
+            to.into(),
+            Revision::Local {
+                id: destination.id.clone(),
+                path: self.spool_path(&destination),
+                size,
+                _lease: self.local_lease(&destination.id),
+            },
+        );
         Ok(())
     }
     pub(crate) fn rename_directory(&self, from: &str, to: &str) -> Result<()> {
@@ -167,6 +176,9 @@ impl VirtualDrive {
         }
         let mut new_pins = vec![];
         for (name, destination, deletion, content) in changes {
+            // The destination tree is not visible, so only pending deletions
+            // can sit there; they upload nothing and are committed first.
+            next.settle_deletions(&destination.path)?;
             let revision = if let Some(content) = content {
                 let id = next.commit(&destination, Some(content.clone()))?;
                 // Commit deletion only if its dependency is already committed.

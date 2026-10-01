@@ -391,6 +391,22 @@ impl Namespace {
         }
         Ok(None)
     }
+    /// Commits the leading pending deletions of `path` now: they upload
+    /// nothing, so they need not wait for sync. Stops at the first pending
+    /// write (it needs its upload) or unmet dependency.
+    pub(crate) fn settle_deletions(&mut self, path: &str) -> Result<()> {
+        while let Some(next) = self.pending.iter().find(|i| i.path == path).cloned() {
+            let waiting = next
+                .depends_on
+                .as_ref()
+                .is_some_and(|dep| !self.committed_intents.contains_key(dep));
+            if next.spool.is_some() || waiting {
+                break;
+            }
+            self.commit(&next, None)?;
+        }
+        Ok(())
+    }
     pub(crate) fn commit(&mut self, intent: &Intent, content: Option<Content>) -> Result<String> {
         let event = Event {
             version: 1,

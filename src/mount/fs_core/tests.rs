@@ -470,3 +470,55 @@ fn a_failed_final_seal_leaves_no_phantom_file() {
     assert_eq!(content(&core, "twin"), b"first");
     assert_published_unchanged(&core.drive);
 }
+
+/// Content hash of `path`: the cloud content (not read: the fixture has no
+/// rclone) or the hash of local spool bytes.
+fn hash_of(core: &FsCore, path: &str) -> String {
+    match core.drive.view().unwrap().get(path).unwrap() {
+        crate::mount::virtual_drive::Revision::Cloud { content, .. } => content.hash.clone(),
+        local => {
+            let crate::mount::virtual_drive::Revision::Local { path, size, .. } = local else {
+                unreachable!()
+            };
+            crate::utils::hash_file_range(path, 0, *size).unwrap()
+        }
+    }
+}
+
+#[test]
+fn moves_onto_unsynced_destinations_succeed_without_waiting_for_sync() {
+    let one = crate::mount::virtual_tests::content(b"one").hash;
+    // A synced file moved onto a name deleted there and not yet synced: the
+    // deletion is committed first and the move stays metadata only.
+    let root = tempfile::tempdir().unwrap();
+    let fs = super::tests::core(root.path());
+    fs.mkdir("d").unwrap();
+    put(&fs, "a", b"one");
+    put(&fs, "d/a", b"old");
+    commit_all(&fs.drive);
+    fs.delete("d/a").unwrap();
+    fs.rename("a", "d/a").unwrap();
+    assert_eq!(hash_of(&fs, "d/a"), one);
+    assert!(fs.lookup("a").is_err());
+    assert_eq!(pending(&fs.drive), 0, "no upload for a metadata move");
+
+    // (A synced file moved over an unsynced write queues behind it as a
+    // local copy; that path reads cloud bytes, which this fixture cannot.)
+
+    // Moves back and forth and folder moves, synced or not.
+    let root = tempfile::tempdir().unwrap();
+    let fs = super::tests::core(root.path());
+    fs.mkdir("src").unwrap();
+    fs.mkdir("dst").unwrap();
+    put(&fs, "src/x", b"x");
+    commit_all(&fs.drive);
+    put(&fs, "src/y", b"y");
+    fs.rename("src", "dst/src").unwrap();
+    fs.rename("dst/src", "src").unwrap();
+    fs.rename("src/x", "x").unwrap();
+    fs.rename("x", "src/x").unwrap();
+    commit_all(&fs.drive);
+    fs.rename("src", "dst/src").unwrap();
+    let view = fs.drive.view().unwrap();
+    assert_eq!(view.keys().collect::<Vec<_>>(), ["dst/src/x", "dst/src/y"]);
+}
