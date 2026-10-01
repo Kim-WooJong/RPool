@@ -23,6 +23,7 @@ mod presentation;
 mod progress;
 mod provider;
 mod remote_root;
+mod speedtest;
 mod storage;
 mod utils;
 
