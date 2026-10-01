@@ -43,6 +43,10 @@ pub(crate) fn allocate(
     }
 }
 
+/// Accounts within this share of the best free ratio count as equally free
+/// for spreading one coding group.
+const SPREAD_BAND: f64 = 0.85;
+
 fn allocate_ordered(
     snapshot: &crate::storage::admin::budget::BudgetSnapshot,
     specs: &[PhysicalSpec],
@@ -63,15 +67,29 @@ fn allocate_ordered(
         let cap = parity
             .filter(|m| *m > 0)
             .map(|m| m.max(group_sizes[&spec.group].div_ceil(distinct.len().max(1))));
+        let eligible: Vec<(usize, usize, f64)> = targets
+            .iter()
+            .enumerate()
+            .filter_map(|(i, t)| {
+                let free = budgets[&t.capacity_domain];
+                let count = group.get(&t.backing).copied().unwrap_or(0);
+                if free < spec.size || cap.is_some_and(|m| count >= m) {
+                    return None;
+                }
+                Some((i, count, free as f64 / t.total.max(1) as f64))
+            })
+            .collect();
+        // Ratio-first, but accounts whose free ratio is close to the best one
+        // share a group: its shards then travel to several accounts at once
+        // instead of queueing on one, while the fill still follows the ratio.
+        let top = eligible.iter().map(|e| e.2).fold(0.0f64, f64::max);
         let mut best: Option<(usize, usize, f64)> = None;
-        for (i, t) in targets.iter().enumerate() {
-            let free = budgets[&t.capacity_domain];
-            let count = group.get(&t.backing).copied().unwrap_or(0);
-            if free < spec.size || cap.is_some_and(|m| count >= m) {
-                continue;
-            }
-            let rank = if spread { count } else { 0 };
-            let ratio = free as f64 / t.total.max(1) as f64;
+        for &(i, count, ratio) in &eligible {
+            let rank = if spread || ratio >= top * SPREAD_BAND {
+                count
+            } else {
+                usize::MAX
+            };
             if best.is_none_or(|(_, r, q)| rank < r || (rank == r && ratio > q)) {
                 best = Some((i, rank, ratio));
             }
@@ -211,6 +229,18 @@ mod tests {
         let count = |t: usize| assigned.iter().filter(|i| **i == t).count();
         assert!((0..6).all(|t| count(t) <= 3), "{assigned:?}");
         assert_eq!(count(5), 0, "{assigned:?}");
+    }
+
+    #[test]
+    fn similarly_free_accounts_share_a_group_for_parallel_transfers() {
+        // Four shards, three equally free accounts and one much fuller one:
+        // the group spreads over the free ones instead of piling on one.
+        let snap = snapshot(&[1_000, 990, 980, 300]);
+        let specs = vec![PhysicalSpec { group: 0, size: 10 }; 4];
+        let assigned = allocate(&snap, &specs, Some(3)).unwrap();
+        let count = |t: usize| assigned.iter().filter(|i| **i == t).count();
+        assert!((0..3).all(|t| count(t) >= 1), "{assigned:?}");
+        assert_eq!(count(3), 0, "{assigned:?}");
     }
 
     #[test]
