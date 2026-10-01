@@ -85,6 +85,23 @@ pub(crate) struct ObjectKey(String);
 impl ObjectKey {
     pub(crate) fn new(raw: impl Into<String>) -> Result<Self, StorageError> {
         let raw = raw.into();
+        if !raw.is_ascii() {
+            return Err(StorageError::invalid_input("object key must be ASCII"));
+        }
+        Self::stored(raw)
+    }
+
+    /// A key as stored on a backend after crypt name encryption. With
+    /// `filename_encoding = base32768` the encrypted names are non-ASCII
+    /// (BMP code points rclone also writes), so only the ASCII rule of
+    /// [`ObjectKey::new`] is relaxed; control characters stay refused.
+    pub(crate) fn stored(raw: impl Into<String>) -> Result<Self, StorageError> {
+        let raw = raw.into();
+        if raw.chars().any(|c| c.is_control() && c != '\0') {
+            return Err(StorageError::invalid_input(
+                "object key contains a control character",
+            ));
+        }
         if raw.is_empty() {
             return Err(StorageError::invalid_input("object key cannot be empty"));
         }
@@ -92,9 +109,6 @@ impl ObjectKey {
             return Err(StorageError::invalid_input(
                 "object key contains a NUL byte",
             ));
-        }
-        if !raw.is_ascii() {
-            return Err(StorageError::invalid_input("object key must be ASCII"));
         }
         if raw.contains('\\') {
             return Err(StorageError::invalid_input(
@@ -281,6 +295,11 @@ mod tests {
         assert!(ObjectKey::new("\\foo").is_err());
         assert!(ObjectKey::new("\\\\server\\share").is_err());
         assert!(ObjectKey::new("a/b/c").is_ok());
+        // Encrypted base32768 names are stored keys, not logical keys.
+        assert!(ObjectKey::new("ԛ抳䇓/珳嵆").is_err());
+        assert!(ObjectKey::stored("ԛ抳䇓/珳嵆").is_ok());
+        assert!(ObjectKey::stored("a\u{1}b").is_err());
+        assert!(ObjectKey::stored("../ԛ").is_err());
         assert_eq!(ObjectKey::new("a/b/c").unwrap().as_str(), "a/b/c");
     }
 

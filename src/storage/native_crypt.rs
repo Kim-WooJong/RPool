@@ -48,7 +48,7 @@ impl CryptBackend {
             .cipher
             .encrypt_file_name(key.as_str())
             .map_err(|_| StorageError::invalid_input("object key cannot be encrypted"))?;
-        ObjectKey::new(name)
+        ObjectKey::stored(name)
     }
 
     fn plain_size(&self, encrypted: u64) -> Result<u64, StorageError> {
