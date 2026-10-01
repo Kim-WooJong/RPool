@@ -218,11 +218,9 @@ impl SharedTransport {
         }
         // Cooperating concurrent writers can only publish identical bytes at this ID.
         // rclone offers no atomic create-if-absent; this is not protection against hostile writers.
-        storage.write_bytes(&address, bytes, 1)?;
-        if storage.reader().read_metadata(&address)? != bytes {
-            bail!("shared event readback mismatch");
-        }
-        Ok(())
+        // `write_bytes` already read the object back in full and checked its
+        // BLAKE3 against these bytes, so no second readback is needed.
+        storage.write_bytes(&address, bytes, 1)
     }
 }
 

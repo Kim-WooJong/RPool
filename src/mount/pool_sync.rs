@@ -150,6 +150,7 @@ pub(crate) fn collect(
     let unseen = list_unseen(stores, known)?;
     read_unseen(stores, &unseen, |_| false)
 }
+#[cfg(test)]
 pub(crate) fn replicate(stores: &[&dyn EventStore], id: &str, event: &Event) -> Result<()> {
     if stores.is_empty() || event.id()? != id {
         bail!("invalid metadata publication");
@@ -161,6 +162,35 @@ pub(crate) fn replicate(stores: &[&dyn EventStore], id: &str, event: &Event) -> 
     }
     // Caller acknowledges only after every configured replica verified publication.
     Ok(())
+}
+
+/// Events published at the same time by `VirtualDrive::publish_pool`.
+const PUBLISH_PARALLEL: usize = 8;
+
+/// One event to every replica at once; all must verify it.
+fn publish_everywhere(transports: &[SharedTransport], id: &str, event: &Event) -> Result<()> {
+    if event.id()? != id {
+        bail!("invalid metadata publication");
+    }
+    event.validate()?;
+    let bytes = serde_json::to_vec(event)?;
+    let results: Vec<Result<()>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = transports
+            .iter()
+            .map(|t| {
+                let bytes = &bytes;
+                scope.spawn(move || EventStore::publish(t, id, bytes))
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| {
+                h.join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect()
+    });
+    results.into_iter().collect()
 }
 
 impl super::virtual_drive::VirtualDrive {
@@ -236,18 +266,68 @@ impl super::virtual_drive::VirtualDrive {
         drop(state);
         cache.save(&cache_path)
     }
+    /// Publishes unpublished events in waves: an event goes out once all its
+    /// parents are published, so interrupted publication stays readable.
+    /// Events of one wave go out concurrently ([`PUBLISH_PARALLEL`] at a
+    /// time), each to every replica at once; an event counts as published
+    /// only after every replica verified it.
     pub(crate) fn publish_pool(&self) -> Result<()> {
         let transports = self.pool_transports()?;
-        let stores: Vec<&dyn EventStore> =
-            transports.iter().map(|s| s as &dyn EventStore).collect();
+        if transports.is_empty() {
+            bail!("invalid metadata publication");
+        }
         let pending = self.state.lock().unwrap().unpublished_ordered()?;
-        for (id, event) in pending {
-            replicate(&stores, &id, &event)?;
-            let mut state = self.state.lock().unwrap();
-            let mut next = state.clone();
-            next.published.insert(id);
-            next.save(&self.root)?;
-            *state = next;
+        let mut remaining: BTreeMap<String, Event> = pending.into_iter().collect();
+        while !remaining.is_empty() {
+            let published = self.state.lock().unwrap().published.clone();
+            let wave: Vec<(String, Event)> = remaining
+                .iter()
+                .filter(|(_, e)| e.parents.iter().all(|p| published.contains(p)))
+                .map(|(id, e)| (id.clone(), e.clone()))
+                .collect();
+            if wave.is_empty() {
+                bail!("missing or cyclic publication ancestry");
+            }
+            for chunk in wave.chunks(PUBLISH_PARALLEL) {
+                let results: Vec<(String, Result<()>)> = std::thread::scope(|scope| {
+                    let handles: Vec<_> = chunk
+                        .iter()
+                        .map(|(id, event)| {
+                            let transports = &transports;
+                            scope.spawn(move || {
+                                (id.clone(), publish_everywhere(transports, id, event))
+                            })
+                        })
+                        .collect();
+                    handles
+                        .into_iter()
+                        .map(|h| {
+                            h.join()
+                                .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+                        })
+                        .collect()
+                });
+                let mut first_error = None;
+                let mut state = self.state.lock().unwrap();
+                let mut next = state.clone();
+                for (id, result) in results {
+                    match result {
+                        Ok(()) => {
+                            remaining.remove(&id);
+                            next.published.insert(id);
+                        }
+                        Err(error) => {
+                            first_error.get_or_insert(error);
+                        }
+                    }
+                }
+                next.save(&self.root)?;
+                *state = next;
+                drop(state);
+                if let Some(error) = first_error {
+                    return Err(error);
+                }
+            }
         }
         Ok(())
     }
