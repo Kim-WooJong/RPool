@@ -472,7 +472,7 @@ impl Read for CancellingSource {
 struct BrokenSink;
 impl Write for BrokenSink {
     fn write(&mut self, _bytes: &[u8]) -> io::Result<usize> {
-        Err(io::Error::new(io::ErrorKind::Other, "test sink failed"))
+        Err(io::Error::other("test sink failed"))
     }
     fn flush(&mut self) -> io::Result<()> {
         Ok(())

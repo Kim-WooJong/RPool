@@ -121,6 +121,7 @@ pub(crate) struct PackageImportOutcome {
     pub(crate) dry_run: bool,
 }
 
+#[allow(clippy::too_many_arguments)] // established internal API; a params struct would only add indirection
 pub(crate) fn import_package(
     artifact_root: &Path,
     rclone: &Path,

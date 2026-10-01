@@ -48,9 +48,9 @@ impl Fixture {
             let rs = ReedSolomon::new(2, 2).unwrap();
             for group in 0..2 {
                 let mut blocks = vec![vec![0u8; 4]; 4];
-                for slot in 0..2 {
+                for (slot, block) in blocks.iter_mut().enumerate().take(2) {
                     if let Some(bytes) = payloads.get(group * 2 + slot) {
-                        blocks[slot][..bytes.len()].copy_from_slice(bytes);
+                        block[..bytes.len()].copy_from_slice(bytes);
                     }
                 }
                 rs.encode(&mut blocks).unwrap();

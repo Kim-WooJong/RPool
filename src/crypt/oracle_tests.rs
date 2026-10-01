@@ -16,7 +16,9 @@ struct Oracle {
 }
 
 /// (remote name, extra options, obscure the password with rclone instead of RPool)
-const REMOTES: &[(&str, &[(&str, &str)], bool)] = &[
+type RemoteSpec = (&'static str, &'static [(&'static str, &'static str)], bool);
+
+const REMOTES: &[RemoteSpec] = &[
     ("std", &[("password2", "salt-for-std")], true),
     (
         "b64",

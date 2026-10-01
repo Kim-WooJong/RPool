@@ -106,6 +106,7 @@ enum ResilientChoice {
     Balanced,
 }
 
+#[allow(clippy::too_many_arguments)] // sort comparator over borrowed placement state; a context struct would only add indirection
 fn projected_utilization_cmp(
     a: usize,
     b: usize,
@@ -451,6 +452,29 @@ pub(crate) fn assign_replacement_slots(
         .into_iter()
         .map(|slot| slot.expect("every slot assigned"))
         .collect())
+}
+
+fn ensure_parity_bound(
+    targets: &[String],
+    specs: &[PhysicalSpec],
+    assignments: &[usize],
+    parity: usize,
+) -> Result<()> {
+    if parity == 0 && specs.iter().all(|s| s.size == 0) {
+        return Ok(()); // Empty files have no data bytes to protect.
+    }
+    if parity == 0 {
+        bail!("resilient placement requires parity_shards > 0");
+    }
+    let mut counts = BTreeMap::<(u32, &str), usize>::new();
+    for (spec, index) in specs.iter().zip(assignments) {
+        let count = counts.entry((spec.group, &targets[*index])).or_default();
+        *count += 1;
+        if *count > parity {
+            bail!("resilient placement impossible: group {} exceeds {} shards on one resolved backing target; add independent targets or change K/M", spec.group, parity);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -806,27 +830,4 @@ mod tests {
             assert!(counts.values().max().unwrap() - counts.values().min().unwrap() <= 1);
         }
     }
-}
-
-fn ensure_parity_bound(
-    targets: &[String],
-    specs: &[PhysicalSpec],
-    assignments: &[usize],
-    parity: usize,
-) -> Result<()> {
-    if parity == 0 && specs.iter().all(|s| s.size == 0) {
-        return Ok(()); // Empty files have no data bytes to protect.
-    }
-    if parity == 0 {
-        bail!("resilient placement requires parity_shards > 0");
-    }
-    let mut counts = BTreeMap::<(u32, &str), usize>::new();
-    for (spec, index) in specs.iter().zip(assignments) {
-        let count = counts.entry((spec.group, &targets[*index])).or_default();
-        *count += 1;
-        if *count > parity {
-            bail!("resilient placement impossible: group {} exceeds {} shards on one resolved backing target; add independent targets or change K/M", spec.group, parity);
-        }
-    }
-    Ok(())
 }

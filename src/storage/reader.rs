@@ -506,9 +506,8 @@ impl Write for OffsetSink {
             .ok_or_else(|| {
                 std::io::Error::new(std::io::ErrorKind::InvalidInput, "offset overflow")
             })?;
-        write_all_at(&self.file, bytes, self.position).map_err(|_| {
-            std::io::Error::new(std::io::ErrorKind::Other, "restore output write failed")
-        })?;
+        write_all_at(&self.file, bytes, self.position)
+            .map_err(|_| std::io::Error::other("restore output write failed"))?;
         self.position = next;
         Ok(bytes.len())
     }

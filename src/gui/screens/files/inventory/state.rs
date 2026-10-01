@@ -5,8 +5,9 @@ use std::cmp::Ordering;
 
 pub(crate) const UNMATCHED_POOL: &str = "Unmatched";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum InventorySort {
+    #[default]
     Name,
     Size,
     Pool,
@@ -14,23 +15,12 @@ pub(crate) enum InventorySort {
     Created,
 }
 
-impl Default for InventorySort {
-    fn default() -> Self {
-        Self::Name
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum CodingFilter {
+    #[default]
     All,
     ReedSolomon,
     Plain,
-}
-
-impl Default for CodingFilter {
-    fn default() -> Self {
-        Self::All
-    }
 }
 
 impl CodingFilter {

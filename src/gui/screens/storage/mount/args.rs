@@ -2,6 +2,7 @@
 use std::ffi::OsString;
 use std::path::Path;
 
+#[allow(clippy::too_many_arguments)] // one parameter per mount CLI flag, mapped 1:1 to arguments
 pub(super) fn build_args(
     pool: &str,
     workspace: &Path,

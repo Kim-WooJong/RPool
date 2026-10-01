@@ -169,7 +169,7 @@ impl LocalBackend {
     fn stage<'a>(&self, parent: &'a File) -> Result<Stage<'a>, StorageError> {
         let sequence = self
             .sequence
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
             .map_err(|_| StorageError::Other {
                 detail: "local staging sequence exhausted".into(),
             })?;

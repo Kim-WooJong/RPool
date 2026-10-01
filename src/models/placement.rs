@@ -12,31 +12,6 @@ pub(crate) enum Placement {
     CapacityFirst,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_outage_modes_keep_distinct_saved_names() {
-        assert_eq!(
-            serde_json::to_string(&Placement::Resilient).unwrap(),
-            "\"resilient\""
-        );
-        assert_eq!(
-            serde_json::from_str::<Placement>("\"resilient\"").unwrap(),
-            Placement::Resilient
-        );
-        assert_eq!(
-            serde_json::to_string(&Placement::CapacityFirst).unwrap(),
-            "\"capacity-first\""
-        );
-        assert_eq!(
-            serde_json::from_str::<Placement>("\"capacity-first\"").unwrap(),
-            Placement::CapacityFirst
-        );
-    }
-}
-
 impl Placement {
     pub(crate) fn cli_value(self) -> &'static str {
         match self {
@@ -62,5 +37,30 @@ impl Placement {
             Self::CapacityFirst => Some("Capacity-first: uses large account quotas without an outage-group shard limit. Reed-Solomon parity remains, but losing one account or provider may make a file unrecoverable."),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn both_outage_modes_keep_distinct_saved_names() {
+        assert_eq!(
+            serde_json::to_string(&Placement::Resilient).unwrap(),
+            "\"resilient\""
+        );
+        assert_eq!(
+            serde_json::from_str::<Placement>("\"resilient\"").unwrap(),
+            Placement::Resilient
+        );
+        assert_eq!(
+            serde_json::to_string(&Placement::CapacityFirst).unwrap(),
+            "\"capacity-first\""
+        );
+        assert_eq!(
+            serde_json::from_str::<Placement>("\"capacity-first\"").unwrap(),
+            Placement::CapacityFirst
+        );
     }
 }

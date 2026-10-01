@@ -22,7 +22,7 @@ fn pkcs7_unpad(data: &[u8]) -> Result<&[u8]> {
     if data.is_empty() {
         bail!("crypt name padding too short");
     }
-    if data.len() % NAME_BLOCK != 0 {
+    if !data.len().is_multiple_of(NAME_BLOCK) {
         bail!("crypt name padding not a multiple of the block size");
     }
     let pad = usize::from(data[data.len() - 1]);

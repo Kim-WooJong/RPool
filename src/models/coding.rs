@@ -10,13 +10,9 @@ pub(crate) struct Coding {
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub(crate) enum ShardKind {
+    #[default]
     Data,
     Parity,
-}
-
-impl Default for ShardKind {
-    fn default() -> Self {
-        Self::Data
-    }
 }

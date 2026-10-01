@@ -180,10 +180,10 @@ pub(crate) fn reconstruct_group_files(
             .map(|_| None)
             .collect();
 
-        for slot in 0..coding.data_shards {
+        for (slot, block) in blocks.iter_mut().enumerate().take(coding.data_shards) {
             let data_index = group_data_start + slot;
             if data_index >= all_data.len() {
-                blocks[slot] = Some(vec![0u8; chunk_len]);
+                *block = Some(vec![0u8; chunk_len]);
                 continue;
             }
             let shard = all_data[data_index];
@@ -199,7 +199,7 @@ pub(crate) fn reconstruct_group_files(
                 let read_len = (shard.size - stripe_offset).min(chunk_len as u64) as usize;
                 read_exact_at(&file, &mut buf[..read_len], stripe_offset)?;
             }
-            blocks[slot] = Some(buf);
+            *block = Some(buf);
         }
 
         for parity_index in 0..coding.parity_shards {

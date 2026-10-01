@@ -282,13 +282,13 @@ fn bounded_output_and_stderr_flood_do_not_deadlock() {
 struct FailingReader;
 impl Read for FailingReader {
     fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
-        Err(io::Error::new(io::ErrorKind::Other, "secret source marker"))
+        Err(io::Error::other("secret source marker"))
     }
 }
 struct FailingWriter;
 impl Write for FailingWriter {
     fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-        Err(io::Error::new(io::ErrorKind::Other, "secret sink marker"))
+        Err(io::Error::other("secret sink marker"))
     }
     fn flush(&mut self) -> io::Result<()> {
         Ok(())

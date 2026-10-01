@@ -1,16 +1,11 @@
 use crate::gui::i18n::{tr, trf};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum UploadTargetMode {
+    #[default]
     Pool,
     Manual,
-}
-
-impl Default for UploadTargetMode {
-    fn default() -> Self {
-        Self::Pool
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

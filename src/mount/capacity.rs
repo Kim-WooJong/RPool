@@ -172,11 +172,13 @@ impl CapacityStatus {
         catalog: &RemoteCatalog,
         policy: &PoolDefinition,
     ) -> Result<Self> {
-        let mut status = Self::default();
         // Timestamp the start of observation, not the end of a slow multi-account query.
-        status.observed_unix = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs();
+        let mut status = Self {
+            observed_unix: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_secs(),
+            ..Self::default()
+        };
         let remotes = crate::remote_root::apply_remote_roots(policy.remotes.clone())?;
         let snapshot =
             crate::storage::admin::budget::BudgetSnapshot::query(admin, catalog, &remotes);

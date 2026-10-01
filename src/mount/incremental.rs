@@ -111,6 +111,7 @@ pub(crate) fn upload(
         },
     )
 }
+#[allow(clippy::too_many_arguments)] // established internal API; a params struct would only add indirection
 fn upload_with(
     policy: &PoolDefinition,
     source: &Path,

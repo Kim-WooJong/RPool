@@ -46,10 +46,10 @@ pub(crate) fn scrub_with_storage(
         bail!("--json cannot be combined with --repair; run the scrub report and repair as separate operations");
     }
     let reader = storage.reader();
-    let manifest = load_manifest_with_storage(&reader, manifest_src)?;
+    let manifest = load_manifest_with_storage(reader, manifest_src)?;
     validate_manifest(&manifest)?;
     let full = !quick;
-    let (report, probes) = scan_manifest_with_storage(&reader, &manifest, full, workers)?;
+    let (report, probes) = scan_manifest_with_storage(reader, &manifest, full, workers)?;
     if !dry_run {
         if let Err(error) = save_integrity_snapshot(manifest_src, &report) {
             eprintln!("[integrity] failed to save local scrub snapshot: {error:#}");
@@ -74,10 +74,10 @@ pub(crate) fn scrub_with_storage(
             );
         }
         let repaired =
-            repair_manifest_with_storage(&storage, &manifest, &probes, retries, dry_run, None)?;
+            repair_manifest_with_storage(storage, &manifest, &probes, retries, dry_run, None)?;
         println!("repair_candidates={repaired}");
         if !dry_run {
-            let (after, _) = scan_manifest_with_storage(&reader, &manifest, true, workers)?;
+            let (after, _) = scan_manifest_with_storage(reader, &manifest, true, workers)?;
             if let Err(error) = save_integrity_snapshot(manifest_src, &after) {
                 eprintln!("[integrity] failed to save post-repair snapshot: {error:#}");
             }

@@ -844,7 +844,12 @@ mod tests {
             shard_size: 4,
             created_unix: 0,
             coding: None,
-            content_root_blake3: crate::manifest::content_root_v2(4, 4, &None, &[shard.clone()]),
+            content_root_blake3: crate::manifest::content_root_v2(
+                4,
+                4,
+                &None,
+                std::slice::from_ref(&shard),
+            ),
             shards: vec![shard.clone()],
         };
         crate::manifest::validate_manifest(&replacement).unwrap();

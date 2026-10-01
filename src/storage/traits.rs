@@ -218,7 +218,7 @@ impl OperationContext {
     pub(crate) fn is_cancelled(&self) -> bool {
         self.cancel
             .as_ref()
-            .map_or(false, |c| c.load(Ordering::Acquire))
+            .is_some_and(|c| c.load(Ordering::Acquire))
             || self.child_cancels.iter().any(|c| c.load(Ordering::Acquire))
     }
 
@@ -236,7 +236,7 @@ impl OperationContext {
     /// Whether the deadline has passed. A passed deadline does NOT by itself
     /// abort an in-flight remote write.
     pub(crate) fn deadline_passed(&self) -> bool {
-        self.deadline.map_or(false, |d| Instant::now() >= d)
+        self.deadline.is_some_and(|d| Instant::now() >= d)
     }
 }
 

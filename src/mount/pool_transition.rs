@@ -531,6 +531,41 @@ pub(crate) fn assert_no_incomplete_transition(workspace: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Serialized with ordinary mount startup and held for its entire lifetime.
+pub(crate) struct TransitionLock(File);
+impl Drop for TransitionLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+pub(crate) fn lock_workspace_transition(workspace: &Path) -> Result<TransitionLock> {
+    let parent = workspace
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    fs::create_dir_all(parent)?;
+    recovery::no_symlink_ancestors(parent)?;
+    let path = parent.canonicalize()?.join(format!(
+        ".{}.pool-transition.lock",
+        workspace
+            .file_name()
+            .context("workspace name missing")?
+            .to_string_lossy()
+    ));
+    if path.exists() {
+        recovery::no_symlinks(&path)?;
+    }
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(path)?;
+    lock.try_lock()
+        .context("workspace mount or pool transition is already active")?;
+    Ok(TransitionLock(lock))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -631,39 +666,4 @@ mod tests {
         drop(next);
         drop(inherited);
     }
-}
-
-/// Serialized with ordinary mount startup and held for its entire lifetime.
-pub(crate) struct TransitionLock(File);
-impl Drop for TransitionLock {
-    fn drop(&mut self) {
-        let _ = self.0.unlock();
-    }
-}
-pub(crate) fn lock_workspace_transition(workspace: &Path) -> Result<TransitionLock> {
-    let parent = workspace
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    fs::create_dir_all(parent)?;
-    recovery::no_symlink_ancestors(parent)?;
-    let path = parent.canonicalize()?.join(format!(
-        ".{}.pool-transition.lock",
-        workspace
-            .file_name()
-            .context("workspace name missing")?
-            .to_string_lossy()
-    ));
-    if path.exists() {
-        recovery::no_symlinks(&path)?;
-    }
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(path)?;
-    lock.try_lock()
-        .context("workspace mount or pool transition is already active")?;
-    Ok(TransitionLock(lock))
 }

@@ -106,7 +106,7 @@ impl Namespace {
         })
     }
     pub(crate) fn validate(&self) -> Result<()> {
-        if !matches!(self.version, 3 | 4 | 5 | 6 | 7) {
+        if !matches!(self.version, 3..=7) {
             bail!("unsupported virtual namespace version");
         }
         let valid_id = |id: &str| id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit());

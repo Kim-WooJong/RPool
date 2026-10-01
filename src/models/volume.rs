@@ -11,7 +11,7 @@ use crate::storage::error::StorageError;
 use crate::storage::reference::validate_identifier;
 
 /// Monotonic generation counter. NOT a provider ETag/version.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub(crate) struct Generation(u64);
 
 #[cfg_attr(
@@ -33,12 +33,6 @@ impl Generation {
     /// Checked increment; returns `None` on overflow (`u64::MAX`).
     pub(crate) fn checked_next(&self) -> Option<Generation> {
         self.0.checked_add(1).map(Generation)
-    }
-}
-
-impl Default for Generation {
-    fn default() -> Self {
-        Self(0)
     }
 }
 

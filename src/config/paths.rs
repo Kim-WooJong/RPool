@@ -38,28 +38,6 @@ fn checked_override_dir(path: PathBuf) -> Result<PathBuf> {
     Ok(path.canonicalize()?)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn override_requires_existing_absolute_real_directory() {
-        let root = tempfile::tempdir().unwrap();
-        assert_eq!(
-            checked_override_dir(root.path().into()).unwrap(),
-            root.path().canonicalize().unwrap()
-        );
-        assert!(checked_override_dir(PathBuf::from("relative")).is_err());
-        assert!(checked_override_dir(root.path().join("missing")).is_err());
-        #[cfg(unix)]
-        {
-            let link = root.path().join("link");
-            std::os::unix::fs::symlink(root.path(), &link).unwrap();
-            assert!(checked_override_dir(link).is_err());
-        }
-    }
-}
-
 pub(crate) fn pools_path() -> Result<PathBuf> {
     Ok(app_config_dir()?.join("pools.json"))
 }
@@ -92,4 +70,26 @@ pub(crate) fn account_limits_path() -> Result<PathBuf> {
 /// Machine-local per-account upload ledger and activity record.
 pub(crate) fn account_usage_path() -> Result<PathBuf> {
     Ok(app_config_dir()?.join("account_usage.json"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn override_requires_existing_absolute_real_directory() {
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(
+            checked_override_dir(root.path().into()).unwrap(),
+            root.path().canonicalize().unwrap()
+        );
+        assert!(checked_override_dir(PathBuf::from("relative")).is_err());
+        assert!(checked_override_dir(root.path().join("missing")).is_err());
+        #[cfg(unix)]
+        {
+            let link = root.path().join("link");
+            std::os::unix::fs::symlink(root.path(), &link).unwrap();
+            assert!(checked_override_dir(link).is_err());
+        }
+    }
 }

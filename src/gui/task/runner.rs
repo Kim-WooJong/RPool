@@ -25,6 +25,7 @@ enum TaskEvent {
     StartFailed(String),
 }
 
+#[derive(Default)]
 pub(crate) struct TaskRunner {
     receiver: Option<Receiver<TaskEvent>>,
     cancel_flag: Option<Arc<AtomicBool>>,
@@ -34,21 +35,6 @@ pub(crate) struct TaskRunner {
     logs: Vec<LogLine>,
     last_outcome: Option<TaskOutcome>,
     progress: ProgressTracker,
-}
-
-impl Default for TaskRunner {
-    fn default() -> Self {
-        Self {
-            receiver: None,
-            cancel_flag: None,
-            running: false,
-            current_task: None,
-            last_task: None,
-            logs: Vec::new(),
-            last_outcome: None,
-            progress: ProgressTracker::default(),
-        }
-    }
 }
 
 impl TaskRunner {
@@ -104,11 +90,7 @@ impl TaskRunner {
     pub(crate) fn poll(&mut self) -> Option<JobStatus> {
         let mut terminal_status = None;
 
-        loop {
-            let received = match self.receiver.as_ref() {
-                Some(receiver) => receiver.try_recv(),
-                None => break,
-            };
+        while let Some(received) = self.receiver.as_ref().map(Receiver::try_recv) {
             let event = match received {
                 Ok(event) => event,
                 Err(TryRecvError::Empty) => break,

@@ -47,7 +47,7 @@ pub(super) fn transform(
     data: &[u8],
     direction: Direction,
 ) -> Option<Vec<u8>> {
-    if data.is_empty() || data.len() % BLOCK != 0 || data.len() / BLOCK > MAX_BLOCKS {
+    if data.is_empty() || !data.len().is_multiple_of(BLOCK) || data.len() / BLOCK > MAX_BLOCKS {
         return None;
     }
     let m = data.len() / BLOCK;
@@ -62,9 +62,9 @@ pub(super) fn transform(
     }
 
     let mut c = vec![0u8; data.len()];
-    for j in 0..m {
+    for (j, l) in l_table.iter().enumerate() {
         let range = j * BLOCK..(j + 1) * BLOCK;
-        xor_into(&mut c[range.clone()], &data[range.clone()], &l_table[j]);
+        xor_into(&mut c[range.clone()], &data[range.clone()], l);
         aes(cipher, &mut c[range], direction);
     }
 
@@ -94,11 +94,11 @@ pub(super) fn transform(
     }
     c[..BLOCK].copy_from_slice(&ccc1);
 
-    for j in 0..m {
+    for (j, l) in l_table.iter().enumerate() {
         let range = j * BLOCK..(j + 1) * BLOCK;
         aes(cipher, &mut c[range.clone()], direction);
         let ccj: [u8; BLOCK] = c[range.clone()].try_into().unwrap();
-        xor_into(&mut c[range], &ccj, &l_table[j]);
+        xor_into(&mut c[range], &ccj, l);
     }
     Some(c)
 }

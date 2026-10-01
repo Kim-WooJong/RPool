@@ -52,7 +52,7 @@ pub(crate) fn generate_parity_group(
             (plan.shard_size - stripe_offset).min(coding.stripe_size.max(1) as u64) as usize;
         let mut blocks = vec![vec![0u8; chunk_len]; coding.data_shards + coding.parity_shards];
 
-        for slot in 0..coding.data_shards {
+        for (slot, block) in blocks.iter_mut().enumerate().take(coding.data_shards) {
             let data_index = group_start + slot;
             if data_index >= data_count {
                 continue;
@@ -67,7 +67,7 @@ pub(crate) fn generate_parity_group(
             }
             let read_len = (shard.size - stripe_offset).min(chunk_len as u64) as usize;
             input.seek(SeekFrom::Start(shard.offset + stripe_offset))?;
-            input.read_exact(&mut blocks[slot][..read_len])?;
+            input.read_exact(&mut block[..read_len])?;
         }
 
         rs.encode(&mut blocks)

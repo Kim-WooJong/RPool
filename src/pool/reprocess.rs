@@ -73,9 +73,9 @@ fn storage_bytes(size: u64, target: &PoolDefinition) -> Result<u64> {
     if size == 0 {
         bail!("empty files cannot be reprocessed into Reed-Solomon archives");
     }
-    let data = size / shard + u64::from(size % shard != 0);
+    let data = size / shard + u64::from(!size.is_multiple_of(shard));
     let k = target.data_shards as u64;
-    let groups = data / k + u64::from(data % k != 0);
+    let groups = data / k + u64::from(!data.is_multiple_of(k));
     // Every parity shard is a full shard, even for the final partial group.
     groups
         .checked_mul(target.parity_shards as u64)

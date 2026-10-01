@@ -43,10 +43,10 @@ pub(crate) fn reconstruct_group(
             .map(|_| None)
             .collect();
 
-        for slot in 0..coding.data_shards {
+        for (slot, block) in blocks.iter_mut().enumerate().take(coding.data_shards) {
             let data_index = group_data_start + slot;
             if data_index >= real_data_count {
-                blocks[slot] = Some(vec![0u8; chunk_len]);
+                *block = Some(vec![0u8; chunk_len]);
                 continue;
             }
             if missing_slots.contains(&slot) {
@@ -63,7 +63,7 @@ pub(crate) fn reconstruct_group(
                     shard.offset + stripe_offset,
                 )?;
             }
-            blocks[slot] = Some(buf);
+            *block = Some(buf);
         }
 
         for parity_index in 0..coding.parity_shards {

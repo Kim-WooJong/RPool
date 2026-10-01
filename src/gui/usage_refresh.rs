@@ -49,18 +49,10 @@ impl ProviderDetails {
     }
 }
 
+#[derive(Default)]
 pub(crate) struct UsageRefresh {
     receiver: Option<Receiver<Result<UsageSnapshot, String>>>,
     running: bool,
-}
-
-impl Default for UsageRefresh {
-    fn default() -> Self {
-        Self {
-            receiver: None,
-            running: false,
-        }
-    }
 }
 
 impl UsageRefresh {

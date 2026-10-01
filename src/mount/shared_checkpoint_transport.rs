@@ -382,8 +382,10 @@ pub(crate) fn coordinate(
             processed.push(key);
         }
         let needs_trim = checkpoint.history.values().any(|h| h.len() > keep);
-        if expected.is_some() && processed.is_empty() && !needs_trim {
-            return Ok((expected.unwrap(), checkpoint));
+        if processed.is_empty() && !needs_trim {
+            if let Some(expected) = expected {
+                return Ok((expected, checkpoint));
+            }
         }
         let (next_checkpoint, objects) =
             if proposals.is_empty() && (!processed.is_empty() || needs_trim) {

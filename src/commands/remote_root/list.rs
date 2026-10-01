@@ -11,7 +11,7 @@ pub(crate) fn run(json: bool) -> Result<()> {
         println!("No per-remote default paths configured.");
         return Ok(());
     }
-    println!("{:<28} {}", "REMOTE", "DEFAULT PATH");
+    println!("{:<28} DEFAULT PATH", "REMOTE");
     println!("{}", "-".repeat(72));
     for (remote, path) in store.roots {
         println!("{:<28} {}", format!("{remote}:"), path);

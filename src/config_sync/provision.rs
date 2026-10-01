@@ -112,8 +112,7 @@ fn config_path(executable: &Path) -> Result<PathBuf> {
     let text = std::str::from_utf8(&raw.0).map_err(|_| anyhow!("invalid config path response"))?;
     let path = PathBuf::from(
         text.lines()
-            .filter(|s| !s.trim().is_empty())
-            .next_back()
+            .rfind(|s| !s.trim().is_empty())
             .unwrap_or_default()
             .trim(),
     );
@@ -205,7 +204,7 @@ fn create_crypt_at(
     roots: &RemoteRootStore,
 ) -> Result<String> {
     setup.validate()?;
-    if fs::symlink_metadata(&config)?.file_type().is_symlink() {
+    if fs::symlink_metadata(config)?.file_type().is_symlink() {
         bail!("symlink config files are not supported for automatic setup");
     }
     let lock_path = config.with_extension("rpool-provision.lock");
@@ -222,7 +221,7 @@ fn create_crypt_locked(
     config: &Path,
     roots: &RemoteRootStore,
 ) -> Result<String> {
-    let original = SensitiveBytes(fs::read(&config)?);
+    let original = SensitiveBytes(fs::read(config)?);
     if original
         .0
         .windows(b"RCLONE_ENCRYPT_V".len())
@@ -265,10 +264,10 @@ fn create_crypt_locked(
     {
         bail!("new crypt configuration failed validation");
     }
-    if SensitiveBytes(fs::read(&config)?).0 != original.0 {
+    if SensitiveBytes(fs::read(config)?).0 != original.0 {
         bail!("configuration changed during setup; nothing was replaced. Close other config tools and retry");
     }
-    stage.persist(&config).map_err(|_| {
+    stage.persist(config).map_err(|_| {
         anyhow!("cannot atomically install new crypt config; existing config preserved")
     })?;
     #[cfg(unix)]

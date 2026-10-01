@@ -396,7 +396,9 @@ mod tests {
         }
         assert_eq!(removed, 117);
         let latest = state.files["file"].id.clone();
-        let (next, obsolete) = state.apply_batch(&[offline.clone()], 2).unwrap();
+        let (next, obsolete) = state
+            .apply_batch(std::slice::from_ref(&offline), 2)
+            .unwrap();
         assert_eq!(next.files["file"].id, latest);
         assert!(!next.receipts.contains(&offline.id));
         assert_eq!(obsolete, offline.value.unwrap().objects);

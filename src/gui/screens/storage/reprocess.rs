@@ -574,14 +574,36 @@ fn poll(state: &mut GuiState, signature: &str) {
     }
 }
 
+pub(crate) fn handle_task_completion(
+    state: &mut GuiState,
+    task: &TaskRunner,
+    status: crate::gui::task::JobStatus,
+) {
+    if task
+        .last_task()
+        .is_none_or(|last| last.name != "Reprocess pool data")
+    {
+        return;
+    }
+    state.inventory.refresh();
+    let detail = match status {
+        crate::gui::task::JobStatus::Completed => tr("Verified new copies added to the library; originals retained."),
+        crate::gui::task::JobStatus::Cancelled => tr("Cancelled. Originals retained. Use Resume saved operation to continue this exact plan; see task log for completed and partial copies."),
+        _ => tr("Stopped with errors. Originals retained. Fix the reported problem, then Resume saved operation; see task log for details."),
+    };
+    state.reprocess.notice = Some(detail.into());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use clap::Parser;
     #[test]
     fn preview_invalidates_for_every_policy_source_rate_and_executor_change() {
-        let mut form = ReprocessForm::default();
-        form.target = "saved".into();
+        let mut form = ReprocessForm {
+            target: "saved".into(),
+            ..Default::default()
+        };
         form.selected.insert("original.json".into());
         form.draft = Some(PoolDefinition {
             max_object_bytes: None,
@@ -645,24 +667,4 @@ mod tests {
             _ => panic!("wrong command"),
         }
     }
-}
-
-pub(crate) fn handle_task_completion(
-    state: &mut GuiState,
-    task: &TaskRunner,
-    status: crate::gui::task::JobStatus,
-) {
-    if task
-        .last_task()
-        .is_none_or(|last| last.name != "Reprocess pool data")
-    {
-        return;
-    }
-    state.inventory.refresh();
-    let detail = match status {
-        crate::gui::task::JobStatus::Completed => tr("Verified new copies added to the library; originals retained."),
-        crate::gui::task::JobStatus::Cancelled => tr("Cancelled. Originals retained. Use Resume saved operation to continue this exact plan; see task log for completed and partial copies."),
-        _ => tr("Stopped with errors. Originals retained. Fix the reported problem, then Resume saved operation; see task log for details."),
-    };
-    state.reprocess.notice = Some(detail.into());
 }

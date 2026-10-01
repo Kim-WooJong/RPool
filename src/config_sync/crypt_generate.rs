@@ -13,7 +13,7 @@ pub(crate) const GENERATED_SECRET_BITS: usize = 1024;
 const BASE64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 fn encode_random(bytes: &[u8]) -> SensitiveText {
-    let mut encoded = String::with_capacity((bytes.len() * 8 + 5) / 6);
+    let mut encoded = String::with_capacity((bytes.len() * 8).div_ceil(6));
     let mut bits = 0u32;
     let mut count = 0u32;
     for &byte in bytes {
@@ -54,7 +54,7 @@ fn generate_one(executable: &Path) -> Result<SensitiveText> {
     )?;
     let value = std::str::from_utf8(&raw.0)
         .map_err(|_| anyhow!("invalid obscure response"))?
-        .trim_end_matches(|c| c == '\r' || c == '\n');
+        .trim_end_matches(['\r', '\n']);
     validate_obscured(value)?;
     Ok(SensitiveText::new(value.to_owned()))
 }

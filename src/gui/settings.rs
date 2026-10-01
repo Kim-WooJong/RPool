@@ -219,13 +219,15 @@ mod tests {
         for (shard, native, free, spool) in
             [(0, 1, 0, 1), (1, 0, 0, 1), (1, 1, 1048577, 1), (1, 1, 0, 0)]
         {
-            let mut settings = GuiSettings::default();
-            settings.mount_cache = MountCacheSettings {
-                online_drive: true,
-                shard_gib: shard,
-                native_gib: native,
-                min_free_gib: free,
-                spool_gib: spool,
+            let settings = GuiSettings {
+                mount_cache: MountCacheSettings {
+                    online_drive: true,
+                    shard_gib: shard,
+                    native_gib: native,
+                    min_free_gib: free,
+                    spool_gib: spool,
+                },
+                ..Default::default()
             };
             assert!(save(&settings).unwrap_err().contains("Cache limits"));
         }

@@ -37,8 +37,8 @@ pub(crate) fn run(
         println!("{}", serde_json::to_string_pretty(&reports)?);
     } else {
         println!(
-            "{:<34} {:<10} {:>10} {:>8}  {}",
-            "REMOTE", "STATUS", "LATENCY", "USED%", "DETAIL"
+            "{:<34} {:<10} {:>10} {:>8}  DETAIL",
+            "REMOTE", "STATUS", "LATENCY", "USED%"
         );
         println!("{}", "-".repeat(88));
         for report in &reports {

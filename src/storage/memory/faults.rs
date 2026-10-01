@@ -224,10 +224,7 @@ impl Read for FailingSource<'_> {
             return Ok(0);
         }
         if self.remaining == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "injected partial source failure",
-            ));
+            return Err(io::Error::other("injected partial source failure"));
         }
         let count = buffer.len().min(self.remaining);
         let n = self.source.read(&mut buffer[..count])?;

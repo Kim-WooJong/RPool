@@ -12,6 +12,6 @@ pub(crate) fn coding_group_count(data_count: usize, data_shards_per_group: usize
     if data_count == 0 {
         0
     } else {
-        (data_count + data_shards_per_group - 1) / data_shards_per_group
+        data_count.div_ceil(data_shards_per_group)
     }
 }

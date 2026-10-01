@@ -51,6 +51,7 @@ pub(crate) struct Cli {
 }
 
 #[derive(Subcommand, Debug)]
+#[allow(clippy::large_enum_variant)] // clap subcommand parsed once per process; boxing adds noise only
 pub(crate) enum Commands {
     /// Launch the native rpool storage console.
     Gui,

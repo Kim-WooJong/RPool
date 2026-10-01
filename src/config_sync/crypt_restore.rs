@@ -169,6 +169,35 @@ pub(crate) fn restore_crypt_vault(
     transaction::run(config, &driver, &snapshot)
 }
 
+// Obscured values are base64url and can start with '-'. End option parsing before
+// any remote/key/value, preserving exact values instead of rotating or escaping keys.
+pub(super) fn configure_secret_update(
+    command: &mut std::process::Command,
+    name: &str,
+    secret: &crate::models::secrets::CryptSecret,
+) {
+    command
+        .args([
+            "config",
+            "update",
+            "--no-obscure",
+            "--non-interactive",
+            "--no-output",
+            "--",
+        ])
+        .arg(name)
+        .arg("password")
+        .arg(secret.obscured_password.as_str())
+        .arg("password2")
+        .arg(
+            secret
+                .obscured_password2
+                .as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or(""),
+        );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,33 +263,4 @@ mod tests {
         .unwrap();
         assert!(!exact_secrets(&changed, &secrets("one")));
     }
-}
-
-// Obscured values are base64url and can start with '-'. End option parsing before
-// any remote/key/value, preserving exact values instead of rotating or escaping keys.
-pub(super) fn configure_secret_update(
-    command: &mut std::process::Command,
-    name: &str,
-    secret: &crate::models::secrets::CryptSecret,
-) {
-    command
-        .args([
-            "config",
-            "update",
-            "--no-obscure",
-            "--non-interactive",
-            "--no-output",
-            "--",
-        ])
-        .arg(name)
-        .arg("password")
-        .arg(secret.obscured_password.as_str())
-        .arg("password2")
-        .arg(
-            secret
-                .obscured_password2
-                .as_ref()
-                .map(|s| s.as_str())
-                .unwrap_or(""),
-        );
 }

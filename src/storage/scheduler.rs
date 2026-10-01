@@ -209,7 +209,7 @@ pub(crate) fn run<T: Send, R: Send>(
                     };
                     if fatal
                         .as_ref()
-                        .map_or(true, |previous| priority(&error) > priority(previous))
+                        .is_none_or(|previous| priority(&error) > priority(previous))
                     {
                         fatal = Some(error);
                     }

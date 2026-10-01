@@ -123,7 +123,7 @@ struct BrokenSource {
 impl Read for BrokenSource {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if self.emitted {
-            return Err(io::Error::new(io::ErrorKind::Other, "source failure"));
+            return Err(io::Error::other("source failure"));
         }
         self.emitted = true;
         buffer.fill(42);
@@ -201,7 +201,7 @@ impl Read for CancelSource {
 struct BrokenSink;
 impl Write for BrokenSink {
     fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-        Err(io::Error::new(io::ErrorKind::Other, "sink failure"))
+        Err(io::Error::other("sink failure"))
     }
     fn flush(&mut self) -> io::Result<()> {
         Ok(())

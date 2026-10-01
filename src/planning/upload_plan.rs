@@ -15,7 +15,7 @@ pub(crate) fn build_upload_plan(
     let data_count = if source_size == 0 {
         1usize
     } else {
-        (source_size / shard_size + u64::from(source_size % shard_size != 0)) as usize
+        (source_size / shard_size + u64::from(!source_size.is_multiple_of(shard_size))) as usize
     };
 
     let mut plan_shards = Vec::new();

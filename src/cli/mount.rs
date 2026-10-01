@@ -482,8 +482,7 @@ mod tests {
         }
         for extra in ["--shared-root=crypt:teamspace", "--worker-name=PC One"] {
             let error = crate::cli::Cli::try_parse_from(base.into_iter().chain([extra]))
-                .err()
-                .expect("unpaired shared options must fail");
+                .expect_err("unpaired shared options must fail");
             assert_eq!(
                 error.kind(),
                 clap::error::ErrorKind::MissingRequiredArgument
