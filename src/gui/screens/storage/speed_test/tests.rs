@@ -90,7 +90,16 @@ fn view_scales_bars_flags_bottlenecks_and_formats() {
     assert_eq!(fast.latency.as_deref(), Some("140 ms"));
     assert!(slow_start.slowest_upload && !slow_start.slowest_download);
     assert!(sftp.slowest_download && !sftp.slowest_upload);
+    assert!(slow_start.limits_upload && sftp.limits_download);
     assert!(!fast.is_bottleneck() && !failed.is_bottleneck());
+    // The pool can be limited by an account that is not the slowest (it gets
+    // more shards): each flag stays on its own account's row.
+    let mut shifted = sample();
+    shifted.bottleneck_upload = Some(shifted.remotes[0].remote.clone());
+    let view = ReportView::new(&shifted);
+    assert!(view.rows[0].limits_upload && !view.rows[0].slowest_upload);
+    assert!(view.rows[1].slowest_upload && !view.rows[1].limits_upload);
+    assert!(view.rows[0].is_bottleneck() && !view.rows[1].limits_download);
     assert!(!failed.ok && failed.upload.is_none() && failed.download.is_none());
     assert!(failed.error.as_deref().unwrap().contains("401"));
     assert_eq!(view.leftovers.len(), 1);

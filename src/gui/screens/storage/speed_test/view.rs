@@ -65,14 +65,34 @@ pub(crate) struct RemoteRow {
     pub(crate) latency: Option<String>,
     pub(crate) upload: Option<Bar>,
     pub(crate) download: Option<Bar>,
+    /// The lowest measured speed of all accounts.
     pub(crate) slowest_upload: bool,
     pub(crate) slowest_download: bool,
+    /// The account that limits the pool: largest share of the pool's shards
+    /// per unit of speed. Not always the slowest one, since placement gives
+    /// accounts different shares.
+    pub(crate) limits_upload: bool,
+    pub(crate) limits_download: bool,
 }
 
 impl RemoteRow {
     pub(crate) fn is_bottleneck(&self) -> bool {
-        self.slowest_upload || self.slowest_download
+        self.limits_upload || self.limits_download
     }
+}
+
+/// Index of the lowest usable speed among accounts that passed (ties: first).
+fn slowest(rates: impl Iterator<Item = Option<f64>>) -> Option<usize> {
+    let mut best: Option<(usize, f64)> = None;
+    for (i, rate) in rates.enumerate() {
+        let Some(rate) = rate.filter(|r| r.is_finite() && *r > 0.0) else {
+            continue;
+        };
+        if best.is_none_or(|(_, b)| rate < b) {
+            best = Some((i, rate));
+        }
+    }
+    best.map(|(i, _)| i)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -145,11 +165,25 @@ impl ReportView {
             report.files_per_remote,
         );
         let is = |name: &Option<String>, remote: &str| name.as_deref() == Some(remote);
+        let ok = |rate: Option<f64>, passed: bool| rate.filter(|_| passed);
+        let slowest_up = slowest(
+            report
+                .remotes
+                .iter()
+                .map(|r| ok(r.upload_bytes_per_s, r.ok)),
+        );
+        let slowest_down = slowest(
+            report
+                .remotes
+                .iter()
+                .map(|r| ok(r.download_bytes_per_s, r.ok)),
+        );
         let rows = report
             .remotes
             .iter()
+            .enumerate()
             .zip(uploads.into_iter().zip(downloads))
-            .map(|(r, (upload, download))| RemoteRow {
+            .map(|((i, r), (upload, download))| RemoteRow {
                 remote: r.remote.clone(),
                 backend: r.backend.clone(),
                 ok: r.ok,
@@ -159,8 +193,10 @@ impl ReportView {
                 latency: r.latency_ms.map(format_millis),
                 upload,
                 download,
-                slowest_upload: is(&report.bottleneck_upload, &r.remote),
-                slowest_download: is(&report.bottleneck_download, &r.remote),
+                slowest_upload: slowest_up == Some(i),
+                slowest_download: slowest_down == Some(i),
+                limits_upload: is(&report.bottleneck_upload, &r.remote),
+                limits_download: is(&report.bottleneck_download, &r.remote),
             })
             .collect();
         Self {

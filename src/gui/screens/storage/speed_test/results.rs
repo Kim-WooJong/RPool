@@ -73,18 +73,29 @@ fn estimate(ui: &mut egui::Ui, view: &ReportView) {
 const SIDE_BY_SIDE_WIDTH: f32 = 760.0;
 const BAR_GAP: f32 = 16.0;
 
-/// Room after each bar for the "Slowest" tag, kept on every row so bars line up.
-const TAG_WIDTH: f32 = 92.0;
+/// Room after each bar for the tag, kept on every row so bars line up.
+const TAG_WIDTH: f32 = 112.0;
 
-/// The label, a bar of `width(remaining width after the label)` and, on the
-/// slowest account, a "Slowest" tag right after that bar (warning colour).
+/// What a bar is marked with.
+#[derive(Clone, Copy)]
+struct Marks {
+    /// Lowest measured speed of all accounts.
+    slowest: bool,
+    /// Limits the pool's speed (largest shard share per unit of speed).
+    limits: bool,
+}
+
+/// The label, a bar of `width(remaining width after the label)` and a tag
+/// right after that bar: "Slowest" on the slowest account, "Limits pool" on
+/// the one that limits the pool (often the same account).
 fn speed_bar(
     ui: &mut egui::Ui,
     label: &str,
     bar: Option<&Bar>,
-    slowest: bool,
+    marks: Marks,
     width: impl Fn(f32) -> f32,
 ) {
+    let slowest = marks.slowest;
     ui.add_sized(
         [LABEL_WIDTH, theme::CAPACITY_BAR_HEIGHT],
         egui::Label::new(egui::RichText::new(label).small()).truncate(),
@@ -108,13 +119,26 @@ fn speed_bar(
             ui.add_sized([width, theme::CAPACITY_BAR_HEIGHT], egui::Label::new("—"));
         }
     }
-    if slowest && bar.is_some() {
-        let before = ui.cursor().min.x;
-        status_badge(ui, tr("Slowest"), StatusTone::Warning);
-        let used = ui.cursor().min.x - before;
-        ui.add_space((TAG_WIDTH - used).max(0.0));
-    } else {
-        ui.add_space(TAG_WIDTH);
+    let tag = match (marks.slowest, marks.limits) {
+        (true, _) => Some((tr("Slowest"), StatusTone::Warning)),
+        (false, true) => Some((tr("Limits pool"), StatusTone::Info)),
+        _ => None,
+    };
+    match tag.filter(|_| bar.is_some()) {
+        Some((text, tone)) => {
+            let before = ui.cursor().min.x;
+            let hint = match (marks.slowest, marks.limits) {
+                (true, true) => tr("The slowest account, and the one that limits the pool's speed."),
+                (true, false) => tr("The slowest account. It gets few of the pool's shards, so another account limits the pool."),
+                _ => tr("Limits the pool's speed: this account gets the most shards for its speed under the pool's placement, though it is not the slowest."),
+            };
+            ui.scope(|ui| status_badge(ui, text, tone))
+                .response
+                .on_hover_text(hint);
+            let used = ui.cursor().min.x - before;
+            ui.add_space((TAG_WIDTH - used).max(0.0));
+        }
+        None => ui.add_space(TAG_WIDTH),
     }
 }
 
@@ -140,7 +164,10 @@ fn speed_bars(ui: &mut egui::Ui, row: &RemoteRow) {
                 ui,
                 tr("Upload"),
                 row.upload.as_ref(),
-                row.slowest_upload,
+                Marks {
+                    slowest: row.slowest_upload,
+                    limits: row.limits_upload,
+                },
                 half,
             );
             ui.add_space(BAR_GAP);
@@ -150,7 +177,10 @@ fn speed_bars(ui: &mut egui::Ui, row: &RemoteRow) {
                 ui,
                 tr("Download"),
                 row.download.as_ref(),
-                row.slowest_download,
+                Marks {
+                    slowest: row.slowest_download,
+                    limits: row.limits_download,
+                },
                 rest,
             );
         });
@@ -162,7 +192,10 @@ fn speed_bars(ui: &mut egui::Ui, row: &RemoteRow) {
                 ui,
                 tr("Upload"),
                 row.upload.as_ref(),
-                row.slowest_upload,
+                Marks {
+                    slowest: row.slowest_upload,
+                    limits: row.limits_upload,
+                },
                 all,
             )
         });
@@ -171,7 +204,10 @@ fn speed_bars(ui: &mut egui::Ui, row: &RemoteRow) {
                 ui,
                 tr("Download"),
                 row.download.as_ref(),
-                row.slowest_download,
+                Marks {
+                    slowest: row.slowest_download,
+                    limits: row.limits_download,
+                },
                 all,
             )
         });

@@ -1633,5 +1633,25 @@
   "ko": "{total} 중 {used} 사용",
   "ja": "{total} 中 {used} 使用",
   "zh": "已用 {used} / {total}"
+ },
+ "Limits pool": {
+  "ko": "풀 속도 제한",
+  "ja": "プール速度を制限",
+  "zh": "限制池速度"
+ },
+ "The slowest account, and the one that limits the pool's speed.": {
+  "ko": "가장 느린 계정이고, 풀 전체 속도도 이 계정이 제한해요.",
+  "ja": "最も遅いアカウントで、プール全体の速度もこのアカウントが制限します。",
+  "zh": "最慢的账户，也是限制池速度的账户。"
+ },
+ "The slowest account. It gets few of the pool's shards, so another account limits the pool.": {
+  "ko": "가장 느린 계정이에요. 풀의 조각을 적게 받기 때문에 풀 속도는 다른 계정이 제한해요.",
+  "ja": "最も遅いアカウントです。プールのシャードをあまり受け取らないため、プールの速度は別のアカウントが制限します。",
+  "zh": "最慢的账户。它分到的分片很少，所以池速度由另一个账户限制。"
+ },
+ "Limits the pool's speed: this account gets the most shards for its speed under the pool's placement, though it is not the slowest.": {
+  "ko": "풀 속도를 제한하는 계정이에요. 가장 느리지는 않지만, 풀의 배치 방식에서 속도에 비해 조각을 가장 많이 받아요.",
+  "ja": "プールの速度を制限するアカウントです。最も遅くはありませんが、プールの配置方式では速度に比べて最も多くのシャードを受け取ります。",
+  "zh": "限制池速度的账户：它并非最慢，但在池的放置方式下，相对其速度分到的分片最多。"
  }
 }
