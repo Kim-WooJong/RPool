@@ -196,19 +196,25 @@ fn list_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
             // Nine times the usual list height: the cards are tall and the
             // page scrolls as a whole anyway.
             let height = 9.0 * theme::list_height(ui.ctx().content_rect().height());
+            // Never shorter than one row of cards, however small the window:
+            // the row height is measured on the previous frame.
+            let row_id = egui::Id::new("base-provider-list-row-height");
+            let row_height = ui.ctx().data(|d| d.get_temp::<f32>(row_id)).unwrap_or(0.0);
             let mut clicked = None;
             egui::ScrollArea::vertical()
                 .id_salt("base-provider-list")
-                .max_height(height)
+                .min_scrolled_height(row_height)
+                .max_height(height.max(row_height))
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
                     let cards = model::cards(state, running);
+                    let mut tallest = 0.0f32;
                     let per_row = grid::columns(ui.available_width(), cards.len());
                     for (row, chunk) in cards.chunks(per_row).enumerate() {
                         if row > 0 {
                             ui.add_space(grid::GAP);
                         }
-                        ui.horizontal_top(|ui| {
+                        let row_rect = ui.horizontal_top(|ui| {
                             ui.spacing_mut().item_spacing.x = grid::GAP;
                             let gaps = grid::GAP * (per_row - 1) as f32;
                             let width = ((ui.available_width() - gaps) / per_row as f32).floor();
@@ -223,7 +229,9 @@ fn list_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
                                 });
                             }
                         });
+                        tallest = tallest.max(row_rect.response.rect.height());
                     }
+                    ui.ctx().data_mut(|d| d.insert_temp(row_id, tallest));
                 });
             clicked
         },
