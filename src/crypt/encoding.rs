@@ -10,6 +10,9 @@ pub(crate) enum NameEncoding {
     Base32,
     /// base64 RawURL (case-sensitive remotes only).
     Base64,
+    /// base32768: about a quarter of the characters of base32, for remotes
+    /// that limit path length in characters (Windows servers, OneDrive).
+    Base32768,
 }
 
 impl NameEncoding {
@@ -19,6 +22,7 @@ impl NameEncoding {
                 .encode(bytes)
                 .to_ascii_lowercase(),
             Self::Base64 => BASE64_URL_NOPAD.encode(bytes),
+            Self::Base32768 => super::base32768::encode(bytes),
         }
     }
 
@@ -36,6 +40,8 @@ impl NameEncoding {
             Self::Base64 => BASE64_URL_NOPAD
                 .decode(text.as_bytes())
                 .map_err(|_| anyhow::anyhow!("bad base64 filename encoding")),
+            Self::Base32768 => super::base32768::decode(text)
+                .ok_or_else(|| anyhow::anyhow!("bad base32768 filename encoding")),
         }
     }
 }

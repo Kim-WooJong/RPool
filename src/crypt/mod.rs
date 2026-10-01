@@ -5,13 +5,14 @@
 //! `docs/NATIVE_MOUNT_CRYPT_PLAN.md`.
 //!
 //! Unsupported rclone settings (`no_data_encryption`, `pass_bad_blocks`,
-//! `base32768` names, unknown modes/encodings/options) are refused by
+//! unknown modes/encodings/options) are refused by
 //! [`options::CryptConfig`]. Version-suffixed names (`--b2-versions`) are not handled.
 #![cfg_attr(
     not(test),
     expect(dead_code, reason = "native crypt backend (M2) not wired yet")
 )]
 
+mod base32768;
 pub(crate) mod cipher;
 pub(crate) mod data;
 mod eme;

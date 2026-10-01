@@ -126,6 +126,7 @@ fn names_round_trip_in_every_mode() {
     for (mode, dirs, encoding) in [
         (NameMode::Standard, true, NameEncoding::Base32),
         (NameMode::Standard, false, NameEncoding::Base64),
+        (NameMode::Standard, true, NameEncoding::Base32768),
         (NameMode::Obfuscate, true, NameEncoding::Base32),
         (NameMode::Obfuscate, false, NameEncoding::Base32),
         (NameMode::Off, true, NameEncoding::Base32),
@@ -178,7 +179,7 @@ fn config_refuses_what_it_cannot_reproduce() {
     for extra in [
         ("no_data_encryption", "true"),
         ("pass_bad_blocks", "true"),
-        ("filename_encoding", "base32768"),
+        ("filename_encoding", "base99"),
         ("filename_encryption", "weird"),
         ("unknown_option", "1"),
         ("directory_name_encryption", "maybe"),

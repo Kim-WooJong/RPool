@@ -37,6 +37,14 @@ const REMOTES: &[RemoteSpec] = &[
         true,
     ),
     ("off", &[("filename_encryption", "off")], false),
+    (
+        "b32768",
+        &[
+            ("filename_encoding", "base32768"),
+            ("password2", "long names"),
+        ],
+        true,
+    ),
 ];
 
 const NAMES: &[&str] = &[
@@ -174,7 +182,11 @@ fn sample(len: usize, seed: u8) -> Vec<u8> {
 fn oracle_obscure_is_interchangeable_with_rclone() {
     let oracle = Oracle::new();
     for plain in ["x", "pa55 wörd", "with spaces and = signs"] {
-        let ours = obscure(plain).unwrap();
+        // The IV is random; rclone's CLI reads a value starting with '-' as a
+        // flag (also after "--"), so draw one that does not.
+        let ours = std::iter::repeat_with(|| obscure(plain).unwrap())
+            .find(|o| !o.starts_with('-'))
+            .unwrap();
         assert_eq!(oracle.run(&["reveal", &ours]).trim_end(), plain);
         let theirs = oracle.run(&["obscure", plain]);
         assert_eq!(reveal(theirs.trim()).unwrap().as_bytes(), plain.as_bytes());

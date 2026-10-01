@@ -100,7 +100,7 @@ impl CryptConfig {
         let name_encoding = match section.get("filename_encoding").map(String::as_str) {
             None | Some("base32") => NameEncoding::Base32,
             Some("base64") => NameEncoding::Base64,
-            Some("base32768") => bail!("crypt filename_encoding base32768 is not supported yet"),
+            Some("base32768") => NameEncoding::Base32768,
             Some(_) => bail!("unsupported crypt filename_encoding"),
         };
         let suffix = match section.get("suffix").map(String::as_str) {
