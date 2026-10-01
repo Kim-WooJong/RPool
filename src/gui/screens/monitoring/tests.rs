@@ -167,6 +167,15 @@ fn alerts_show_translated_text_by_kind() {
         alert_text(&alert(AlertKind::Unreachable, None)),
         "An account has not answered for a minute"
     );
+    assert!(alert_text(&alert(AlertKind::MetadataGrowing, None)).contains("checkpoint"));
+    assert_eq!(
+        alert_text(&alert(AlertKind::UploadLimit, Some("gd:"))),
+        "gd:: upload limit reached — uploads wait and resume automatically"
+    );
+    assert_eq!(
+        alert_text(&alert(AlertKind::UploadLimit, None)),
+        "An account reached its upload limit — uploads wait and resume automatically"
+    );
 }
 
 #[test]
@@ -202,8 +211,15 @@ fn view_model_from_sample_status() {
     assert_eq!(live.queue, "37 files, 782.01 MiB waiting");
     assert_eq!(live.queue_oldest.as_deref(), Some("oldest since 4m 20s"));
     assert_eq!(live.activity, Activity::Uploading);
-    assert_eq!(live.alerts.len(), 2);
+    assert_eq!(live.alerts.len(), 3);
     assert_eq!(live.alerts[0].0, AlertKind::Unreachable);
+    assert_eq!(live.alerts[2].0, AlertKind::UploadLimit);
+    // The paused account's section carries the badge detail, the others not.
+    assert!(live.remotes[1]
+        .upload_limit
+        .as_deref()
+        .is_some_and(|d| d.contains("resume in 3 h 10 min")));
+    assert!(live.remotes[0].upload_limit.is_none() && live.remotes[2].upload_limit.is_none());
     let dropbox = &live.remotes[0];
     assert_eq!(dropbox.upload_rate, "4.2 MB/s");
     assert_eq!(dropbox.download_rate, "0 B/s");

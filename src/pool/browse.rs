@@ -41,7 +41,20 @@ pub(crate) fn browse(rclone: &str, pool: &str) -> anyhow::Result<PoolBrowse> {
         .cloned()
         .with_context(|| format!("pool not found: {pool}"))?;
     super::validate_pool(&policy)?;
-    let generations = super::browse_generations::discover(rclone, pool, &policy.remotes)?;
+    let mut generations = super::browse_generations::discover(rclone, pool, &policy.remotes)?;
+    // A pool migration may have adopted the drive into a newer generation
+    // (and superseded the one it came from).
+    let mut migration_note = None;
+    match crate::migration::drive_journal::known(rclone, pool) {
+        Ok(known) => {
+            generations = crate::migration::drive_generations::effective(generations, &known)
+        }
+        Err(error) => {
+            migration_note = Some(format!(
+                "pool migrations could not be checked ({error:#}); the newest generation is shown"
+            ))
+        }
+    }
     // Newest generation first; fall back to older ones only if it cannot be
     // interpreted as a drive (for example only name records).
     for (index, generation) in generations.iter().enumerate() {
@@ -50,9 +63,9 @@ pub(crate) fn browse(rclone: &str, pool: &str) -> anyhow::Result<PoolBrowse> {
             crate::mount::pool_sync::browse_v7(rclone, pool, epoch)?
                 .map(|(files, conflicts)| ("v7", files, conflicts))
         } else {
-            let transports = crate::mount::pool_sync::read_stores(rclone, pool, &policy, epoch)?;
-            let stores: Vec<_> = transports.iter().map(|t| t.as_ref()).collect();
-            project_v6(&stores)?.map(|(files, conflicts)| ("v6", files, conflicts))
+            // Includes checkpointed events (deleted from the event folder).
+            let events = crate::mount::metadata_pool::read_v6(rclone, pool, &policy, epoch)?;
+            project_events(events)?.map(|(files, conflicts)| ("v6", files, conflicts))
         };
         if let Some((mode, files, conflicts)) = found {
             let mut result = listing(pool, mode, files, &conflicts);
@@ -60,7 +73,7 @@ pub(crate) fn browse(rclone: &str, pool: &str) -> anyhow::Result<PoolBrowse> {
                 result.notes.insert(
                     0,
                     format!(
-                        "metadata generation {} (after Apply pool changes)",
+                        "metadata generation {} (after Apply pool changes or a pool migration)",
                         &epoch[..epoch.len().min(12)]
                     ),
                 );
@@ -72,6 +85,7 @@ pub(crate) fn browse(rclone: &str, pool: &str) -> anyhow::Result<PoolBrowse> {
                     format!("{older} older metadata generation(s) are not shown"),
                 );
             }
+            result.notes.extend(migration_note);
             return Ok(result);
         }
     }
@@ -86,10 +100,19 @@ type Files = std::collections::BTreeMap<String, u64>;
 type Conflicts = Vec<crate::mount::peer_projection::Conflict>;
 
 /// `None` when no v6 events exist in any replica.
+#[cfg(test)]
 fn project_v6(
     stores: &[&dyn crate::mount::pool_sync::EventStore],
 ) -> anyhow::Result<Option<(Files, Conflicts)>> {
-    let events = crate::mount::pool_sync::collect(stores, &Default::default())?;
+    project_events(crate::mount::pool_sync::collect(
+        stores,
+        &Default::default(),
+    )?)
+}
+
+fn project_events(
+    events: crate::mount::pool_sync::Events,
+) -> anyhow::Result<Option<(Files, Conflicts)>> {
     if events.is_empty() {
         return Ok(None);
     }

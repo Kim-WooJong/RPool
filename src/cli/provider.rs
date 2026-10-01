@@ -10,6 +10,18 @@ pub(crate) struct ProviderArgs {
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum ProviderCommands {
+    /// Daily upload budgets, bandwidth/request limits and inactivity warnings.
+    Limits(super::provider_limits::LimitsArgs),
+    /// One cheap authenticated call per account, recorded as activity.
+    /// Providers decide what counts as activity; this cannot guarantee that
+    /// an inactive account is kept.
+    Keepalive {
+        /// Account or crypt remote (repeat); default: every backing account.
+        #[arg(long = "remote")]
+        remotes: Vec<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// Add missing crypt remotes for base providers without replacing existing keys.
     EnsureEncryption {
         /// Deprecated compatibility option; ignored. Uses provider remote default path exactly.

@@ -1,6 +1,6 @@
 # rpool development rules
 
-Current delivery/version policy: [VERSIONING.md](docs/VERSIONING.md). Edit source directly in the Git repository; keep build products outside it using CARGO_TARGET_DIR. Historical ZIP delivery and reserved-version instructions below are superseded, not current requirements.
+Current delivery/version policy: [VERSIONING.md](docs/VERSIONING.md). Source lives in the Git repository and changes are recorded as Git commits; there are no source snapshots or ZIP deliveries. Build and test in a working copy under `projects/rpool/`, never inside the source repository, with `CARGO_TARGET_DIR` outside the source tree. Older checkpoint notes below that mention ZIP deliveries, reserved versions or "no cargo runs" are historical.
 
 ## Storage pivot validation checkpoint
 
@@ -114,11 +114,19 @@ For refactors and feature additions:
 - inspect CLI/README/CHANGELOG consistency;
 - do not rely on generated caches as the only metadata copy.
 
-`cargo check` and builds are intentionally not part of this project's requested development workflow unless explicitly requested later.
+Build validation, in this order (`scripts/ci-local.sh` runs the same steps):
+
+1. `cargo fmt --check`
+2. `cargo check --all-targets`
+3. `cargo clippy --all-targets -- -D warnings` — the crate still has pre-existing lints, so this is report-only for now; do not add new lints in touched files
+4. `cargo test` (and `cargo test -- --include-ignored` where rclone and age are installed; FUSE tests need `/dev/fuse` and the `e2e_*` tests need the Docker/cloud scripts)
+5. `cargo check --target x86_64-pc-windows-gnu --all-targets` when that target is installed (Windows is the primary GUI target)
+
+Trivial text or number changes need only a diff review; behaviour or structure changes need the steps above for the affected scope.
 
 ## GUI navigation structure
 
-The GUI exposes only six top-level work areas: Dashboard, Files, Storage, Jobs, Maintenance, and Settings. Feature-specific navigation belongs inside the owning screen folder rather than in the global sidebar.
+The GUI sidebar has eight top-level work areas (`src/gui/navigation.rs`): Overview, Drive, Files, Storage, Monitoring, Health, Activity and Settings. Feature-specific navigation belongs inside the owning screen folder rather than in the global sidebar.
 
 ## GUI visual rules
 
@@ -136,7 +144,7 @@ The GUI exposes only six top-level work areas: Dashboard, Files, Storage, Jobs, 
 - The cleanup list must be explicit; never delete broad directories or glob arbitrary user files.
 - The script must verify it is operating on an rpool project before deleting anything.
 - Keep `--dry-run` available so an in-place update can be inspected before removal.
-- A clean extraction should never require the cleanup script; it exists for safe overlay upgrades.
+- A clean Git checkout never requires the cleanup script; it exists for overlaying a newer tree onto an older copy.
 
 
 ## GUI progress protocol
@@ -179,10 +187,11 @@ The latest scrub/repair summary is stored as local derived metadata (`integrity.
 See `docs/CRYPT_SECRET_PORTABILITY.md` and
 `docs/CRYPT_SECRET_PORTABILITY_STATE.json` before continuing. B5 transactional
 restoration now supports both rclone-encrypted and ordinary plaintext rclone
-configs without creating additional plaintext staging/backup files. B6 real-tool tests are source-complete but have not been executed. B7 top-level
-`rpool export` / `rpool import` integration is complete. The current requested
-delivery is a full-project ZIP; normal future releases return to changed-file-only
-patch ZIPs unless a full project is explicitly requested.
+configs without creating additional plaintext staging/backup files. B7 top-level
+`rpool export` / `rpool import` integration is complete. The 11 ignored B6
+real-tool tests passed on macOS ARM64 and Linux ARM64 on 2026-09-24
+([runtime-validation](docs/architecture/runtime-validation.md)); Windows has not
+run them. The full-project ZIP delivery of this checkpoint is historical.
 
 
 ## Crypt Secret Portability checkpoint — B6
@@ -193,15 +202,17 @@ age identities and encrypted sentinels. It checks exact obscured-value preservat
 actual pre-existing crypt data decryption after restore, optional password2 behavior,
 idempotency, and fail-before-mutation behavior for wrong/missing identities, corrupted
 vaults, invalid schema, missing passwords, name mismatches and non-crypt targets.
-No B6 test was executed in this environment; only source-level static checks were run.
-B7 CLI orchestration is complete. The next planned project work returns to the v0.5.16 Settings / UI Persistence sequence after this portability checkpoint is validated on the user build environment.
+Run them with `cargo test -- --ignored config_sync::b6` (needs rclone, age and
+age-keygen). B7 CLI orchestration is complete. The planned v0.5.16 sequence was
+superseded by 0.6.0 (see `docs/VERSIONING.md`).
 # Cross-platform priority (2026-09-23)
 
 Windows is the primary user environment. New work must consider Windows,
 macOS and Linux, preserve native path/argument handling, and avoid shell-only
 test fixtures. Report executed platforms separately from intended support.
-The storage cross-platform GitHub Actions workflow covers all three OSes;
-writing that workflow is not evidence that those jobs have passed.
+The storage cross-platform GitHub Actions workflow covers all three OSes, but
+the repository has no remote, so it has never run; `scripts/ci-local.sh` is the
+check that is actually executed.
 The Step4 LocalBackend remains a Unix-only synthetic prototype; Windows
 reparse-safe local implementation is still pending. Step5 RcloneBackend and its
 Rust fake-process fixtures use cross-platform std process/I/O APIs.

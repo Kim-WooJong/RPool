@@ -16,6 +16,8 @@ pub(crate) struct ProviderCard<'a> {
     pub(crate) tone: StatusTone,
     /// Encryption is missing: offer manual setup for this provider.
     pub(crate) missing: bool,
+    /// Upload budget, pause and activity of this account.
+    pub(crate) limits: Option<&'a crate::provider::limits_view::AccountStatus>,
 }
 
 impl ProviderCard<'_> {
@@ -71,6 +73,7 @@ pub(crate) fn cards(state: &GuiState, running: bool) -> Vec<ProviderCard<'_>> {
                 status,
                 tone,
                 missing: form.discovery_known && missing,
+                limits: form.limits.row(name),
             }
         })
         .collect()

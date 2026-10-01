@@ -105,6 +105,12 @@ pub(crate) fn family_status(now: u64) -> NetStatus {
                 since_unix: now - 40,
                 message: "failed operations increased".into(),
             },
+            Alert {
+                kind: AlertKind::UploadLimit,
+                remote: Some("google_drive_backup_account_2_crypt:rpool".into()),
+                since_unix: now - 600,
+                message: "google_drive_backup_account_2_crypt:rpool: account google_drive_backup_account_2 reached its daily upload limit; uploads resume in 3 h 10 min".into(),
+            },
         ],
     }
 }

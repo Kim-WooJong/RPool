@@ -1,0 +1,267 @@
+{
+ " · next change in {wait}": {
+  "ko": "· {wait} 후 변경돼요",
+  "ja": "· {wait}後に変更",
+  "zh": "· {wait}后变更"
+ },
+ "{age} · inactivity warning at {days} days": {
+  "ko": "{age} · {days}일이 지나면 비활성 경고가 떠요",
+  "ja": "{age} · {days}日で非アクティブ警告",
+  "zh": "{age} · {days} 天时发出不活跃警告"
+ },
+ "{age} · over {days} days — keep it alive": {
+  "ko": "{age} · {days}일이 넘었어요 — 활성 유지를 실행하세요",
+  "ja": "{age} · {days}日を超えました — アクティブ維持を実行してください",
+  "zh": "{age} · 已超过 {days} 天 — 请执行保持活跃"
+ },
+ "{h} h {m} min": {
+  "ko": "{h}시간 {m}분",
+  "ja": "{h}時間{m}分",
+  "zh": "{h} 小时 {m} 分钟"
+ },
+ "{n} min": {
+  "ko": "{n}분",
+  "ja": "{n}分",
+  "zh": "{n} 分钟"
+ },
+ "{remote}: upload limit reached — uploads wait and resume automatically": {
+  "ko": "{remote}: 업로드 한도에 도달했어요 — 업로드는 대기했다가 자동으로 다시 시작돼요",
+  "ja": "{remote}: アップロード上限に達しました — アップロードは待機し、自動で再開します",
+  "zh": "{remote}：已达到上传限额 — 上传会等待并自动恢复"
+ },
+ "{up} up · {down} down": {
+  "ko": "업로드 {up} · 다운로드 {down}",
+  "ja": "アップロード {up} · ダウンロード {down}",
+  "zh": "上传 {up} · 下载 {down}"
+ },
+ "0 = no limit. Applied per rclone call (--tpslimit).": {
+  "ko": "0이면 제한이 없어요. rclone 호출마다 적용돼요(--tpslimit).",
+  "ja": "0 = 制限なし。rclone の呼び出しごとに適用されます（--tpslimit）。",
+  "zh": "0 = 不限制。按每次 rclone 调用应用（--tpslimit）。"
+ },
+ "A mount makes one cheap authenticated call to each of its accounts when it was idle that long. Providers decide what counts as activity.": {
+  "ko": "그 기간 동안 쓰지 않은 계정에는 마운트가 가벼운 인증 호출을 한 번 보내요. 무엇을 활동으로 볼지는 공급자가 정해요.",
+  "ja": "その期間使われていないアカウントには、マウントが軽い認証付き呼び出しを1回行います。何をアクティビティとみなすかはプロバイダーが決めます。",
+  "zh": "账户空闲达到该时长时，挂载会对其发起一次轻量的认证调用。什么算作活动由提供商决定。"
+ },
+ "An account reached its upload limit — uploads wait and resume automatically": {
+  "ko": "한 계정이 업로드 한도에 도달했어요 — 업로드는 대기했다가 자동으로 다시 시작돼요",
+  "ja": "アカウントがアップロード上限に達しました — アップロードは待機し、自動で再開します",
+  "zh": "某个账户已达到上传限额 — 上传会等待并自动恢复"
+ },
+ "Backend default ({days} days)": {
+  "ko": "백엔드 기본값({days}일)",
+  "ja": "バックエンドの既定値（{days}日）",
+  "zh": "后端默认值（{days} 天）"
+ },
+ "Backend default ({limit})": {
+  "ko": "백엔드 기본값({limit})",
+  "ja": "バックエンドの既定値（{limit}）",
+  "zh": "后端默认值（{limit}）"
+ },
+ "Backend default (none)": {
+  "ko": "백엔드 기본값(없음)",
+  "ja": "バックエンドの既定値（なし）",
+  "zh": "后端默认值（无）"
+ },
+ "Bandwidth for this account": {
+  "ko": "이 계정의 대역폭",
+  "ja": "このアカウントの帯域幅",
+  "zh": "此账户的带宽"
+ },
+ "Bandwidth limits for every RPool transfer on this computer. Off by default.": {
+  "ko": "이 컴퓨터에서 이루어지는 모든 RPool 전송의 대역폭 제한이에요. 기본값은 꺼짐이에요.",
+  "ja": "このコンピューターでのすべての RPool 転送に対する帯域幅制限です。既定ではオフです。",
+  "zh": "限制此电脑上所有 RPool 传输的带宽。默认关闭。"
+ },
+ "Bandwidth timetable": {
+  "ko": "대역폭 시간표",
+  "ja": "帯域幅タイムテーブル",
+  "zh": "带宽时间表"
+ },
+ "Bandwidth: {error}": {
+  "ko": "대역폭: {error}",
+  "ja": "帯域幅: {error}",
+  "zh": "带宽：{error}"
+ },
+ "Daily upload limit (rolling 24 h)": {
+  "ko": "일일 업로드 한도(최근 24시간)",
+  "ja": "1日のアップロード上限（直近24時間）",
+  "zh": "每日上传限额（滚动 24 小时）"
+ },
+ "Daily upload limit reached — uploads resume in {wait}": {
+  "ko": "일일 업로드 한도에 도달했어요 — {wait} 후 업로드가 다시 시작돼요",
+  "ja": "1日のアップロード上限に達しました — {wait}後にアップロードを再開します",
+  "zh": "已达到每日上传限额 — {wait}后恢复上传"
+ },
+ "days (0 = never)": {
+  "ko": "일 후(0이면 안 함)",
+  "ja": "日後（0 = しない）",
+  "zh": "天后（0 = 从不）"
+ },
+ "days without activity": {
+  "ko": "일 동안 활동이 없으면",
+  "ja": "日間アクティビティがない場合",
+  "zh": "天无活动时"
+ },
+ "GiB per 24 h": {
+  "ko": "GiB / 24시간",
+  "ja": "GiB / 24時間",
+  "zh": "GiB / 24 小时"
+ },
+ "Inactivity warning": {
+  "ko": "비활성 경고",
+  "ja": "非アクティブ警告",
+  "zh": "不活跃警告"
+ },
+ "Keep alive now": {
+  "ko": "지금 활성 유지",
+  "ja": "今すぐアクティブ維持",
+  "zh": "立即保持活跃"
+ },
+ "Keep idle accounts alive after": {
+  "ko": "쉬고 있는 계정을 활성 유지하는 시점",
+  "ja": "使われていないアカウントをアクティブ維持するまで",
+  "zh": "空闲账户保持活跃的间隔"
+ },
+ "Keeping {account} alive. See Jobs for the result.": {
+  "ko": "{account} 계정을 활성 유지하고 있어요. 결과는 작업에서 확인하세요.",
+  "ja": "{account} をアクティブ維持しています。結果はジョブで確認してください。",
+  "zh": "正在保持 {account} 活跃。结果请查看任务。"
+ },
+ "Last activity {age}": {
+  "ko": "마지막 활동 {age}",
+  "ja": "最終アクティビティ {age}",
+  "zh": "最近活动 {age}"
+ },
+ "Limits of {account}": {
+  "ko": "{account}의 한도",
+  "ja": "{account} の上限",
+  "zh": "{account} 的限制"
+ },
+ "Limits saved.": {
+  "ko": "한도를 저장했어요.",
+  "ja": "上限を保存しました。",
+  "zh": "限制已保存。"
+ },
+ "Limits…": {
+  "ko": "한도…",
+  "ja": "上限…",
+  "zh": "限制…"
+ },
+ "local time unknown, using UTC": {
+  "ko": "현지 시간을 알 수 없어 UTC를 사용해요",
+  "ja": "現地時刻が不明なため UTC を使用",
+  "zh": "无法确定本地时间，使用 UTC"
+ },
+ "Measured from this computer's successful calls. Providers decide what counts as activity; RPool cannot guarantee that API access keeps an account.": {
+  "ko": "이 컴퓨터에서 성공한 호출을 기준으로 측정해요. 무엇을 활동으로 볼지는 공급자가 정하므로, API 접근으로 계정이 유지된다고 RPool이 보장할 수는 없어요.",
+  "ja": "このコンピューターで成功した呼び出しから測定します。何をアクティビティとみなすかはプロバイダーが決めるため、API アクセスでアカウントが維持されることを RPool は保証できません。",
+  "zh": "根据此电脑上成功的调用统计。什么算作活动由提供商决定；RPool 无法保证 API 访问能保住账户。"
+ },
+ "Network": {
+  "ko": "네트워크",
+  "ja": "ネットワーク",
+  "zh": "网络"
+ },
+ "Never warn": {
+  "ko": "경고 안 함",
+  "ja": "警告しない",
+  "zh": "从不警告"
+ },
+ "No activity from this computer yet": {
+  "ko": "이 컴퓨터에서는 아직 활동이 없어요",
+  "ja": "このコンピューターからのアクティビティはまだありません",
+  "zh": "此电脑尚无活动记录"
+ },
+ "No bandwidth limit.": {
+  "ko": "대역폭 제한이 없어요.",
+  "ja": "帯域幅制限はありません。",
+  "zh": "无带宽限制。"
+ },
+ "No limit": {
+  "ko": "제한 없음",
+  "ja": "制限なし",
+  "zh": "不限制"
+ },
+ "Now: {rate} ({zone})": {
+  "ko": "현재: {rate} ({zone})",
+  "ja": "現在: {rate}（{zone}）",
+  "zh": "当前：{rate}（{zone}）"
+ },
+ "Oldest uploads leave the 24 h window in {wait}": {
+  "ko": "가장 오래된 업로드가 {wait} 후 24시간 범위에서 빠져요",
+  "ja": "最も古いアップロードは{wait}後に24時間の範囲から外れます",
+  "zh": "最早的上传将在 {wait}后移出 24 小时窗口"
+ },
+ "One cheap authenticated call to the account, recorded as activity.": {
+  "ko": "계정에 가벼운 인증 호출을 한 번 보내고 활동으로 기록해요.",
+  "ja": "アカウントに軽い認証付き呼び出しを1回行い、アクティビティとして記録します。",
+  "zh": "对账户发起一次轻量的认证调用，并记录为活动。"
+ },
+ "Provider upload limit — uploads retry in {wait}": {
+  "ko": "공급자 업로드 한도 — {wait} 후 업로드를 다시 시도해요",
+  "ja": "プロバイダーのアップロード上限 — {wait}後にアップロードを再試行します",
+  "zh": "提供商上传限额 — {wait}后重试上传"
+ },
+ "Providers decide what counts as activity; RPool cannot guarantee that its API access keeps an account.": {
+  "ko": "무엇을 활동으로 볼지는 공급자가 정하므로, RPool의 API 접근으로 계정이 유지된다고 보장할 수는 없어요.",
+  "ja": "何をアクティビティとみなすかはプロバイダーが決めるため、RPool の API アクセスでアカウントが維持されることは保証できません。",
+  "zh": "什么算作活动由提供商决定；RPool 无法保证其 API 访问能保住账户。"
+ },
+ "rclone --bwlimit syntax; empty or off = only the global limit.": {
+  "ko": "rclone --bwlimit 형식이에요. 비우거나 off면 전체 제한만 적용돼요.",
+  "ja": "rclone --bwlimit 形式。空または off = 全体の制限のみ。",
+  "zh": "rclone --bwlimit 语法；留空或 off = 仅使用全局限制。"
+ },
+ "rclone --bwlimit syntax: a rate (10M, or 10M:2M for upload:download) or TIME,RATE entries in local time, optionally with a day (Mon-08:00,1M). off = unlimited.": {
+  "ko": "rclone --bwlimit 형식이에요. 속도(10M, 업로드:다운로드는 10M:2M) 또는 현지 시간 기준 시간,속도 항목을 쓰고, 요일을 붙일 수도 있어요(Mon-08:00,1M). off는 무제한이에요.",
+  "ja": "rclone --bwlimit 形式: 速度（10M、アップロード:ダウンロードは 10M:2M）または現地時刻の 時刻,速度 の項目。曜日も指定できます（Mon-08:00,1M）。off = 無制限。",
+  "zh": "rclone --bwlimit 语法：一个速率（10M，或上传:下载写作 10M:2M），或按本地时间的 时间,速率 条目，可带星期（Mon-08:00,1M）。off = 不限制。"
+ },
+ "Requests per second must be zero or more.": {
+  "ko": "초당 요청 수는 0 이상이어야 해요.",
+  "ja": "1秒あたりのリクエスト数は0以上にしてください。",
+  "zh": "每秒请求数必须大于或等于 0。"
+ },
+ "Requests per second": {
+  "ko": "초당 요청 수",
+  "ja": "1秒あたりのリクエスト数",
+  "zh": "每秒请求数"
+ },
+ "Save limits": {
+  "ko": "한도 저장",
+  "ja": "上限を保存",
+  "zh": "保存限制"
+ },
+ "Save network settings": {
+  "ko": "네트워크 설정 저장",
+  "ja": "ネットワーク設定を保存",
+  "zh": "保存网络设置"
+ },
+ "The daily upload limit must be more than 0 GiB.": {
+  "ko": "일일 업로드 한도는 0 GiB보다 커야 해요.",
+  "ja": "1日のアップロード上限は 0 GiB より大きくしてください。",
+  "zh": "每日上传限额必须大于 0 GiB。"
+ },
+ "unlimited": {
+  "ko": "무제한",
+  "ja": "無制限",
+  "zh": "不限"
+ },
+ "Upload limit": {
+  "ko": "업로드 한도",
+  "ja": "アップロード上限",
+  "zh": "上传限额"
+ },
+ "Uploaded (24 h): {used} of {limit}": {
+  "ko": "업로드(24시간): {limit} 중 {used}",
+  "ja": "アップロード（24時間）: {limit} 中 {used}",
+  "zh": "已上传（24 小时）：{used} / {limit}"
+ },
+ "When the limit is reached, uploads to this account wait and resume by themselves; nothing is lost. Counted per computer.": {
+  "ko": "한도에 도달하면 이 계정으로의 업로드는 대기했다가 스스로 다시 시작돼요. 잃는 데이터는 없어요. 컴퓨터별로 집계해요.",
+  "ja": "上限に達すると、このアカウントへのアップロードは待機し、自動で再開します。データは失われません。コンピューターごとに集計します。",
+  "zh": "达到限额后，上传到此账户会等待并自动恢复，不会丢失数据。按每台电脑统计。"
+ }
+}

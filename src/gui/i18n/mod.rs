@@ -69,12 +69,17 @@ pub(crate) fn language() -> Language {
 
 /// Every table file. Each part of the GUI owns one, so translators do not
 /// edit the same file.
-const TABLES: [(&str, &str); 5] = [
+const TABLES: [(&str, &str); 10] = [
     ("core", include_str!("core.json")),
     ("drive", include_str!("drive.json")),
     ("storage", include_str!("storage.json")),
     ("files_health", include_str!("files_health.json")),
     ("monitoring", include_str!("monitoring.json")),
+    ("tooling", include_str!("tooling.json")),
+    ("metadata", include_str!("metadata.json")),
+    ("migration_retire", include_str!("migration_retire.json")),
+    ("limits", include_str!("limits.json")),
+    ("migration_drive", include_str!("migration_drive.json")),
 ];
 
 #[derive(Deserialize)]

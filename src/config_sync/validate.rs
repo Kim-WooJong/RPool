@@ -22,6 +22,9 @@ pub(crate) fn validate_bundle(bundle: &PortableConfig) -> Result<()> {
         );
     }
 
+    if let Some(limits) = &bundle.account_limits {
+        limits.validate()?;
+    }
     if let Some(binding) = &bundle.secret_vault {
         binding.validate()?;
         if bundle.crypt_remotes.is_empty() {

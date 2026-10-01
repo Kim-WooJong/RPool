@@ -83,3 +83,13 @@ pub(crate) fn remote_roots_path() -> Result<PathBuf> {
 pub(crate) fn integrity_snapshot_path() -> Result<PathBuf> {
     Ok(app_config_dir()?.join("integrity.json"))
 }
+
+/// Portable per-account limits and the bandwidth timetable.
+pub(crate) fn account_limits_path() -> Result<PathBuf> {
+    Ok(app_config_dir()?.join("account_limits.json"))
+}
+
+/// Machine-local per-account upload ledger and activity record.
+pub(crate) fn account_usage_path() -> Result<PathBuf> {
+    Ok(app_config_dir()?.join("account_usage.json"))
+}

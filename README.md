@@ -383,9 +383,12 @@ rpool history prune --keep 500
 ```text
 rpool doctor
 rpool doctor --json
+rpool doctor --bundle rpool-diagnostics.zip [--local-only] [--json]
 ```
 
-Doctor checks the rclone executable/version, discoverable remotes, pool validity, pool references to rclone remotes, shared configuration paths, inventory readability, and task-history readability. The GUI exposes Doctor under **Maintenance → Diagnostics**, metadata rebuild tools under **Maintenance → Metadata**, and history list/pruning under **Jobs**.
+Doctor checks the rclone executable/version, discoverable remotes, pool validity, pool references to rclone remotes, shared configuration paths, inventory readability, and task-history readability. `rclone-support` is FAIL below rclone v1.64.0 (minimum) and WARN below v1.74.3 (recommended; fixes CVE-2026-49980 in `--rc-serve`); see `src/doctor/rclone_version.rs` for the changelog evidence. The GUI shows a banner when the configured rclone is missing or too old. The GUI exposes Doctor under **Health → Diagnostics**, metadata rebuild tools under **Health → Metadata**, and history list/pruning under **Activity**.
+
+`--bundle FILE.zip` writes a diagnostics archive for bug reports (GUI: Settings › General › **Export diagnostics…**): rpool version/build/OS, `rclone version`, `rclone config redacted` (rclone's redaction, then RPool's own pass), the doctor report, `pools.json`/`gui.json`/`remote_roots.json`/`provider_domains.json`/`integrity.json` and mount registry entries with secret fields removed, the last 256 KiB of operation history and, per known workspace, the last 4 MiB of the mount log (1 MiB of the previous one), `net-status.json` and the newest network history file. `manifest.txt` lists every file, what was left out and the redaction rules. The rclone config file, crypt passwords, tokens, `.env` files, age identities and file contents are never included; RPool does not store speed test results, so none are included. Review the files before sharing.
 
 ## What changed in v0.3.0
 
@@ -905,8 +908,13 @@ An interrupted v0.1 upload plan without erasure coding can also be resumed becau
 
 ## Current limitations
 
-- Automatic repair restores recoverable shards to their manifest-declared provider/object paths. If an entire provider is permanently unavailable, use provider migration/drain while the source is still readable; direct repair-to-a-replacement-provider is not yet a single combined operation.
-- Provider failure domains are currently identified by configured remote-base strings. Two different rclone remotes or paths backed by the same physical/cloud account are not automatically recognized as the same failure domain.
+- Automatic repair restores recoverable shards to their manifest-declared provider/object paths. To replace an account, remove it from the pool and run `rpool pool migrate plan/run` (phase 1: download and re-upload; phase 2: server-side copies): shards of an unreadable account are rebuilt from K others. This covers uploaded archives only; the mounted drive is not migrated by it (membership changes there need "Apply pool changes").
+- Crypt remotes that resolve to the same backing remote count as one failure domain. Two different backing remotes of the same physical/cloud account are not detected automatically; declare them with the account capacity/outage identities (Storage › Pools, `provider_domains.json`).
+- Network monitoring covers mounted pools only, per mount process (totals start with the process). Speed tests run the remotes one after another; the prompt Ctrl-C/Stop with cleanup is described for macOS and Linux only.
+- Several pools can be mounted at once, but a pool, workspace (also nested) or mountpoint is used by one mount at a time.
+- The WinFsp frontend and the Windows seal/flush fix are compiled for Windows but not yet run on Windows.
+- On bucket backends `put` to crypt still fails (a missing key stats as a directory).
+- rclone v1.64.0 or newer is required and v1.74.3 or newer recommended (`rpool doctor`).
 - `rclone about` support varies by backend. The `usage` command reports `n/a` for values a provider does not expose.
 - Reed-Solomon protects shards inside each coding group. It does not replace backups, account recovery, or independent copies of the manifest.
 

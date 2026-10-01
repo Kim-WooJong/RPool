@@ -148,6 +148,11 @@ fn every_page_fits_small_medium_and_large_windows() {
             s.storage_section = StorageSection::Providers
         },
         |s| {
+            storage::providers::sample::with_limits_editor(s);
+            s.page = Page::Storage;
+            s.storage_section = StorageSection::Providers
+        },
+        |s| {
             s.page = Page::Storage;
             s.storage_section = StorageSection::Pools
         },
@@ -168,7 +173,14 @@ fn every_page_fits_small_medium_and_large_windows() {
         |s| migration(s, Step::Plan),
         |s| migration(s, Step::Review),
         |s| migration(s, Step::Run),
+        |s| migration(s, Step::Adopt),
         |s| migration(s, Step::Lost),
+        |s| {
+            migration(s, Step::Cleanup);
+            s.migration = storage::migration::cleanup_tests::sample_cleanup_form("family");
+            s.migration.cleanup.confirm_force =
+                Some(storage::migration::cleanup_state::CleanupAction::Quarantine);
+        },
         |s| {
             s.page = Page::Maintenance;
             s.maintenance_section = MaintenanceSection::Archive

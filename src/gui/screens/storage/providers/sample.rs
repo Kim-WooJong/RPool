@@ -55,4 +55,38 @@ pub(crate) fn providers(state: &mut GuiState) {
         });
     }
     state.providers.discovery_known = true;
+    limits(state);
+}
+
+/// Sample account limits: one Drive account paused by its daily budget, one
+/// half used, a OneDrive account near its inactivity warning.
+fn limits(state: &mut GuiState) {
+    use crate::storage::account::ledger::LedgerData;
+    let now = crate::utils::now_unix();
+    let mut ledger = LedgerData::default();
+    ledger.account("gdrive_1").add(now - 7_200, 700_000_000_000);
+    ledger.account("gdrive_1").add(now, 60_000_000_000);
+    ledger.account("gdrive_2").add(now - 3_600, 320_000_000_000);
+    ledger.note_activity("gdrive_1_crypt", now - 120);
+    ledger.note_activity("gdrive_2", now - 3 * 86_400);
+    ledger.note_activity("onedrive_work", now - 240 * 86_400);
+    ledger.note_activity("dropbox_main", now - 600);
+    ledger.account("pcloud").provider_pause_until = Some(now + 2_400);
+    let accounts = super::limits_cache::accounts(state);
+    let cache = &mut state.providers.limits;
+    cache.rows = crate::provider::limits_view::build(&accounts, &ledger, &cache.store, now);
+    cache.frozen = true;
+}
+
+/// [`providers`] with the limits editor of the first Drive account open.
+#[cfg(test)]
+pub(crate) fn with_limits_editor(state: &mut GuiState) {
+    providers(state);
+    state.providers.limits_editor = super::limits_dialog::LimitsEditor::open_for(
+        "gdrive_1",
+        "drive",
+        &state.providers.limits.store,
+    );
+    state.providers.limits_editor.daily = super::limits_dialog::Mode::Custom;
+    state.providers.limits_editor.warn = super::limits_dialog::Mode::Custom;
 }

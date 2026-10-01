@@ -14,6 +14,8 @@ struct Backend {
     fail_collect: bool,
     publications: usize,
     collections: usize,
+    /// Records only in metadata checkpoints (deleted from the record folders).
+    checkpointed: BTreeMap<(String, String), Vec<u8>>,
 }
 #[derive(Clone, Default)]
 struct FakeIo(Rc<RefCell<Backend>>);
@@ -140,6 +142,28 @@ impl Io for FakeIo {
         self.0.borrow_mut().collections += 1;
         resume_gc_with(self, path, proof)
     }
+    fn checkpointed(
+        &self,
+        known: &dyn Fn(&str, &str) -> bool,
+        _bootstrap: bool,
+    ) -> Result<super::super::metadata_pool::Checkpointed> {
+        let mut result = super::super::metadata_pool::Checkpointed::default();
+        for ((kind, id), bytes) in &self.0.borrow().checkpointed {
+            result
+                .covered
+                .entry(kind.clone())
+                .or_default()
+                .insert(id.clone());
+            if !known(kind, id) {
+                result.records.push((
+                    kind.clone(),
+                    id.clone(),
+                    String::from_utf8(bytes.clone()).unwrap(),
+                ));
+            }
+        }
+        Ok(result)
+    }
 }
 fn stage(d: &VirtualDrive, io: &FakeIo, path: &str, bytes: &[u8]) {
     // A new editor/read session observes the current version, not an old DAV pin.
@@ -219,6 +243,32 @@ fn injected_runtime_disjoint_pcs_and_publication_retry() {
         ])
     );
     assert_eq!(visible_bytes(&a, &io), visible_bytes(&b, &io));
+}
+
+#[test]
+fn records_only_in_checkpoints_bootstrap_a_new_pc_and_are_not_republished() {
+    let root_a = tempfile::tempdir().unwrap();
+    let root_b = tempfile::tempdir().unwrap();
+    let a = drive(root_a.path());
+    let b = drive(root_b.path());
+    let io = FakeIo::default();
+    stage(&a, &io, "alpha", b"alpha");
+    a.sync_snapshots_with(&io).unwrap();
+    // Compaction moved every record into a checkpoint and deleted the objects.
+    {
+        let mut state = io.0.borrow_mut();
+        let records = std::mem::take(&mut state.records);
+        state.checkpointed = records;
+    }
+    let publications = io.0.borrow().publications;
+    b.sync_snapshots_with(&io).unwrap();
+    assert_eq!(
+        visible_bytes(&b, &io),
+        BTreeMap::from([("alpha".into(), b"alpha".to_vec())])
+    );
+    // Durable in the checkpoint: b does not resurrect them as objects.
+    assert_eq!(io.0.borrow().publications, publications);
+    assert!(io.0.borrow().records.is_empty());
 }
 
 #[test]

@@ -874,3 +874,64 @@ fn traffic_counters_count_exact_bytes_outcomes_and_retries() {
     // Admin calls without an address are not metered.
     context.config_dump(&ctx).unwrap();
 }
+
+#[test]
+fn provider_upload_limits_map_to_their_own_wait_state() {
+    let limit = [
+        "ERROR : gd: Received upload limit error: googleapi: Error 403: User rate limit exceeded., userRateLimitExceeded",
+        "Failed to copy: googleapi: Error 403: User rate limit exceeded., userRateLimitExceeded",
+        "googleapi: Error 403: Daily Limit Exceeded, dailyLimitExceeded",
+    ];
+    for text in limit {
+        assert!(process::upload_limit_reported(text.as_bytes()), "{text}");
+    }
+    for other in [
+        // The short-term per-user limit stays an ordinary, retried rate limit.
+        "googleapi: Error 403: User Rate Limit Exceeded, userRateLimitExceeded",
+        "Received upload limit error: googleapi: Error 403: The user's Drive storage quota has been exceeded., storageQuotaExceeded",
+        "too_many_write_operations",
+        "",
+    ] {
+        assert!(!process::upload_limit_reported(other.as_bytes()), "{other}");
+    }
+    let classified = |text: &str| {
+        let status = Command::new(if cfg!(windows) { "cmd" } else { "false" })
+            .args(if cfg!(windows) {
+                &["/C", "exit 1"][..]
+            } else {
+                &[][..]
+            })
+            .status()
+            .unwrap();
+        process::classify(status, text.as_bytes(), true)
+    };
+    let error = classified(limit[0]);
+    assert!(process::is_upload_limit(&error) && error.is_retriable());
+    assert!(error.retry_after().is_none());
+    let ordinary =
+        classified("googleapi: Error 403: User Rate Limit Exceeded, userRateLimitExceeded");
+    assert_eq!(ordinary.kind(), StorageErrorKind::RateLimited);
+    assert!(!process::is_upload_limit(&ordinary));
+}
+
+#[test]
+fn write_account_reports_the_bottom_backend_type() {
+    let config: Value = serde_json::from_str(
+        r#"{"gd":{"type":"drive"},"gd_crypt":{"type":"crypt","remote":"gd:pool"},
+            "alias_c":{"type":"alias","remote":"gd_crypt:x"},"broken":{"type":"crypt"}}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        write_account(&config, "alias_c"),
+        ("gd".into(), "drive".into())
+    );
+    assert_eq!(write_account(&config, "gd"), ("gd".into(), "drive".into()));
+    assert_eq!(
+        write_account(&config, "broken"),
+        ("broken".into(), "crypt".into())
+    );
+    assert_eq!(
+        write_account(&config, "missing"),
+        ("missing".into(), String::new())
+    );
+}

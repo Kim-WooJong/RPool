@@ -99,6 +99,12 @@ impl Default for MountForm {
 }
 
 impl MountForm {
+    /// This PC's drive workspace of `pool`, when the Drive page has one set
+    /// (pool migration offers to switch it after adopting the drive).
+    pub(crate) fn workspace_of(&self, pool: &str) -> Option<String> {
+        let workspace = self.workspace.trim();
+        (self.pool == pool && !workspace.is_empty()).then(|| workspace.to_string())
+    }
     pub(crate) fn use_reprocess_plan(&mut self, path: &Path) {
         self.recovery_reprocess_plan = path.display().to_string();
         self.session.notice = Some(tr("Reprocess plan selected. Open Recover after account removal, choose the original workspace and a new destination pool/workspace. Only validated completed replacements will be reused.").into());

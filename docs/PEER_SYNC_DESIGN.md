@@ -15,7 +15,9 @@ MOVE changes stable file-ID directory entries as one operation, without payload 
 Direct edit originals are captured and hash-verified locally before admission;
 expired uncaptured originals fail explicitly. Policy is fixed and must match across
 clients. Legacy objects and unfinished/unpublished uploads are not swept. Retained
-bytes are recopied at collection boundaries; metadata itself remains unbounded.
+bytes are recopied at collection boundaries. Metadata records are checkpointed and,
+once enabled, compacted (bounded object count, lossless bytes); see
+[METADATA_COMPACTION_DESIGN.md](METADATA_COMPACTION_DESIGN.md).
 
 The older sections below explain the rationale and future extensions; they are not
 claims of implemented dynamic policy, bounded metadata bootstrap, full orphan GC,

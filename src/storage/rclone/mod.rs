@@ -1,6 +1,10 @@
 //! Single owning rclone data/admin subprocess adapter. Legacy raw addresses and
 //! typed keys share the same primitives, classification and crypt write gate.
 #[cfg(all(test, unix))]
+#[path = "account_rclone_tests.rs"]
+mod account_rclone_tests;
+mod bwlimit_schedule;
+#[cfg(all(test, unix))]
 #[path = "copy_tests.rs"]
 mod copy_tests;
 mod daemon;
@@ -10,6 +14,7 @@ mod daemon_tests;
 mod dirs;
 mod http;
 mod limit;
+mod pacer;
 mod process;
 #[cfg(test)]
 mod tests;
@@ -137,7 +142,48 @@ impl RcloneContext {
         })
     }
     fn op(&self, address: &str, direction: traffic::Direction) -> traffic::Op {
-        traffic::Op::begin(self.meter_name(address).as_deref(), direction)
+        let op = traffic::Op::begin(self.meter_name(address).as_deref(), direction);
+        let upload = match direction {
+            traffic::Direction::Upload => true,
+            traffic::Direction::Download => false,
+            traffic::Direction::Other => return op,
+        };
+        let settings = crate::storage::account::runtime::settings();
+        let mut keys = vec![pacer::Key::Global { upload }];
+        if settings.has_account_overrides() {
+            if let Some((name, _)) = self.account_of(address) {
+                if settings
+                    .store
+                    .account(&name)
+                    .is_some_and(|l| l.bwlimit.is_some())
+                {
+                    keys.push(pacer::Key::Account { name, upload });
+                }
+            }
+        }
+        op.paced(keys)
+    }
+    /// (account, backend type) of `address` (bottom of its crypt/alias chain).
+    fn account_of(&self, address: &str) -> Option<(String, String)> {
+        let ctx = OperationContext::with_deadline(Instant::now() + Duration::from_secs(30));
+        self.write_lane(&ctx, address)
+    }
+    /// rclone `--tpslimit` of the account behind `address`, when it has one.
+    fn tpslimit(&self, address: &str) -> Option<f64> {
+        let settings = crate::storage::account::runtime::settings();
+        if !settings.has_account_overrides() {
+            return None;
+        }
+        settings.tpslimit(&self.account_of(address)?.0)
+    }
+    /// The shared read daemon, unless the account behind `address` has a
+    /// request-rate limit: rclone applies `--tpslimit` per process, so those
+    /// reads use subprocesses carrying the flag.
+    fn daemon_for(&self, address: &str) -> Option<std::sync::Arc<daemon::Daemon>> {
+        if self.tpslimit(address).is_some() {
+            return None;
+        }
+        daemon::get(self)
     }
     /// Which rclone binary and config resolve addresses (paths only, no
     /// secrets): the same address under another config is another object.
@@ -155,11 +201,33 @@ impl RcloneContext {
     pub(crate) fn inherited(executable: &str) -> Self {
         Self::new(executable.into(), ConfigSelection::Inherited)
     }
-    fn command(&self, args: &[OsString]) -> Command {
+    /// The rclone command with exactly this context's executable, config and
+    /// environment (also what the read daemon starts with).
+    fn base_command(&self, args: &[OsString]) -> Command {
         let mut command = Command::new(&self.executable);
         command.env_clear().envs(self.environment.iter().cloned());
         if let ConfigSelection::File(path) = &self.config {
             command.arg("--config").arg(path);
+        }
+        command.args(args);
+        command
+    }
+    /// [`Self::base_command`] plus the global bandwidth timetable, which rclone
+    /// switches itself during long transfers (per rclone process; RPool's own
+    /// pacer additionally caps the sum of the bytes it pipes).
+    fn command(&self, args: &[OsString]) -> Command {
+        let mut command = self.base_command(&[]);
+        if let Some(timetable) = &crate::storage::account::runtime::settings().store.bandwidth {
+            command.arg("--bwlimit").arg(timetable);
+        }
+        command.args(args);
+        command
+    }
+    /// [`Self::command`] plus per-account flags of the account behind `address`.
+    fn command_for(&self, address: &str, args: &[OsString]) -> Command {
+        let mut command = self.command(&[]);
+        if let Some(tps) = self.tpslimit(address) {
+            command.arg("--tpslimit").arg(tps.to_string());
         }
         command.args(args);
         command
@@ -182,14 +250,12 @@ impl RcloneContext {
             None => None,
         };
         let op = address.map(|address| self.op(address, traffic::Direction::Other));
-        let result = process::run_metered(
-            &mut self.command(&args.iter().map(OsString::from).collect::<Vec<_>>()),
-            ctx,
-            None,
-            &mut sink,
-            false,
-            op.as_ref(),
-        );
+        let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+        let mut command = match address {
+            Some(address) => self.command_for(address, &args),
+            None => self.command(&args),
+        };
+        let result = process::run_metered(&mut command, ctx, None, &mut sink, false, op.as_ref());
         if let Some(op) = op {
             op.finish(&result);
         }
@@ -203,7 +269,7 @@ impl RcloneContext {
         ctx: &OperationContext,
         address: &str,
     ) -> Result<Vec<u8>, StorageError> {
-        if let Some(daemon) = daemon::get(self) {
+        if let Some(daemon) = self.daemon_for(address) {
             let _permit = permit(ctx, address)?;
             let op = self.op(address, traffic::Direction::Other);
             match daemon.list(ctx, address, LIST_LIMIT) {
@@ -228,7 +294,10 @@ impl RcloneContext {
         let _permit = permit(ctx, address)?;
         let op = self.op(address, traffic::Direction::Other);
         let result = process::run_metered(
-            &mut self.command(&args.iter().map(OsString::from).collect::<Vec<_>>()),
+            &mut self.command_for(
+                address,
+                &args.iter().map(OsString::from).collect::<Vec<_>>(),
+            ),
             ctx,
             None,
             &mut sink,
@@ -323,7 +392,7 @@ impl RcloneContext {
         address: &str,
         hashes: &[String],
     ) -> Result<Vec<u8>, StorageError> {
-        if let Some(daemon) = daemon::get(self) {
+        if let Some(daemon) = self.daemon_for(address) {
             let opt = if hashes.is_empty() {
                 json!({})
             } else {
@@ -417,13 +486,14 @@ impl RcloneContext {
         };
         let mut written = 0u64;
         let mut op = None;
-        if let Some(daemon) = daemon::get(self) {
+        if let Some(daemon) = self.daemon_for(address) {
             let outcome = {
                 let _permit = permit(ctx, address)?;
                 let op = op.insert(self.op(address, traffic::Direction::Download));
                 let mut metered = traffic::Metered {
                     sink: &mut bounded,
                     op,
+                    ctx,
                 };
                 daemon.read(ctx, address, offset, count, &mut metered, &mut written)
             };
@@ -471,7 +541,7 @@ impl RcloneContext {
         let _permit = permit(ctx, address)?;
         let op = op.unwrap_or_else(|| self.op(address, traffic::Direction::Download));
         let result = process::run_metered(
-            &mut self.command(&args),
+            &mut self.command_for(address, &args),
             ctx,
             None,
             &mut bounded,
@@ -533,20 +603,40 @@ impl RcloneContext {
         if let Some(size) = size {
             args.extend(["--size".into(), size.to_string().into()]);
         }
+        let account = self.write_lane(ctx, address);
+        if account.as_ref().is_some_and(|(_, kind)| kind == "drive") {
+            // Drive's daily upload limit then fails at once with a clear text.
+            args.push("--drive-stop-on-upload-limit".into());
+        }
         args.extend(["--".into(), address.into()]);
+        let meter = self.meter_name(address).unwrap_or_default();
+        if let Some((name, kind)) = &account {
+            crate::storage::account::runtime::admit(&meter, name, kind)?;
+        }
         self.ensure_parent_dir(ctx, address);
         // The source stream is consumed, so a rejected upload is reported as
         // retriable (RateLimited) instead of being retried here.
         let _permits = self.mutation_permits(ctx, address)?;
         let op = self.op(address, traffic::Direction::Upload);
+        let mut counted = Counted {
+            inner: source,
+            bytes: 0,
+        };
         let result = process::run_metered(
-            &mut self.command(&args),
+            &mut self.command_for(address, &args),
             ctx,
-            Some(source),
+            Some(&mut counted),
             &mut io::sink(),
             true,
             Some(&op),
         );
+        if let Some((name, _)) = &account {
+            // Bytes that reached rclone count, whatever the outcome.
+            crate::storage::account::runtime::record_upload(name, counted.bytes);
+            if result.as_ref().is_err_and(process::is_upload_limit) {
+                crate::storage::account::runtime::record_provider_limit(&meter, name);
+            }
+        }
         if let Ok(size) = result {
             op.acked(size);
         }
@@ -780,15 +870,15 @@ impl RcloneContext {
         let lane = self.write_lane(ctx, address);
         let general = permit(ctx, address)?;
         let write = match &lane {
-            Some((base, dropbox)) => Some(limit::acquire_write(base, *dropbox, ctx)?),
+            Some((base, kind)) => Some(limit::acquire_write(base, kind == "dropbox", ctx)?),
             None => None,
         };
         Ok((general, write))
     }
-    /// (bottom remote of the crypt/alias chain, is Dropbox), cached per
+    /// (bottom remote of the crypt/alias chain, its backend type), cached per
     /// config selection and remote name. Unresolvable -> the addressed name.
-    fn write_lane(&self, ctx: &OperationContext, address: &str) -> Option<(String, bool)> {
-        type Cache = HashMap<(Option<PathBuf>, Option<OsString>, String), (String, bool)>;
+    fn write_lane(&self, ctx: &OperationContext, address: &str) -> Option<(String, String)> {
+        type Cache = HashMap<(Option<PathBuf>, Option<OsString>, String), (String, String)>;
         static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
         let name = remote_name(address).ok()?;
         let key = (
@@ -807,9 +897,9 @@ impl RcloneContext {
             return Some(lane.clone());
         }
         let Ok(config) = self.config_dump(ctx) else {
-            return Some((name.to_owned(), false));
+            return Some((name.to_owned(), String::new()));
         };
-        let lane = write_base(&config, name);
+        let lane = write_account(&config, name);
         cache.lock().ok()?.insert(key, lane.clone());
         Some(lane)
     }
@@ -824,6 +914,14 @@ impl RcloneContext {
     ) -> Result<(), StorageError> {
         let mut attempt = 0;
         let mut op = None;
+        let meter = self.meter_name(address).unwrap_or_default();
+        let account = match direction {
+            traffic::Direction::Upload => self.write_lane(ctx, address),
+            _ => None,
+        };
+        if let Some((name, kind)) = &account {
+            crate::storage::account::runtime::admit(&meter, name, kind)?;
+        }
         loop {
             let result = {
                 let _permits = self.mutation_permits(ctx, address)?;
@@ -837,9 +935,15 @@ impl RcloneContext {
                     Some(op),
                 )
             };
+            if let (Some((name, _)), Err(error)) = (&account, &result) {
+                if process::is_upload_limit(error) {
+                    crate::storage::account::runtime::record_provider_limit(&meter, name);
+                }
+            }
             match result {
                 Err(error)
                     if error.kind() == crate::storage::error::StorageErrorKind::RateLimited
+                        && !process::is_upload_limit(&error)
                         && attempt < REJECTED_RETRIES =>
                 {
                     if let Some(op) = &op {
@@ -876,35 +980,52 @@ fn backoff(ctx: &OperationContext, attempt: u32) -> Result<(), StorageError> {
 /// The storage namespace a write to remote `name` lands in: follows
 /// single-remote wrappers (`crypt`, `alias`, ...) through their `remote =`.
 pub(crate) fn write_base(config: &Value, name: &str) -> (String, bool) {
+    let (base, kind) = write_account(config, name);
+    (base, kind == "dropbox")
+}
+
+/// [`write_base`] with the bottom remote's backend type (lowercase; empty
+/// when unknown): the cloud account a write to `name` is charged to.
+pub(crate) fn write_account(config: &Value, name: &str) -> (String, String) {
     let mut current = name.to_owned();
     for _ in 0..8 {
         let Some(entry) = config.get(&current) else {
-            break;
+            return (current, String::new());
         };
         let kind = entry
             .get("type")
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_ascii_lowercase();
-        if kind == "dropbox" {
-            return (current, true);
-        }
         if !matches!(
             kind.as_str(),
             "crypt" | "alias" | "chunker" | "compress" | "hasher" | "cache"
         ) {
-            break;
+            return (current, kind);
         }
         let Some(next) = entry
             .get("remote")
             .and_then(Value::as_str)
             .and_then(|remote| remote_name(remote).ok())
         else {
-            break;
+            return (current, kind);
         };
         current = next.to_owned();
     }
-    (current, false)
+    (current, String::new())
+}
+
+/// Counts the bytes rclone read from an upload source.
+struct Counted<'a> {
+    inner: &'a mut dyn Read,
+    bytes: u64,
+}
+impl Read for Counted<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let n = self.inner.read(buffer)?;
+        self.bytes += n as u64;
+        Ok(n)
+    }
 }
 
 /// One slot of the general per-remote cap for the remote of `address`.

@@ -41,10 +41,30 @@ pub(crate) fn relocate_transfer(
     moving: &BTreeSet<u32>,
     features: &dyn Fn(&str) -> Option<CopyFeatures>,
 ) -> Result<Transfer> {
-    let mut out = Transfer::default();
     if moving.is_empty() {
-        return Ok(out);
+        return Ok(Transfer::default());
     }
+    copy_transfer(manifest, states, moving, features)
+}
+
+/// A full copy of an archive whose shards all stay on their remotes (a v7
+/// drive payload copied into a new generation's private owner): every kept
+/// shard is copied as `relocate_transfer` counts it.
+pub(crate) fn private_copy_transfer(
+    manifest: &Manifest,
+    states: &[ShardState],
+    features: &dyn Fn(&str) -> Option<CopyFeatures>,
+) -> Result<Transfer> {
+    copy_transfer(manifest, states, &BTreeSet::new(), features)
+}
+
+fn copy_transfer(
+    manifest: &Manifest,
+    states: &[ShardState],
+    moving: &BTreeSet<u32>,
+    features: &dyn Fn(&str) -> Option<CopyFeatures>,
+) -> Result<Transfer> {
+    let mut out = Transfer::default();
     let add = |a: u64, b: u64| a.checked_add(b).context("transfer estimate overflow");
     for view in groups(manifest) {
         // Provider copy abilities of each member (None: not copied server-side).

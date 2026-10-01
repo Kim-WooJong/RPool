@@ -10,15 +10,18 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
-const EVENT_LIMIT: usize = 8 * 1024 * 1024;
-const EVENT_COUNT_LIMIT: usize = 10_000;
-const TOTAL_LIMIT: usize = 64 * 1024 * 1024;
+use super::metadata_limits::{
+    LEGACY_BOOTSTRAP_BYTES as TOTAL_LIMIT, LEGACY_BOOTSTRAP_RECORDS as EVENT_COUNT_LIMIT,
+    RECORD_BYTES_MAX as EVENT_LIMIT,
+};
 
 pub(crate) struct SharedTransport {
     rclone: String,
     root: String,
     /// Pool destinations with `native_crypt`: RPool encrypts metadata itself.
     native_crypt: bool,
+    /// Object directory below `root` (`events` for every record family).
+    dir: &'static str,
 }
 
 #[derive(Deserialize)]
@@ -74,7 +77,13 @@ impl SharedTransport {
             rclone: rclone.into(),
             root: root.trim_end_matches('/').into(),
             native_crypt: false,
+            dir: "events",
         })
+    }
+    /// Objects in `<root>/<dir>/` instead of `<root>/events/` (checkpoints).
+    pub(crate) fn in_dir(mut self, dir: &'static str) -> Self {
+        self.dir = dir;
+        self
     }
     /// Metadata written into a native-crypt pool is encrypted by RPool.
     pub(crate) fn with_native_crypt(mut self, native_crypt: bool) -> Self {
@@ -86,14 +95,30 @@ impl SharedTransport {
         &self,
         known: &std::collections::BTreeSet<String>,
     ) -> Result<BTreeMap<String, Vec<u8>>> {
+        let mut result = BTreeMap::new();
+        let (mut count, mut total) = (0usize, 0usize);
+        for (id, size) in self.entries(known, Some((&mut count, &mut total)))? {
+            let bytes = self.read_verified(&id, size)?;
+            if result.insert(id, bytes).is_some() {
+                bail!("duplicate shared event listing");
+            }
+        }
+        Ok(result)
+    }
+
+    /// Listing only: unseen `(id, size)`. `budget` (count, bytes) enforces
+    /// the legacy bootstrap bound while listing, before any read.
+    pub(crate) fn entries(
+        &self,
+        known: &std::collections::BTreeSet<String>,
+        mut budget: Option<(&mut usize, &mut usize)>,
+    ) -> Result<Vec<(String, u64)>> {
         let context = RcloneContext::inherited(&self.rclone);
         let operation = OperationContext::none();
         context.ensure_crypt(&operation, &self.root)?;
-        let events = remote_join(&self.root, "events");
-        let storage = StorageWriter::for_pool(&self.rclone, self.native_crypt);
-        let mut result = BTreeMap::new();
-        let mut total = 0usize;
-        let mut count = 0usize;
+        let events = remote_join(&self.root, self.dir);
+        let mut result = Vec::new();
+        let (mut unbounded_count, mut unbounded_total) = (0usize, 0usize);
         // Most roots have a small event directory: one bounded listing avoids
         // 16 remote round trips. If it exceeds the existing 8 MiB output cap,
         // retain the original hash-prefix pages rather than relaxing that cap.
@@ -128,27 +153,56 @@ impl SharedTransport {
                 };
                 serde_json::from_slice(&listing)?
             };
-            for (id, entry) in missing_entries(entries, known, prefix, &mut count, &mut total)? {
-                let address = remote_join(&events, &entry.path);
-                let metadata = storage.reader().stat(&address)?;
-                if metadata.size != entry.size as u64 {
-                    bail!("shared event changed during listing");
-                }
-                let bytes = storage.reader().read_metadata(&address)?;
-                validate_event(&id, &bytes)?;
-                if result.insert(id, bytes).is_some() {
-                    bail!("duplicate shared event listing");
-                }
-            }
+            let found = match budget.as_mut() {
+                Some((count, total)) => missing_entries(entries, known, prefix, count, total)?,
+                None => unbounded_entries(
+                    entries,
+                    known,
+                    prefix,
+                    &mut unbounded_count,
+                    &mut unbounded_total,
+                )?,
+            };
+            result.extend(found.into_iter().map(|(id, e)| (id, e.size as u64)));
         }
         Ok(result)
+    }
+
+    /// One listed object, verified against its listed size and id hash.
+    pub(crate) fn read_verified(&self, id: &str, size: u64) -> Result<Vec<u8>> {
+        if !valid_id(id) {
+            bail!("invalid shared event identity");
+        }
+        let storage = StorageWriter::for_pool(&self.rclone, self.native_crypt);
+        let address = remote_join(&self.root, &format!("{}/{id}.json", self.dir));
+        let metadata = storage.reader().stat(&address)?;
+        if metadata.size != size {
+            bail!("shared event changed during listing");
+        }
+        let bytes = storage.reader().read_metadata(&address)?;
+        validate_event(id, &bytes)?;
+        Ok(bytes)
+    }
+
+    /// Removes one object; already absent is success.
+    pub(crate) fn remove(&self, id: &str) -> Result<()> {
+        if !valid_id(id) {
+            bail!("invalid shared event identity");
+        }
+        let storage = StorageWriter::for_pool(&self.rclone, self.native_crypt);
+        storage.ensure_destination(&self.root)?;
+        let address = remote_join(&self.root, &format!("{}/{id}.json", self.dir));
+        match storage.delete(&address) {
+            Err(error) if missing(&error) => Ok(()),
+            result => result,
+        }
     }
 
     pub(crate) fn publish(&self, id: &str, bytes: &[u8]) -> Result<()> {
         validate_event(id, bytes)?;
         let storage = StorageWriter::for_pool(&self.rclone, self.native_crypt);
         storage.ensure_destination(&self.root)?;
-        let address = remote_join(&self.root, &format!("events/{id}.json"));
+        let address = remote_join(&self.root, &format!("{}/{id}.json", self.dir));
         match storage.reader().stat(&address) {
             Ok(metadata) => {
                 if metadata.size != bytes.len() as u64 {
@@ -196,6 +250,26 @@ fn missing_entries(
     count: &mut usize,
     total: &mut usize,
 ) -> Result<Vec<(String, Listed)>> {
+    missing_entries_with(
+        entries,
+        known,
+        prefix,
+        count,
+        total,
+        EVENT_COUNT_LIMIT,
+        TOTAL_LIMIT,
+    )
+}
+
+fn missing_entries_with(
+    entries: Vec<Listed>,
+    known: &std::collections::BTreeSet<String>,
+    prefix: u8,
+    count: &mut usize,
+    total: &mut usize,
+    count_limit: usize,
+    total_limit: usize,
+) -> Result<Vec<(String, Listed)>> {
     let mut seen = std::collections::BTreeSet::new();
     let mut missing = vec![];
     for entry in entries {
@@ -223,12 +297,53 @@ fn missing_entries(
         *total = total
             .checked_add(entry.size as usize)
             .context("shared event size overflow")?;
-        if *count > EVENT_COUNT_LIMIT || *total > TOTAL_LIMIT {
+        if *count > count_limit || *total > total_limit {
             bail!("unseen shared history exceeds bounded bootstrap budget (10,000 events / 64 MiB). Existing known history is not charged; preserve workspace and use a coordinated new-root checkpoint before further growth");
         }
         missing.push((id.to_owned(), entry));
     }
     Ok(missing)
+}
+
+/// Same validation as [`missing_entries`] without the legacy budget; the
+/// caller pages reads and applies the streaming ceiling.
+fn unbounded_entries(
+    entries: Vec<Listed>,
+    known: &std::collections::BTreeSet<String>,
+    prefix: u8,
+    count: &mut usize,
+    total: &mut usize,
+) -> Result<Vec<(String, Listed)>> {
+    let (mut c, mut t) = (0usize, 0usize);
+    let found = missing_entries_with(
+        entries,
+        known,
+        prefix,
+        &mut c,
+        &mut t,
+        usize::MAX,
+        usize::MAX,
+    )?;
+    *count = count
+        .checked_add(c)
+        .context("shared event count overflow")?;
+    *total = total.checked_add(t).context("shared event size overflow")?;
+    Ok(found)
+}
+
+impl super::metadata_dir::ObjectDir for SharedTransport {
+    fn list(&self) -> Result<Vec<(String, u64)>> {
+        self.entries(&Default::default(), None)
+    }
+    fn read(&self, id: &str, size: u64) -> Result<Vec<u8>> {
+        self.read_verified(id, size)
+    }
+    fn publish(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        SharedTransport::publish(self, id, bytes)
+    }
+    fn remove(&self, id: &str) -> Result<()> {
+        SharedTransport::remove(self, id)
+    }
 }
 
 #[cfg(test)]

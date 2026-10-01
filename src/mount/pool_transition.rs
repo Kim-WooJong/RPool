@@ -188,6 +188,10 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
         .unwrap_or_else(|| workspace.clone());
     recovery::no_symlinks(&source_path)?;
     super::adapter::preflight_virtual(&source_path)?;
+    if !journal_path.exists() {
+        // A pool migration owns this drive's next generation.
+        super::adoption_fence::check_transition_source(rclone, &args.pool, &source_path)?;
+    }
     let temporary_cache = tempfile::tempdir()?;
     let cache_limit = args
         .cache_gib

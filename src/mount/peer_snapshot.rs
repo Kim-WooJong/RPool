@@ -6,6 +6,9 @@ use super::shared_model::{Content, Event};
 use super::virtual_drive::VirtualDrive;
 use crate::prelude::*;
 
+/// Pool change migration: read a generation, build adopted records.
+#[path = "peer_snapshot_migration.rs"]
+pub(crate) mod migration;
 #[path = "peer_snapshot_native.rs"]
 mod native;
 #[cfg(test)]
@@ -20,6 +23,15 @@ trait Io {
     fn verify(&self, manifest: &Manifest) -> Result<()>;
     fn capture(&self, manifest: &Manifest, output: &Path) -> Result<()>;
     fn gc(&self, path: &Path, proof: &mut dyn FnMut(&str, &str) -> Result<()>) -> Result<()>;
+    /// Records from metadata checkpoints (bootstrap, or once deletion is
+    /// enabled). Fakes without checkpoints return nothing.
+    fn checkpointed(
+        &self,
+        _known: &dyn Fn(&str, &str) -> bool,
+        _bootstrap: bool,
+    ) -> Result<super::metadata_pool::Checkpointed> {
+        Ok(Default::default())
+    }
 }
 struct LiveIo<'a> {
     drive: &'a VirtualDrive,
@@ -66,6 +78,13 @@ impl Io for LiveIo<'_> {
     }
     fn gc(&self, p: &Path, proof: &mut dyn FnMut(&str, &str) -> Result<()>) -> Result<()> {
         self.store.resume_gc(p, proof)
+    }
+    fn checkpointed(
+        &self,
+        known: &dyn Fn(&str, &str) -> bool,
+        bootstrap: bool,
+    ) -> Result<super::metadata_pool::Checkpointed> {
+        super::metadata_pool::v7_checkpointed(self.drive, &self.store, known, bootstrap)
     }
 }
 
@@ -187,6 +206,27 @@ fn frontier(state: &State, analysis: &model::Analysis, file: &str) -> BTreeSet<S
         .filter(|id| state.snapshots[*id].file_id == file)
         .cloned()
         .collect()
+}
+/// One downloaded or checkpointed v7 record, verified against its id.
+fn insert_record(state: &mut State, kind: &str, id: &str, bytes: &[u8]) -> Result<()> {
+    match kind {
+        "snapshots" => {
+            let snapshot: Snapshot = serde_json::from_slice(bytes)?;
+            if snapshot.id()? != id {
+                bail!("v7 snapshot identity mismatch");
+            }
+            state.snapshots.insert(id.into(), snapshot);
+        }
+        "names" => {
+            let op: NameOp = serde_json::from_slice(bytes)?;
+            if hash(&op)? != id {
+                bail!("v7 name identity mismatch");
+            }
+            state.names.insert(id.into(), op);
+        }
+        _ => bail!("invalid v7 record kind"),
+    }
+    Ok(())
 }
 impl VirtualDrive {
     fn snapshot_policy(&self) -> Result<Policy> {
@@ -537,24 +577,39 @@ impl VirtualDrive {
         Ok(())
     }
     fn refresh_snapshots(&self, state: &mut State, store: &dyn Io) -> Result<model::Analysis> {
-        for (id, bytes) in store.collect("snapshots", &state.snapshots.keys().cloned().collect())? {
-            let snapshot: Snapshot = serde_json::from_slice(&bytes)?;
-            if snapshot.id()? != id {
-                bail!("v7 snapshot identity mismatch");
+        let bootstrap = state.snapshots.is_empty() && state.names.is_empty();
+        let checkpointed = {
+            let known = |kind: &str, id: &str| match kind {
+                "snapshots" => state.snapshots.contains_key(id),
+                _ => state.names.contains_key(id),
+            };
+            store.checkpointed(&known, bootstrap)?
+        };
+        for (kind, id, text) in &checkpointed.records {
+            insert_record(state, kind, id, text.as_bytes())?;
+        }
+        // Checkpointed records are durable in the checkpoint on every replica.
+        for id in checkpointed.covered.get("snapshots").into_iter().flatten() {
+            if state.snapshots.contains_key(id) {
+                state.published_snapshots.insert(id.clone());
             }
-            state.snapshots.insert(id, snapshot);
+        }
+        for id in checkpointed.covered.get("names").into_iter().flatten() {
+            if state.names.contains_key(id) {
+                state.published_names.insert(id.clone());
+            }
+        }
+        for (id, bytes) in store.collect("snapshots", &state.snapshots.keys().cloned().collect())? {
+            insert_record(state, "snapshots", &id, &bytes)?;
         }
         for (id, bytes) in store.collect("names", &state.names.keys().cloned().collect())? {
-            let op: NameOp = serde_json::from_slice(&bytes)?;
-            if hash(&op)? != id {
-                bail!("v7 name identity mismatch");
-            }
-            state.names.insert(id, op);
+            insert_record(state, "names", &id, &bytes)?;
         }
         self.validate_snapshot_locations(state)?;
         let result = model::analyze(&state.snapshots, &self.snapshot_policy()?)?;
         validate_names(state)?;
         self.save_snapshot_state(state)?;
+        checkpointed.commit()?;
         Ok(result)
     }
     fn replicate_snapshots(&self, state: &mut State, store: &dyn Io) -> Result<()> {
@@ -719,12 +774,23 @@ impl VirtualDrive {
     /// (`None` when only name records exist).
     fn seed_snapshots_with(&self, store: &dyn Io) -> Result<Option<Option<usize>>> {
         let mut state = self.snapshot_state()?;
-        for (id, bytes) in store.collect("snapshots", &state.snapshots.keys().cloned().collect())? {
-            let snapshot: Snapshot = serde_json::from_slice(&bytes)?;
-            if snapshot.id()? != id {
-                bail!("v7 snapshot identity mismatch");
+        // Not committed: the following pull reads these chunks again for names.
+        let checkpointed = {
+            let known =
+                |kind: &str, id: &str| kind == "snapshots" && state.snapshots.contains_key(id);
+            store.checkpointed(&known, state.snapshots.is_empty())?
+        };
+        let checkpointed_names = checkpointed
+            .records
+            .iter()
+            .any(|(kind, ..)| kind == "names");
+        for (kind, id, text) in &checkpointed.records {
+            if kind == "snapshots" {
+                insert_record(&mut state, kind, id, text.as_bytes())?;
             }
-            state.snapshots.insert(id, snapshot);
+        }
+        for (id, bytes) in store.collect("snapshots", &state.snapshots.keys().cloned().collect())? {
+            insert_record(&mut state, "snapshots", &id, &bytes)?;
         }
         let genesis = self.snapshot_policy()?.genesis_id;
         let limits: BTreeSet<_> = state
@@ -736,7 +802,10 @@ impl VirtualDrive {
         if limits.len() > 1 {
             bail!("pool snapshots record different history limits; cannot browse consistently");
         }
-        if state.snapshots.is_empty() && store.collect("names", &BTreeSet::new())?.is_empty() {
+        if state.snapshots.is_empty()
+            && !checkpointed_names
+            && store.collect("names", &BTreeSet::new())?.is_empty()
+        {
             return Ok(None);
         }
         self.save_snapshot_state(&state)?;

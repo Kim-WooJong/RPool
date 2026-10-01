@@ -1,0 +1,317 @@
+{
+ "drive revision (never cleaned up here)": {
+  "ko": "드라이브 리비전(여기서는 정리하지 않아요)",
+  "ja": "ドライブのリビジョン（ここでは整理しません）",
+  "zh": "驱动器修订版本（此处不清理）"
+ },
+ "not replaced; the original is all there is": {
+  "ko": "교체되지 않았어요. 원본이 유일한 사본이에요",
+  "ja": "置き換えられていません。元のデータが唯一のコピーです",
+  "zh": "未被替换；原件是唯一的副本"
+ },
+ "replacement did not pass re-verification": {
+  "ko": "교체본이 재검증을 통과하지 못했어요",
+  "ja": "置き換え先が再検証に合格しませんでした",
+  "zh": "替换副本未通过重新验证"
+ },
+ "original changed after the migration": {
+  "ko": "이전 후에 원본이 바뀌었어요",
+  "ja": "移行後に元のデータが変更されました",
+  "zh": "迁移后原件已更改"
+ },
+ "original could not be read": {
+  "ko": "원본을 읽을 수 없어요",
+  "ja": "元のデータを読み取れません",
+  "zh": "无法读取原件"
+ },
+ "an object is outside its archive folder": {
+  "ko": "객체가 아카이브 폴더 밖에 있어요",
+  "ja": "オブジェクトがアーカイブのフォルダー外にあります",
+  "zh": "有对象位于其归档文件夹之外"
+ },
+ "still referenced": {
+  "ko": "아직 참조되고 있어요",
+  "ja": "まだ参照されています",
+  "zh": "仍被引用"
+ },
+ "some references could not be read": {
+  "ko": "일부 참조를 읽을 수 없어요",
+  "ja": "一部の参照を読み取れません",
+  "zh": "部分引用无法读取"
+ },
+ "an account could not be listed": {
+  "ko": "계정 목록을 가져올 수 없어요",
+  "ja": "アカウントの一覧を取得できません",
+  "zh": "无法列出某个账户"
+ },
+ "verified copy": {
+  "ko": "검증된 사본",
+  "ja": "検証済みのコピー",
+  "zh": "已验证的副本"
+ },
+ "unexpected id": {
+  "ko": "예상하지 못한 ID",
+  "ja": "想定外の ID",
+  "zh": "意外的 ID"
+ },
+ "Replaced original": {
+  "ko": "교체된 원본",
+  "ja": "置き換えられた元データ",
+  "zh": "已替换的原件"
+ },
+ "Partial copy": {
+  "ko": "부분 사본",
+  "ja": "部分コピー",
+  "zh": "部分副本"
+ },
+ "ready to delete": {
+  "ko": "삭제 가능",
+  "ja": "削除可能",
+  "zh": "可以删除"
+ },
+ "under 1h left": {
+  "ko": "1시간 미만 남음",
+  "ja": "残り 1 時間未満",
+  "zh": "剩余不到 1 小时"
+ },
+ "deleted": {
+  "ko": "삭제됨",
+  "ja": "削除済み",
+  "zh": "已删除"
+ },
+ "Objects": {
+  "ko": "객체",
+  "ja": "オブジェクト",
+  "zh": "对象"
+ },
+ "Space freed": {
+  "ko": "확보되는 공간",
+  "ja": "解放される容量",
+  "zh": "释放的空间"
+ },
+ "Check again": {
+  "ko": "다시 확인",
+  "ja": "再確認",
+  "zh": "重新检查"
+ },
+ "Frees the space of originals that a verified replacement superseded and of partial copies from interrupted attempts. \"Move to cleanup quarantine\" only records them: they stay readable and can be restored. After the grace period \"Delete permanently\" deletes them, after checking again that nothing refers to them. Anything still referenced, drive revisions and lost files are kept.": {
+  "ko": "검증된 교체본으로 대체된 원본과 중단된 시도가 남긴 부분 사본의 공간을 확보해요. \"정리 격리로 이동\"은 기록만 해요. 데이터는 계속 읽을 수 있고 복원할 수 있어요. 유예 기간이 지나면 \"영구 삭제\"가 아무것도 참조하지 않는지 다시 확인한 뒤 삭제해요. 아직 참조되는 항목, 드라이브 리비전, 손실 파일은 유지돼요.",
+  "ja": "検証済みの置き換え先に取って代わられた元データと、中断された試行が残した部分コピーの容量を解放します。「整理用の隔離に移動」は記録するだけで、データは読み取り可能なまま復元もできます。猶予期間後、「完全に削除」が何も参照していないことを再確認してから削除します。まだ参照されているもの、ドライブのリビジョン、損失ファイルは保持されます。",
+  "zh": "释放已被经验证的替换副本取代的原件，以及中断的尝试留下的部分副本所占的空间。“移入清理隔离区”只做记录：数据仍可读取并可恢复。宽限期结束后，“永久删除”会再次确认没有任何引用后再删除。仍被引用的项目、驱动器修订版本和丢失的文件会被保留。"
+ },
+ "Clean up is available once the migration is complete.": {
+  "ko": "이전이 완료되면 정리할 수 있어요.",
+  "ja": "移行が完了すると整理できます。",
+  "zh": "迁移完成后即可清理。"
+ },
+ "Grace period (days)": {
+  "ko": "유예 기간(일)",
+  "ja": "猶予期間（日）",
+  "zh": "宽限期（天）"
+ },
+ "Also delete on removed accounts": {
+  "ko": "제거된 계정에서도 삭제",
+  "ja": "削除したアカウント上でも削除",
+  "zh": "也在已移除的账户上删除"
+ },
+ "Originals' objects on accounts that left the pool are deleted too, when those accounts are still connected.": {
+  "ko": "풀에서 빠진 계정에 있는 원본 객체도, 그 계정이 아직 연결되어 있으면 함께 삭제해요.",
+  "ja": "プールから外れたアカウント上の元データのオブジェクトも、そのアカウントがまだ接続されていれば削除します。",
+  "zh": "如果已离开存储池的账户仍处于连接状态，其上的原件对象也会被删除。"
+ },
+ "Read replacements back in full": {
+  "ko": "교체본 전체 다시 읽기",
+  "ja": "置き換え先をすべて読み戻す",
+  "zh": "完整回读替换副本"
+ },
+ "Slower: every shard of each replacement is downloaded and checked before its original may go.": {
+  "ko": "더 느려요. 원본을 지우기 전에 각 교체본의 모든 샤드를 내려받아 확인해요.",
+  "ja": "時間がかかります。元データを消す前に、各置き換え先のすべてのシャードをダウンロードして確認します。",
+  "zh": "较慢：在删除原件之前，会下载并检查每个替换副本的所有分片。"
+ },
+ "Drive workspace (optional)": {
+  "ko": "드라이브 작업 공간(선택)",
+  "ja": "ドライブのワークスペース（任意）",
+  "zh": "驱动器工作区（可选）"
+ },
+ "A local drive workspace of this pool whose metadata should also count as references. Running drives of this pool are included automatically.": {
+  "ko": "메타데이터도 참조로 셀 이 풀의 로컬 드라이브 작업 공간이에요. 실행 중인 이 풀의 드라이브는 자동으로 포함돼요.",
+  "ja": "メタデータも参照として数える、このプールのローカルなドライブのワークスペースです。実行中のこのプールのドライブは自動的に含まれます。",
+  "zh": "此存储池的本地驱动器工作区，其元数据也将计为引用。此存储池正在运行的驱动器会自动包含在内。"
+ },
+ "Checking what can be cleaned up…": {
+  "ko": "정리할 수 있는 항목을 확인하는 중…",
+  "ja": "整理できるものを確認しています…",
+  "zh": "正在检查可清理的内容…"
+ },
+ "Can be cleaned up": {
+  "ko": "정리 가능",
+  "ja": "整理可能",
+  "zh": "可清理"
+ },
+ "Nothing new to clean up.": {
+  "ko": "새로 정리할 항목이 없어요.",
+  "ja": "新たに整理するものはありません。",
+  "zh": "没有新的可清理内容。"
+ },
+ "Move to cleanup quarantine": {
+  "ko": "정리 격리로 이동",
+  "ja": "整理用の隔離に移動",
+  "zh": "移入清理隔离区"
+ },
+ "Cleanup quarantine": {
+  "ko": "정리 격리",
+  "ja": "整理用の隔離",
+  "zh": "清理隔离区"
+ },
+ "The quarantine is empty.": {
+  "ko": "격리된 항목이 없어요.",
+  "ja": "隔離されているものはありません。",
+  "zh": "隔离区为空。"
+ },
+ "Restore all": {
+  "ko": "모두 복원",
+  "ja": "すべて復元",
+  "zh": "全部恢复"
+ },
+ "Delete permanently": {
+  "ko": "영구 삭제",
+  "ja": "完全に削除",
+  "zh": "永久删除"
+ },
+ "Deletes the quarantined items whose grace period has ended, after a fresh check. Cannot be undone.": {
+  "ko": "유예 기간이 끝난 격리 항목을 다시 확인한 뒤 삭제해요. 되돌릴 수 없어요.",
+  "ja": "猶予期間が終わった隔離中の項目を、再確認してから削除します。元に戻せません。",
+  "zh": "重新检查后删除宽限期已结束的隔离项目。此操作无法撤销。"
+ },
+ "Kind": {
+  "ko": "종류",
+  "ja": "種類",
+  "zh": "类型"
+ },
+ "Note": {
+  "ko": "메모",
+  "ja": "メモ",
+  "zh": "备注"
+ },
+ "restore came after deletion started": {
+  "ko": "삭제가 시작된 뒤에 복원 요청이 왔어요",
+  "ja": "削除の開始後に復元の要求が届きました",
+  "zh": "恢复请求在删除开始后才到达"
+ },
+ "Reason": {
+  "ko": "이유",
+  "ja": "理由",
+  "zh": "原因"
+ },
+ "I checked the numbers — continue anyway": {
+  "ko": "숫자를 확인했어요 — 그래도 계속",
+  "ja": "数値を確認しました — それでも続行",
+  "zh": "我已核对数字 — 仍然继续"
+ },
+ "{h}h left": {
+  "ko": "{h}시간 남음",
+  "ja": "残り {h} 時間",
+  "zh": "剩余 {h} 小时"
+ },
+ "{d}d {h}h left": {
+  "ko": "{d}일 {h}시간 남음",
+  "ja": "残り {d} 日 {h} 時間",
+  "zh": "剩余 {d} 天 {h} 小时"
+ },
+ "deleting ({n} objects left)": {
+  "ko": "삭제 중(남은 객체 {n}개)",
+  "ja": "削除中（残り {n} 個のオブジェクト）",
+  "zh": "正在删除（剩余 {n} 个对象）"
+ },
+ "Clean up migration {id}": {
+  "ko": "이전 {id} 정리",
+  "ja": "移行 {id} の整理",
+  "zh": "清理迁移 {id}"
+ },
+ "{n} can be cleaned up ({bytes})": {
+  "ko": "정리 가능 {n}개({bytes})",
+  "ja": "整理可能 {n} 件（{bytes}）",
+  "zh": "可清理 {n} 项（{bytes}）"
+ },
+ "{n} in quarantine ({bytes})": {
+  "ko": "격리 중 {n}개({bytes})",
+  "ja": "隔離中 {n} 件（{bytes}）",
+  "zh": "隔离中 {n} 项（{bytes}）"
+ },
+ "{n} kept": {
+  "ko": "유지 {n}개",
+  "ja": "保持 {n} 件",
+  "zh": "保留 {n} 项"
+ },
+ "{n} deleted": {
+  "ko": "삭제됨 {n}개",
+  "ja": "削除済み {n} 件",
+  "zh": "已删除 {n} 项"
+ },
+ "Some references could not be read, so nothing is deleted until they can: {what}": {
+  "ko": "일부 참조를 읽을 수 없어서 읽을 수 있을 때까지 아무것도 삭제하지 않아요: {what}",
+  "ja": "一部の参照を読み取れないため、読み取れるまで何も削除しません: {what}",
+  "zh": "部分引用无法读取，因此在能够读取之前不会删除任何内容：{what}"
+ },
+ "{n} objects ({bytes}) stay on accounts that left the pool.": {
+  "ko": "객체 {n}개({bytes})는 풀에서 빠진 계정에 남아요.",
+  "ja": "{n} 個のオブジェクト（{bytes}）はプールから外れたアカウントに残ります。",
+  "zh": "{n} 个对象（{bytes}）保留在已离开存储池的账户上。"
+ },
+ "kept at deletion: {why}": {
+  "ko": "삭제 시 유지: {why}",
+  "ja": "削除時に保持: {why}",
+  "zh": "删除时保留：{why}"
+ },
+ "Kept ({n})": {
+  "ko": "유지됨({n})",
+  "ja": "保持（{n}）",
+  "zh": "已保留（{n}）"
+ },
+ "The mass-delete guard stopped this step: {why}. The pool holds {objects} objects ({bytes}); the limit is {percent}% or {max} objects per run.": {
+  "ko": "대량 삭제 보호 장치가 이 단계를 멈췄어요: {why}. 풀에는 객체 {objects}개({bytes})가 있고, 한도는 실행당 {percent}% 또는 객체 {max}개예요.",
+  "ja": "大量削除ガードがこの手順を止めました: {why}。プールには {objects} 個のオブジェクト（{bytes}）があり、上限は 1 回あたり {percent}% または {max} 個です。",
+  "zh": "批量删除保护阻止了此步骤：{why}。存储池中有 {objects} 个对象（{bytes}）；上限为每次运行 {percent}% 或 {max} 个对象。"
+ },
+ "The cleanup check stopped unexpectedly; try again.": {
+  "ko": "정리 확인이 예기치 않게 멈췄어요. 다시 시도해 주세요.",
+  "ja": "整理の確認が予期せず停止しました。もう一度お試しください。",
+  "zh": "清理检查意外停止；请重试。"
+ },
+ "Moved to the cleanup quarantine. Nothing was deleted; restore is possible until the grace period ends.": {
+  "ko": "정리 격리로 옮겼어요. 삭제된 것은 없고, 유예 기간이 끝날 때까지 복원할 수 있어요.",
+  "ja": "整理用の隔離に移動しました。何も削除されていません。猶予期間が終わるまで復元できます。",
+  "zh": "已移入清理隔离区。没有删除任何内容；在宽限期结束前可以恢复。"
+ },
+ "Permanent deletion finished; see the console for what was deleted or kept.": {
+  "ko": "영구 삭제가 끝났어요. 삭제되거나 유지된 항목은 콘솔에서 확인하세요.",
+  "ja": "完全な削除が終わりました。削除または保持されたものはコンソールで確認してください。",
+  "zh": "永久删除已完成；请在控制台查看已删除或保留的内容。"
+ },
+ "Restored from the cleanup quarantine.": {
+  "ko": "정리 격리에서 복원했어요.",
+  "ja": "整理用の隔離から復元しました。",
+  "zh": "已从清理隔离区恢复。"
+ },
+ "The cleanup step stopped with an error or was refused; see the console. Running it again continues where it stopped.": {
+  "ko": "정리 단계가 오류로 멈췄거나 거부됐어요. 콘솔을 확인하세요. 다시 실행하면 멈춘 곳부터 이어서 해요.",
+  "ja": "整理の手順がエラーで停止したか拒否されました。コンソールを確認してください。もう一度実行すると止まったところから続けます。",
+  "zh": "清理步骤因错误停止或被拒绝；请查看控制台。再次运行会从中断处继续。"
+ },
+ "Cleanup check failed: {error}": {
+  "ko": "정리 확인 실패: {error}",
+  "ja": "整理の確認に失敗しました: {error}",
+  "zh": "清理检查失败：{error}"
+ },
+ "Clean up": {
+  "ko": "정리",
+  "ja": "整理",
+  "zh": "清理"
+ },
+ "After completion: free the space of the replaced originals and of partial copies (quarantine first, permanent deletion after a grace period).": {
+  "ko": "완료 후: 교체된 원본과 부분 사본의 공간을 확보해요(먼저 격리하고, 유예 기간 후 영구 삭제).",
+  "ja": "完了後: 置き換えられた元データと部分コピーの容量を解放します（まず隔離し、猶予期間後に完全に削除）。",
+  "zh": "完成后：释放已替换原件和部分副本的空间（先隔离，宽限期后永久删除）。"
+ }
+}

@@ -1314,10 +1314,10 @@
   "ja": "プール変更の移行",
   "zh": "存储池变更迁移"
  },
- "After accounts leave or join a pool, or K / M / shard size / native crypt change: see what moves and how long it takes, then move it. Progress is kept in the cloud so any PC can resume. Nothing is deleted.": {
-  "ko": "계정이 풀에서 빠지거나 추가된 뒤, 또는 K / M / 샤드 크기 / 네이티브 crypt가 바뀐 뒤: 무엇이 얼마나 오래 옮겨지는지 확인하고 옮기세요. 진행 상황은 클라우드에 저장되어 어느 PC에서든 재개할 수 있어요. 아무것도 삭제되지 않아요.",
-  "ja": "アカウントがプールから外れた・加わった後、または K / M / シャードサイズ / ネイティブ crypt が変わった後に、何がどれだけの時間で移動するかを確認して移動します。進捗はクラウドに保存されるので、どの PC からでも再開できます。何も削除されません。",
-  "zh": "在账户离开或加入存储池，或 K / M / 分片大小 / 原生 crypt 更改后：查看需要移动的内容及所需时间，然后移动。进度保存在云端，任意电脑都可继续。不会删除任何内容。"
+ "After accounts leave or join a pool, or K / M / shard size / native crypt change: see what moves and how long it takes, then move it. Progress is kept in the cloud so any PC can resume. Nothing is deleted until you clean up in the last step.": {
+  "ko": "계정이 풀에서 빠지거나 추가된 뒤, 또는 K / M / 샤드 크기 / 네이티브 crypt가 바뀐 뒤: 무엇이 얼마나 오래 옮겨지는지 확인하고 옮겨요. 진행 상황은 클라우드에 저장되어 어느 PC에서든 재개할 수 있어요. 마지막 단계에서 정리하기 전에는 아무것도 삭제되지 않아요.",
+  "ja": "アカウントがプールから外れた・加わった後、または K / M / シャードサイズ / ネイティブ crypt が変わった後に、何がどれだけの時間で移動するかを確認して移動します。進捗はクラウドに保存されるので、どの PC からでも再開できます。最後のステップで整理するまで何も削除されません。",
+  "zh": "在账户离开或加入存储池，或 K / M / 分片大小 / 原生 crypt 更改后：查看需要移动的内容及所需时间，然后移动。进度保存在云端，任意电脑都可继续。在最后一步清理之前不会删除任何内容。"
  },
  "Plan": {
   "ko": "계획",

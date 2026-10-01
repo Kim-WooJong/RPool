@@ -8,7 +8,12 @@ use std::ffi::OsString;
 
 mod card;
 mod grid;
+pub(crate) mod limits_cache;
+mod limits_dialog;
+mod limits_model;
 mod model;
+
+pub(crate) use limits_model::wait as wait_text;
 #[cfg(any(test, debug_assertions))]
 pub(crate) mod sample;
 
@@ -38,6 +43,9 @@ pub(crate) struct ProviderForm {
     pub(crate) delete_source: bool,
     pub(crate) allow_risky: bool,
     pub(crate) error: Option<String>,
+    /// Account limits shown on the cards.
+    pub(crate) limits: limits_cache::LimitsCache,
+    pub(crate) limits_editor: limits_dialog::LimitsEditor,
 }
 
 impl ProviderForm {
@@ -91,6 +99,7 @@ pub(crate) fn start_automatic_encryption(
 }
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
+    limits_cache::refresh(state);
     theme::page_body(ui, "providers", |ui| {
         theme::page_header(
             ui,
@@ -109,6 +118,9 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         super::speed_test::providers_card(ui, state, task);
     });
     encryption_dialog(ui.ctx(), state, task);
+    if limits_dialog::show(ui.ctx(), &mut state.providers.limits_editor) {
+        state.providers.limits.invalidate();
+    }
 }
 
 fn connect_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
@@ -164,7 +176,7 @@ fn connect_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) 
 fn list_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     let count = state.backing_remotes.len();
     let mut refresh = false;
-    let setup = theme::card_section(
+    let clicked = theme::card_section(
         ui,
         &trf("Connected providers · {count}", &[("count", &count)]),
         None,
@@ -176,13 +188,13 @@ fn list_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
         |ui| {
             if count == 0 {
                 theme::hint(ui, tr("No providers yet. Connect one above."));
-                return None;
+                return None::<(card::CardAction, String)>;
             }
             let running = task.is_running()
                 && task.task_name() == Some(crate::gui::app::AUTO_ENCRYPTION_TASK);
             let idle = !task.is_running() && state.providers.connection.is_none();
             let height = theme::list_height(ui.ctx().content_rect().height());
-            let mut setup = None;
+            let mut clicked = None;
             egui::ScrollArea::vertical()
                 .id_salt("base-provider-list")
                 .max_height(height)
@@ -203,25 +215,66 @@ fn list_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
                                 let layout = egui::Layout::top_down(egui::Align::Min);
                                 ui.allocate_ui_with_layout(size, layout, |ui| {
                                     ui.set_width(width);
-                                    if card::show(ui, card, idle) {
-                                        setup = Some(card.name.to_string());
+                                    if let Some(action) = card::show(ui, card, idle) {
+                                        clicked = Some((action, card.name.to_string()));
                                     }
                                 });
                             }
                         });
                     }
                 });
-            setup
+            clicked
         },
     );
     if refresh {
         state.providers.refresh_requested = true;
+        state.providers.limits.invalidate();
     }
-    if let Some(name) = setup {
-        state.providers.apply_defaults(&state.settings.encryption);
-        state.providers.backing_provider = name;
-        state.providers.setup_open = true;
+    match clicked {
+        Some((card::CardAction::SetupEncryption, name)) => {
+            state.providers.apply_defaults(&state.settings.encryption);
+            state.providers.backing_provider = name;
+            state.providers.setup_open = true;
+        }
+        Some((card::CardAction::EditLimits, name)) => {
+            let kind = state
+                .provider_details
+                .kinds
+                .get(&name)
+                .cloned()
+                .unwrap_or_default();
+            state.providers.limits_editor =
+                limits_dialog::LimitsEditor::open_for(&name, &kind, &state.providers.limits.store);
+        }
+        Some((card::CardAction::KeepAlive, name)) => {
+            state.providers.setup_notice = Some(match start_keepalive(state, task, &name) {
+                Ok(()) => trf(
+                    "Keeping {account} alive. See Jobs for the result.",
+                    &[("account", &name)],
+                ),
+                Err(error) => error,
+            });
+            state.providers.limits.invalidate();
+        }
+        None => {}
     }
+}
+
+fn keepalive_args(account: &str) -> Vec<OsString> {
+    vec![
+        OsString::from("provider"),
+        OsString::from("keepalive"),
+        OsString::from("--remote"),
+        OsString::from(account),
+    ]
+}
+
+fn start_keepalive(state: &GuiState, task: &mut TaskRunner, account: &str) -> Result<(), String> {
+    task.start_rpool(
+        "Keep account alive",
+        &state.settings.rclone,
+        keepalive_args(account),
+    )
 }
 
 fn health_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
@@ -505,6 +558,13 @@ mod tests {
         let args = health_args(&state);
         assert!(args.iter().any(|a| a == "--pool") && !args.iter().any(|a| a == "--remote"));
         assert!(parse(&state));
+    }
+
+    #[test]
+    fn keepalive_button_runs_a_parseable_cli_command() {
+        use clap::Parser;
+        let argv = std::iter::once(OsString::from("rpool")).chain(keepalive_args("gdrive_1"));
+        assert!(crate::cli::Cli::try_parse_from(argv).is_ok());
     }
 
     #[test]

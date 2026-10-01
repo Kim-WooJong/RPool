@@ -40,6 +40,8 @@ fn alert_label(kind: AlertKind) -> &'static str {
         AlertKind::Stalled => "STALLED",
         AlertKind::Errors => "ERRORS",
         AlertKind::Unreachable => "UNREACHABLE",
+        AlertKind::MetadataGrowing => "METADATA",
+        AlertKind::UploadLimit => "UPLOAD LIMIT",
     }
 }
 

@@ -1,3 +1,4 @@
+pub(crate) mod account;
 pub(crate) mod admin;
 pub(crate) mod capabilities;
 mod data_upload;

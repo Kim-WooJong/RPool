@@ -1,0 +1,82 @@
+{
+ "Check metadata": {
+  "ja": "メタデータを確認",
+  "ko": "메타데이터 확인",
+  "zh": "检查元数据"
+ },
+ "Checkpointed {n} records.": {
+  "ja": "{n} 件の記録をチェックポイントに入れました。",
+  "ko": "기록 {n}개를 체크포인트에 담았어요.",
+  "zh": "已将 {n} 条记录纳入检查点。"
+ },
+ "Checkpoints let a new PC open the drive from a few objects instead of reading every file record.": {
+  "ja": "チェックポイントがあると、新しいPCはファイル記録を一つずつ読まずに少数のオブジェクトからドライブを開けます。",
+  "ko": "체크포인트가 있으면 새 PC가 파일 기록을 하나하나 읽지 않고 몇 개의 객체만으로 드라이브를 열 수 있어요.",
+  "zh": "有了检查点，新电脑只需读取少量对象即可打开驱动器，而不必逐个读取文件记录。"
+ },
+ "Compact now": {
+  "ja": "今すぐ圧縮",
+  "ko": "지금 정리",
+  "zh": "立即压缩"
+ },
+ "Compact now would checkpoint {n} records.": {
+  "ja": "今すぐ圧縮すると {n} 件の記録をチェックポイントに入れます。",
+  "ko": "지금 정리하면 기록 {n}개를 체크포인트에 담아요.",
+  "zh": "立即压缩会将 {n} 条记录纳入检查点。"
+ },
+ "Deleting checkpointed records is a one-time opt-in from the command line (`rpool pool compact <pool> --enable-deletion`), only after every PC is upgraded.": {
+  "ja": "チェックポイント済みの記録の削除は、すべてのPCを更新した後にコマンドラインで一度だけ有効にします（`rpool pool compact <pool> --enable-deletion`）。",
+  "ko": "체크포인트에 담긴 기록 삭제는 모든 PC를 업그레이드한 뒤 명령줄에서 한 번만 켜요 (`rpool pool compact <pool> --enable-deletion`).",
+  "zh": "删除已纳入检查点的记录需在所有电脑升级后，通过命令行一次性开启（`rpool pool compact <pool> --enable-deletion`）。"
+ },
+ "Deletion of checkpointed records is off.": {
+  "ja": "チェックポイント済みの記録の削除は無効です。",
+  "ko": "체크포인트에 담긴 기록 삭제는 꺼져 있어요.",
+  "zh": "删除已纳入检查点的记录处于关闭状态。"
+ },
+ "Deletion of checkpointed records is on: {deleted} deleted, {deletable} due.": {
+  "ja": "チェックポイント済みの記録の削除は有効です: {deleted} 件削除、{deletable} 件が対象。",
+  "ko": "체크포인트에 담긴 기록 삭제가 켜져 있어요: {deleted}개 삭제, {deletable}개 삭제 가능.",
+  "zh": "已开启删除已纳入检查点的记录：已删除 {deleted} 条，可删除 {deletable} 条。"
+ },
+ "Drive metadata": {
+  "ja": "ドライブのメタデータ",
+  "ko": "드라이브 메타데이터",
+  "zh": "驱动器元数据"
+ },
+ "Drive metadata is growing without a checkpoint; new PCs may not open it. Compact it on the Pools page.": {
+  "ja": "ドライブのメタデータがチェックポイントなしで増えています。新しいPCで開けない場合があるので、プールのページで圧縮してください。",
+  "ko": "드라이브 메타데이터가 체크포인트 없이 늘고 있어요. 새 PC에서 열리지 않을 수 있으니 풀 페이지에서 정리하세요.",
+  "zh": "驱动器元数据在没有检查点的情况下不断增长，新电脑可能无法打开。请在池页面中压缩。"
+ },
+ "Metadata task failed; see Jobs for details.": {
+  "ja": "メタデータの処理に失敗しました。詳しくはジョブを確認してください。",
+  "ko": "메타데이터 작업이 실패했어요. 자세한 내용은 작업에서 확인하세요.",
+  "zh": "元数据任务失败；详情请查看任务。"
+ },
+ "Metadata: {records} records, {checkpoints} checkpoints, {uncovered} not yet in a checkpoint": {
+  "ja": "メタデータ: 記録 {records} 件、チェックポイント {checkpoints} 件、未チェックポイント {uncovered} 件",
+  "ko": "메타데이터: 기록 {records}개, 체크포인트 {checkpoints}개, 체크포인트에 아직 없는 기록 {uncovered}개",
+  "zh": "元数据：{records} 条记录，{checkpoints} 个检查点，{uncovered} 条尚未纳入检查点"
+ },
+ "Reading the pool's metadata…": {
+  "ja": "プールのメタデータを読み込んでいます…",
+  "ko": "풀의 메타데이터를 읽고 있어요…",
+  "zh": "正在读取池的元数据…"
+ },
+ "Select and load a saved pool to check its metadata.": {
+  "ja": "メタデータを確認するには、保存済みのプールを選んで読み込んでください。",
+  "ko": "메타데이터를 확인하려면 저장된 풀을 선택해서 불러오세요.",
+  "zh": "请选择并加载已保存的池以检查其元数据。"
+ },
+ "This pool has no drive metadata yet.": {
+  "ja": "このプールにはまだドライブのメタデータがありません。",
+  "ko": "이 풀에는 아직 드라이브 메타데이터가 없어요.",
+  "zh": "此池还没有驱动器元数据。"
+ },
+ "{n} unreadable checkpoints were ignored.": {
+  "ja": "読み取れないチェックポイント {n} 件を無視しました。",
+  "ko": "읽을 수 없는 체크포인트 {n}개를 무시했어요.",
+  "zh": "已忽略 {n} 个无法读取的检查点。"
+ }
+}

@@ -33,6 +33,8 @@ fn build_bundle(
         remote_roots: load_remote_root_store()?,
         crypt_remotes,
         secret_vault,
+        account_limits: Some(crate::storage::account::store::load_limits()?)
+            .filter(|limits| *limits != Default::default()),
         gui: PortableGuiSettings {
             encryption: Some(gui.encryption),
             default_remote_path: gui.default_remote_path,

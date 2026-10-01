@@ -1,4 +1,4 @@
-> Latest source delivery: [2026-09-26 handoff](source-delivery-20260926.md). Supersedes packaging and GUI status below.
+> Historical (2026-09-26). Source is now managed in Git ([VERSIONING](../VERSIONING.md)); current limitations are in the README "Current limitations" section and CHANGELOG.md. The [2026-09-26 handoff](source-delivery-20260926.md) ZIP is a past delivery.
 
 # Current storage pivot limitations
 

@@ -78,6 +78,8 @@ pub(super) struct Daemon {
     endpoint: Endpoint,
     dead: AtomicBool,
     fingerprint: Fingerprint,
+    /// Rate last set with `core/bwlimit` (`None` = rclone's default, off).
+    bwlimit: Mutex<Option<String>>,
     #[cfg(unix)]
     dir: tempfile::TempDir,
 }
@@ -120,6 +122,35 @@ impl Daemon {
         }
         exited
     }
+    /// Sets the daemon's bandwidth (`core/bwlimit rate=`) unless it already
+    /// has `rate`. A failed call is retried on the next scheduler step.
+    pub(super) fn apply_bwlimit(&self, rate: &str) {
+        let mut applied = self.bwlimit.lock().unwrap_or_else(|p| p.into_inner());
+        let current = applied.as_deref().unwrap_or("off");
+        if current == rate || self.is_dead() {
+            return;
+        }
+        let ctx = OperationContext::with_deadline(Instant::now() + Duration::from_secs(5));
+        if self
+            .call(
+                &ctx,
+                "core/bwlimit",
+                &json!({ "rate": rate }),
+                ERROR_BODY_LIMIT,
+            )
+            .is_ok()
+        {
+            *applied = Some(rate.to_owned());
+        }
+    }
+    #[cfg(all(test, unix))]
+    pub(super) fn bwlimit_rate(&self) -> Option<String> {
+        let ctx = OperationContext::with_deadline(Instant::now() + Duration::from_secs(5));
+        let reply = self
+            .call(&ctx, "core/bwlimit", &json!({}), ERROR_BODY_LIMIT)
+            .ok()?;
+        reply.get("rate").and_then(Value::as_str).map(str::to_owned)
+    }
     #[cfg(all(test, unix))]
     pub(super) fn pid(&self) -> u32 {
         self.child.lock().unwrap().id()
@@ -138,6 +169,24 @@ impl Drop for ShutdownGuard {
         shutdown();
     }
 }
+/// Whether this process is shutting its daemons down.
+pub(super) fn shut_down() -> bool {
+    SHUT_DOWN.load(Ordering::Acquire)
+}
+
+/// Every running daemon of this process.
+pub(super) fn live() -> Vec<Arc<Daemon>> {
+    let slots: Vec<_> = registry()
+        .lock()
+        .map(|table| table.values().cloned().collect())
+        .unwrap_or_default();
+    slots
+        .iter()
+        .filter_map(|slot| slot.lock().ok()?.daemon.clone())
+        .filter(|daemon| !daemon.is_dead())
+        .collect()
+}
+
 pub(crate) fn shutdown() {
     SHUT_DOWN.store(true, Ordering::Release);
     let slots: Vec<_> = registry()
@@ -246,6 +295,7 @@ pub(super) fn get(context: &RcloneContext) -> Option<Arc<Daemon>> {
         Some(daemon) => {
             let daemon = Arc::new(daemon);
             slot.daemon = Some(daemon.clone());
+            super::bwlimit_schedule::on_start(&daemon);
             Some(daemon)
         }
         None => {
@@ -256,7 +306,7 @@ pub(super) fn get(context: &RcloneContext) -> Option<Arc<Daemon>> {
 }
 
 fn daemon_command(context: &RcloneContext, args: &[&str]) -> Command {
-    let mut command = context.command(&args.iter().map(OsString::from).collect::<Vec<_>>());
+    let mut command = context.base_command(&args.iter().map(OsString::from).collect::<Vec<_>>());
     for (key, _) in &context.environment {
         if key
             .to_string_lossy()
@@ -297,6 +347,7 @@ fn start(context: &RcloneContext, fingerprint: Fingerprint) -> Option<Daemon> {
         endpoint: Endpoint::Unix(socket),
         dead: AtomicBool::new(false),
         fingerprint,
+        bwlimit: Mutex::new(None),
         dir,
     };
     std::fs::write(daemon.dir.path().join("owner"), owner).ok()?;
@@ -349,6 +400,7 @@ fn start(context: &RcloneContext, fingerprint: Fingerprint) -> Option<Daemon> {
         endpoint,
         dead: AtomicBool::new(false),
         fingerprint,
+        bwlimit: Mutex::new(None),
     };
     let Ok(port) = receiver.recv_timeout(READY_TIMEOUT) else {
         drop(daemon(Endpoint::Tcp {

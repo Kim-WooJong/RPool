@@ -70,8 +70,163 @@ changed (`migration/relocate.rs`, `RcloneContext::copy_object`):
   number of shards copied server-side.
 
 Verified in Docker (`scripts/linux-docker/migrate-server-copy-e2e.sh`,
-native crypt on and off). Still to do: phase 3 (drive and epoch adoption),
-phase 4 (retire).
+native crypt on and off). Phases 3 and 4 are implemented as well (below).
+
+Phase 4 (cleanup, 2026-10-01) is implemented (`migration/retire/*`,
+`rpool pool migrate retire|restore`, GUI step "Clean up" after a complete
+migration, strings in `gui/i18n/migration_retire.json`):
+
+- **What may go.** Only after the migration is complete and not abandoned.
+  *Originals* whose winning record is `Switched`, when the replacement passes
+  a fresh re-verification (manifest valid, identity and size, every shard
+  listed with its size; `--full-verify` reads every shard back), the
+  original's current manifest still has the migrated fingerprint, and every
+  shard sits inside `<root>/<archive_id>/`. The objects deleted are what the
+  root listings show under that folder (manifest replicas and shards).
+  *Orphans*: `migrate-<24 hex>` ids that were only ever claimed, lost or
+  recorded `Orphan`; an id with a `Verified` or `Switched` record is never an
+  orphan (another PC may use it). Objects on accounts that left the pool are
+  only deleted with `--include-removed-accounts` (and only when still
+  listable); otherwise they are reported as left behind.
+- **What is kept.** Drive revisions (`virtual-*`, `peer-v7-*`), lost
+  entries, anything a fresh reference check finds: every manifest of the
+  local inventory and every manifest replica on the listed accounts, all
+  drive metadata in the cloud (every v6 event and v7 snapshot of every
+  generation, read only, as `pool browse` reads it), local drive workspaces
+  (`--workspace`; the GUI adds running drive sessions), and every archive id
+  named by another migration still in progress. A reference is any path
+  component or archive id equal to the item. If any of these sources cannot
+  be read, nothing is quarantined or deleted.
+- **Two steps (fossils).** Quarantine is a journal record only: `Fossil`
+  with the exact objects, the PC, the time and the grace period (default 7
+  days, `--grace-days`). The objects are not moved: a server-side rename is
+  not portable (without `Move` rclone copies and deletes, through the PC),
+  it would make the original unreadable during the grace, and restore would
+  need another move. `restore` (or GUI "Restore") writes `Restore`. A later
+  confirmed run past the grace re-observes everything: a new reference, a
+  changed object set or a failed re-verification cancels the deletion
+  (`Cancelled`, the item is kept); an unreadable source postpones it.
+  Otherwise `Deleting` is recorded (point of no return; a restore that
+  arrives meanwhile is checked once more and wins until the first object is
+  deleted), the inventory entry is dropped, manifest replicas go first, then
+  the shards, journaled in `Deleted` batches, then `Purged`. Interrupted
+  deletions resume; a missing object counts as deleted.
+- **Mass-delete guard.** Refuses a quarantine or deletion of more than
+  `--max-delete-percent` (default 50) of the pool's listed objects or bytes,
+  or more than `--max-delete-objects` (default 10 000), before anything is
+  written, unless `--force`. The GUI shows the numbers and asks a second,
+  explicit confirmation. A migration of every archive often sits right at
+  50 % (originals and replacements are the same size), so expect it.
+- **Journal.** Cleanup records live in `<migration_id>/retire/<blake3>.json`
+  next to `records/`, written and folded like them (content-addressed,
+  union of replicas, cached locally), so other PCs see every quarantine,
+  restore and deletion and older binaries never see them.
+
+Known limits: other PCs' inventories and unpublished local drive events
+cannot be seen; their stale inventory entries of a deleted original stop
+verifying (the journal says why). Backend trash/versioning may delay the
+freed quota.
+
+Phase 3 (drive and epoch adoption, WP7) is implemented (2026-10-01; unit
+tests only, see "Phase 3 as implemented" below; not yet verified with real
+rclone remotes or several PCs).
+
+## Phase 3 as implemented: drive migration and epoch adoption
+
+The drive (v6 pool-sync events and v7 private snapshots; both are in use, the
+GUI default is v6) is migrated file by file with the archive machinery and
+then **adopted** into a new metadata epoch. No workspace is needed: the
+source is read from the cloud records, and any PC can run, resume or adopt.
+
+**Plan** (`migration/drive_plan.rs`, `drive_source.rs`,
+`mount/drive_generation_read.rs`, `mount/peer_snapshot_migration.rs`).
+`pool migrate plan` includes the drive unless `--no-drive` (GUI: "Include the
+drive", on by default). The current generation is chosen as `pool browse`
+chooses it, but adoption-aware (`drive_generations::effective`). Its visible
+files (and conflict copies) are read without a workspace: v6 by collecting
+and projecting the events; v7 by collecting snapshots and names, analysing
+them with their own recorded policy (a v7 genesis depends on the remote set
+it was written with, so the mount's own validation cannot be used after an
+account left), and materializing them in a throwaway workspace so paths are
+named exactly as a mount names them. Each file's payload manifest is
+classified by the archive planner (`plan_entry`, same listings, probe,
+losses, server-side copy estimate). v6 files that need no move are kept: the
+new generation references their existing archive (v6 pool sync never deletes
+payloads, see the answers below). v7 payloads are private to a generation
+(its peer GC deletes them), so every v7 file gets a private copy
+(`estimate::private_copy_transfer`; server-side where possible). The drive
+plan (`drive-plan.json`, no manifests) is published before `plan.json`, with
+its own counts, bytes, ETA (`speed::estimate_seconds`), a quota check of
+archives and drive together, and the bootstrap budget check (10,000 records /
+64 MiB per kind; otherwise adoption is refused). The target epoch is
+deterministic, `blake3("rpool-migration-drive-epoch-v1", migration_id)`.
+
+**Run** (`migration/drive_run.rs`). After the archives, `pool migrate run`
+writes `drive-freeze.json` (the source generation is frozen), reads the
+source again and runs the planned entries whose revision is still current
+through the unchanged state machine (`execute::run_core`: claims, leases,
+`--take-over`, `--parallel`, stop file, lost/unknown), with records keyed
+`drive-<blake3(path, revision)>`. Builds use `relocate` / `reencode_manifest`
+under new ids (`migrate-*`; v7 `peer-v7-<owner>` so the payload is privately
+owned). "Switched" only means the new archive is ready: nothing in the drive
+changes. Files changed since planning, and files not checked at plan time,
+are left to the adoption.
+
+**Adopt** (`migration/drive_adopt.rs`, `mount/drive_generation_write.rs`).
+`pool migrate adopt --id <id> [--accept-lost] [--workspace <ws>]` (GUI step
+"Adopt drive"):
+1. waits until the freeze is `SETTLE_SECONDS` (5 min) old, longer than a
+   mounted PC goes without re-checking the fence (2 min);
+2. reads the source again; every file whose revision has a `Switched` record
+   uses its new archive, kept v6 files their archive; changed or unchecked
+   files are classified and run now (catch-up);
+3. refuses while any file is unresolved (claimed by a running PC, provider
+   error), and refuses lost files unless `--accept-lost`;
+4. publishes deterministic records to `<root>/epochs/<epoch>/` on every
+   new-policy remote (v6: one parentless event per file; v7: one fresh
+   snapshot + name per file, policy genesis from the new epoch's roots and
+   the source's history limit), reads the new generation back like a fresh
+   PC and compares it, and only then writes `drive-adoption.json` (the
+   commit point). Re-running is idempotent; a second PC writes identical
+   records.
+
+**Every PC afterwards** (`mount/adoption_fence.rs`). A new pool-sync
+workspace is initialized on the newest adopted epoch of its protocol, so a PC
+without the old workspace opens the migrated drive directly (this is what
+account recovery could not do). A workspace on the superseded generation is
+refused at mount with the command to switch it; `adopt --workspace` renames it
+to `.<name>.migration-backup-<epoch>` and first exports changes that were
+only local (unpublished sealed writes via the existing spool recovery,
+listed with deletions and unpublished commits). While a generation is
+frozen, a mount may run but `VirtualDrive::sync` refuses to publish (changes
+stay in the spool); the check is cached for 2 minutes per workspace. A failed
+check also refuses publication. "Apply pool changes" from a frozen or
+superseded workspace is refused (it would fork the drive). `pool browse`
+shows the adopted generation and hides superseded ones and partially
+published migration epochs. `abandon` lifts a freeze and is refused after
+adoption. Nothing is deleted anywhere; the source generation stays readable.
+
+**What is not migrated** (said precisely in the plan notes and by
+`adopt --workspace`): writes that exist only on some PC (not uploaded and
+published before the freeze took hold) — they stay in that PC's workspace
+and are exported when it is switched; previous versions (only the visible
+files and conflict copies are carried over; history stays in the source
+generation); empty directories (v6 directories are local only); files
+written by a PC that kept publishing without checking the fence (an offline
+PC that never re-checks before reconnecting is caught at its next sync or
+mount, but anything it published to the frozen generation after the
+adoption read is not in the new one).
+
+**Interfaces for phase 4 (retire)**: drive records use `drive-*` entry keys
+(`drive_model::is_drive_key`), not archive ids; their `new_archive_id` is the
+new drive payload, which an adopted generation references. Retire must skip
+drive keys, never delete `virtual-*` / `peer-v7-*` objects, and treat kept v6
+archives as still referenced by the new generation.
+
+**Needs real validation**: rclone crypt remotes (v6 and v7, native crypt on
+and off), two PCs (one mounted on the old generation during run and adopt,
+one without a workspace opening the adopted drive), interrupted adoption,
+and the bootstrap of a large drive.
 
 ## What exists today (five separate flows)
 
@@ -211,6 +366,9 @@ JSON or CSV. Actions:
 
 ### Drive
 
+(Original proposal; see "Phase 3 as implemented" for what was built and why
+it does not go through `pool_transition`.)
+
 The orchestrator:
 
 1. Pulls first.
@@ -235,7 +393,8 @@ bootstrap budget.
 - `rpool pool migrate status [--id] [--json]`
 - `rpool pool migrate lost --id <id> [--json|--csv]`
 - `rpool pool migrate salvage --id <id> (--entry N | --all) --output <dir>`
-- `rpool pool migrate retire --id <id> --confirm` (later)
+- `rpool pool migrate retire <pool> --id <id> [--confirm] [--step all|quarantine|delete] [--grace-days 7] [--include-removed-accounts] [--full-verify] [--max-delete-percent 50] [--max-delete-objects 10000] [--force] [--workspace DIR]... [--json]` (dry run without `--confirm`)
+- `rpool pool migrate restore <pool> --id <id> (--item <archive_id>... | --all)`
 - `rpool pool migrate abandon --id <id>`
 - `pool set` hints when a change affects stored data.
 
@@ -243,7 +402,8 @@ bootstrap budget.
 
 - A Storage › Account changes wizard: Plan → Review (counts, bytes, ETA,
   quota, drive warning) → Run (progress, pause, resume) → Lost files (Retry,
-  Salvage, Accept).
+  Salvage, Accept) → Clean up (per-account summary, quarantine, countdown,
+  restore, permanent deletion, guard confirmation).
 - The existing drain, reprocess, apply and recover cards move under
   "Advanced / manual".
 - Pools asks "Plan migration now?" after an edit that affects data.
@@ -278,8 +438,11 @@ bootstrap budget.
 - **WP5 Speed:** `migration/speed.rs`.
 - **WP6 Orchestrator and CLI:** `migration/execute.rs`, `cli/pool.rs`,
   `commands/pool/migrate.rs`.
-- **WP7 Drive:** `mount/pool_transition.rs`, `migration/replacements.rs`, the
-  adopt path.
+- **WP7 Drive:** done as `migration/drive_*`, `mount/drive_generation_*`,
+  `mount/peer_snapshot_migration.rs`, `mount/adoption_*` (adoption publishes
+  the new epoch directly instead of going through `pool_transition`, which
+  needs the original workspace and re-uploads every file; see "Phase 3 as
+  implemented").
 - **WP8 GUI:** `gui/screens/storage/migration.rs` plus the wizard, banner and
   Pools hook.
 - **WP9 Tests:** `scripts/linux-docker/pool-migrate-e2e.sh`.
@@ -288,7 +451,8 @@ Phases:
 
 1. Archives: relocate with full copy, re-encode, cloud journal, lost list.
 2. Borrowing relocation, salvage, measured speeds.
-3. Drive (WP7) and the GUI wizard.
+3. Drive (WP7) and the GUI wizard. Done (unit tests; real-remote validation
+   pending).
 4. `retire` and orphan cleanup.
 
 ## Verification
@@ -307,8 +471,29 @@ Phases:
 
 ## Open questions to verify before implementing
 
-- Whether a manifest's shard hash is of the plaintext (needed for verbatim
-  copies across crypt remotes).
-- How `get` behaves when a removed remote is missing from the rclone config.
-- Whether an "adopt new epoch" path already exists.
-- Whether any GC could delete borrowed shards.
+Answered from the code (2026-10-01, phase 3):
+
+- **Shard hash.** `Shard.blake3` is the hash of the shard's plaintext bytes:
+  `StorageReader::verify` stats and reads the object through the crypt
+  remote. Verbatim copies across crypt remotes are therefore checked by a
+  plaintext readback; server-side copies additionally by ciphertext hash on
+  the crypt's base (phase 2).
+- **`get` with a removed remote missing from the config.** rclone fails that
+  shard's reads ("not configured"); the read counts it as unavailable and
+  decodes from K other shards when they exist. The planner never calls such
+  a remote (`RemoteListing::NotConfigured`, counted as `remote_removed`), and
+  `pool_transition` passes removed remotes as excluded
+  (`StorageReader::rclone_with_excluded_remotes`).
+- **Adopt path.** None existed: an epoch was recorded only in the binding of
+  the workspace that applied the pool change, a new workspace always opened
+  the original generation, and `pool browse` guessed the newest generation by
+  record time. Phase 3 adds the adoption marker in the cloud journal and makes
+  new workspaces, browse and old-generation workspaces follow it.
+- **GC of borrowed shards.** v6 pool-sync payloads are never deleted (remote
+  retention refuses shared workspaces, and pool sync is shared), and
+  `provider drain --delete-source` refuses `virtual-*` / `peer-v7-*` sources,
+  so a new v6 generation may reference an unchanged archive. v7 peer GC
+  deletes the exact payload objects of retired snapshots, so v7 payloads are
+  never shared between generations (every adopted v7 file gets a private
+  copy). Migration replacements (`migrate-*`) are referenced by no owned-
+  archive registry, so drive retention never deletes them.

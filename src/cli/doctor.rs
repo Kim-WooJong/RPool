@@ -1,4 +1,5 @@
 use clap::Args;
+use std::path::PathBuf;
 
 #[derive(Args, Debug)]
 pub(crate) struct DoctorArgs {
@@ -8,4 +9,10 @@ pub(crate) struct DoctorArgs {
     /// Emit machine-readable JSON.
     #[arg(long)]
     pub(crate) json: bool,
+    /// Write a redacted diagnostics bundle (ZIP) to attach to a bug report:
+    /// versions, doctor report, `rclone config redacted`, RPool settings
+    /// without secrets, mount log tails and monitoring status. Its
+    /// manifest.txt lists every file and the redaction rules.
+    #[arg(long, value_name = "FILE.zip")]
+    pub(crate) bundle: Option<PathBuf>,
 }

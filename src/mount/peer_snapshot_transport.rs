@@ -1,5 +1,7 @@
-//! Immutable v7 records and exact private-payload reclamation. Immutable records
-//! are never deleted; optional archive-manifest deletion uses exact owned paths.
+//! Immutable v7 records and exact private-payload reclamation. Records are
+//! deleted only by gated checkpoint compaction (`metadata_compaction`);
+//! optional archive-manifest deletion uses exact owned paths.
+use super::metadata_limits::{STREAM_BYTES_MAX, STREAM_RECORDS_MAX};
 use super::shared_transport::SharedTransport;
 use crate::prelude::*;
 use crate::storage::{
@@ -24,10 +26,15 @@ fn digest<T: Serialize>(value: &T) -> Result<String> {
         .to_string())
 }
 
+/// One replica's `(id, size)` listing of a record kind.
+type Entries = Vec<(String, u64)>;
+
 pub(crate) struct Store {
     rclone: String,
     roots: Vec<String>,
     native_crypt: bool,
+    /// Listing of one kind kept from `gate_listed` until the next `collect`.
+    listed: std::sync::Mutex<BTreeMap<String, Vec<Entries>>>,
 }
 impl Store {
     pub(crate) fn new(rclone: &str, roots: &[String]) -> Result<Self> {
@@ -41,6 +48,7 @@ impl Store {
             rclone: rclone.into(),
             roots: roots.to_vec(),
             native_crypt: false,
+            listed: Default::default(),
         })
     }
     /// Snapshot records and private copies in a native-crypt pool.
@@ -60,29 +68,59 @@ impl Store {
             })
             .collect()
     }
+    fn listing(&self, kind: &str) -> Result<Vec<Entries>> {
+        if let Some(listing) = self
+            .listed
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(kind)
+        {
+            return Ok(listing);
+        }
+        self.transports(kind)?
+            .iter()
+            .map(|t| t.entries(&BTreeSet::new(), None))
+            .collect()
+    }
+    /// Whether the compaction gate is listed; the listing is reused by the
+    /// next `collect("snapshots", …)`.
+    pub(crate) fn gate_listed(&self) -> Result<bool> {
+        let listing = self.listing("snapshots")?;
+        let gate = super::metadata_checkpoint_model::Family::v7().gate_id();
+        let found = listing.iter().flatten().any(|(id, _)| *id == gate);
+        self.listed
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert("snapshots".into(), listing);
+        Ok(found)
+    }
+    /// Unseen records of every replica (one verified copy each), read after
+    /// the complete listing. The gate record is never returned.
     pub(crate) fn collect(
         &self,
         kind: &str,
         known: &BTreeSet<String>,
     ) -> Result<BTreeMap<String, Vec<u8>>> {
-        let mut result = BTreeMap::new();
-        let mut size = 0usize;
-        for transport in self.transports(kind)? {
-            for (id, bytes) in transport.list_missing(known)? {
-                if let Some(previous) = result.get(&id) {
-                    if previous != &bytes {
-                        bail!("peer record replica mismatch");
-                    }
-                } else {
-                    size = size
-                        .checked_add(bytes.len())
-                        .context("peer metadata overflow")?;
-                    if result.len() >= 10_000 || size > 64 * 1024 * 1024 {
-                        bail!("peer metadata bootstrap limit exceeded");
-                    }
-                    result.insert(id, bytes);
+        let gate = super::metadata_checkpoint_model::Family::v7().gate_id();
+        let transports = self.transports(kind)?;
+        let mut wanted: BTreeMap<String, (usize, u64)> = BTreeMap::new();
+        let mut size = 0u64;
+        for (index, entries) in self.listing(kind)?.into_iter().enumerate() {
+            for (id, bytes) in entries {
+                if known.contains(&id) || id == gate || wanted.contains_key(&id) {
+                    continue;
+                }
+                size = size.saturating_add(bytes);
+                wanted.insert(id, (index, bytes));
+                if wanted.len() > STREAM_RECORDS_MAX || size > STREAM_BYTES_MAX {
+                    bail!(super::metadata_limits::ceiling_message(wanted.len(), size));
                 }
             }
+        }
+        let mut result = BTreeMap::new();
+        for (id, (index, bytes)) in wanted {
+            let value = transports[index].read_verified(&id, bytes)?;
+            result.insert(id, value);
         }
         Ok(result)
     }

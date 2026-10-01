@@ -1,6 +1,7 @@
 //! State of the pool change migration wizard: the selected pool, the step,
 //! background planning / status work, and the task argv the steps start.
 use crate::gui::i18n::{tr, trf};
+use crate::migration::drive_model::{DrivePlan, DriveStatus};
 use crate::migration::model::{Entry, LostFile, MigrationStatus, Plan};
 use crate::migration::plan::PlanOptions;
 use crate::models::PoolDefinition;
@@ -12,6 +13,7 @@ use std::time::{Duration, Instant};
 /// Task names; completion is recognised by them.
 pub(crate) const RUN_TASK: &str = "Pool migration run";
 pub(crate) const ABANDON_TASK: &str = "Pool migration discard";
+pub(crate) const ADOPT_TASK: &str = "Pool migration drive adoption";
 /// Sample written per remote when measuring speed.
 pub(crate) const SPEED_SAMPLE_BYTES: u64 = 8 * 1024 * 1024;
 /// Status refresh period while the run step is visible.
@@ -23,13 +25,19 @@ pub(crate) enum Step {
     Plan,
     Review,
     Run,
+    /// Switch the drive to the migrated generation.
+    Adopt,
     Lost,
+    /// After completion: quarantine and delete what the migration left behind.
+    Cleanup,
 }
 
 /// Result of the planning thread.
 #[derive(Debug)]
 pub(crate) struct PlanOutcome {
     pub(crate) plan: Result<Plan, String>,
+    /// The drive part published with the plan, if any.
+    pub(crate) drive: Option<DrivePlan>,
     /// Set when speed measurement failed and manual speeds were used.
     pub(crate) speed_note: Option<String>,
 }
@@ -38,6 +46,8 @@ pub(crate) struct PlanOutcome {
 pub(crate) struct StatusOutcome {
     pub(crate) pool: String,
     pub(crate) result: Result<Vec<MigrationStatus>, String>,
+    /// Drive part per migration id (migrations with a drive part only).
+    pub(crate) drive: std::collections::BTreeMap<String, DriveStatus>,
 }
 
 /// `--parallel` of the run step; defaults to the CLI default.
@@ -50,11 +60,22 @@ impl Default for RunParallel {
     }
 }
 
+/// Whether the plan includes the pool's drive; on by default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct IncludeDrive(pub(crate) bool);
+
+impl Default for IncludeDrive {
+    fn default() -> Self {
+        Self(true)
+    }
+}
+
 /// Which of our own tasks the console is running.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Watched {
     Run(String),
     Abandon(String),
+    Adopt(String),
 }
 
 #[derive(Debug, Default)]
@@ -67,11 +88,23 @@ pub(crate) struct MigrationForm {
     pub(crate) step: Step,
     pub(crate) probe_full: bool,
     pub(crate) measure_speed: bool,
+    /// Plan the pool's drive too (`--no-drive` when false). Default on.
+    pub(crate) include_drive: IncludeDrive,
     /// Manual speeds, MiB/s; 0 = unknown.
     pub(crate) download_mib_s: f64,
     pub(crate) upload_mib_s: f64,
     /// Plan just created (review step).
     pub(crate) plan: Option<Plan>,
+    /// Its drive part.
+    pub(crate) drive_plan: Option<DrivePlan>,
+    /// Drive part of listed migrations, by id.
+    pub(crate) drive_statuses: std::collections::BTreeMap<String, DriveStatus>,
+    /// Adopt: leave unrecoverable drive files out (`--accept-lost`).
+    pub(crate) accept_lost: bool,
+    /// Adopt: also switch this PC's drive workspace (`--workspace`).
+    pub(crate) switch_workspace: bool,
+    /// The workspace to switch; prefilled from the Drive page.
+    pub(crate) workspace: String,
     /// Migration shown in the run / lost steps.
     pub(crate) active_id: Option<String>,
     pub(crate) error: Option<String>,
@@ -84,6 +117,8 @@ pub(crate) struct MigrationForm {
     pub(crate) show_advanced: bool,
     pub(crate) watched: Option<Watched>,
     pub(crate) pausing: bool,
+    /// The "Clean up" step (`pool migrate retire|restore`).
+    pub(crate) cleanup: super::cleanup_state::CleanupForm,
     planning: Option<Receiver<PlanOutcome>>,
     status_pending: Option<Receiver<StatusOutcome>>,
     control: Option<tempfile::TempDir>,
@@ -96,6 +131,7 @@ impl MigrationForm {
             self.pool = pool.to_string();
             self.reset_to_plan();
             self.statuses.clear();
+            self.drive_statuses.clear();
             self.status_pool = None;
             self.status_error = None;
         }
@@ -104,6 +140,7 @@ impl MigrationForm {
     pub(crate) fn reset_to_plan(&mut self) {
         self.step = Step::Plan;
         self.plan = None;
+        self.drive_plan = None;
         self.active_id = None;
         self.error = None;
     }
@@ -122,6 +159,7 @@ impl MigrationForm {
             download_mib_s: positive(self.download_mib_s),
             upload_mib_s: positive(self.upload_mib_s),
             workers,
+            skip_drive: !self.include_drive.0,
         }
     }
 
@@ -156,9 +194,16 @@ impl MigrationForm {
                     }
                 }
             }
-            let plan = crate::migration::execute::create(&rclone, &pool, &options)
-                .map_err(|error| format!("{error:#}"));
-            let _ = tx.send(PlanOutcome { plan, speed_note });
+            let (plan, drive) =
+                match crate::migration::execute::create_with_drive(&rclone, &pool, &options) {
+                    Ok((plan, drive)) => (Ok(plan), drive),
+                    Err(error) => (Err(format!("{error:#}")), None),
+                };
+            let _ = tx.send(PlanOutcome {
+                plan,
+                drive,
+                speed_note,
+            });
         });
         self.planning = Some(rx);
         self.error = None;
@@ -175,7 +220,24 @@ impl MigrationForm {
         std::thread::spawn(move || {
             let result = crate::migration::status::status(&rclone, &pool, None)
                 .map_err(|error| format!("{error:#}"));
-            let _ = tx.send(StatusOutcome { pool, result });
+            // Drive parts of the migrations still in use (an unreadable one is
+            // simply not shown).
+            let drive = result
+                .iter()
+                .flatten()
+                .filter(|s| !s.abandoned)
+                .filter_map(|s| {
+                    crate::migration::drive_status::status(&rclone, &pool, &s.migration_id)
+                        .ok()
+                        .flatten()
+                        .map(|d| (s.migration_id.clone(), d))
+                })
+                .collect();
+            let _ = tx.send(StatusOutcome {
+                pool,
+                result,
+                drive,
+            });
         });
         self.status_pending = Some(rx);
         self.last_status_at = Some(Instant::now());
@@ -192,7 +254,7 @@ impl MigrationForm {
                 .last_status_at
                 .is_none_or(|at| now - at >= STATUS_REFRESH);
         }
-        self.step == Step::Run
+        matches!(self.step, Step::Run | Step::Adopt)
             && self
                 .last_status_at
                 .is_none_or(|at| now - at >= STATUS_REFRESH)
@@ -234,6 +296,9 @@ impl MigrationForm {
         match outcome.plan {
             Ok(plan) if plan.pool == self.pool => {
                 self.active_id = Some(plan.migration_id.clone());
+                self.drive_plan = outcome
+                    .drive
+                    .filter(|d| d.migration_id == plan.migration_id);
                 self.plan = Some(plan);
                 self.step = Step::Review;
                 self.error = None;
@@ -259,6 +324,7 @@ impl MigrationForm {
         match outcome.result {
             Ok(statuses) => {
                 self.statuses = statuses;
+                self.drive_statuses = outcome.drive;
                 self.status_error = None;
             }
             Err(error) => self.status_error = Some(error),
@@ -270,14 +336,29 @@ impl MigrationForm {
         self.statuses.iter().find(|s| s.migration_id == id)
     }
 
-    /// Lost files of the active migration: from its status when listed,
-    /// else from the plan under review.
+    /// Drive part of the active migration (listed status).
+    pub(crate) fn active_drive_status(&self) -> Option<&DriveStatus> {
+        self.drive_statuses.get(self.active_id.as_deref()?)
+    }
+
+    /// Lost files of the active migration (archives, then drive files): from
+    /// its status when listed, else from the plan under review.
     pub(crate) fn active_lost(&self) -> Vec<LostFile> {
         if let Some(status) = self.active_status() {
-            return status.lost.clone();
+            let mut lost = status.lost.clone();
+            if let Some(drive) = self.active_drive_status() {
+                lost.extend(drive.lost.iter().cloned());
+            }
+            return lost;
         }
         match (&self.plan, self.active_id.as_deref()) {
-            (Some(plan), Some(id)) if plan.migration_id == id => lost_from_plan(plan),
+            (Some(plan), Some(id)) if plan.migration_id == id => {
+                let mut lost = lost_from_plan(plan);
+                if let Some(drive) = &self.drive_plan {
+                    lost.extend(drive_lost_from_plan(drive));
+                }
+                lost
+            }
             _ => Vec::new(),
         }
     }
@@ -286,6 +367,7 @@ impl MigrationForm {
     pub(crate) fn open(&mut self, id: &str) {
         if self.plan.as_ref().is_some_and(|p| p.migration_id != id) {
             self.plan = None;
+            self.drive_plan = None;
         }
         self.active_id = Some(id.to_string());
         self.step = Step::Run;
@@ -347,10 +429,68 @@ impl MigrationForm {
         Ok(())
     }
 
+    /// Starts a cleanup step (`args` from [`super::cleanup_state::CleanupForm`]).
+    pub(crate) fn start_cleanup(
+        &mut self,
+        task: &mut crate::gui::task::TaskRunner,
+        rclone: &str,
+        action: super::cleanup_state::CleanupAction,
+        args: Vec<OsString>,
+    ) -> Result<(), String> {
+        task.start_rpool(action.task_name(), rclone, args)?;
+        self.cleanup.confirm_force = None;
+        self.cleanup.watched = Some(action);
+        Ok(())
+    }
+
+    /// Starts `pool migrate adopt` for `id` (the drive switch).
+    pub(crate) fn start_adopt(
+        &mut self,
+        task: &mut crate::gui::task::TaskRunner,
+        rclone: &str,
+        id: &str,
+    ) -> Result<(), String> {
+        let control = tempfile::Builder::new()
+            .prefix("rpool-migration-control-")
+            .tempdir()
+            .map_err(|e| {
+                trf(
+                    "Cannot create the migration control directory: {error}",
+                    &[("error", &e)],
+                )
+            })?;
+        let workspace = self.workspace.trim();
+        let workspace =
+            (self.switch_workspace && !workspace.is_empty()).then(|| Path::new(workspace));
+        let args = adopt_args(
+            &self.pool,
+            id,
+            &control.path().join("stop"),
+            self.accept_lost,
+            workspace,
+            self.take_over,
+        );
+        task.start_rpool(ADOPT_TASK, rclone, args)?;
+        self.control = Some(control);
+        self.pausing = false;
+        self.watched = Some(Watched::Adopt(id.to_string()));
+        self.active_id = Some(id.to_string());
+        self.step = Step::Adopt;
+        self.error = None;
+        Ok(())
+    }
+
     /// Call every frame: notices when our task finished.
     pub(crate) fn watch_task(&mut self, task: &crate::gui::task::TaskRunner) {
         if task.is_running() {
             return;
+        }
+        if let Some(action) = self.cleanup.watched.take() {
+            let ok = task
+                .last_task()
+                .filter(|t| t.name == action.task_name())
+                .is_some_and(|t| t.status == crate::gui::task::JobStatus::Completed);
+            self.notice = Some(self.cleanup.finish(action, ok));
         }
         let Some(watched) = self.watched.take() else {
             return;
@@ -358,6 +498,7 @@ impl MigrationForm {
         let name = match &watched {
             Watched::Run(_) => RUN_TASK,
             Watched::Abandon(_) => ABANDON_TASK,
+            Watched::Adopt(_) => ADOPT_TASK,
         };
         // Another task may have run since; only our own outcome counts.
         let status = task
@@ -381,6 +522,15 @@ impl MigrationForm {
                     (true, false) => tr("Run finished. Check the counts below; lost files are listed separately.").into(),
                     (false, _) => tr("The run stopped with an error or was cancelled; see the console. Resume retries the remaining entries.").into(),
                 });
+                self.control = None;
+                self.pausing = false;
+            }
+            Watched::Adopt(_) => {
+                if ok {
+                    self.notice = Some(tr("The drive now uses the new layout. New drive workspaces open it on every PC; a PC still on the previous layout is asked to switch.").into());
+                } else {
+                    self.error = Some(tr("Adoption did not finish; see the console. Run it again: it continues where it stopped.").into());
+                }
                 self.control = None;
                 self.pausing = false;
             }
@@ -445,6 +595,55 @@ pub(crate) fn abandon_args(pool: &str, id: &str) -> Vec<OsString> {
         "--".into(),
         pool.into(),
     ]
+}
+
+/// `rpool pool migrate adopt <pool> --id <id> --stop-file <stop>
+/// [--accept-lost] [--workspace <ws>] [--take-over]`.
+pub(crate) fn adopt_args(
+    pool: &str,
+    id: &str,
+    stop: &Path,
+    accept_lost: bool,
+    workspace: Option<&Path>,
+    take_over: bool,
+) -> Vec<OsString> {
+    let mut args: Vec<OsString> = vec![
+        "pool".into(),
+        "migrate".into(),
+        "adopt".into(),
+        "--id".into(),
+        id.into(),
+        "--stop-file".into(),
+        stop.as_os_str().to_owned(),
+    ];
+    if accept_lost {
+        args.push("--accept-lost".into());
+    }
+    if let Some(workspace) = workspace {
+        args.push("--workspace".into());
+        args.push(workspace.as_os_str().to_owned());
+    }
+    if take_over {
+        args.push("--take-over".into());
+    }
+    args.extend(["--".into(), pool.into()]);
+    args
+}
+
+/// Lost drive files of a drive plan as lost-file rows.
+pub(crate) fn drive_lost_from_plan(drive: &DrivePlan) -> Vec<LostFile> {
+    drive
+        .entries
+        .iter()
+        .filter(|e| e.action == crate::migration::model::Action::Lost)
+        .map(|e| LostFile {
+            archive_id: e.source_archive_id.clone(),
+            original_name: e.path.clone(),
+            size: e.size,
+            groups: e.losses.clone(),
+            detected: "plan".into(),
+        })
+        .collect()
 }
 
 /// Lost entries of a plan as the lost-file rows.

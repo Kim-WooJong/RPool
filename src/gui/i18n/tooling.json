@@ -1,0 +1,52 @@
+{
+ "A ZIP for bug reports: versions, doctor report, rclone and RPool settings without secrets, recent mount logs and monitoring status. Review it before sharing.": {
+  "ko": "버그 신고용 ZIP이에요. 버전, 진단 결과, 비밀 정보를 뺀 rclone·RPool 설정, 최근 마운트 로그와 모니터링 상태가 들어가요. 공유하기 전에 내용을 확인하세요.",
+  "ja": "バグ報告用の ZIP です。バージョン、診断結果、秘密情報を除いた rclone と RPool の設定、最近のマウントログ、モニタリング状態を含みます。共有する前に内容を確認してください。",
+  "zh": "用于问题报告的 ZIP：包含版本、诊断报告、去除机密信息的 rclone 和 RPool 设置、最近的挂载日志以及监控状态。分享前请先检查内容。"
+ },
+ "Cannot read the rclone version. RPool needs rclone {minimum} or newer.": {
+  "ko": "rclone 버전을 읽을 수 없어요. RPool은 rclone {minimum} 이상이 필요해요.",
+  "ja": "rclone のバージョンを読み取れません。RPool には rclone {minimum} 以降が必要です。",
+  "zh": "无法读取 rclone 版本。RPool 需要 rclone {minimum} 或更高版本。"
+ },
+ "Diagnostics bundle": {
+  "ko": "진단 번들",
+  "ja": "診断バンドル",
+  "zh": "诊断包"
+ },
+ "Dismiss": {
+  "ko": "닫기",
+  "ja": "閉じる",
+  "zh": "关闭"
+ },
+ "Export diagnostics…": {
+  "ko": "진단 정보 내보내기…",
+  "ja": "診断情報をエクスポート…",
+  "zh": "导出诊断信息…"
+ },
+ "Exporting to {path}. The task console shows the result.": {
+  "ko": "{path}(으)로 내보내는 중이에요. 결과는 작업 콘솔에 표시돼요.",
+  "ja": "{path} にエクスポートしています。結果はタスクコンソールに表示されます。",
+  "zh": "正在导出到 {path}。结果显示在任务控制台中。"
+ },
+ "ZIP archive": {
+  "ko": "ZIP 압축 파일",
+  "ja": "ZIP アーカイブ",
+  "zh": "ZIP 压缩包"
+ },
+ "rclone did not run ({error}). Set the rclone executable in Settings › General; RPool needs rclone {minimum} or newer.": {
+  "ko": "rclone을 실행하지 못했어요({error}). 설정 › 일반에서 rclone 실행 파일을 지정하세요. RPool은 rclone {minimum} 이상이 필요해요.",
+  "ja": "rclone を実行できませんでした（{error}）。設定 › 一般で rclone の実行ファイルを指定してください。RPool には rclone {minimum} 以降が必要です。",
+  "zh": "无法运行 rclone（{error}）。请在 设置 › 常规 中指定 rclone 可执行文件；RPool 需要 rclone {minimum} 或更高版本。"
+ },
+ "rclone {version} is too old: RPool needs {minimum} or newer. Update rclone before mounting or exporting diagnostics.": {
+  "ko": "rclone {version}은 너무 오래됐어요. RPool은 {minimum} 이상이 필요해요. 마운트하거나 진단 정보를 내보내기 전에 rclone을 업데이트하세요.",
+  "ja": "rclone {version} は古すぎます。RPool には {minimum} 以降が必要です。マウントや診断情報のエクスポートの前に rclone を更新してください。",
+  "zh": "rclone {version} 版本过旧：RPool 需要 {minimum} 或更高版本。请在挂载或导出诊断信息前更新 rclone。"
+ },
+ "rclone {version} works, but {recommended} or newer is recommended (security fix for rclone's remote control server).": {
+  "ko": "rclone {version}도 동작하지만 {recommended} 이상을 권장해요(rclone 원격 제어 서버의 보안 수정).",
+  "ja": "rclone {version} でも動作しますが、{recommended} 以降を推奨します（rclone のリモート制御サーバーのセキュリティ修正）。",
+  "zh": "rclone {version} 可以使用，但建议使用 {recommended} 或更高版本（修复了 rclone 远程控制服务器的安全问题）。"
+ }
+}

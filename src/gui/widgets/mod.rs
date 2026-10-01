@@ -3,6 +3,7 @@ mod capacity_bar;
 mod file_field;
 pub(crate) mod pool_capacity;
 mod progress_view;
+pub(crate) mod rclone_banner;
 mod remote_selector;
 mod section_header;
 mod status_badge;

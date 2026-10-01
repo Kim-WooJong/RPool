@@ -93,6 +93,37 @@ pub(super) fn mutation_rejected(stderr: &[u8]) -> bool {
     })
 }
 
+/// Exact detail of an upload the provider refused for its upload limit.
+pub(super) const UPLOAD_LIMIT_DETAIL: &str =
+    "rclone upload refused by the provider's upload limit (not performed)";
+
+/// Whether a failed upload's stderr says the account may not upload more for
+/// now (a daily/rolling limit, not a short burst limit and not a full disk):
+/// - `Received upload limit error` is rclone's report of Google Drive's
+///   upload limit under `--drive-stop-on-upload-limit` (rclone drive backend);
+/// - `User rate limit exceeded.` (this exact spelling) is Drive's message for
+///   that limit when the flag is absent; the short-term per-user rate limit is
+///   spelled `User Rate Limit Exceeded` and stays an ordinary rate limit;
+/// - `dailyLimitExceeded` is Google's daily API quota.
+///
+/// Storage-quota answers (`quotaExceeded`, `storageQuotaExceeded`) are not
+/// upload limits: waiting does not free space.
+pub(super) fn upload_limit_reported(stderr: &[u8]) -> bool {
+    let raw = String::from_utf8_lossy(stderr);
+    let text = raw.to_ascii_lowercase();
+    if text.contains("quotaexceeded") || text.contains("storage quota") {
+        return false;
+    }
+    text.contains("received upload limit error")
+        || raw.contains("User rate limit exceeded.")
+        || text.contains("dailylimitexceeded")
+}
+
+/// Whether `error` is a provider upload-limit refusal (see above).
+pub(super) fn is_upload_limit(error: &StorageError) -> bool {
+    matches!(error, StorageError::RateLimited { detail, .. } if detail == UPLOAD_LIMIT_DETAIL)
+}
+
 /// Explicit authentication/permission evidence in an rclone error message.
 pub(super) fn denial(text: &str) -> Option<StorageError> {
     let text = text.to_ascii_lowercase();
@@ -125,6 +156,12 @@ pub(super) fn rate_limited(text: &str) -> Option<StorageError> {
 
 pub(super) fn classify(status: ExitStatus, stderr: &[u8], mutation: bool) -> StorageError {
     if mutation {
+        if upload_limit_reported(stderr) {
+            return StorageError::RateLimited {
+                retry_after: None,
+                detail: UPLOAD_LIMIT_DETAIL.into(),
+            };
+        }
         if mutation_rejected(stderr) {
             return StorageError::RateLimited {
                 retry_after: None,
@@ -256,6 +293,9 @@ pub(super) fn run_metered(
                     if n == 0 {
                         break;
                     }
+                    if let Some(meter) = meter {
+                        meter.throttle(ctx, n as u64);
+                    }
                     check(ctx)?;
                     match stdin.write_all(&buffer[..n]) {
                         Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {
@@ -280,6 +320,9 @@ pub(super) fn run_metered(
                     };
                     if n == 0 {
                         break;
+                    }
+                    if let Some(meter) = meter {
+                        meter.throttle(ctx, n as u64);
                     }
                     check(ctx)?;
                     sink.write_all(&buffer[..n]).map_err(sink_error)?;

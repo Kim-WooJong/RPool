@@ -29,6 +29,24 @@ fn workspace_metadata_roots(
     }
     Ok(roots)
 }
+/// The metadata roots a pool-sync workspace of `pool` on `epoch` uses
+/// (v7: the private snapshot roots). Also read by pool change migration.
+pub(crate) fn drive_metadata_roots(
+    pool: &str,
+    remotes: &[String],
+    epoch: Option<&str>,
+    v7: bool,
+) -> Result<Vec<String>> {
+    let roots = workspace_metadata_roots(pool, remotes, epoch)?;
+    Ok(if v7 {
+        roots
+            .into_iter()
+            .map(|r| r.replace("/events-v6/", "/snapshots-v7/"))
+            .collect()
+    } else {
+        roots
+    })
+}
 #[derive(Clone, Debug)]
 pub(crate) enum Revision {
     Cloud {
@@ -246,15 +264,7 @@ impl VirtualDrive {
                 .cloned()
                 .context("unknown pool")?;
             crate::pool::validate_pool(&policy)?;
-            let roots = workspace_metadata_roots(pool, &policy.remotes, epoch.as_deref())?;
-            if peer_retention {
-                roots
-                    .into_iter()
-                    .map(|r| r.replace("/events-v6/", "/snapshots-v7/"))
-                    .collect()
-            } else {
-                roots
-            }
+            drive_metadata_roots(pool, &policy.remotes, epoch.as_deref(), peer_retention)?
         } else {
             vec![]
         };
@@ -1084,6 +1094,8 @@ impl VirtualDrive {
     /// it already reserves pending sizes, and `quota` reports no additional
     /// space as soon as pending intents or namespace events differ from it.
     pub(crate) fn sync(&self) -> Result<()> {
+        // Never publish into a drive generation a pool migration froze or replaced.
+        super::adoption_fence::check_publish(self)?;
         if self.peer_retention {
             return self.sync_snapshots();
         }
@@ -1343,19 +1355,46 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         args.worker_name.as_deref().unwrap_or("local")
     };
     println!("Opening virtual workspace");
-    let mut drive = VirtualDrive::open(
-        rclone,
-        &args.pool,
-        &args.workspace,
-        worker,
-        args.shared_root.as_deref(),
-        args.cache_gib
-            .checked_mul(1073741824)
-            .context("cache limit overflow")?,
-        args.bounded_shared,
-        args.pool_sync,
-        args.pool_retention,
-    )?;
+    // A pool migration may have adopted the drive into a new generation.
+    let adopted = if args.pool_sync {
+        super::adoption_fence::before_open(
+            rclone,
+            &args.pool,
+            &args.workspace,
+            args.pool_retention,
+        )?
+    } else {
+        None
+    };
+    let cache_limit = args
+        .cache_gib
+        .checked_mul(1073741824)
+        .context("cache limit overflow")?;
+    let mut drive = match adopted {
+        Some(epoch) => VirtualDrive::open_with_epoch(
+            rclone,
+            &args.pool,
+            &args.workspace,
+            worker,
+            args.shared_root.as_deref(),
+            cache_limit,
+            args.bounded_shared,
+            args.pool_sync,
+            args.pool_retention,
+            &epoch,
+        )?,
+        None => VirtualDrive::open(
+            rclone,
+            &args.pool,
+            &args.workspace,
+            worker,
+            args.shared_root.as_deref(),
+            cache_limit,
+            args.bounded_shared,
+            args.pool_sync,
+            args.pool_retention,
+        )?,
+    };
     if args.pool_sync {
         drive.pool_history_limit = super::pool_sync::Config::load(
             &drive.root,

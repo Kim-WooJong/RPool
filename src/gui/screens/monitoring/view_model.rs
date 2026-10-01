@@ -48,6 +48,17 @@ pub(crate) fn alert_text(alert: &Alert) -> String {
             &[("remote", &remote)],
         ),
         (AlertKind::Unreachable, None) => tr("An account has not answered for a minute").into(),
+        (AlertKind::MetadataGrowing, _) => tr(
+            "Drive metadata is growing without a checkpoint; new PCs may not open it. Compact it on the Pools page.",
+        )
+        .into(),
+        (AlertKind::UploadLimit, Some(remote)) => trf(
+            "{remote}: upload limit reached — uploads wait and resume automatically",
+            &[("remote", &remote)],
+        ),
+        (AlertKind::UploadLimit, None) => {
+            tr("An account reached its upload limit — uploads wait and resume automatically").into()
+        }
     }
 }
 
@@ -64,6 +75,9 @@ pub(crate) struct RemoteView {
     pub last_ok: String,
     /// Error line and its age.
     pub last_error: Option<String>,
+    /// Uploads wait for the account's upload limit: the alert's detail
+    /// (English, with the resume time) for the badge's hover text.
+    pub upload_limit: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -140,6 +154,7 @@ pub(crate) fn remote_view(remote: &RemoteTraffic, now: u64) -> RemoteView {
                 Some(at) => format!("{error} ({})", relative_age_at(now, at)),
                 None => error.clone(),
             }),
+        upload_limit: None,
     }
 }
 
@@ -156,7 +171,17 @@ fn live_view(status: &NetStatus, now: u64) -> LiveView {
     let remotes: Vec<RemoteView> = status
         .remotes
         .iter()
-        .map(|remote| remote_view(remote, now))
+        .map(|remote| {
+            let mut view = remote_view(remote, now);
+            view.upload_limit = status
+                .alerts
+                .iter()
+                .find(|a| {
+                    a.kind == AlertKind::UploadLimit && a.remote.as_deref() == Some(&remote.remote)
+                })
+                .map(|a| a.message.clone());
+            view
+        })
         .collect();
     let activity = [Activity::Uploading, Activity::Downloading]
         .into_iter()

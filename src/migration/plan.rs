@@ -20,11 +20,30 @@ pub(crate) struct PlanOptions {
     pub download_mib_s: Option<f64>,
     pub upload_mib_s: Option<f64>,
     pub workers: usize,
+    /// Leave the pool's drive out (archives only). The drive is planned by
+    /// default when the pool has one.
+    pub skip_drive: bool,
 }
 
 /// Builds a plan for `pool` (the saved pool is the target policy). Read-only:
 /// nothing is written anywhere. Blocking; may take a while.
+/// Archives only (shared signature; `create` plans the drive too).
+#[allow(dead_code)]
 pub(crate) fn plan(rclone: &str, pool: &str, options: &PlanOptions) -> Result<Plan> {
+    let options = PlanOptions {
+        skip_drive: true,
+        ..options.clone()
+    };
+    plan_with_drive(rclone, pool, &options).map(|(plan, _)| plan)
+}
+
+/// [`plan`] plus the drive part (unless `options.skip_drive`): the drive's
+/// files read from the cloud, classified against the same listings. Read-only.
+pub(crate) fn plan_with_drive(
+    rclone: &str,
+    pool: &str,
+    options: &PlanOptions,
+) -> Result<(Plan, Option<super::drive_model::DrivePlan>)> {
     let store = crate::pool::load_pool_store()?;
     let mut target = store
         .pools
@@ -36,9 +55,14 @@ pub(crate) fn plan(rclone: &str, pool: &str, options: &PlanOptions) -> Result<Pl
     let inventory = crate::inventory::load_inventory()?;
     let cloud = RcloneCloud::new(rclone, target.placement == Placement::Resilient);
     let (replaced, mut note) = replaced_archives(rclone, pool);
-    let mut plan = plan_with_replaced(&cloud, pool, target, &inventory, options, &replaced)?;
+    let (mut plan, mut listed) = plan_listed(&cloud, pool, target, &inventory, options, &replaced)?;
     plan.notes.append(&mut note);
-    Ok(plan)
+    if options.skip_drive {
+        return Ok((plan, None));
+    }
+    let source = super::drive_source::CloudDrive::new(rclone, pool, &plan.target);
+    let drive = super::drive_plan::plan_drive(&cloud, &source, &mut plan, &mut listed, options)?;
+    Ok((plan, drive))
 }
 
 /// Originals that an earlier migration of this pool already replaced
@@ -60,6 +84,10 @@ fn replaced_archives(rclone: &str, pool: &str) -> (BTreeSet<String>, Vec<String>
         match records {
             Ok(records) => {
                 for (archive, state) in super::execute::progress(&records) {
+                    // Drive records are keyed by file, not by archive.
+                    if super::drive_model::is_drive_key(&archive) {
+                        continue;
+                    }
                     if matches!(state, super::execute::Progress::Switched(_)) {
                         replaced.insert(archive);
                     }
@@ -73,7 +101,7 @@ fn replaced_archives(rclone: &str, pool: &str) -> (BTreeSet<String>, Vec<String>
 
 /// Production cloud access: rclone listings, metadata reads, scans and quota
 /// queries only.
-struct RcloneCloud {
+pub(super) struct RcloneCloud {
     context: RcloneContext,
     reader: StorageReader,
     admin: RcloneAdmin,
@@ -83,7 +111,7 @@ struct RcloneCloud {
 }
 
 impl RcloneCloud {
-    fn new(rclone: &str, need_catalog: bool) -> Self {
+    pub(super) fn new(rclone: &str, need_catalog: bool) -> Self {
         let admin = RcloneAdmin::inherited(rclone);
         let catalog = need_catalog.then(|| admin.catalog().ok()).flatten();
         Self {
@@ -160,7 +188,7 @@ fn remote_name(remote: &str) -> &str {
 }
 
 /// One listing per remote, in parallel; unconfigured remotes are not called.
-fn list_all(
+pub(super) fn list_all(
     cloud: &dyn Cloud,
     remotes: &BTreeSet<String>,
     configured: Option<&BTreeSet<String>>,
@@ -210,7 +238,7 @@ fn first_unknown(states: &[ShardState]) -> Option<&str> {
 
 /// Classifies, probes and estimates one archive. Returns the entry and the
 /// new shards to charge against quota.
-fn plan_entry(
+pub(super) fn plan_entry(
     cloud: &dyn Cloud,
     loaded: &Loaded,
     target: &PoolDefinition,
@@ -311,6 +339,8 @@ pub(crate) fn plan_with(
 }
 
 /// `plan_with`, skipping archives in `replaced` (already migrated originals).
+/// Shared signature; production planning uses [`plan_listed`].
+#[allow(dead_code)]
 pub(crate) fn plan_with_replaced(
     cloud: &dyn Cloud,
     pool: &str,
@@ -319,6 +349,25 @@ pub(crate) fn plan_with_replaced(
     options: &PlanOptions,
     replaced: &BTreeSet<String>,
 ) -> Result<Plan> {
+    plan_listed(cloud, pool, target, inventory, options, replaced).map(|(plan, _)| plan)
+}
+
+/// What archive planning learned that the drive part reuses.
+pub(super) struct Listed {
+    pub listings: BTreeMap<String, RemoteListing>,
+    /// New shards of the archive entries, for the combined quota check.
+    pub specs: Vec<Vec<PhysicalSpec>>,
+}
+
+/// `plan_with_replaced`, also returning the listings and quota specs.
+pub(super) fn plan_listed(
+    cloud: &dyn Cloud,
+    pool: &str,
+    target: PoolDefinition,
+    inventory: &InventoryStore,
+    options: &PlanOptions,
+    replaced: &BTreeSet<String>,
+) -> Result<(Plan, Listed)> {
     for rate in [options.download_mib_s, options.upload_mib_s]
         .into_iter()
         .flatten()
@@ -454,10 +503,17 @@ pub(crate) fn plan_with_replaced(
     let quota_ok = cloud.quota_ok(&target, &specs);
 
     if enumerated.drive_skipped > 0 {
-        notes.push(format!(
-            "{} drive archive(s) (virtual-*, peer-v7-*) are not included: drive files are handled by a later phase (use Drive › Apply pool changes for now)",
-            enumerated.drive_skipped
-        ));
+        notes.push(if options.skip_drive {
+            format!(
+                "{} drive archive(s) (virtual-*, peer-v7-*) are not included: the drive was left out of this plan",
+                enumerated.drive_skipped
+            )
+        } else {
+            format!(
+                "{} drive archive(s) (virtual-*, peer-v7-*) are not migrated as archives: the drive's visible files are planned in its own part and adopted into a new drive generation",
+                enumerated.drive_skipped
+            )
+        });
     }
     notes.extend(enumerated.notes);
     if counts.unknown > 0 {
@@ -501,7 +557,7 @@ pub(crate) fn plan_with_replaced(
         options.download_mib_s,
         options.upload_mib_s,
     );
-    Ok(Plan {
+    let plan = Plan {
         version: 1,
         migration_id: random_hex32()?,
         pool: pool.to_owned(),
@@ -518,7 +574,8 @@ pub(crate) fn plan_with_replaced(
         upload_mib_s: options.upload_mib_s,
         quota_ok,
         notes,
-    })
+    };
+    Ok((plan, Listed { listings, specs }))
 }
 
 #[cfg(test)]

@@ -187,10 +187,11 @@ Ten are ignored B6 real-tool integration tests; the transaction tests continue
 to use explicit fake encrypted fixtures for deterministic fault injection. None
 of the Rust tests has been executed in this environment.
 
-Do not run cargo check/build/test unless the user requests it. B1-B7 source work is
-complete. The user requested a full-project ZIP for this checkpoint rather than the
-normal changed-file-only patch ZIP. `scripts/update-cleanup.nu` remains included.
-Runtime B6 execution is still pending and must not be claimed as completed testing.
+B1-B7 source work is complete. Historical note: this checkpoint was delivered as a
+full-project ZIP without cargo runs. Since then source lives in Git
+(`docs/VERSIONING.md`), and the 11 ignored B6 real-tool tests passed on macOS ARM64
+and Linux ARM64 on 2026-09-24 (`docs/architecture/runtime-validation.md`); Windows
+has not run them.
 
 ## Cleanup
 

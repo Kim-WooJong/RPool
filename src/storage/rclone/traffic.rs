@@ -256,6 +256,10 @@ pub(crate) enum Direction {
 pub(crate) struct Op {
     counters: Option<Arc<Counters>>,
     direction: Direction,
+    /// Attributed remote name, for activity records.
+    name: Option<String>,
+    /// Bandwidth buckets every transferred chunk of this op passes.
+    pacing: Vec<(super::pacer::Key, Arc<super::pacer::Bucket>)>,
 }
 impl Op {
     /// `remote`: the attributed remote name (`None` = not metered).
@@ -271,6 +275,25 @@ impl Op {
         Self {
             counters,
             direction,
+            name: remote.map(str::to_owned),
+            pacing: Vec::new(),
+        }
+    }
+    /// Paces this op's chunks through the buckets of `keys`.
+    pub(crate) fn paced(mut self, keys: Vec<super::pacer::Key>) -> Self {
+        self.pacing = keys
+            .into_iter()
+            .map(|key| {
+                let bucket = super::pacer::bucket(&key);
+                (key, bucket)
+            })
+            .collect();
+        self
+    }
+    /// Waits until `bytes` more fit every bandwidth limit of this op.
+    pub(crate) fn throttle(&self, ctx: &crate::storage::traits::OperationContext, bytes: u64) {
+        for (key, bucket) in &self.pacing {
+            bucket.take(ctx, bytes, super::pacer::current_rate(key));
         }
     }
     pub(crate) fn sent(&self, bytes: u64) {
@@ -300,6 +323,10 @@ impl Op {
             return;
         };
         let now = now_unix();
+        let succeeded = match result {
+            Ok(_) => true,
+            Err(error) => counts_as_failure(error) == Some(false),
+        };
         match result {
             Ok(_) => counters.succeeded(now),
             Err(error) => match counts_as_failure(error) {
@@ -307,6 +334,11 @@ impl Op {
                 Some(false) => counters.succeeded(now),
                 None => {}
             },
+        }
+        if succeeded {
+            if let Some(name) = &self.name {
+                crate::storage::account::runtime::note_activity(name);
+            }
         }
     }
 }
@@ -326,9 +358,11 @@ impl Drop for Op {
 pub(crate) struct Metered<'a> {
     pub(crate) sink: &'a mut dyn std::io::Write,
     pub(crate) op: &'a Op,
+    pub(crate) ctx: &'a crate::storage::traits::OperationContext,
 }
 impl std::io::Write for Metered<'_> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.op.throttle(self.ctx, bytes.len() as u64);
         self.sink.write_all(bytes)?;
         self.op.received(bytes.len() as u64);
         Ok(bytes.len())

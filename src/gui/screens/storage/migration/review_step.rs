@@ -107,26 +107,37 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         .strong(),
     );
     summary(ui, &plan);
-    ui.colored_label(
-        theme::warning_colors(ui.visuals().dark_mode).1,
-        tr("Drive files are not included yet — use Apply pool changes below (Advanced / manual) for a mounted drive."),
-    );
+    let drive = state.migration.drive_plan.clone();
+    match &drive {
+        Some(drive) => super::drive_part::review(ui, drive),
+        None => theme::hint(
+            ui,
+            tr("No drive part: this pool has no drive, or it was left out of the plan."),
+        ),
+    }
     if plan.counts.unknown > 0 {
         theme::hint(ui, tr("Unknown entries could not be checked (provider error). They are retried on the next run and never counted as lost."));
     }
     let idle = !task.is_running();
     let movable = plan.counts.relocate + plan.counts.reencode;
+    let drive_quota = drive.as_ref().and_then(|d| d.quota_ok);
+    let lost = state.migration.active_lost().len();
     ui.horizontal_wrapped(|ui| {
-        let can_start = idle && movable > 0 && plan.quota_ok != Some(false);
+        // A drive part runs even when nothing moves: it freezes the drive
+        // for the adoption.
+        let can_start = idle
+            && (movable > 0 || drive.is_some())
+            && plan.quota_ok != Some(false)
+            && drive_quota != Some(false);
         if theme::primary_button(ui, can_start, tr("Start migration")).clicked() {
             let id = plan.migration_id.clone();
             if let Err(error) = state.migration.start_run(task, &state.settings.rclone, &id) {
                 state.migration.error = Some(error);
             }
         }
-        if plan.counts.lost > 0
+        if lost > 0
             && ui
-                .button(trf("Lost files ({n})", &[("n", &plan.counts.lost)]))
+                .button(trf("Lost files ({n})", &[("n", &lost)]))
                 .clicked()
         {
             state.migration.step = Step::Lost;
@@ -149,9 +160,9 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             state.migration.reset_to_plan();
         }
     });
-    if movable == 0 {
+    if movable == 0 && drive.is_none() {
         theme::hint(ui, tr("Nothing needs to move for this pool."));
-    } else if plan.quota_ok == Some(false) {
+    } else if plan.quota_ok == Some(false) || drive_quota == Some(false) {
         theme::hint(ui, tr("Free space on the new accounts is too small. Add an account or free space, then plan again."));
     }
 }

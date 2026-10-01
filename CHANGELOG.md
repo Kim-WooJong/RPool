@@ -2,6 +2,75 @@
 
 ## Unreleased
 
+- **Drive metadata no longer blocks a new PC (checkpoints and compaction).**
+  v6 events and v7 snapshots are covered by content-addressed checkpoint
+  objects (`<root>/checkpoints/{chunks,heads,marks}`) written by any PC after
+  2,000 records or 16 MiB; a fresh PC reads the checkpoints plus the newer
+  records, in pages, so the old 10,000-record / 64 MiB bootstrap failure is
+  gone. Old records are deleted only after a one-time
+  `rpool pool compact <NAME> --enable-deletion` (which makes older RPool
+  versions stop on that pool, loudly), a 14-day grace and a newer checkpoint
+  on every replica. `rpool pool compact [--dry-run]`, automatic compaction in
+  the mount maintenance loop, a `metadata-<pool>` doctor row, a
+  `MetadataGrowing` monitoring alert, and a "Drive metadata" card on
+  Storage › Pools. Design: `docs/METADATA_COMPACTION_DESIGN.md`.
+- **Account limits and lifetime.** Per-account rolling 24 h upload budget
+  (Google Drive default 750 GB; others none; overridable), shared by every
+  RPool process on the PC; when exhausted, uploads to that account wait
+  ("resumes in 3 h 05 min") instead of failing and Drive's own limit errors
+  pause it too. Last activity per account with inactivity warnings (Drive 18,
+  OneDrive 9 months by default) and keep-alive (manual or automatic every 7
+  days while mounted; providers decide what counts as activity). Bandwidth
+  timetable in rclone syntax (`"08:00,512k 18:00,30M"`, `UP:DOWN`) applied
+  to subprocesses, the read daemon and an overall cap, plus per-account
+  `--tpslimit`. CLI `rpool provider limits show|set|reset|bandwidth|keepalive-days`
+  and `rpool provider keepalive`; GUI: provider cards (uploaded today,
+  last activity, Limits…, Keep alive now), Settings › Network, and an
+  `UploadLimit` badge on the Monitoring page.
+- **Pool migration phase 3: the drive moves too.** `pool migrate plan`
+  includes the mounted drive's files (`--no-drive` to skip), `run` migrates
+  them after the archives under the same claims and journal, and the new
+  `pool migrate adopt --id ID [--accept-lost] [--workspace DIR]` publishes
+  them as a new drive generation that every PC opens — also a PC without the
+  old workspace. Old-generation workspaces are refused at mount with the
+  exact adopt command; while a drive part runs the drive is frozen (changes
+  stay in the local spool). Nothing is deleted. GUI: drive part in the plan,
+  run progress and a new Adopt step.
+- **Pool migration phase 4: clean up.** `pool migrate retire --id ID
+  [--dry-run|--confirm]` lists, quarantines and later deletes replaced
+  originals and orphan copies of a complete migration: a fresh reference
+  check (inventory, every manifest replica, all drive metadata of every
+  generation incl. checkpoints, local workspaces, other migrations) keeps
+  anything referenced or uncertain; quarantine is a journal record with a
+  7-day grace and `pool migrate restore`; deletion re-checks everything,
+  is journaled for other PCs and resumable; a mass-delete guard (50 % of the
+  pool or 10,000 objects) needs `--force` or a second GUI confirmation.
+  GUI: step "5. Clean up" in the migration wizard.
+
+- **rclone version check.** `rpool doctor` adds an `rclone-support` row:
+  FAIL below rclone v1.64.0 (every mount passes `--vfs-cache-min-free-space`
+  and the diagnostics bundle uses `rclone config redacted`, both added in
+  v1.64.0) and WARN below v1.74.3 (fixes CVE-2026-49980 in `--rc-serve`,
+  which RPool's helper daemon uses). The GUI shows a banner under the top bar
+  when the configured rclone is missing or too old.
+- **Diagnostics bundle.** `rpool doctor --bundle FILE.zip [--local-only]
+  [--json]` (GUI: Settings › General › Export diagnostics…) writes a ZIP with
+  versions and build info, the doctor report, `rclone config redacted`, RPool
+  settings and mount registry entries without secrets, bounded tails of the
+  operation history and of each known workspace's mount logs, and its
+  monitoring status/history. RPool redacts every file again (secret-named
+  fields and flags, URL credentials, bearer tokens, private keys, age
+  identities, token-shaped strings, e-mail addresses); `manifest.txt` lists
+  the files, what was left out and the rules. Stored (uncompressed) ZIP
+  written without a new dependency. Tests plant fake secrets in every source
+  and check that none reach the archive.
+- `scripts/ci-local.sh` runs fmt, check, clippy (report-only), tests,
+  ignored tests when rclone and age are installed (no FUSE/`e2e_*`), and a
+  Windows cross check when that target is installed.
+- Docs: DEVELOPMENT.md describes the current Git/build workflow and GUI
+  areas; README "Current limitations" updated; the Crypt Secret Portability
+  state file is marked historical with the 2026-09-24 B6 results.
+
 - **Fix: uploaded data was downloaded again right after its upload was
   verified.** The same process read every new shard back 2 times (v6) or 3
   times (v7): once after the upload (kept), again in the post-upload verify,

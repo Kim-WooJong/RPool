@@ -13,6 +13,9 @@ use std::time::{Duration, Instant};
 
 /// Capacity snapshots expire after 120 s; refresh well inside that window.
 const CAPACITY_INTERVAL_MAX: Duration = Duration::from_secs(60);
+/// How often idle accounts are checked for an automatic keep-alive (the
+/// interval itself is the `keepalive_days` account-limit setting).
+const KEEPALIVE_CHECK: Duration = Duration::from_secs(3600);
 
 struct Periodic {
     interval: Duration,
@@ -25,6 +28,13 @@ impl Periodic {
             interval,
             last: None,
             job: None,
+        }
+    }
+    /// First run one interval after creation.
+    fn delayed(interval: Duration) -> Self {
+        Self {
+            last: Some(Instant::now()),
+            ..Self::new(interval)
         }
     }
     fn poll(&mut self, start: impl FnOnce() -> JoinHandle<()>) -> Result<()> {
@@ -51,12 +61,20 @@ impl Periodic {
 pub(super) struct Maintenance {
     sync: Periodic,
     capacity: Periodic,
+    /// Metadata checkpoint/compaction pass (`metadata_compaction`).
+    compaction: Periodic,
+    keepalive: Periodic,
 }
 impl Maintenance {
     pub(super) fn new(interval: Duration) -> Self {
+        let minutes = super::metadata_compaction::Config::load()
+            .map(|c| c.interval_minutes)
+            .unwrap_or(super::metadata_compaction::Config::default().interval_minutes);
         Self {
             sync: Periodic::new(interval),
             capacity: Periodic::new(interval.min(CAPACITY_INTERVAL_MAX)),
+            compaction: Periodic::delayed(Duration::from_secs(minutes.saturating_mul(60))),
+            keepalive: Periodic::new(KEEPALIVE_CHECK),
         }
     }
     /// Starts whichever worker is due; `report` refreshes and publishes capacity.
@@ -75,6 +93,21 @@ impl Maintenance {
                 }
             })
         })?;
+        self.keepalive.poll(|| {
+            let (drive, cancelled) = (drive.clone(), cancelled.clone());
+            std::thread::spawn(move || {
+                if !cancelled.load(Ordering::Acquire) {
+                    let kept = crate::provider::keepalive::run_due(
+                        &drive.rclone,
+                        &drive.policy.remotes,
+                        &cancelled,
+                    );
+                    if kept > 0 {
+                        println!("Kept {kept} idle cloud account(s) alive");
+                    }
+                }
+            })
+        })?;
         self.sync.poll(|| {
             let (drive, cancelled) = (drive.clone(), cancelled.clone());
             std::thread::spawn(move || {
@@ -86,13 +119,42 @@ impl Maintenance {
                     Err(e) => eprintln!("Virtual sync pending: {e:#}"),
                 }
             })
+        })?;
+        self.compaction.poll(|| {
+            let (drive, cancelled) = (drive.clone(), cancelled.clone());
+            std::thread::spawn(move || {
+                if !cancelled.load(Ordering::Acquire) {
+                    compact(&drive);
+                }
+            })
         })
     }
     /// Waits for running workers (after cancellation was requested).
     pub(super) fn join(mut self) -> Result<()> {
         let sync = self.sync.join();
         let capacity = self.capacity.join();
-        sync.and(capacity)
+        let compaction = self.compaction.join();
+        let keepalive = self.keepalive.join();
+        sync.and(capacity).and(compaction).and(keepalive)
+    }
+}
+
+/// One automatic compaction pass; never fails the mount.
+fn compact(drive: &VirtualDrive) {
+    let result = drive.compact_metadata();
+    let now = crate::storage::rclone::traffic::now_unix();
+    crate::monitor::runtime::note_metadata(super::metadata_pool::growth_alert(
+        &drive.pool,
+        &result,
+        now,
+    ));
+    match result {
+        Err(e) => eprintln!("Metadata compaction pending: {e:#}"),
+        Ok(Some(report)) if report.checkpoint.is_some() || report.deleted > 0 => eprintln!(
+            "Metadata compaction: {} records checkpointed, {} covered records deleted",
+            report.checkpointed_records, report.deleted
+        ),
+        Ok(_) => {}
     }
 }
 
@@ -116,6 +178,11 @@ mod tests {
             Maintenance::new(Duration::from_secs(3600)).sync.interval,
             Duration::from_secs(3600)
         );
+        // Compaction never runs at mount start; it waits one interval.
+        assert!(Maintenance::new(Duration::from_secs(30))
+            .compaction
+            .last
+            .is_some());
     }
 
     #[test]

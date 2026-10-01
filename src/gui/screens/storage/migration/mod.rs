@@ -1,7 +1,14 @@
 //! Storage › Account changes › Pool change migration: plan what moves when
 //! a pool's accounts or coding change, review it, run it (pause / resume
-//! from any PC) and list the files that cannot be recovered. Mirrors
-//! `rpool pool migrate plan|run|status|lost|abandon`.
+//! from any PC), adopt the migrated drive, clean up replaced data and list the
+//! files that cannot be recovered. Mirrors
+//! `rpool pool migrate plan|run|status|adopt|lost|abandon|retire|restore`.
+mod adopt_step;
+pub(crate) mod cleanup_state;
+mod cleanup_step;
+#[cfg(test)]
+pub(crate) mod cleanup_tests;
+mod drive_part;
 mod lost;
 mod plan_step;
 mod review_step;
@@ -27,11 +34,11 @@ pub(crate) fn card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         }
     }
     form.watch_task(task);
-    let busy = form.poll();
+    let busy = form.poll() | form.cleanup.poll();
     if form.status_due(std::time::Instant::now()) {
         form.start_status(&state.settings.rclone);
     }
-    if busy || form.step == Step::Run {
+    if busy || matches!(form.step, Step::Run | Step::Adopt) {
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(250));
     }
@@ -39,7 +46,7 @@ pub(crate) fn card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     theme::card_section(
         ui,
         tr("Pool change migration"),
-        Some(tr("After accounts leave or join a pool, or K / M / shard size / native crypt change: see what moves and how long it takes, then move it. Progress is kept in the cloud so any PC can resume. Nothing is deleted.")),
+        Some(tr("After accounts leave or join a pool, or K / M / shard size / native crypt change: see what moves and how long it takes, then move it. Progress is kept in the cloud so any PC can resume. Nothing is deleted until you clean up in the last step.")),
         |_| {},
         |ui| {
             steps_bar(ui, state.migration.step);
@@ -53,7 +60,9 @@ pub(crate) fn card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 Step::Plan => plan_step::show(ui, state, task),
                 Step::Review => review_step::show(ui, state, task),
                 Step::Run => run_step::show(ui, state, task),
+                Step::Adopt => adopt_step::show(ui, state, task),
                 Step::Lost => lost::show(ui, state),
+                Step::Cleanup => cleanup_step::show(ui, state, task),
             }
             if matches!(state.migration.step, Step::Plan) {
                 ui.separator();
@@ -70,7 +79,9 @@ fn steps_bar(ui: &mut egui::Ui, step: Step) {
             (Step::Plan, tr("Plan")),
             (Step::Review, tr("Review")),
             (Step::Run, tr("Run")),
+            (Step::Adopt, tr("Adopt drive")),
             (Step::Lost, tr("Lost files")),
+            (Step::Cleanup, tr("Clean up")),
         ]
         .into_iter()
         .enumerate()

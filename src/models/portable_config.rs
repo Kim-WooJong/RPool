@@ -34,6 +34,10 @@ pub(crate) struct PortableConfig {
     pub(crate) secret_vault: Option<PortableSecretVault>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) crypt_remotes: Vec<PortableCryptRemote>,
+    /// Per-account limits and the bandwidth timetable; absent when defaults
+    /// (older bundles import without touching local limits).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) account_limits: Option<crate::storage::account::limits::LimitsStore>,
 }
 
 /// Explicit allowlist: credentials can never be added via an arbitrary map.

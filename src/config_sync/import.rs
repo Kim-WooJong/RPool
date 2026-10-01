@@ -7,6 +7,8 @@ use crate::gui::{load_settings, save_settings, GuiSettings};
 use crate::models::{PoolStore, PortableConfig, RemoteRootStore};
 use crate::pool::{load_pool_store, save_pool_store};
 use crate::remote_root::{load_remote_root_store, save_remote_root_store};
+use crate::storage::account::limits::LimitsStore;
+use crate::storage::account::store::{load_limits, save_limits};
 use crate::utils::read_json;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
@@ -15,9 +17,12 @@ pub(crate) struct PreparedPortableImport {
     previous_pools: PoolStore,
     previous_roots: RemoteRootStore,
     previous_gui: GuiSettings,
+    previous_limits: LimitsStore,
     next_pools: PoolStore,
     next_roots: RemoteRootStore,
     next_gui: GuiSettings,
+    /// `None`: the bundle carries no limits; local ones stay.
+    next_limits: Option<LimitsStore>,
 }
 
 impl PreparedPortableImport {
@@ -26,6 +31,9 @@ impl PreparedPortableImport {
             save_pool_store(&self.next_pools)?;
             save_remote_root_store(&self.next_roots)?;
             save_settings(&self.next_gui).map_err(anyhow::Error::msg)?;
+            if let Some(limits) = &self.next_limits {
+                save_limits(limits)?;
+            }
             Ok(())
         })();
         if let Err(error) = applied {
@@ -41,6 +49,9 @@ impl PreparedPortableImport {
         save_pool_store(&self.previous_pools)?;
         save_remote_root_store(&self.previous_roots)?;
         save_settings(&self.previous_gui).map_err(anyhow::Error::msg)?;
+        if self.next_limits.is_some() {
+            save_limits(&self.previous_limits)?;
+        }
         Ok(())
     }
 }
@@ -50,6 +61,7 @@ pub(crate) fn prepare_portable_import(bundle: &PortableConfig) -> Result<Prepare
     let previous_pools = load_pool_store()?;
     let previous_roots = load_remote_root_store()?;
     let previous_gui = load_settings("rclone");
+    let previous_limits = load_limits()?;
 
     let mut next_gui = previous_gui.clone();
     if let Some(encryption) = &bundle.gui.encryption {
@@ -68,9 +80,11 @@ pub(crate) fn prepare_portable_import(bundle: &PortableConfig) -> Result<Prepare
         previous_pools,
         previous_roots,
         previous_gui,
+        previous_limits,
         next_pools: bundle.pools.clone(),
         next_roots: bundle.remote_roots.clone(),
         next_gui,
+        next_limits: bundle.account_limits.clone(),
     })
 }
 

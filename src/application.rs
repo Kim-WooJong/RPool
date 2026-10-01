@@ -176,6 +176,12 @@ fn dispatch(cli: Cli) -> Result<()> {
             PoolCommands::SpeedTest { name, size } => {
                 crate::speedtest::run_pool(&cli.rclone, &name, size)
             }
+            PoolCommands::Compact {
+                name,
+                dry_run,
+                enable_deletion,
+                json,
+            } => commands::pool::compact(&cli.rclone, &name, dry_run, enable_deletion, json),
         },
         Commands::Manifest(args) => match args.command {
             ManifestCommands::Replicate {
@@ -248,6 +254,12 @@ fn dispatch(cli: Cli) -> Result<()> {
             args.groups,
         ),
         Commands::Provider(args) => match args.command {
+            ProviderCommands::Limits(limits) => {
+                commands::provider::limits(&cli.rclone, limits.command)
+            }
+            ProviderCommands::Keepalive { remotes, json } => {
+                commands::provider::keepalive(&cli.rclone, remotes, json)
+            }
             ProviderCommands::EnsureEncryption {
                 json,
                 root,
@@ -340,6 +352,11 @@ fn dispatch(cli: Cli) -> Result<()> {
             }
             RemoteRootCommands::Remove { remote } => commands::remote_root::remove::run(&remote),
         },
-        Commands::Doctor(args) => commands::doctor(&cli.rclone, args.json, args.local_only),
+        Commands::Doctor(args) => commands::doctor(
+            &cli.rclone,
+            args.json,
+            args.local_only,
+            args.bundle.as_deref(),
+        ),
     }
 }

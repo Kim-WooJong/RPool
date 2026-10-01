@@ -246,6 +246,7 @@ fn portable_config(crypt_remotes: Vec<PortableCryptRemote>) -> PortableConfig {
         },
         secret_vault: None,
         crypt_remotes,
+        account_limits: None,
     }
 }
 
@@ -867,4 +868,26 @@ fn b6_real_leading_hyphen_secret_is_not_an_option() -> Result<()> {
         bail!("leading-hyphen secret was changed");
     }
     Ok(())
+}
+
+#[test]
+fn account_limits_travel_in_the_portable_bundle_only_when_set() {
+    use crate::storage::account::limits::LimitsStore;
+    let mut bundle = portable_config(Vec::new());
+    let plain = serde_json::to_value(&bundle).unwrap();
+    assert!(plain.get("account_limits").is_none());
+    super::validate_bundle(&bundle).unwrap();
+    bundle.account_limits = Some(LimitsStore {
+        bandwidth: Some("08:00,1M 18:00,off".into()),
+        ..Default::default()
+    });
+    let text = serde_json::to_string(&bundle).unwrap();
+    let back: PortableConfig = serde_json::from_str(&text).unwrap();
+    assert_eq!(back.account_limits, bundle.account_limits);
+    super::validate_bundle(&back).unwrap();
+    bundle.account_limits = Some(LimitsStore {
+        bandwidth: Some("fast".into()),
+        ..Default::default()
+    });
+    assert!(super::validate_bundle(&bundle).is_err());
 }

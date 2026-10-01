@@ -111,6 +111,10 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 .unwrap_or(tr("Loading progress from the cloud journal…")),
         ),
     }
+    let drive = state.migration.active_drive_status().cloned();
+    if let Some(drive) = &drive {
+        super::drive_part::progress(ui, drive);
+    }
     if running {
         if let Some(current) = task.current_task() {
             if let Some(fraction) = current.progress.fraction() {
@@ -151,7 +155,21 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             )
             .on_hover_text(hint);
         }
-        let lost = status.as_ref().map_or(0, |s| s.lost.len());
+        if let Some(drive) = &drive {
+            let label = if drive.adopted.is_some() {
+                tr("Drive adopted…")
+            } else {
+                tr("Adopt drive…")
+            };
+            if ui
+                .button(label)
+                .on_hover_text(tr("Switch the drive to the migrated layout on every PC."))
+                .clicked()
+            {
+                state.migration.step = Step::Adopt;
+            }
+        }
+        let lost = state.migration.active_lost().len();
         if ui
             .add_enabled(lost > 0, egui::Button::new(trf("Lost files ({n})", &[("n", &lost)])))
             .clicked()
@@ -167,11 +185,24 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         {
             state.migration.start_status(&state.settings.rclone);
         }
+        let complete = status.as_ref().is_some_and(|s| s.complete && !s.abandoned);
+        if ui
+            .add_enabled(complete, egui::Button::new(tr("Clean up")))
+            .on_hover_text(tr("After completion: free the space of the replaced originals and of partial copies (quarantine first, permanent deletion after a grace period)."))
+            .clicked()
+        {
+            state.migration.step = Step::Cleanup;
+        }
         if ui.button(tr("Back to plan")).clicked() {
             state.migration.reset_to_plan();
         }
     });
-    theme::hint(ui, tr("Drive files are not included yet — use Apply pool changes (Advanced / manual) for a mounted drive."));
+    if drive.is_none() {
+        theme::hint(
+            ui,
+            tr("No drive part: this pool has no drive, or it was left out of the plan."),
+        );
+    }
 }
 
 /// Height factor of the existing-migrations list.
@@ -237,7 +268,15 @@ pub(super) fn existing(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskR
                         status.created_by,
                         crate::gui::i18n::relative_age(status.created_unix)
                     ));
-                    ui.label(progress_text(status));
+                    let drive = state.migration.drive_statuses.get(&status.migration_id);
+                    match drive {
+                        Some(drive) => ui.label(format!(
+                            "{} · {}",
+                            progress_text(status),
+                            super::drive_part::drive_state(drive).0
+                        )),
+                        None => ui.label(progress_text(status)),
+                    };
                     ui.label(status.lost.len().to_string());
                     let (label, tone) = state_label(status);
                     status_badge(ui, label, tone);

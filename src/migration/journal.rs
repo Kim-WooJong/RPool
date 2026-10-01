@@ -9,7 +9,11 @@
 //! ```text
 //! <remote>/.rpool-sync/migrations-v1/<scope>/<migration_id>/plan.json
 //! <remote>/.rpool-sync/migrations-v1/<scope>/<migration_id>/records/<blake3>.json
+//! <remote>/.rpool-sync/migrations-v1/<scope>/<migration_id>/retire/<blake3>.json
 //! ```
+//!
+//! `retire/` holds the cleanup records of phase 4 (`migration::retire`),
+//! written and read with the same rules as `records/`.
 //!
 //! `<scope>` is the pool-sync scope (`blake3(json(("rpool-pool-sync-v6", pool)))`),
 //! so the journal is a sibling of `events-v6/<scope>`. Every object goes through
@@ -50,6 +54,9 @@ use std::sync::Arc;
 
 const PLAN: &str = "plan.json";
 const RECORDS: &str = "records";
+/// Cleanup (phase 4 `retire`) records: a sibling of `records/`, so the
+/// migration fold and older binaries never see them.
+pub(crate) const RETIRE: &str = "retire";
 const SCOPE_TAG: &str = "rpool-pool-sync-v6";
 
 /// Write-once storage for the journals of one pool (one replica, or the
@@ -66,6 +73,14 @@ pub(crate) trait JournalStore: Send + Sync {
     fn create(&self, migration: &str, rel: &str, bytes: &[u8]) -> Result<Option<Vec<u8>>>;
     /// Ids (`<blake3>`) under `records/`; empty when absent.
     fn list_records(&self, migration: &str) -> Result<Vec<String>>;
+    /// Ids (`<blake3>`) under `dir/` (`records` or [`RETIRE`]); empty when
+    /// absent. Stores that only know `records/` refuse other directories.
+    fn list_ids(&self, migration: &str, dir: &str) -> Result<Vec<String>> {
+        if dir == RECORDS {
+            return self.list_records(migration);
+        }
+        bail!("{} cannot list {dir}/", self.label())
+    }
 }
 
 pub(crate) struct Journal {
@@ -228,8 +243,14 @@ impl Journal {
 
     /// Appends one immutable record to every reachable replica.
     pub(crate) fn append(&self, record: &Record) -> Result<()> {
+        self.append_in(RECORDS, record)
+    }
+
+    /// Appends one immutable, content-addressed object under `dir/` (same
+    /// replication and failure semantics as [`Journal::append`]).
+    pub(crate) fn append_in<T: Serialize>(&self, dir: &str, record: &T) -> Result<()> {
         let bytes = serde_json::to_vec(record)?;
-        let rel = record_path(&blake3::hash(&bytes).to_hex());
+        let rel = object_path(dir, &blake3::hash(&bytes).to_hex());
         let mut stored = 0usize;
         let mut failures = vec![];
         let created = concurrently(self.cloud.iter().collect(), |store| {
@@ -261,15 +282,119 @@ impl Journal {
         Ok(())
     }
 
+    /// Creates a write-once side document of this migration (`rel` beside
+    /// `plan.json`, e.g. the drive plan or the adoption marker) on every
+    /// reachable replica and the cache. `Ok(None)` when this call's bytes
+    /// are stored (or identical bytes already were); `Ok(Some(existing))`
+    /// with the first different copy found, which is left untouched (callers
+    /// compare by meaning). Errors when no replica stored or held a copy.
+    pub(crate) fn create_document(&self, rel: &str, bytes: &[u8]) -> Result<Option<Vec<u8>>> {
+        validate_document(rel)?;
+        let id = &self.migration_id;
+        let mut held = 0usize;
+        let mut existing = None;
+        let mut failures = vec![];
+        let created = concurrently(self.cloud.iter().collect(), |store| {
+            store.create(id, rel, bytes)
+        });
+        for (store, outcome) in self.cloud.iter().zip(created) {
+            match outcome {
+                Ok(None) => held += 1,
+                Ok(Some(copy)) => {
+                    held += 1;
+                    if copy != bytes && existing.is_none() {
+                        existing = Some(copy);
+                    }
+                }
+                Err(error) => failures.push(format!("{}: {error:#}", store.label())),
+            }
+        }
+        if held == 0 {
+            bail!(
+                "{rel} could not be stored on any pool remote: {}",
+                failures.join("; ")
+            );
+        }
+        warn_failures(&format!("{rel} not stored"), &failures);
+        if let Some(cache) = &self.cache {
+            let cached = existing.as_deref().unwrap_or(bytes);
+            if let Err(error) = cache.create(id, rel, cached) {
+                warn(&format!("local {rel} cache not written: {error:#}"));
+            }
+        }
+        Ok(existing)
+    }
+
+    /// Every distinct readable copy of a side document: cloud replicas first,
+    /// then the cache. A copy found in the cloud is cached. Empty when no
+    /// replica has it; an error only when nothing was found and no cloud
+    /// replica could be read. `cache_first`: return the cached copy without
+    /// asking the cloud (for write-once markers already seen here).
+    pub(crate) fn read_documents(&self, rel: &str, cache_first: bool) -> Result<Vec<Vec<u8>>> {
+        validate_document(rel)?;
+        let id = &self.migration_id;
+        if cache_first {
+            if let Some(cache) = &self.cache {
+                if let Ok(Some(bytes)) = cache.read(id, rel) {
+                    return Ok(vec![bytes]);
+                }
+            }
+        }
+        let mut copies: Vec<Vec<u8>> = vec![];
+        let mut reachable = false;
+        let mut failures = vec![];
+        let reads = concurrently(self.cloud.iter().collect(), |store| store.read(id, rel));
+        for (store, read) in self.cloud.iter().zip(reads) {
+            match read {
+                Ok(Some(bytes)) => {
+                    reachable = true;
+                    if !copies.contains(&bytes) {
+                        copies.push(bytes);
+                    }
+                }
+                Ok(None) => reachable = true,
+                Err(error) => failures.push(format!("{}: {error:#}", store.label())),
+            }
+        }
+        if let Some(cache) = &self.cache {
+            if let Some(first) = copies.first() {
+                if let Err(error) = cache.create(id, rel, first) {
+                    warn(&format!("local {rel} cache not written: {error:#}"));
+                }
+            }
+            if let Ok(Some(bytes)) = cache.read(id, rel) {
+                if !copies.contains(&bytes) {
+                    copies.push(bytes);
+                }
+            }
+        }
+        if copies.is_empty() && !reachable {
+            bail!("migration journal unreachable: {}", failures.join("; "));
+        }
+        warn_failures(&format!("{rel} not read"), &failures);
+        Ok(copies)
+    }
+
+    pub(crate) fn migration_id(&self) -> &str {
+        &self.migration_id
+    }
+
     /// All records from all reachable replicas (duplicates allowed).
     pub(crate) fn records(&self) -> Result<Vec<Record>> {
+        self.records_in(RECORDS)
+    }
+
+    /// Every object under `dir/` from all reachable replicas and the cache
+    /// (same union and failure semantics as [`Journal::records`]).
+    pub(crate) fn records_in<T: serde::de::DeserializeOwned>(&self, dir: &str) -> Result<Vec<T>> {
         let id = &self.migration_id;
-        let mut out: BTreeMap<String, Record> = BTreeMap::new();
+        let record_path = |rid: &str| object_path(dir, rid);
+        let mut out: BTreeMap<String, T> = BTreeMap::new();
         // Cached records are immutable and content-addressed: never re-downloaded.
         let mut seen_locally = false;
         if let Some(cache) = &self.cache {
             seen_locally = matches!(cache.read(id, PLAN), Ok(Some(_)));
-            match cache.list_records(id) {
+            match cache.list_ids(id, dir) {
                 Ok(ids) => {
                     seen_locally |= !ids.is_empty();
                     for rid in ids {
@@ -289,7 +414,7 @@ impl Journal {
         }
         let mut reachable = 0usize;
         let mut failures = vec![];
-        let listed = concurrently(self.cloud.iter().collect(), |store| store.list_records(id));
+        let listed = concurrently(self.cloud.iter().collect(), |store| store.list_ids(id, dir));
         // Missing record id -> indexes (store order) of the stores listing it.
         let mut holders: BTreeMap<String, Vec<usize>> = BTreeMap::new();
         for (index, (store, ids)) in self.cloud.iter().zip(listed).enumerate() {
@@ -435,7 +560,8 @@ pub(crate) fn roots(pool: &str, policy: &PoolDefinition) -> Result<Vec<String>> 
         .collect())
 }
 
-type Stores = (Vec<Arc<dyn JournalStore>>, Option<Arc<dyn JournalStore>>);
+/// Cloud replicas and the optional local cache.
+pub(crate) type Stores = (Vec<Arc<dyn JournalStore>>, Option<Arc<dyn JournalStore>>);
 
 fn stores(rclone: &str, pool: &str) -> Result<Stores> {
     crate::pool::validate_pool_name(pool)?;
@@ -486,8 +612,64 @@ pub(crate) fn validate_migration_id(id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Side documents are single file names beside `plan.json`.
+fn validate_document(rel: &str) -> Result<()> {
+    if rel == PLAN
+        || !rel.ends_with(".json")
+        || rel.starts_with('.')
+        || !rel
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+    {
+        bail!("invalid migration document name: {rel}");
+    }
+    Ok(())
+}
+
+/// The cloud replicas and the local cache of `pool`'s migration journals
+/// (`Journal::with_stores` / `discover_in` inputs), for readers that look at
+/// many migrations at once.
+pub(crate) fn pool_stores(rclone: &str, pool: &str) -> Result<Stores> {
+    stores(rclone, pool)
+}
+
+/// Migration ids listed by any reachable store (no plan is read). Errors
+/// only when no store could be listed.
+pub(crate) fn list_ids(
+    cloud: &[Arc<dyn JournalStore>],
+    cache: Option<&Arc<dyn JournalStore>>,
+) -> Result<BTreeSet<String>> {
+    let stores: Vec<_> = cloud.iter().chain(cache).collect();
+    let listed = concurrently(stores.clone(), |store| store.list_migrations());
+    let mut ids = BTreeSet::new();
+    let mut reachable = 0usize;
+    let mut failures = vec![];
+    for (store, found) in stores.into_iter().zip(listed) {
+        match found {
+            Ok(found) => {
+                reachable += 1;
+                ids.extend(
+                    found
+                        .into_iter()
+                        .filter(|id| validate_migration_id(id).is_ok()),
+                );
+            }
+            Err(error) => failures.push(format!("{}: {error:#}", store.label())),
+        }
+    }
+    if reachable == 0 {
+        bail!("migration journal unreachable: {}", failures.join("; "));
+    }
+    Ok(ids)
+}
+
+fn object_path(dir: &str, id: &str) -> String {
+    format!("{dir}/{id}.json")
+}
+
+#[cfg(test)]
 fn record_path(id: &str) -> String {
-    format!("{RECORDS}/{id}.json")
+    object_path(RECORDS, id)
 }
 
 fn valid_record_id(id: &str) -> bool {
@@ -497,7 +679,11 @@ fn valid_record_id(id: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-fn decode_record(id: &str, bytes: &[u8], label: String) -> Option<Record> {
+fn decode_record<T: serde::de::DeserializeOwned>(
+    id: &str,
+    bytes: &[u8],
+    label: String,
+) -> Option<T> {
     if blake3::hash(bytes).to_hex().as_str() != id {
         warn(&format!(
             "record {id} on {label} does not match its content address; skipped"
@@ -677,7 +863,10 @@ impl JournalStore for CloudStore {
         Ok(None)
     }
     fn list_records(&self, migration: &str) -> Result<Vec<String>> {
-        let dir = self.address(migration, RECORDS);
+        self.list_ids(migration, RECORDS)
+    }
+    fn list_ids(&self, migration: &str, dir: &str) -> Result<Vec<String>> {
+        let dir = self.address(migration, dir);
         let pages: Vec<Vec<Listed>> = match self.list(&dir, false, None)? {
             Some(all) => vec![all],
             // Past the 8 MiB listing bound: 16 hash-prefix pages, like pool sync.
@@ -773,7 +962,10 @@ impl JournalStore for LocalStore {
         Ok(None)
     }
     fn list_records(&self, migration: &str) -> Result<Vec<String>> {
-        let entries = match fs::read_dir(self.root.join(migration).join(RECORDS)) {
+        self.list_ids(migration, RECORDS)
+    }
+    fn list_ids(&self, migration: &str, dir: &str) -> Result<Vec<String>> {
+        let entries = match fs::read_dir(self.root.join(migration).join(dir)) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
             Err(error) => return Err(error.into()),

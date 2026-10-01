@@ -36,11 +36,14 @@ pub(crate) fn activity_badge(ui: &mut egui::Ui, activity: Activity) {
     }
 }
 
-/// A coloured banner: warning for a stalled queue, error otherwise.
+/// A coloured banner: warning for a stalled queue or an upload limit, error
+/// otherwise.
 fn alert_banner(ui: &mut egui::Ui, kind: AlertKind, text: &str) {
     let dark = ui.visuals().dark_mode;
     let (fill, foreground) = match kind {
-        AlertKind::Stalled => theme::warning_colors(dark),
+        AlertKind::Stalled | AlertKind::MetadataGrowing | AlertKind::UploadLimit => {
+            theme::warning_colors(dark)
+        }
         AlertKind::Errors | AlertKind::Unreachable => theme::error_colors(dark),
     };
     egui::Frame::new()
@@ -118,6 +121,11 @@ fn remote_block(ui: &mut egui::Ui, remote: &RemoteView, ring: Option<&Ring>, now
                     status_badge(ui, backend, StatusTone::Neutral);
                 }
                 activity_badge(ui, remote.activity);
+                if let Some(detail) = &remote.upload_limit {
+                    ui.scope(|ui| status_badge(ui, tr("Upload limit"), StatusTone::Warning))
+                        .response
+                        .on_hover_text(detail);
+                }
             });
             ui.horizontal_wrapped(|ui| {
                 ui.label(

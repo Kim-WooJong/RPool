@@ -68,6 +68,7 @@ struct RpoolGui {
     discovery_rclone: String,
     /// `None` follows the window height; a click sets it explicitly.
     console_open: Option<bool>,
+    rclone_banner: crate::gui::widgets::rclone_banner::RcloneVersionBanner,
     #[cfg(debug_assertions)]
     snapshots: Option<super::snapshot::Snapshots>,
 }
@@ -86,12 +87,14 @@ impl RpoolGui {
             usage,
             refresh_pending: false,
             console_open: None,
+            rclone_banner: Default::default(),
             #[cfg(debug_assertions)]
             snapshots: super::snapshot::Snapshots::from_env(),
         }
     }
 
     fn poll_background(&mut self) {
+        self.rclone_banner.poll(&self.state.settings.rclone);
         self.state.mount.poll();
         // Keeps the live graphs filling while another page is shown.
         self.state.monitoring.poll(std::time::Instant::now());
@@ -132,6 +135,7 @@ impl RpoolGui {
             storage::pools::handle_task_completion(&mut self.state, &self.task, status);
             storage::reprocess::handle_task_completion(&mut self.state, &self.task, status);
             storage::speed_test::handle_task_completion(&mut self.state, &self.task, status);
+            storage::metadata_card::handle_task_completion(&mut self.state, &self.task, status);
             maintenance::handle_task_completion(&mut self.state, &self.task, status);
         }
         files::upload::poll_batch(&mut self.state, &mut self.task);
@@ -196,6 +200,7 @@ impl eframe::App for RpoolGui {
         }
 
         if self.task.is_running()
+            || self.rclone_banner.is_checking()
             || self.state.mount.any_running()
             || self.usage.is_running()
             || self.state.providers.connection.is_some()
@@ -251,6 +256,7 @@ impl eframe::App for RpoolGui {
                     });
                 });
             });
+        self.rclone_banner.show(ui);
 
         // The console starts collapsed on short windows and opens while a
         // task runs, unless the user chose otherwise.

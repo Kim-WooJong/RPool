@@ -1,0 +1,167 @@
+{
+  "Adopt the drive of migration {id}": {
+    "ko": "이전 {id}의 드라이브 채택",
+    "ja": "移行 {id} のドライブを採用",
+    "zh": "采用迁移 {id} 的驱动器"
+  },
+  "Adopt the new drive layout": {
+    "ko": "새 드라이브 구성 채택",
+    "ja": "新しいドライブ構成を採用",
+    "zh": "采用新的驱动器布局"
+  },
+  "Adopted by {pc}: {files} files in the new layout, {dropped} unrecoverable left out.": {
+    "ko": "{pc}에서 채택했어요: 새 구성에 파일 {files}개, 복구할 수 없는 파일 {dropped}개는 제외했어요.",
+    "ja": "{pc} が採用しました: 新しい構成に {files} 個のファイル、復元できない {dropped} 個は除外しました。",
+    "zh": "由 {pc} 采用：新布局中有 {files} 个文件，{dropped} 个无法恢复的文件已排除。"
+  },
+  "Adoption waits until PCs on the current drive have stopped uploading (about 5 minutes after the drive part started), then publishes the new layout and checks it reads back. Nothing is deleted; the previous layout stays as it is.": {
+    "ko": "채택은 현재 드라이브를 쓰는 PC들이 업로드를 멈출 때까지(드라이브 단계 시작 후 약 5분) 기다린 뒤 새 구성을 게시하고 다시 읽어서 확인해요. 아무것도 삭제하지 않고, 이전 구성은 그대로 남아요.",
+    "ja": "採用は、現在のドライブを使う PC がアップロードを止めるまで(ドライブ段階の開始から約 5 分)待ってから新しい構成を公開し、読み戻して確認します。何も削除せず、以前の構成はそのまま残ります。",
+    "zh": "采用会等待使用当前驱动器的电脑停止上传（驱动器阶段开始后约 5 分钟），然后发布新布局并回读验证。不会删除任何内容，之前的布局保持不变。"
+  },
+  "Also switch this PC's drive workspace": {
+    "ko": "이 PC의 드라이브 작업 공간도 전환",
+    "ja": "この PC のドライブ作業領域も切り替える",
+    "zh": "同时切换本机的驱动器工作区"
+  },
+  "From {source} to layout {epoch}": {
+    "ko": "{source}에서 구성 {epoch}(으)로",
+    "ja": "{source} から構成 {epoch} へ",
+    "zh": "从 {source} 到布局 {epoch}"
+  },
+  "Leave the {n} unrecoverable drive files out": {
+    "ko": "복구할 수 없는 드라이브 파일 {n}개 제외",
+    "ja": "復元できないドライブファイル {n} 個を除外する",
+    "zh": "排除 {n} 个无法恢复的驱动器文件"
+  },
+  "Some drive files have no new archive yet. Adoption catches them up (and files changed since planning), but finishing the run first is faster.": {
+    "ko": "아직 새 아카이브가 없는 드라이브 파일이 있어요. 채택할 때 이 파일들(계획 후 바뀐 파일 포함)을 따라잡지만, 실행을 먼저 끝내는 편이 빨라요.",
+    "ja": "まだ新しいアーカイブのないドライブファイルがあります。採用時に(計画後に変更されたファイルも含めて)追いつきますが、先に実行を終える方が速いです。",
+    "zh": "部分驱动器文件尚无新归档。采用时会补齐它们（包括计划后更改的文件），但先完成运行会更快。"
+  },
+  "Switch this PC's drive workspace": {
+    "ko": "이 PC의 드라이브 작업 공간 전환",
+    "ja": "この PC のドライブ作業領域を切り替える",
+    "zh": "切换本机的驱动器工作区"
+  },
+  "The drive has too many files for a new PC to open in one go; its adoption will be refused. Archives still migrate.": {
+    "ko": "드라이브의 파일이 너무 많아 새 PC가 한 번에 열 수 없어요. 드라이브 채택은 거부되지만 아카이브는 계속 이전돼요.",
+    "ja": "ドライブのファイルが多すぎて新しい PC が一度に開けません。ドライブの採用は拒否されますが、アーカイブは移行されます。",
+    "zh": "驱动器文件过多，新电脑无法一次打开；驱动器采用将被拒绝。归档仍会迁移。"
+  },
+  "This migration has no drive part, or its progress is still loading.": {
+    "ko": "이 이전에는 드라이브 단계가 없거나, 진행 상황을 아직 불러오는 중이에요.",
+    "ja": "この移行にはドライブ段階がないか、進捗をまだ読み込み中です。",
+    "zh": "此迁移没有驱动器部分，或进度仍在加载。"
+  },
+  "Unmount the drive first. The workspace is renamed to a backup next to it (changes that were only on this PC are exported there), and the next mount opens the new layout.": {
+    "ko": "먼저 드라이브를 마운트 해제하세요. 작업 공간은 옆에 백업으로 이름이 바뀌고(이 PC에만 있던 변경 사항은 그곳으로 내보내요), 다음 마운트부터 새 구성이 열려요.",
+    "ja": "先にドライブをアンマウントしてください。作業領域は隣のバックアップに名前が変わり(この PC にだけあった変更はそこへ書き出されます)、次のマウントで新しい構成が開きます。",
+    "zh": "请先卸载驱动器。工作区会重命名为旁边的备份（仅在本机的更改会导出到那里），下次挂载时打开新布局。"
+  },
+  "Without this, adoption stops and lists them. They are never deleted; the previous layout keeps their records.": {
+    "ko": "선택하지 않으면 채택이 멈추고 해당 파일을 보여 줘요. 절대 삭제하지 않으며, 이전 구성에 기록이 남아요.",
+    "ja": "選ばない場合、採用は止まってそれらを一覧表示します。削除はされず、以前の構成に記録が残ります。",
+    "zh": "不勾选时，采用会停止并列出它们。它们永远不会被删除；之前的布局保留其记录。"
+  },
+  "Drive adopted": {
+    "ko": "드라이브 채택됨",
+    "ja": "ドライブ採用済み",
+    "zh": "驱动器已采用"
+  },
+  "Drive moving (frozen)": {
+    "ko": "드라이브 이전 중(고정됨)",
+    "ja": "ドライブ移行中(凍結)",
+    "zh": "驱动器迁移中（已冻结）"
+  },
+  "Drive not started": {
+    "ko": "드라이브 시작 전",
+    "ja": "ドライブ未開始",
+    "zh": "驱动器未开始"
+  },
+  "Drive ready to adopt": {
+    "ko": "드라이브 채택 준비됨",
+    "ja": "ドライブ採用の準備完了",
+    "zh": "驱动器可采用"
+  },
+  "Drive: {files} files ({source})": {
+    "ko": "드라이브: 파일 {files}개 ({source})",
+    "ja": "ドライブ: {files} 個のファイル ({source})",
+    "zh": "驱动器：{files} 个文件（{source}）"
+  },
+  "Quota (archives and drive)": {
+    "ko": "할당량(아카이브와 드라이브)",
+    "ja": "容量(アーカイブとドライブ)",
+    "zh": "配额（归档和驱动器）"
+  },
+  "The drive switches only when you adopt it after the run. Until then every PC keeps the current drive; once the drive part starts, PCs on it keep their changes locally instead of uploading them.": {
+    "ko": "드라이브는 실행 후 채택해야만 전환돼요. 그 전까지 모든 PC는 현재 드라이브를 그대로 쓰고, 드라이브 단계가 시작되면 해당 PC들은 변경 사항을 업로드하지 않고 로컬에 보관해요.",
+    "ja": "ドライブは実行後に採用したときにだけ切り替わります。それまですべての PC は現在のドライブを使い、ドライブ段階が始まるとその PC は変更をアップロードせずローカルに保持します。",
+    "zh": "驱动器仅在运行后采用时才切换。在此之前所有电脑继续使用当前驱动器；驱动器阶段开始后，这些电脑会把更改保留在本地而不上传。"
+  },
+  "{done}/{total} drive files ready": {
+    "ko": "드라이브 파일 {done}/{total}개 준비됨",
+    "ja": "ドライブファイル {done}/{total} 個 準備完了",
+    "zh": "{done}/{total} 个驱动器文件已就绪"
+  },
+  "{kind} layout {epoch}": {
+    "ko": "{kind} 구성 {epoch}",
+    "ja": "{kind} 構成 {epoch}",
+    "zh": "{kind} 布局 {epoch}"
+  },
+  "{kind} original layout": {
+    "ko": "{kind} 원래 구성",
+    "ja": "{kind} 元の構成",
+    "zh": "{kind} 原始布局"
+  },
+  "{n} kept": {
+    "ko": "유지 {n}개",
+    "ja": "維持 {n} 個",
+    "zh": "保留 {n} 个"
+  },
+  "Adopt drive": {
+    "ko": "드라이브 채택",
+    "ja": "ドライブ採用",
+    "zh": "采用驱动器"
+  },
+  "Include the drive": {
+    "ko": "드라이브 포함",
+    "ja": "ドライブを含める",
+    "zh": "包含驱动器"
+  },
+  "Plans the drive's visible files too. They get new archives during the run and switch to a new drive layout when you adopt it.": {
+    "ko": "드라이브에 보이는 파일도 계획해요. 실행 중에 새 아카이브를 만들고, 채택하면 새 드라이브 구성으로 전환돼요.",
+    "ja": "ドライブに見えるファイルも計画します。実行中に新しいアーカイブが作られ、採用すると新しいドライブ構成に切り替わります。",
+    "zh": "同时规划驱动器中可见的文件。运行期间为其创建新归档，采用后切换到新的驱动器布局。"
+  },
+  "No drive part: this pool has no drive, or it was left out of the plan.": {
+    "ko": "드라이브 단계 없음: 이 풀에 드라이브가 없거나 계획에서 제외했어요.",
+    "ja": "ドライブ段階なし: このプールにドライブがないか、計画から除外されました。",
+    "zh": "无驱动器部分：此池没有驱动器，或未包含在计划中。"
+  },
+  "Adopt drive…": {
+    "ko": "드라이브 채택…",
+    "ja": "ドライブを採用…",
+    "zh": "采用驱动器…"
+  },
+  "Drive adopted…": {
+    "ko": "드라이브 채택됨…",
+    "ja": "ドライブ採用済み…",
+    "zh": "驱动器已采用…"
+  },
+  "Switch the drive to the migrated layout on every PC.": {
+    "ko": "모든 PC에서 드라이브를 이전된 구성으로 전환해요.",
+    "ja": "すべての PC でドライブを移行後の構成に切り替えます。",
+    "zh": "在所有电脑上将驱动器切换到迁移后的布局。"
+  },
+  "Adoption did not finish; see the console. Run it again: it continues where it stopped.": {
+    "ko": "채택이 끝나지 않았어요. 콘솔을 확인하세요. 다시 실행하면 멈춘 곳부터 이어서 진행해요.",
+    "ja": "採用が完了しませんでした。コンソールを確認してください。もう一度実行すると止まったところから続けます。",
+    "zh": "采用未完成；请查看控制台。再次运行会从停止处继续。"
+  },
+  "The drive now uses the new layout. New drive workspaces open it on every PC; a PC still on the previous layout is asked to switch.": {
+    "ko": "이제 드라이브가 새 구성을 사용해요. 모든 PC에서 새 드라이브 작업 공간은 새 구성을 열고, 아직 이전 구성인 PC에는 전환을 요청해요.",
+    "ja": "ドライブは新しい構成を使うようになりました。すべての PC で新しいドライブ作業領域はこれを開き、以前の構成のままの PC には切り替えを求めます。",
+    "zh": "驱动器现在使用新布局。各电脑上的新驱动器工作区都会打开它；仍在旧布局上的电脑会被要求切换。"
+  }
+}

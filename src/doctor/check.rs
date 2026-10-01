@@ -78,7 +78,11 @@ fn check_config_dir(out: &mut Vec<Diagnostic>) {
 
 fn check_rclone(tools: &dyn ToolDiagnostics, out: &mut Vec<Diagnostic>) {
     match tools.version() {
-        Ok(version) => out.push(ok("rclone-version", version)),
+        Ok(version) => {
+            let support = super::rclone_version::diagnostic(&version);
+            out.push(ok("rclone-version", version));
+            out.push(support);
+        }
         Err(error) => out.push(fail("rclone-version", format!("{error:#}"))),
     }
 }

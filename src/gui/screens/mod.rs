@@ -1,11 +1,13 @@
 #[path = "dashboard/mod.rs"]
 pub(crate) mod dashboard;
+pub(crate) mod diagnostics_export;
 pub(crate) mod files;
 pub(crate) mod jobs;
 #[path = "maintenance/mod.rs"]
 pub(crate) mod maintenance;
 #[path = "monitoring/mod.rs"]
 pub(crate) mod monitoring;
+pub(crate) mod network_settings;
 pub(crate) mod portable_config;
 pub(crate) mod settings;
 pub(crate) mod storage;

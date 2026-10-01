@@ -145,6 +145,8 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             migration_hint(ui, state);
             ui.add_space(theme::SECTION_GAP);
             super::speed_test::pool_card(ui, state, task);
+            ui.add_space(theme::SECTION_GAP);
+            super::metadata_card::pool_card(ui, state, task);
         });
     });
     let action = state

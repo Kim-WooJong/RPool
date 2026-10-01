@@ -3,6 +3,7 @@ use super::review_step::quota_verdict;
 use super::run_step::state_label;
 use super::state::*;
 use crate::gui::task::JobStatus;
+use crate::migration::drive_model::*;
 use crate::migration::model::*;
 use crate::models::PoolDefinition;
 use std::ffi::OsString;
@@ -102,6 +103,78 @@ pub(crate) fn sample_status(pool: &str) -> MigrationStatus {
     }
 }
 
+pub(crate) fn sample_drive_plan(pool: &str) -> DrivePlan {
+    let lost = &sample_lost()[0];
+    let entry = |path: &str, action| DriveEntry {
+        key: entry_key(path, "rev"),
+        path: path.into(),
+        revision: "rev".into(),
+        hash: "h".into(),
+        size: 10,
+        source_archive_id: format!("virtual-{path}"),
+        fingerprint: "f".into(),
+        action,
+        download_bytes: 1,
+        upload_bytes: 1,
+        losses: vec![],
+        detail: None,
+    };
+    let mut gone = entry(
+        "photos/a very long drive path that must wrap inside the pane.jpg",
+        Action::Lost,
+    );
+    gone.losses = lost.groups.clone();
+    DrivePlan {
+        version: 1,
+        migration_id: ID.into(),
+        pool: pool.into(),
+        source: GenerationRef {
+            epoch: None,
+            v7: false,
+        },
+        epoch: epoch_for(ID),
+        history_limit: None,
+        entries: vec![
+            entry("docs/a.txt", Action::Unaffected),
+            entry("b.bin", Action::Relocate),
+            gone,
+        ],
+        counts: Counts {
+            unaffected: 1,
+            relocate: 1,
+            reencode: 0,
+            lost: 1,
+            unknown: 0,
+        },
+        download_bytes: 1 << 30,
+        upload_bytes: 1 << 30,
+        new_storage_bytes: 1 << 30,
+        estimated_seconds: Some((60.0, 600.0)),
+        quota_ok: Some(true),
+        bootstrap_ok: true,
+        notes: vec!["drive: 3 file(s) of v6 original are planned.".into()],
+    }
+}
+
+pub(crate) fn sample_drive_status(pool: &str) -> DriveStatus {
+    let plan = sample_drive_plan(pool);
+    DriveStatus {
+        migration_id: ID.into(),
+        source: plan.source.clone(),
+        epoch: plan.epoch.clone(),
+        counts: plan.counts.clone(),
+        to_move: 1,
+        switched: 1,
+        verified: 0,
+        failed_unknown: 0,
+        lost: drive_lost_from_plan(&plan),
+        frozen: true,
+        adopted: None,
+        bootstrap_ok: true,
+        ready: true,
+    }
+}
+
 /// A form showing `step` with fake data and no background work due.
 pub(crate) fn sample_form(pool: &str, step: Step) -> MigrationForm {
     let mut form = MigrationForm::default();
@@ -113,7 +186,11 @@ pub(crate) fn sample_form(pool: &str, step: Step) -> MigrationForm {
     form.active_id = (step != Step::Plan).then(|| ID.to_string());
     if step == Step::Review {
         form.plan = Some(sample_plan(pool));
+        form.drive_plan = Some(sample_drive_plan(pool));
     }
+    form.drive_statuses
+        .insert(ID.into(), sample_drive_status(pool));
+    form.switch_workspace = step == Step::Adopt;
     form
 }
 
@@ -123,6 +200,7 @@ fn plan_result_moves_to_review_and_errors_stay_on_plan() {
     form.select_pool("family");
     form.apply_plan(PlanOutcome {
         plan: Err("boom".into()),
+        drive: None,
         speed_note: None,
     });
     assert_eq!(form.step, Step::Plan);
@@ -130,19 +208,25 @@ fn plan_result_moves_to_review_and_errors_stay_on_plan() {
 
     form.apply_plan(PlanOutcome {
         plan: Ok(sample_plan("other")),
+        drive: None,
         speed_note: None,
     });
     assert_eq!(form.step, Step::Plan, "a plan of another pool is not shown");
 
     form.apply_plan(PlanOutcome {
         plan: Ok(sample_plan("family")),
+        drive: Some(sample_drive_plan("family")),
         speed_note: Some("measure failed".into()),
     });
     assert_eq!(form.step, Step::Review);
     assert_eq!(form.active_id.as_deref(), Some(ID));
     assert!(form.error.is_none());
     assert_eq!(form.notice.as_deref(), Some("measure failed"));
-    assert_eq!(form.active_lost(), sample_lost(), "lost rows from the plan");
+    let lost = form.active_lost();
+    assert_eq!(lost.len(), 2, "archive and drive lost rows from the plan");
+    assert_eq!(lost[0], sample_lost()[0]);
+    assert!(lost[1].original_name.starts_with("photos/"));
+    assert!(form.drive_plan.is_some());
     assert!(
         form.status_due(Instant::now()),
         "list reloads with the new id"
@@ -157,11 +241,13 @@ fn status_results_ignore_stale_pools_and_feed_the_run_step() {
     form.apply_status(StatusOutcome {
         pool: "old".into(),
         result: Ok(vec![sample_status("old")]),
+        drive: Default::default(),
     });
     assert!(form.statuses.is_empty());
     form.apply_status(StatusOutcome {
         pool: "family".into(),
         result: Ok(vec![sample_status("family")]),
+        drive: [(ID.to_string(), sample_drive_status("family"))].into(),
     });
     assert_eq!(form.statuses.len(), 1);
     form.last_status_at = Some(Instant::now());
@@ -173,11 +259,13 @@ fn status_results_ignore_stale_pools_and_feed_the_run_step() {
     assert!(!form.status_due(Instant::now()));
     assert!(form.status_due(Instant::now() + STATUS_REFRESH + Duration::from_millis(1)));
     assert_eq!(form.active_status().unwrap().switched, 1);
-    assert_eq!(form.active_lost().len(), 1);
+    assert_eq!(form.active_lost().len(), 2, "archive and drive lost files");
+    assert!(form.active_drive_status().unwrap().ready);
 
     form.apply_status(StatusOutcome {
         pool: "family".into(),
         result: Err("offline".into()),
+        drive: Default::default(),
     });
     assert_eq!(form.status_error.as_deref(), Some("offline"));
     assert_eq!(form.statuses.len(), 1, "keeps the last good list");
@@ -302,6 +390,50 @@ fn run_argv_parses_with_the_cli() {
 #[test]
 fn abandon_argv_parses_with_the_cli() {
     parses(abandon_args("-my pool", ID));
+}
+
+#[test]
+fn adopt_argv_parses_with_the_cli() {
+    let stop = Path::new("/ctl/stop");
+    let plain = adopt_args("-my pool", ID, stop, false, None, false);
+    assert_eq!(
+        plain,
+        [
+            "pool",
+            "migrate",
+            "adopt",
+            "--id",
+            ID,
+            "--stop-file",
+            "/ctl/stop",
+            "--",
+            "-my pool"
+        ]
+        .map(OsString::from)
+    );
+    parses(plain);
+    let full = adopt_args("p", ID, stop, true, Some(Path::new("/my drive")), true);
+    assert!(full.iter().any(|a| a == "--accept-lost"));
+    assert!(full
+        .windows(2)
+        .any(|w| w[0] == "--workspace" && w[1] == "/my drive"));
+    assert!(full.iter().any(|a| a == "--take-over"));
+    parses(full);
+}
+
+#[test]
+fn adoption_outcome_updates_the_wizard() {
+    let mut form = sample_form("family", Step::Adopt);
+    form.finish_task(Watched::Adopt(ID.into()), Some(JobStatus::Completed));
+    assert!(form.notice.as_deref().unwrap().contains("new layout"));
+    assert_eq!(form.step, Step::Adopt);
+    form.finish_task(Watched::Adopt(ID.into()), Some(JobStatus::Failed));
+    assert!(form.error.as_deref().unwrap().contains("Run it again"));
+    assert!(form.status_due(Instant::now()), "refresh after adoption");
+    // Planning includes the drive unless it is switched off.
+    assert!(!form.plan_options(1).skip_drive);
+    form.include_drive.0 = false;
+    assert!(form.plan_options(1).skip_drive);
 }
 
 #[test]

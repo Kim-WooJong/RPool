@@ -10,6 +10,7 @@ const GENERAL: u8 = 0;
 const POOL_DEFAULTS: u8 = 3;
 const ENCRYPTION: u8 = 1;
 const PORTABLE: u8 = 2;
+const NETWORK: u8 = 4;
 
 pub(crate) fn show(
     ui: &mut egui::Ui,
@@ -27,6 +28,7 @@ pub(crate) fn show(
             (GENERAL, tr("General")),
             (POOL_DEFAULTS, tr("New-pool defaults")),
             (ENCRYPTION, tr("Encryption & paths")),
+            (NETWORK, tr("Network")),
             (PORTABLE, tr("Portable configuration")),
         ],
     );
@@ -49,8 +51,12 @@ pub(crate) fn show(
             });
         }
         PORTABLE => super::portable_config::show(ui, state, task),
+        NETWORK => super::network_settings::show(ui, state),
         POOL_DEFAULTS => pool_defaults(ui, state),
-        _ => general(ui, state),
+        _ => {
+            general(ui, state);
+            super::diagnostics_export::show(ui, state, task);
+        }
     });
 }
 

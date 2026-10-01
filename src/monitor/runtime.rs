@@ -28,6 +28,26 @@ fn last_sync() -> Option<u64> {
     Some(LAST_SYNC.load(Ordering::Relaxed)).filter(|at| *at != 0)
 }
 
+/// Latest metadata-compaction alert of this process's mount (`None`: fine).
+static METADATA_ALERT: std::sync::Mutex<Option<super::model::Alert>> = std::sync::Mutex::new(None);
+
+/// Records the outcome of the mount's last metadata compaction pass.
+pub(crate) fn note_metadata(alert: Option<super::model::Alert>) {
+    if let Ok(mut current) = METADATA_ALERT.lock() {
+        // Keep the first time a still-present condition was seen.
+        *current = match (current.take(), alert) {
+            (Some(old), Some(mut new)) if old.kind == new.kind => {
+                new.since_unix = old.since_unix;
+                Some(new)
+            }
+            (_, alert) => alert,
+        };
+    }
+}
+fn metadata_alert() -> Option<super::model::Alert> {
+    METADATA_ALERT.lock().ok().and_then(|a| a.clone())
+}
+
 /// The drive's pending uploads, sampled each tick.
 pub(crate) type QueueFn = Box<dyn Fn() -> Vec<PendingItem> + Send>;
 
@@ -164,7 +184,10 @@ fn run(
             .iter()
             .map(|remote| traffic::snapshot_at(remote, now))
             .collect();
-        let (net, points) = sampler.sample(now, &counters, &queue(), last_sync(), mtime);
+        let (mut net, points) = sampler.sample(now, &counters, &queue(), last_sync(), mtime);
+        net.alerts.extend(metadata_alert());
+        net.alerts
+            .extend(super::upload_limit::current(now, sampler.remotes()));
         let mut result = write_json_atomic(&status, &net);
         if result.is_ok() {
             result = history::append(&history, &points);
@@ -258,6 +281,21 @@ mod tests {
         let points = history::load(&history_dir(&workspace), 0);
         assert_eq!(points.len(), 1);
         assert_eq!(points[0].remote, remote);
+    }
+
+    #[test]
+    fn metadata_alert_keeps_its_first_time_and_clears() {
+        let alert = |since| crate::monitor::model::Alert {
+            kind: crate::monitor::model::AlertKind::MetadataGrowing,
+            remote: None,
+            since_unix: since,
+            message: "growing".into(),
+        };
+        note_metadata(Some(alert(100)));
+        note_metadata(Some(alert(200)));
+        assert_eq!(metadata_alert().unwrap().since_unix, 100);
+        note_metadata(None);
+        assert!(metadata_alert().is_none());
     }
 
     #[test]

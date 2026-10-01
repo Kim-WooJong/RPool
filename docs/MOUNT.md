@@ -279,9 +279,13 @@ Set it in the GUI's **Save future history limit in workspace config**, or with
 **This stage implements automatic metadata management, parallel event publication
 and conflict visibility, not peer retention/compaction. The setting does not delete
 old cloud versions.** Payload history and causal metadata still accumulate; the
-former latest-only v5 policy does not apply to this coordinator-free mode. Fresh
-bootstrap is limited to 10,000 unseen events / 64 MiB per replica (and 64 MiB unique
-combined metadata); exceeding the bound fails safely. Do not regard this release as
+former latest-only v5 policy does not apply to this coordinator-free mode. A fresh
+bootstrap reads the newest metadata checkpoints plus the unseen tail in pages (no
+10,000 / 64 MiB failure any more; a 1,000,000-record safety ceiling remains), and
+`rpool pool compact` / the mount maintenance loop write checkpoints and — after an
+explicit `--enable-deletion` opt-in and a grace period — delete covered records.
+See [METADATA_COMPACTION_DESIGN.md](METADATA_COMPACTION_DESIGN.md); RPool versions
+without checkpoints keep the old 10,000 / 64 MiB bootstrap bound. Do not regard this release as
 solving long-term storage growth. The self-contained snapshot/GC design remains in
 [PEER_SYNC_DESIGN.md](PEER_SYNC_DESIGN.md).
 

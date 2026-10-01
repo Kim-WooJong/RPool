@@ -91,6 +91,12 @@ pub(crate) enum AlertKind {
     Errors,
     /// Every operation on an account failed for a minute or more.
     Unreachable,
+    /// Pool metadata records not covered by a checkpoint approach the old
+    /// bootstrap limit, or automatic compaction failed.
+    MetadataGrowing,
+    /// Uploads to the account wait for its daily upload limit (the
+    /// message says when they resume).
+    UploadLimit,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

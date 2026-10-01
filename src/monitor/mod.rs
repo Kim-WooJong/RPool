@@ -18,6 +18,7 @@ pub(crate) mod model;
 pub(crate) mod registry;
 pub(crate) mod runtime;
 pub(crate) mod sampler;
+mod upload_limit;
 
 use model::{HistoryPoint, MountEntry, NetStatus};
 use std::path::Path;

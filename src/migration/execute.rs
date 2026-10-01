@@ -13,10 +13,27 @@ use crate::prelude::*;
 pub(crate) const CLAIM_LEASE_SECONDS: u64 = 2 * 60 * 60;
 
 /// Plans `pool` and publishes the plan to the cloud journal.
+/// Shared signature; the CLI and GUI use [`create_with_drive`].
+#[allow(dead_code)]
 pub(crate) fn create(rclone: &str, pool: &str, options: &PlanOptions) -> Result<Plan> {
-    let plan = super::plan::plan(rclone, pool, options)?;
-    Journal::open(rclone, pool, &plan.migration_id)?.publish_plan(&plan)?;
-    Ok(plan)
+    create_with_drive(rclone, pool, options).map(|(plan, _)| plan)
+}
+
+/// [`create`] with the drive part (unless `options.skip_drive`). The drive
+/// plan is published before `plan.json`, so a listed migration always has
+/// the drive part it was planned with.
+pub(crate) fn create_with_drive(
+    rclone: &str,
+    pool: &str,
+    options: &PlanOptions,
+) -> Result<(Plan, Option<super::drive_model::DrivePlan>)> {
+    let (plan, drive) = super::plan::plan_with_drive(rclone, pool, options)?;
+    let journal = Journal::open(rclone, pool, &plan.migration_id)?;
+    if let Some(drive) = &drive {
+        super::drive_journal::publish_plan(&journal, drive)?;
+    }
+    journal.publish_plan(&plan)?;
+    Ok((plan, drive))
 }
 
 /// Archives migrated at once when `--parallel` is not given.
@@ -122,6 +139,17 @@ pub(crate) fn run(
             summary.stopped = second.stopped;
         }
     }
+    // Drive files go last (they switch only on adoption).
+    if !summary.stopped {
+        match super::drive_run::run(rclone, &journal, &plan, options, &pc) {
+            Ok(Some(drive)) => super::drive_run::merge(&mut summary, drive),
+            Ok(None) => {}
+            Err(error) => {
+                let _ = summary.finish();
+                return Err(error.context("drive part of the migration"));
+            }
+        }
+    }
     summary.finish()
 }
 
@@ -143,6 +171,12 @@ pub(crate) fn abandon(rclone: &str, pool: &str, migration_id: &str) -> Result<()
     let journal = Journal::open(rclone, pool, migration_id)?;
     if journal.load_plan()?.is_none() {
         bail!("migration not found in the cloud: {migration_id}");
+    }
+    if let Some(adoption) = super::drive_journal::load_adoption(&journal)? {
+        bail!(
+            "the drive of migration {migration_id} was already adopted (epoch {}); it cannot be abandoned. Nothing was deleted",
+            &adoption.epoch[..12]
+        );
     }
     journal.append(&Record {
         entry: String::new(),
@@ -325,6 +359,11 @@ pub(crate) trait Effects: Sync {
     }
     fn new_id(&self) -> Result<String> {
         random_hex(12)
+    }
+    /// Archive id of a fresh replacement (drive v7 payloads need their own
+    /// `peer-v7-<owner>` form).
+    fn new_archive_id(&self) -> Result<String> {
+        Ok(format!("migrate-{}", self.new_id()?))
     }
     /// One whole output line (`println!` locks stdout, so concurrent lines
     /// never interleave mid-line).
@@ -629,7 +668,7 @@ fn process_entry(
         }
     }
     let attempt = effects.new_id()?;
-    let new_archive_id = format!("migrate-{}", effects.new_id()?);
+    let new_archive_id = effects.new_archive_id()?;
     let mut claim = record(
         effects,
         &entry.archive_id,
