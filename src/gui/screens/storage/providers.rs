@@ -193,7 +193,9 @@ fn list_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
             let running = task.is_running()
                 && task.task_name() == Some(crate::gui::app::AUTO_ENCRYPTION_TASK);
             let idle = !task.is_running() && state.providers.connection.is_none();
-            let height = theme::list_height(ui.ctx().content_rect().height());
+            // Three times the usual list height: the cards are tall and the
+            // page scrolls as a whole anyway.
+            let height = 3.0 * theme::list_height(ui.ctx().content_rect().height());
             let mut clicked = None;
             egui::ScrollArea::vertical()
                 .id_salt("base-provider-list")
