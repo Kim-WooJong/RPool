@@ -405,7 +405,7 @@ fn describe_changes(entries: &[ReprocessEntry], target: &PoolDefinition) -> Vec<
         };
         notes.push(format!("{}: added destinations {:?}; removed destinations {:?}; shard size changed: {}; K/M coding changed: {}. Destinations compare actual shard locations, not historical pool membership.",
             entry.manifest.archive_id, added, removed,
-            target.shard_bytes().map_or(true, |b| entry.manifest.shard_size != b.get()), coding_changed));
+            target.shard_bytes().map_or(true, |b| !crate::models::shard_size::shard_size_matches(entry.manifest.shard_size, entry.manifest.original_size, b.get(), target.data_shards, target.parity_shards)), coding_changed));
     }
     notes.push("Full-copy replacement of every selected archive (not minimum movement). Workers/retries are execution-only knobs; changing them alone does not require rewriting existing data. Placement history is not recorded. Keep old providers accessible until every selected replacement is verified and indexed; unselected archives may still depend on them.".into());
     notes

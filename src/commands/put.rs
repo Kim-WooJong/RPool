@@ -105,10 +105,19 @@ pub(crate) fn put_with_storage(
     let plan_path = append_suffix(&source, ".rpool.upload.json");
     let journal_path = append_suffix(&source, ".rpool.upload.state.json");
 
+    // The configured size is the maximum; small coded files use smaller
+    // shards. A plan saved before that change keeps its full-size shards.
+    let full_shard = shard_size;
+    let shard_size = crate::models::shard_size::shard_size_for(
+        source_size,
+        full_shard,
+        data_shards,
+        parity_shards,
+    );
     let plan = if plan_path.exists() {
         let plan: UploadPlan = read_json(&plan_path)?;
         if plan.source_size != source_size
-            || plan.shard_size != shard_size
+            || (plan.shard_size != shard_size && plan.shard_size != full_shard)
             || plan.archive_id != archive_id
             || plan.remotes != remotes
             || plan.placement != placement
@@ -138,6 +147,7 @@ pub(crate) fn put_with_storage(
         save_json_atomic(&plan_path, &plan)?;
         plan
     };
+    let shard_size = plan.shard_size;
 
     if let Some(coding) = &plan.coding {
         warn_plan_failure_domains(&plan, coding);

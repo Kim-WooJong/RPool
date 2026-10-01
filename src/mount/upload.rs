@@ -91,12 +91,16 @@ pub(super) fn upload_eligible_tracked(
         return Ok((manifest, publication));
     }
     let plan_path = append_suffix(&staged, ".rpool.upload.json");
+    let parity = if size == 0 { 0 } else { policy.parity_shards };
+    let full_shard = policy.shard_bytes()?.get();
+    let shard_size =
+        crate::models::shard_size::shard_size_for(size, full_shard, policy.data_shards, parity);
     if plan_path.exists() {
         let plan: UploadPlan = read_json(&plan_path)?;
         if plan.archive_id != id
             || plan.source_size != size
             || plan.remotes != status.eligible
-            || plan.shard_size != policy.shard_bytes()?.get()
+            || (plan.shard_size != shard_size && plan.shard_size != full_shard)
             || plan.placement != policy.placement
         {
             bail!("resume plan differs from eligible upload");
@@ -145,7 +149,7 @@ pub(super) fn upload_eligible_tracked(
         let plan = crate::planning::build_upload_plan(
             rclone,
             size,
-            policy.shard_bytes()?.get(),
+            shard_size,
             id.into(),
             status.eligible.clone(),
             policy.placement,

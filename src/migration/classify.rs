@@ -20,11 +20,21 @@ pub(crate) fn reencode_reason(manifest: &Manifest, target: &PoolDefinition) -> O
         reasons.push(format!("coding {} -> {}", show(have), show(want)));
     }
     match target.shard_bytes() {
-        Ok(bytes) if bytes.get() != manifest.shard_size => reasons.push(format!(
-            "shard size {} -> {} bytes",
-            manifest.shard_size,
-            bytes.get()
-        )),
+        Ok(bytes)
+            if !crate::models::shard_size::shard_size_matches(
+                manifest.shard_size,
+                manifest.original_size,
+                bytes.get(),
+                target.data_shards,
+                target.parity_shards,
+            ) =>
+        {
+            reasons.push(format!(
+                "shard size {} -> {} bytes",
+                manifest.shard_size,
+                bytes.get()
+            ));
+        }
         _ => {}
     }
     (!reasons.is_empty()).then(|| reasons.join(", "))

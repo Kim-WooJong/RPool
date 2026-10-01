@@ -470,7 +470,14 @@ fn check_inputs(
             coding.data_shards == target.data_shards && coding.parity_shards == target.parity_shards
         }
     };
-    if !same_coding || shard_bytes != source.shard_size {
+    let same_shard = crate::models::shard_size::shard_size_matches(
+        source.shard_size,
+        source.original_size,
+        shard_bytes,
+        target.data_shards,
+        target.parity_shards,
+    );
+    if !same_coding || !same_shard {
         bail!("relocation requires unchanged coding (K, M, shard size); re-encode instead");
     }
     crate::models::shard_size::check_object_limit(source.shard_size, target.max_object_bytes)

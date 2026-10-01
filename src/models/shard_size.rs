@@ -8,6 +8,46 @@ pub(crate) const MIB: u64 = 1024 * 1024;
 
 /// Converts a MiB shard size to bytes, rejecting 0, overflow and values above
 /// [`MAX_SHARD_MIB`]. This is the only place MiB→bytes shard conversion happens.
+/// Granularity of a per-file shard size: one rclone crypt data block.
+pub(crate) const SHARD_GRANULE: u64 = 64 * 1024;
+
+/// Shard size used for one file; the pool's shard size is the maximum.
+///
+/// Parity is always one full shard per coding group, so a coded file smaller
+/// than K full shards would otherwise carry M shards of zero padding (a 2 MB
+/// file in a 64 MiB, RS 9+3 pool uploaded 192 MiB of parity) and use only one
+/// data shard. Such a file is split into K about equal shards instead,
+/// rounded up to [`SHARD_GRANULE`], so its overhead stays near (K+M)/K and
+/// all K+M shards can transfer to different accounts at once.
+pub(crate) fn shard_size_for(
+    file_size: u64,
+    max: u64,
+    data_shards: usize,
+    parity_shards: usize,
+) -> u64 {
+    if parity_shards == 0 || data_shards == 0 || file_size == 0 {
+        return max;
+    }
+    let even = file_size
+        .div_ceil(data_shards as u64)
+        .div_ceil(SHARD_GRANULE)
+        .saturating_mul(SHARD_GRANULE);
+    even.clamp(SHARD_GRANULE.min(max), max)
+}
+
+/// Whether an archive's shard size is one the pool would produce for it:
+/// the per-file size or (older archives) the pool's full shard size.
+pub(crate) fn shard_size_matches(
+    archive_shard: u64,
+    file_size: u64,
+    max: u64,
+    data_shards: usize,
+    parity_shards: usize,
+) -> bool {
+    archive_shard == max
+        || archive_shard == shard_size_for(file_size, max, data_shards, parity_shards)
+}
+
 pub(crate) fn shard_bytes(mib: u64) -> Result<NonZeroU64> {
     validate_shard_mib(mib)?;
     let bytes = mib
@@ -190,6 +230,26 @@ impl<'de> serde::Deserialize<'de> for ShardSize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn small_coded_files_get_k_even_shards_and_large_ones_the_pool_size() {
+        let max = 64 * MIB;
+        // 2 MB, RS 9+3: 256 KiB shards -> 8 data + 3 parity, no 64 MiB padding.
+        let s = shard_size_for(2_000_000, max, 9, 3);
+        assert_eq!(s, 256 * 1024);
+        assert_eq!(2_000_000u64.div_ceil(s), 8);
+        assert_eq!(shard_size_for(1, max, 9, 3), SHARD_GRANULE);
+        assert_eq!(shard_size_for(10 * 64 * MIB, max, 9, 3), max);
+        assert_eq!(shard_size_for(9 * 64 * MIB, max, 9, 3), max);
+        assert_eq!(shard_size_for(2_000_000, max, 9, 0), max, "uncoded");
+        assert_eq!(shard_size_for(0, max, 9, 3), max);
+        assert!(
+            shard_size_matches(max, 2_000_000, max, 9, 3),
+            "older archives"
+        );
+        assert!(shard_size_matches(s, 2_000_000, max, 9, 3));
+        assert!(!shard_size_matches(MIB, 2_000_000, max, 9, 3));
+    }
 
     #[test]
     fn shard_bytes_converts_and_bounds() {

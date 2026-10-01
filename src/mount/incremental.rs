@@ -138,7 +138,16 @@ fn upload_with(
     if !metadata.is_file() || metadata.file_type().is_symlink() {
         bail!("invalid incremental source");
     }
-    let shard_size = policy.shard_bytes()?.get();
+    let shard_size = crate::models::shard_size::shard_size_for(
+        metadata.len(),
+        policy.shard_bytes()?.get(),
+        policy.data_shards,
+        if metadata.len() > 0 {
+            policy.parity_shards
+        } else {
+            0
+        },
+    );
     let coding = (metadata.len() > 0 && policy.parity_shards > 0).then(|| Coding {
         algorithm: RS_ALGORITHM.into(),
         data_shards: policy.data_shards,
