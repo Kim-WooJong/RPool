@@ -65,11 +65,10 @@ pub(crate) fn cards(state: &GuiState, running: bool) -> Vec<ProviderCard<'_>> {
                     .crypts
                     .get(name)
                     .map_or(&[], Vec::as_slice),
-                // Capacity reports name the remote with its colon.
                 report: state
                     .usage_reports
                     .iter()
-                    .find(|report| report.remote.trim_end_matches(':') == name),
+                    .find(|report| report_account(&report.remote) == name),
                 status,
                 tone,
                 missing: form.discovery_known && missing,
@@ -77,6 +76,13 @@ pub(crate) fn cards(state: &GuiState, running: bool) -> Vec<ProviderCard<'_>> {
             }
         })
         .collect()
+}
+
+/// Account name of a capacity report. Reports name the remote with its colon
+/// and, for backends whose quota depends on the folder (SFTP, WebDAV, …),
+/// with the provider's default path too: `koofr_1:/data` belongs to `koofr_1`.
+fn report_account(remote: &str) -> &str {
+    remote.split_once(':').map_or(remote, |(name, _)| name)
 }
 
 #[cfg(test)]
@@ -103,6 +109,17 @@ mod tests {
         let unknown = shown.iter().find(|c| c.name == "box_archive").unwrap();
         assert!(unknown.report.unwrap().error.is_some());
         assert_eq!(unknown.ratio(), None);
+
+        // A provider with its own default path still finds its report.
+        let path_report = state
+            .usage_reports
+            .iter_mut()
+            .find(|r| r.remote == "gdrive_1:")
+            .unwrap();
+        path_report.remote = "gdrive_1:/data".into();
+        assert!(cards(&state, false)[0].report.is_some());
+        assert_eq!(report_account("koofr_1:/data/rpool"), "koofr_1");
+        assert_eq!(report_account("koofr_1:"), "koofr_1");
 
         state.providers.discovery_known = false;
         let shown = cards(&state, false);

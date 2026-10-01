@@ -173,6 +173,7 @@ impl HistoryState {
     }
 
     /// Loads synchronously (fixtures and tests).
+    #[cfg(any(test, debug_assertions))]
     pub(crate) fn load_now(
         &mut self,
         source: &dyn MonitorSource,
