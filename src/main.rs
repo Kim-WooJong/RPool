@@ -5,6 +5,7 @@ mod config;
 mod config_sync;
 mod crypt;
 mod doctor;
+mod drive_history;
 mod erasure;
 mod gui;
 mod history;
