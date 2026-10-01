@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Fix: uploads into a new folder no longer race to create it.** Parallel
+  shard uploads let rclone create the same new parent folder several times
+  at once, and some servers reject the loser: `put` to a pool with an SFTP
+  server on Windows failed every time (`mkParentDir failed`), and WebDAV
+  answered `423 Locked`. RPool now creates each parent folder once per
+  process, one at a time per remote, before uploads and copies; when that
+  `mkdir` fails the upload runs as before. Checked: SMB + SFTP pool put/
+  verify/get 6/6 (old build 0/3), real-cloud migration e2e with the SFTP
+  remote kept (8/8), Docker WebDAV e2e with 8 workers.
+
 - **Faster cloud operations (migration, put, reads).** Measured on real
   clouds (Dropbox, Koofr, Drime, Filen; 3 archives of 2–4 MB, RS 2+1, 8
   runs): `pool migrate run` 1,650–1,940 s -> 136–232 s (8–12x), `put` of the

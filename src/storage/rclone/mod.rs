@@ -7,6 +7,7 @@ mod daemon;
 #[cfg(all(test, unix))]
 #[path = "daemon_tests.rs"]
 mod daemon_tests;
+mod dirs;
 mod http;
 mod limit;
 mod process;
@@ -441,6 +442,7 @@ impl RcloneContext {
             args.extend(["--size".into(), size.to_string().into()]);
         }
         args.extend(["--".into(), address.into()]);
+        self.ensure_parent_dir(ctx, address);
         // The source stream is consumed, so a rejected upload is reported as
         // retriable (RateLimited) instead of being retried here.
         let _permits = self.mutation_permits(ctx, address)?;
@@ -481,6 +483,7 @@ impl RcloneContext {
             destination,
         ]
         .map(OsString::from);
+        self.ensure_parent_dir(ctx, destination);
         self.retry_rejected(ctx, destination, &args)
     }
     /// Copies one object from `source` to `destination` with `rclone copyto`,
@@ -530,6 +533,7 @@ impl RcloneContext {
             destination,
         ]
         .map(OsString::from);
+        self.ensure_parent_dir(ctx, destination);
         self.retry_rejected(ctx, destination, &args)
     }
     /// `rclone backend features <remote>`: server-side copy support and hashes.
@@ -608,6 +612,24 @@ impl RcloneContext {
         }
         let bytes = self.stat_json(ctx, address, hashes)?;
         parse_object_hash(&bytes, hashes)
+    }
+    /// Creates the parent folder of `address` once per process, serialized
+    /// per remote, so parallel writes into a new folder do not race to create
+    /// it (see `dirs`). Failures are ignored: the write creates it as before.
+    fn ensure_parent_dir(&self, ctx: &OperationContext, address: &str) {
+        let config = match &self.config {
+            ConfigSelection::Inherited => self
+                .environment
+                .iter()
+                .find(|(key, _)| key == "RCLONE_CONFIG")
+                .map(|(_, value)| value.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            ConfigSelection::File(path) => path.to_string_lossy().into_owned(),
+        };
+        let instance = format!("{}\u{0}{config}", self.executable.to_string_lossy());
+        dirs::ensure_parent(&instance, address, |parent| {
+            self.capture(ctx, &["mkdir", "--", parent]).is_ok()
+        });
     }
     pub(crate) fn delete_raw(
         &self,

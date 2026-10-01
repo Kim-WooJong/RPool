@@ -47,11 +47,9 @@ setup() {
   $RPOOL pool set shared --remote c1: --remote c2: --remote c3: --remote c4: \
     --data-shards 2 --parity-shards 1 --shard-mib 1 $NATIVE >/dev/null
   # Same content in every run (deterministic), so byte counts compare.
-  # One worker: `rclone serve webdav` answers 423 Locked when parallel uploads
-  # create the same parent folder at once (a test-server limit, not RPool's).
   for n in 1 2 3; do
     python3 -c "import random,sys; random.seed($n); sys.stdout.buffer.write(random.randbytes($((2500000 + n * 1300000))))" > $E/src/f$n.bin
-    RCLONE_LOG_FILE=$E/rclone-put.log RCLONE_LOG_LEVEL=NOTICE $RPOOL put $E/src/f$n.bin --pool shared --workers 1 > $E/put$n.log 2>&1 || { cat $E/put$n.log; grep -v "not found - using defaults" $E/rclone-put.log | tail -20; tail -20 $E/serve.log; fail put; }
+    RCLONE_LOG_FILE=$E/rclone-put.log RCLONE_LOG_LEVEL=NOTICE $RPOOL put $E/src/f$n.bin --pool shared > $E/put$n.log 2>&1 || { cat $E/put$n.log; grep -v "not found - using defaults" $E/rclone-put.log | tail -20; tail -20 $E/serve.log; fail put; }
   done
   snapshot > $E/before.txt
   $RPOOL pool set shared --remote c1: --remote c2: --remote c3: \
