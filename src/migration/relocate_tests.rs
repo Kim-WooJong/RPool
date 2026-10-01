@@ -212,6 +212,17 @@ fn run_with(
     pool: &PoolDefinition,
     domains: &[&str],
 ) -> Result<Relocated> {
+    run_pinned(fixture, writer, copier, pool, domains, &BTreeMap::new())
+}
+
+fn run_pinned(
+    fixture: &Fixture,
+    writer: &StorageWriter,
+    copier: Option<&dyn ShardCopier>,
+    pool: &PoolDefinition,
+    domains: &[&str],
+    pinned: &BTreeMap<u32, String>,
+) -> Result<Relocated> {
     let work = fixture.temp.path().join("work");
     relocate_with_storage(
         writer,
@@ -220,6 +231,7 @@ fn run_with(
         pool,
         &pool.remotes,
         &names(domains),
+        pinned,
         NEW,
         &work,
     )
@@ -313,6 +325,50 @@ fn removed_but_readable_remote_is_copied_verbatim() {
     }
     assert_eq!(fixture.restore(&writer, &relocated.manifest), fixture.bytes);
     assert_eq!(fixture.old_objects(), before);
+}
+
+#[test]
+fn pinned_shards_move_to_their_rebalance_destination_and_the_rest_stay() {
+    let fixture = Fixture::new(&["a:", "b:", "c:"], SIZE);
+    let before = fixture.old_objects();
+    let writer = fixture.writer();
+    let pool = target(&["a:", "b:", "c:", "d:"], Placement::FreeRatio);
+    let moved = fixture.manifest.shards[0].index;
+    let pinned = BTreeMap::from([(moved, "d:".to_owned())]);
+    let relocated = run_pinned(
+        &fixture,
+        &writer,
+        None,
+        &pool,
+        &["a", "b", "c", "d"],
+        &pinned,
+    )
+    .unwrap();
+    for (old, new) in fixture
+        .manifest
+        .shards
+        .iter()
+        .zip(&relocated.manifest.shards)
+    {
+        let expected = if old.index == moved {
+            "d:"
+        } else {
+            old.remote.as_str()
+        };
+        assert_eq!(new.remote, expected, "shard {}", old.index);
+    }
+    assert_eq!(fixture.restore(&writer, &relocated.manifest), fixture.bytes);
+    assert_eq!(fixture.old_objects(), before);
+    let outside = BTreeMap::from([(moved, "z:".to_owned())]);
+    assert!(run_pinned(
+        &fixture,
+        &writer,
+        None,
+        &pool,
+        &["a", "b", "c", "d"],
+        &outside
+    )
+    .is_err());
 }
 
 #[test]
@@ -454,6 +510,7 @@ fn inputs_must_keep_coding_and_use_a_fresh_id() {
             &pool,
             &pool.remotes,
             &names(&["a", "b", "d"]),
+            &BTreeMap::new(),
             id,
             &work,
         )
@@ -803,6 +860,7 @@ fn e2e_relocate_with_rclone() {
         "rclone",
         &manifest,
         &pool,
+        &BTreeMap::new(),
         &env("RELOCATE_E2E_ID"),
         work.path(),
     )

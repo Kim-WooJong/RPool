@@ -138,10 +138,14 @@ impl std::error::Error for RelocateError {}
 /// a still-readable removed remote, and written to `target` remotes under the
 /// placement rules. The replacement is fully read back and verified before
 /// returning. `work_dir` holds temporary data.
+///
+/// `pinned` (rebalance) names the destination remote of some shards; the
+/// others follow the placement rules.
 pub(crate) fn relocate(
     rclone: &str,
     source: &Manifest,
     target: &PoolDefinition,
+    pinned: &BTreeMap<u32, String>,
     new_archive_id: &str,
     work_dir: &Path,
 ) -> Result<Relocated> {
@@ -157,6 +161,7 @@ pub(crate) fn relocate(
         target,
         &remotes,
         &domains,
+        pinned,
         new_archive_id,
         work_dir,
     )
@@ -556,10 +561,24 @@ pub(super) fn relocate_with_storage(
     target: &PoolDefinition,
     remotes: &[String],
     domains: &[String],
+    pinned: &BTreeMap<u32, String>,
     new_archive_id: &str,
     work_dir: &Path,
 ) -> Result<Relocated> {
     check_inputs(source, target, remotes, domains, new_archive_id)?;
+    // A pinned shard is placed as if it already lived on its destination, so
+    // the slot assignment keeps it there and the copy below moves it.
+    let pin = |shard: &Shard| -> Result<Option<usize>> {
+        pinned
+            .get(&shard.index)
+            .map(|remote| {
+                remotes
+                    .iter()
+                    .position(|r| r == remote)
+                    .with_context(|| format!("rebalance destination {remote} is not a pool remote"))
+            })
+            .transpose()
+    };
     let workers = target.workers.max(1);
     let retries = target.retries;
     let reader = storage.reader();
@@ -608,12 +627,17 @@ pub(super) fn relocate_with_storage(
         .shards
         .iter()
         .zip(&probed)
-        .map(|(shard, p)| ReplacementSlot {
-            group: shard.group,
-            size: shard.size,
-            current: p.on_target.filter(|_| p.problem.is_none()),
+        .map(|(shard, p)| {
+            Ok(ReplacementSlot {
+                group: shard.group,
+                size: shard.size,
+                current: match pin(shard)? {
+                    Some(destination) => Some(destination),
+                    None => p.on_target.filter(|_| p.problem.is_none()),
+                },
+            })
         })
-        .collect();
+        .collect::<Result<_>>()?;
     let (bound, strict) = match &source.coding {
         Some(coding) => (
             coding.parity_shards,

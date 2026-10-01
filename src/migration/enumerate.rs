@@ -56,6 +56,13 @@ pub(crate) trait Cloud: Sync {
         target: &PoolDefinition,
         specs: &[Vec<crate::models::PhysicalSpec>],
     ) -> Option<bool>;
+    /// Quota of every target account, None when any is unknown.
+    fn quotas(
+        &self,
+        _target: &PoolDefinition,
+    ) -> Option<Vec<crate::storage::admin::budget::TargetBudget>> {
+        None
+    }
 }
 
 /// Drive revisions (`virtual-*`) are handled by a later phase.

@@ -806,6 +806,7 @@ impl Effects for LiveEffects<'_> {
                     self.rclone,
                     &manifest,
                     &self.plan.target,
+                    &entry.moves,
                     new_archive_id,
                     &work,
                 )?;
@@ -910,6 +911,7 @@ pub(crate) mod tests_support {
             upload_bytes: 0,
             losses: vec![],
             detail: None,
+            moves: Default::default(),
         }
     }
 

@@ -21,6 +21,7 @@ pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
             upload_mib_s,
             measure_speed,
             no_drive,
+            rebalance,
             json,
         } => plan(
             rclone,
@@ -30,6 +31,7 @@ pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
             upload_mib_s,
             measure_speed,
             no_drive,
+            rebalance,
             json,
         ),
         MigrateCommands::Run {
@@ -251,6 +253,7 @@ fn plan(
     mut upload_mib_s: Option<f64>,
     measure_speed: bool,
     no_drive: bool,
+    rebalance: bool,
     json: bool,
 ) -> Result<()> {
     let definition = crate::pool::load_pool_store()?
@@ -288,6 +291,8 @@ fn plan(
         upload_mib_s,
         workers,
         skip_drive: no_drive,
+        rebalance,
+        ..Default::default()
     };
     let (plan, drive) = execute::create_with_drive(rclone, pool, &options)?;
     if json {

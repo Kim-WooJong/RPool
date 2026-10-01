@@ -279,3 +279,54 @@ fn originals_replaced_by_an_earlier_migration_are_skipped() {
     assert!(plan.entries.iter().all(|e| e.archive_id != "f2"));
     assert!(plan.notes.iter().any(|n| n.contains("already replaced")));
 }
+
+#[test]
+fn rebalance_relocates_unaffected_archives_toward_an_empty_account() {
+    let (cloud, _) = fixture();
+    let mut target = policy(&ALL, MIB, 2, 1);
+    target.placement = Placement::FreeRatio;
+    let quota = |name: &str, free: u64| crate::storage::admin::budget::TargetBudget {
+        remote: format!("{name}:"),
+        backing: name.into(),
+        capacity_domain: name.into(),
+        failure_domain: None,
+        declared: true,
+        total: 100 * MIB,
+        free,
+    };
+    let quotas = [
+        quota("a", 10 * MIB),
+        quota("b", 10 * MIB),
+        quota("c", 10 * MIB),
+        quota("d", 100 * MIB),
+    ];
+    let plain = plan_with(
+        &cloud,
+        "main",
+        target.clone(),
+        &InventoryStore::default(),
+        &PlanOptions::default(),
+    )
+    .unwrap();
+    assert!(plain
+        .entries
+        .iter()
+        .all(|e| e.action == Action::Unaffected && e.moves.is_empty()));
+    let rebalancer = super::super::rebalance::Rebalancer::new(&target, &quotas, &|_| None).unwrap();
+    let options = PlanOptions {
+        rebalance: true,
+        rebalancer: Some(Arc::new(rebalancer)),
+        ..Default::default()
+    };
+    let plan = plan_with(&cloud, "main", target, &InventoryStore::default(), &options).unwrap();
+    let moved: Vec<&Entry> = plan
+        .entries
+        .iter()
+        .filter(|e| e.action == Action::Relocate)
+        .collect();
+    assert!(!moved.is_empty());
+    for entry in moved {
+        assert!(entry.moves.values().all(|r| r == "d:"), "{:?}", entry.moves);
+        assert!(entry.upload_bytes > 0);
+    }
+}

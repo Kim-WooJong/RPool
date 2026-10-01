@@ -220,6 +220,7 @@ pub(super) fn classify(
                     upload_bytes: entry.upload_bytes,
                     losses: entry.losses,
                     detail,
+                    moves: entry.moves,
                 },
                 transfer,
             ))

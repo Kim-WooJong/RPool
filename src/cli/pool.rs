@@ -176,6 +176,12 @@ pub(crate) enum MigrateCommands {
         /// Leave the pool's drive out (archives only).
         #[arg(long)]
         no_drive: bool,
+        /// Also move shards of unaffected archives so existing data follows
+        /// the pool's current placement and spreads by free ratio (after
+        /// adding an account or changing the placement). Needs every
+        /// account's quota.
+        #[arg(long)]
+        rebalance: bool,
         #[arg(long)]
         json: bool,
     },
@@ -458,14 +464,15 @@ mod capacity_tests {
         use super::{MigrateCommands as M, ProbeMode};
         assert!(matches!(
             migrate(&["plan", "p", "--probe", "full", "--download-mib-s", "10", "--upload-mib-s", "5", "--json"]),
-            M::Plan { ref pool, probe: ProbeMode::Full, download_mib_s: Some(d), upload_mib_s: Some(u), measure_speed: false, json: true, no_drive: false }
+            M::Plan { ref pool, probe: ProbeMode::Full, download_mib_s: Some(d), upload_mib_s: Some(u), measure_speed: false, json: true, no_drive: false, rebalance: false }
                 if pool == "p" && d == 10.0 && u == 5.0
         ));
         assert!(matches!(
-            migrate(&["plan", "p", "--measure-speed"]),
+            migrate(&["plan", "p", "--measure-speed", "--rebalance"]),
             M::Plan {
                 probe: ProbeMode::Quick,
                 measure_speed: true,
+                rebalance: true,
                 json: false,
                 download_mib_s: None,
                 ..

@@ -23,6 +23,11 @@ pub(crate) struct PlanOptions {
     /// Leave the pool's drive out (archives only). The drive is planned by
     /// default when the pool has one.
     pub skip_drive: bool,
+    /// Also move shards of otherwise unaffected archives so they follow the
+    /// pool's current placement and spread by free ratio (see `rebalance`).
+    pub rebalance: bool,
+    /// Shared rebalance state, set by the planner when `rebalance` is on.
+    pub(crate) rebalancer: Option<Arc<super::rebalance::Rebalancer>>,
 }
 
 /// Builds a plan for `pool` (the saved pool is the target policy) with the
@@ -45,6 +50,18 @@ pub(crate) fn plan_with_drive(
     let inventory = crate::inventory::load_inventory()?;
     let cloud = RcloneCloud::new(rclone, target.placement == Placement::Resilient);
     let (replaced, mut note) = replaced_archives(rclone, pool);
+    let mut options = options.clone();
+    if options.rebalance {
+        let quotas = cloud
+            .quotas(&target)
+            .context("rebalance needs the quota of every pool account")?;
+        let rebalancer =
+            super::rebalance::Rebalancer::new(&target, &quotas, &|r| cloud.failure_domain(r))
+                .context("rebalance needs the quota of every pool account")?;
+        options.rebalancer = Some(Arc::new(rebalancer));
+        note.push(format!("Rebalance: shards of unaffected archives also move to follow the {} placement, from accounts at least {:.0}% fuller (by free ratio) than the destination. The old account's space is free only after the originals are retired.", target.placement.cli_value(), super::rebalance::MIN_GAP * 100.0));
+    }
+    let options = &options;
     let (mut plan, mut listed) = plan_listed(&cloud, pool, target, &inventory, options, &replaced)?;
     plan.notes.append(&mut note);
     if options.skip_drive {
@@ -153,6 +170,13 @@ impl Cloud for RcloneCloud {
     fn quota_ok(&self, target: &PoolDefinition, specs: &[Vec<PhysicalSpec>]) -> Option<bool> {
         super::estimate::quota_ok(&self.admin, target, specs)
     }
+    fn quotas(
+        &self,
+        target: &PoolDefinition,
+    ) -> Option<Vec<crate::storage::admin::budget::TargetBudget>> {
+        let status = crate::mount::capacity::CapacityStatus::inspect(&self.admin, target).ok()?;
+        status.excluded.is_empty().then_some(status.targets)
+    }
     /// `rclone backend features` of the crypt remote (Copy) and of its base
     /// (Hashes). Errors (including non-crypt remotes) mean unknown.
     fn copy_features(&self, remote: &str) -> Option<CopyFeatures> {
@@ -239,9 +263,9 @@ pub(super) fn plan_entry(
 ) -> Result<(Entry, Transfer)> {
     let manifest = &loaded.manifest;
     let reencode = reencode_reason(manifest, target);
-    let (moving, move_reasons) =
+    let (mut moving, move_reasons) =
         shards_to_move(manifest, target, target_set, &|r| cloud.failure_domain(r));
-    let base = if reencode.is_some() {
+    let mut base = if reencode.is_some() {
         Action::Reencode
     } else if !moving.is_empty() {
         Action::Relocate
@@ -257,13 +281,28 @@ pub(super) fn plan_entry(
         }
     }
     let availability = assess(manifest, &states);
-    let action = if availability.lost {
+    let mut action = if availability.lost {
         Action::Lost
     } else if availability.undetermined {
         Action::Unknown
     } else {
         base
     };
+    // Rebalance only what is otherwise kept or relocated (a re-encode gets a
+    // fresh placement anyway; lost or unchecked archives are not touched).
+    let mut moves = BTreeMap::new();
+    if let Some(rebalancer) = &options.rebalancer {
+        if matches!(action, Action::Unaffected | Action::Relocate) && manifest.original_size > 0 {
+            let (planned, reasons) = rebalancer.plan(manifest, &moving);
+            if !planned.is_empty() {
+                moving.extend(planned.keys().copied());
+                moves = planned;
+                notes.extend(reasons);
+                base = Action::Relocate;
+                action = Action::Relocate;
+            }
+        }
+    }
     let planned = match (action, base) {
         (Action::Lost, _) | (_, Action::Unaffected) => Ok(Transfer::default()),
         (_, Action::Relocate) => {
@@ -312,6 +351,7 @@ pub(super) fn plan_entry(
         upload_bytes: transfer.upload,
         losses,
         detail: (!notes.is_empty()).then(|| notes.join("; ")),
+        moves,
     };
     Ok((entry, transfer))
 }
@@ -456,6 +496,7 @@ pub(super) fn plan_listed(
                     upload_bytes: 0,
                     losses: Vec::new(),
                     detail: Some(detail.clone()),
+                    moves: BTreeMap::new(),
                 },
                 Transfer::default(),
             )),

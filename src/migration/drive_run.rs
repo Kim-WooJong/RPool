@@ -91,6 +91,7 @@ pub(super) fn as_entry(entry: &DriveEntry) -> Entry {
         upload_bytes: entry.upload_bytes,
         losses: entry.losses.clone(),
         detail: entry.detail.clone(),
+        moves: entry.moves.clone(),
     }
 }
 
@@ -180,6 +181,7 @@ impl Effects for DriveEffects<'_> {
                     self.rclone,
                     &file.manifest,
                     self.target,
+                    &entry.moves,
                     new_archive_id,
                     &work,
                 )?;

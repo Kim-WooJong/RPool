@@ -90,6 +90,8 @@ pub(crate) struct MigrationForm {
     pub(crate) measure_speed: bool,
     /// Plan the pool's drive too (`--no-drive` when false). Default on.
     pub(crate) include_drive: IncludeDrive,
+    /// Also move shards of unaffected archives (`--rebalance`).
+    pub(crate) rebalance: bool,
     /// Manual speeds, MiB/s; 0 = unknown.
     pub(crate) download_mib_s: f64,
     pub(crate) upload_mib_s: f64,
@@ -160,6 +162,8 @@ impl MigrationForm {
             upload_mib_s: positive(self.upload_mib_s),
             workers,
             skip_drive: !self.include_drive.0,
+            rebalance: self.rebalance,
+            ..Default::default()
         }
     }
 

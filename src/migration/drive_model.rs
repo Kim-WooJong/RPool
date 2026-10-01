@@ -74,6 +74,9 @@ pub(crate) struct DriveEntry {
     pub losses: Vec<GroupLoss>,
     #[serde(default)]
     pub detail: Option<String>,
+    /// Rebalance destinations (shard index -> remote) the run must use.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub moves: BTreeMap<u32, String>,
 }
 
 /// The frozen drive part of a migration.

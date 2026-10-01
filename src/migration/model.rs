@@ -65,6 +65,9 @@ pub(crate) struct Entry {
     /// Human-readable reason for `Unknown`, or notes.
     #[serde(default)]
     pub detail: Option<String>,
+    /// Rebalance destinations (shard index -> remote) the run must use.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub moves: BTreeMap<u32, String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

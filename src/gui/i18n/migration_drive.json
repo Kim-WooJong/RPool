@@ -163,5 +163,15 @@
     "ko": "구성 {epoch}",
     "ja": "構成 {epoch}",
     "zh": "布局 {epoch}"
+  },
+  "Rebalance existing data": {
+    "ko": "기존 데이터 리밸런스",
+    "ja": "既存データのリバランス",
+    "zh": "重新平衡现有数据"
+  },
+  "Also moves shards of files that need no other change, so existing data follows the pool's current placement and fills accounts by free space. Use it after adding an account or changing the placement. Needs every account's quota; moved shards take extra space until the originals are cleaned up.": {
+    "ko": "다른 변경이 필요 없는 파일의 조각도 옮겨서, 기존 데이터가 풀의 현재 배치 방식을 따르고 여유 공간에 맞춰 계정을 채우게 해요. 계정을 추가하거나 배치 방식을 바꾼 뒤에 쓰세요. 모든 계정의 용량 정보가 필요하고, 옮긴 조각은 원본을 정리할 때까지 추가 공간을 차지해요.",
+    "ja": "他の変更が不要なファイルのシャードも移動し、既存データがプールの現在の配置方式に従い、空き容量に合わせてアカウントを埋めるようにします。アカウントを追加したり配置方式を変更した後に使用してください。すべてのアカウントの容量情報が必要で、移動したシャードは元データを整理するまで追加の容量を使います。",
+    "zh": "也移动无需其他更改的文件的分片，使现有数据遵循池当前的放置方式，并按可用空间填充账户。在添加账户或更改放置方式后使用。需要所有账户的配额信息；移动的分片在清理原始数据前会占用额外空间。"
   }
 }

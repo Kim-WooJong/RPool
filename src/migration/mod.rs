@@ -26,6 +26,7 @@ pub(crate) mod journal;
 pub(crate) mod model;
 pub(crate) mod plan;
 mod probe;
+pub(crate) mod rebalance;
 pub(crate) mod relocate;
 pub(crate) mod retire;
 pub(crate) mod speed;

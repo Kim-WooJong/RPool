@@ -44,6 +44,11 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, _task: &mut TaskRunn
                     .on_hover_text(tr("Plans the drive's visible files too. They get new archives during the run and switch to a new drive layout when you adopt it."));
                 ui.end_row();
 
+                ui.label(tr("Placement"));
+                ui.checkbox(&mut state.migration.rebalance, tr("Rebalance existing data"))
+                    .on_hover_text(tr("Also moves shards of files that need no other change, so existing data follows the pool's current placement and fills accounts by free space. Use it after adding an account or changing the placement. Needs every account's quota; moved shards take extra space until the originals are cleaned up."));
+                ui.end_row();
+
                 ui.label(tr("Speed"));
                 ui.checkbox(&mut state.migration.measure_speed, tr("Measure speed"))
                     .on_hover_text(tr("Writes, reads back and deletes one 8 MiB test object per account under .rpool-sync/bench/."));
