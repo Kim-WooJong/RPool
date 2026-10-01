@@ -5,6 +5,20 @@ use eframe::egui;
 /// over the filled part it contrasts with the accent fill, over the empty
 /// track it contrasts with the track.
 pub(crate) fn capacity_bar_sized(ui: &mut egui::Ui, ratio: Option<f32>, text: &str, width: f32) {
+    let p = theme::pal(ui);
+    capacity_bar_colored(ui, ratio, text, width, p.accent, p.accent_fg);
+}
+
+/// [`capacity_bar_sized`] with its own fill colour and the label colour over
+/// the fill (e.g. a warning colour for the slowest account of a speed test).
+pub(crate) fn capacity_bar_colored(
+    ui: &mut egui::Ui,
+    ratio: Option<f32>,
+    text: &str,
+    width: f32,
+    fill: egui::Color32,
+    fill_text: egui::Color32,
+) {
     let ratio = ratio.map(|value| value.clamp(0.0, 1.0));
     let (rect, _) = ui.allocate_exact_size(
         egui::vec2(width.max(1.0), theme::CAPACITY_BAR_HEIGHT),
@@ -36,14 +50,14 @@ pub(crate) fn capacity_bar_sized(ui: &mut egui::Ui, ratio: Option<f32>, text: &s
     let filled = egui::Rect::from_min_max(rect.min, egui::pos2(split, rect.bottom()));
     let empty = egui::Rect::from_min_max(egui::pos2(split, rect.top()), rect.max);
     let filled_painter = painter.with_clip_rect(filled);
-    filled_painter.rect_filled(rect, radius, p.accent);
+    filled_painter.rect_filled(rect, radius, fill);
 
     filled_painter.text(
         rect.center(),
         egui::Align2::CENTER_CENTER,
         text,
         font.clone(),
-        p.accent_fg,
+        fill_text,
     );
     painter.with_clip_rect(empty).text(
         rect.center(),

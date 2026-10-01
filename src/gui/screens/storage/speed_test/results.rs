@@ -3,7 +3,7 @@
 use super::view::{Bar, RemoteRow, ReportView};
 use crate::gui::i18n::{tr, trf};
 use crate::gui::theme;
-use crate::gui::widgets::{capacity_bar_sized, status_badge, StatusTone};
+use crate::gui::widgets::{capacity_bar_colored, status_badge, StatusTone};
 use eframe::egui;
 
 /// Width of the "Upload" / "Download" labels in front of the bars.
@@ -73,36 +73,108 @@ fn estimate(ui: &mut egui::Ui, view: &ReportView) {
 const SIDE_BY_SIDE_WIDTH: f32 = 760.0;
 const BAR_GAP: f32 = 16.0;
 
-/// The label, then a bar of `width(remaining width after the label)`.
-fn speed_bar(ui: &mut egui::Ui, label: &str, bar: Option<&Bar>, width: impl Fn(f32) -> f32) {
+/// Room after each bar for the "Slowest" tag, kept on every row so bars line up.
+const TAG_WIDTH: f32 = 92.0;
+
+/// The label, a bar of `width(remaining width after the label)` and, on the
+/// slowest account, a "Slowest" tag right after that bar (warning colour).
+fn speed_bar(
+    ui: &mut egui::Ui,
+    label: &str,
+    bar: Option<&Bar>,
+    slowest: bool,
+    width: impl Fn(f32) -> f32,
+) {
     ui.add_sized(
         [LABEL_WIDTH, theme::CAPACITY_BAR_HEIGHT],
         egui::Label::new(egui::RichText::new(label).small()).truncate(),
     );
-    let width = width(ui.available_width()).clamp(60.0, MAX_BAR_WIDTH);
+    let width = width(ui.available_width() - TAG_WIDTH).clamp(60.0, MAX_BAR_WIDTH);
+    let p = theme::pal(ui);
+    let warning = theme::warning_colors(ui.visuals().dark_mode).1;
     match bar {
-        Some(bar) => capacity_bar_sized(ui, Some(bar.ratio), &bar.text, width),
-        None => {
-            ui.label("—");
+        Some(bar) if slowest => capacity_bar_colored(
+            ui,
+            Some(bar.ratio),
+            &bar.text,
+            width,
+            warning,
+            readable_on(warning),
+        ),
+        Some(bar) => {
+            capacity_bar_colored(ui, Some(bar.ratio), &bar.text, width, p.accent, p.accent_fg)
         }
+        None => {
+            ui.add_sized([width, theme::CAPACITY_BAR_HEIGHT], egui::Label::new("—"));
+        }
+    }
+    if slowest && bar.is_some() {
+        let before = ui.cursor().min.x;
+        status_badge(ui, tr("Slowest"), StatusTone::Warning);
+        let used = ui.cursor().min.x - before;
+        ui.add_space((TAG_WIDTH - used).max(0.0));
+    } else {
+        ui.add_space(TAG_WIDTH);
+    }
+}
+
+/// Black or white, whichever reads better on `fill`.
+fn readable_on(fill: egui::Color32) -> egui::Color32 {
+    let [r, g, b, _] = fill.to_array();
+    let luminance = 0.299 * f32::from(r) + 0.587 * f32::from(g) + 0.114 * f32::from(b);
+    if luminance > 140.0 {
+        egui::Color32::BLACK
+    } else {
+        egui::Color32::WHITE
     }
 }
 
 fn speed_bars(ui: &mut egui::Ui, row: &RemoteRow) {
     if ui.available_width() >= SIDE_BY_SIDE_WIDTH {
         ui.horizontal(|ui| {
-            // Half of what is left after both labels and the gap.
+            // Half of what is left after both labels, both tags and the gap.
             let gap = ui.spacing().item_spacing.x;
-            let half = move |rest: f32| (rest - BAR_GAP - LABEL_WIDTH - 3.0 * gap) / 2.0;
-            speed_bar(ui, tr("Upload"), row.upload.as_ref(), half);
+            let half =
+                move |rest: f32| (rest - BAR_GAP - LABEL_WIDTH - TAG_WIDTH - 4.0 * gap) / 2.0;
+            speed_bar(
+                ui,
+                tr("Upload"),
+                row.upload.as_ref(),
+                row.slowest_upload,
+                half,
+            );
             ui.add_space(BAR_GAP);
-            let rest = |rest: f32| rest;
-            speed_bar(ui, tr("Download"), row.download.as_ref(), rest);
+            let gap2 = ui.spacing().item_spacing.x;
+            let rest = move |rest: f32| rest - gap2;
+            speed_bar(
+                ui,
+                tr("Download"),
+                row.download.as_ref(),
+                row.slowest_download,
+                rest,
+            );
         });
     } else {
-        let all = |rest: f32| rest;
-        ui.horizontal(|ui| speed_bar(ui, tr("Upload"), row.upload.as_ref(), all));
-        ui.horizontal(|ui| speed_bar(ui, tr("Download"), row.download.as_ref(), all));
+        let gap = ui.spacing().item_spacing.x;
+        let all = move |rest: f32| rest - gap;
+        ui.horizontal(|ui| {
+            speed_bar(
+                ui,
+                tr("Upload"),
+                row.upload.as_ref(),
+                row.slowest_upload,
+                all,
+            )
+        });
+        ui.horizontal(|ui| {
+            speed_bar(
+                ui,
+                tr("Download"),
+                row.download.as_ref(),
+                row.slowest_download,
+                all,
+            )
+        });
     }
 }
 
@@ -115,7 +187,8 @@ fn remote_row(ui: &mut egui::Ui, row: &RemoteRow) {
         egui::Stroke::new(1.0, p.border)
     };
     egui::Frame::new()
-        .fill(p.surface_alt)
+        // The page background, so the bars' empty track (surface_alt) shows.
+        .fill(p.bg)
         .stroke(stroke)
         .corner_radius(theme::CORNER_RADIUS)
         .inner_margin(egui::Margin::symmetric(10, 8))
@@ -149,12 +222,6 @@ fn remote_row(ui: &mut egui::Ui, row: &RemoteRow) {
                     status_badge(ui, tr("OK"), StatusTone::Success);
                 } else {
                     status_badge(ui, tr("Failed"), StatusTone::Error);
-                }
-                if row.slowest_upload {
-                    status_badge(ui, tr("Slowest for uploads"), StatusTone::Warning);
-                }
-                if row.slowest_download {
-                    status_badge(ui, tr("Slowest for downloads"), StatusTone::Warning);
                 }
                 if row.slow_start {
                     status_badge(ui, tr("Slow start"), StatusTone::Warning);
