@@ -3,6 +3,9 @@ use super::namespace::Intent;
 use super::virtual_drive::VirtualDrive;
 use crate::prelude::*;
 
+mod meter;
+pub(crate) use meter::SpoolMeter;
+
 /// Local write spool budget refusal. Existing writes are retained.
 #[derive(Debug)]
 pub(crate) struct SpoolBudgetExceeded;
@@ -98,6 +101,9 @@ impl VirtualDrive {
             removed = removed.saturating_add(intent.size);
         }
         leases.retain(|_, lease| lease.strong_count() > 0);
+        if removed > 0 {
+            self.spool_writes.lock().unwrap().invalidate();
+        }
         #[cfg(unix)]
         File::open(spool)?.sync_all()?;
         Ok(removed)
@@ -141,38 +147,50 @@ impl VirtualDrive {
         output.sync_all()?;
         Ok(())
     }
-    fn admit_spool_growth(&self, file: &File, end: u64) -> Result<()> {
+    /// Admit growth of `file` to `end` under the spool budget (the caller
+    /// holds the `spool_writes` gate, whose meter replaces a per-write scan).
+    /// Growth first makes disk room by evicting old clean cache entries.
+    fn admit_spool_growth(&self, meter: &mut SpoolMeter, file: &File, end: u64) -> Result<()> {
         let growth = end.saturating_sub(file.metadata()?.len());
-        if growth > 0
-            && self
-                .spool_bytes()?
-                .checked_add(growth)
-                .is_none_or(|n| n > self.spool_limit)
-        {
+        if !meter.admit(growth, self.spool_limit, &|| self.spool_bytes())? {
             return Err(SpoolBudgetExceeded.into());
+        }
+        if growth > 0 {
+            // Best effort: the write itself reports a genuinely full disk.
+            let _ = self.cache.relieve_disk(growth);
         }
         Ok(())
     }
     pub(crate) fn write_spool_bytes(&self, file: &mut File, bytes: &[u8]) -> Result<()> {
-        let _gate = self.spool_writes.lock().unwrap();
+        let mut meter = self.spool_writes.lock().unwrap();
         let end = file
             .stream_position()?
             .checked_add(bytes.len() as u64)
             .context("write range overflow")?;
-        self.admit_spool_growth(file, end)?;
-        if super::crash::armed("spool.partial_write") {
-            file.write_all(&bytes[..bytes.len() / 2])?;
-            super::crash::point("spool.partial_write")?;
+        self.admit_spool_growth(&mut meter, file, end)?;
+        let written = (|| -> Result<()> {
+            if super::crash::armed("spool.partial_write") {
+                file.write_all(&bytes[..bytes.len() / 2])?;
+                super::crash::point("spool.partial_write")?;
+            }
+            file.write_all(bytes)?;
+            Ok(())
+        })();
+        if written.is_err() {
+            meter.invalidate();
         }
-        file.write_all(bytes)?;
-        Ok(())
+        written
     }
     /// Resize an unsealed spool file under the same budget as writes.
     pub(crate) fn resize_spool(&self, file: &File, len: u64) -> Result<()> {
-        let _gate = self.spool_writes.lock().unwrap();
-        self.admit_spool_growth(file, len)?;
-        file.set_len(len)?;
-        Ok(())
+        let mut meter = self.spool_writes.lock().unwrap();
+        self.admit_spool_growth(&mut meter, file, len)?;
+        // A shrink only makes the meter overstate, which admission rechecks.
+        let resized = file.set_len(len);
+        if resized.is_err() {
+            meter.invalidate();
+        }
+        Ok(resized?)
     }
     /// Remove the spool of an intent that was begun but never sealed. Refuses a
     /// spool that has an intent record or is pending, because that data may be
@@ -191,7 +209,9 @@ impl VirtualDrive {
         {
             bail!("refusing to discard a sealed spool");
         }
-        match fs::remove_dir_all(&dir) {
+        let removed = fs::remove_dir_all(&dir);
+        self.spool_writes.lock().unwrap().invalidate();
+        match removed {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.into()),
             _ => Ok(()),
         }
@@ -326,5 +346,27 @@ mod tests {
         f.seek(SeekFrom::Start(0)).unwrap();
         d.write_spool_bytes(&mut f, b"H").unwrap();
         assert_eq!(d.spool_bytes().unwrap(), 5);
+    }
+    #[test]
+    fn spool_meter_tracks_writes_resizes_and_discards_exactly() {
+        let temp = tempfile::tempdir().unwrap();
+        let d = fixture(temp.path());
+        let known = |d: &VirtualDrive| d.spool_writes.lock().unwrap().known();
+        let a = d.begin("a").unwrap();
+        let mut fa = File::create(d.spool_path(&a)).unwrap();
+        d.write_spool_bytes(&mut fa, b"hello").unwrap();
+        let b = d.begin("b").unwrap();
+        let mut fb = File::create(d.spool_path(&b)).unwrap();
+        d.write_spool_bytes(&mut fb, b"wide world").unwrap();
+        fa.seek(SeekFrom::Start(2)).unwrap();
+        d.write_spool_bytes(&mut fa, b"LLOOO").unwrap();
+        d.resize_spool(&fb, 20).unwrap();
+        assert_eq!(known(&d), Some(d.spool_bytes().unwrap()));
+        assert_eq!(known(&d), Some(27));
+        d.discard_unsealed(&b).unwrap();
+        assert_eq!(known(&d), None);
+        d.write_spool_bytes(&mut fa, b"!").unwrap();
+        assert_eq!(known(&d), Some(d.spool_bytes().unwrap()));
+        assert_eq!(known(&d), Some(8));
     }
 }

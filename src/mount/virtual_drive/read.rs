@@ -76,8 +76,10 @@ impl VirtualDrive {
     }
     pub(crate) fn read(&self, revision: &Revision, offset: u64, count: usize) -> Result<Vec<u8>> {
         match revision {
-            Revision::Cloud { content, .. } => self.cache.read(
-                &crate::storage::reader::StorageReader::rclone(&self.rclone),
+            // Background shard downloads may outlive this call, so they share
+            // the reader instead of borrowing it.
+            Revision::Cloud { content, .. } => self.cache.read_shared(
+                &Arc::new(crate::storage::reader::StorageReader::rclone(&self.rclone)),
                 &content.manifest,
                 offset,
                 count,

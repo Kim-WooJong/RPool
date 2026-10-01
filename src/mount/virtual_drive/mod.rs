@@ -91,7 +91,8 @@ pub(crate) struct VirtualDrive {
     pub pins: Mutex<BTreeMap<String, Revision>>,
     pub local_leases: Mutex<BTreeMap<String, std::sync::Weak<()>>>,
     pub spool_limit: u64,
-    pub spool_writes: Mutex<()>,
+    /// Serializes spool growth; holds the maintained spool byte count.
+    pub spool_writes: Mutex<super::spool::SpoolMeter>,
     /// Pool-sync (v6) metadata roots inside the pool. Every opened workspace
     /// has them; only the test fixture leaves them empty, which keeps the
     /// namespace local (no pull/publish) so tests need no cloud.
@@ -135,7 +136,7 @@ fn fixture_with(root: &Path, state: Namespace) -> VirtualDrive {
         pins: Mutex::new(BTreeMap::new()),
         local_leases: Mutex::new(BTreeMap::new()),
         spool_limit: 64 * 1073741824,
-        spool_writes: Mutex::new(()),
+        spool_writes: Mutex::new(Default::default()),
         pool_sync_roots: vec![],
         peer_read_pins: Mutex::new(BTreeMap::new()),
         layout_deferral: None,
