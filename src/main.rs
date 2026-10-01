@@ -14,6 +14,7 @@ mod maintenance;
 mod manifest;
 mod migration;
 mod models;
+mod monitor;
 mod mount;
 mod placement;
 mod planning;
