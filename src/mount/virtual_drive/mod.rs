@@ -12,12 +12,20 @@ mod recovery;
 mod rename;
 mod run;
 mod sync;
+mod upload_queue;
+mod upload_retry;
+pub(crate) mod upload_round;
+#[cfg(test)]
+mod upload_tests;
+mod upload_wake;
 mod write;
 
 pub(crate) use open::FORMAT_VERSION;
 use recovery::checked_directory;
 pub(crate) use recovery::recover_spool;
 pub(crate) use run::run;
+pub(crate) use upload_retry::RetryBook;
+pub(crate) use upload_wake::UploadControl;
 
 fn validate_workspace_epoch(epoch: &str) -> Result<()> {
     if epoch.len() != 64
@@ -92,6 +100,8 @@ pub(crate) struct VirtualDrive {
     pub peer_read_pins: Mutex<BTreeMap<String, String>>,
     /// A pool layout change this mount keeps for later (pending old-layout work).
     pub layout_deferral: Option<super::layout_refresh::Deferral>,
+    /// Wakes the mount's uploader when work is queued (`upload_wake`).
+    pub upload: UploadControl,
     _lock: File,
 }
 
@@ -129,6 +139,7 @@ fn fixture_with(root: &Path, state: Namespace) -> VirtualDrive {
         pool_sync_roots: vec![],
         peer_read_pins: Mutex::new(BTreeMap::new()),
         layout_deferral: None,
+        upload: UploadControl::default(),
         _lock: File::create(root.join("virtual.lock")).unwrap(),
     }
 }

@@ -16,6 +16,7 @@ mod http;
 mod limit;
 mod pacer;
 mod process;
+mod stall;
 #[cfg(test)]
 mod tests;
 pub(crate) mod traffic;

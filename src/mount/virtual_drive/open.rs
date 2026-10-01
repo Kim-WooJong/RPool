@@ -52,6 +52,7 @@ impl VirtualDrive {
             pool_sync_roots: binding.metadata_roots,
             peer_read_pins: Mutex::new(BTreeMap::new()),
             layout_deferral: None,
+            upload: UploadControl::default(),
             _lock: lock,
         })
     }
@@ -225,6 +226,7 @@ impl VirtualDrive {
             pool_sync_roots: auto_roots,
             peer_read_pins: Mutex::new(BTreeMap::new()),
             layout_deferral,
+            upload: UploadControl::default(),
             _lock: lock,
         })
     }

@@ -188,6 +188,10 @@ pub(crate) fn put_with_storage(
         next_group += 1;
         live_groups += 1;
     }
+    // Concurrent virtual-drive uploads share one shard-transfer budget
+    // (`transfer_budget`); a plain `put` has none and is unchanged.
+    let budget = crate::storage::transfer_budget::current();
+    let slot = || budget.as_deref().map(|b| b.acquire());
     scheduler::run(
         jobs,
         workers,
@@ -198,13 +202,17 @@ pub(crate) fn put_with_storage(
             UploadJob::Encode(_) => "\0parity-encoder".into(),
         },
         |job| match job {
-            UploadJob::Data(p) => Ok(UploadResult::Stored(upload_one_data_shard(
-                storage,
-                &snapshot_path,
-                p,
-                1,
-            )?)),
+            UploadJob::Data(p) => {
+                let _slot = slot();
+                Ok(UploadResult::Stored(upload_one_data_shard(
+                    storage,
+                    &snapshot_path,
+                    p,
+                    1,
+                )?))
+            }
             UploadJob::Parity { item, .. } => {
+                let _slot = slot();
                 let shard = shard_from_plan(&item.plan, item.blake3.clone());
                 storage.write_file(&item.path, 0, &shard, 1)?;
                 Ok(UploadResult::Stored(shard))

@@ -55,12 +55,11 @@ impl RcloneContext {
             inner: source,
             bytes: 0,
         };
-        let result = process::run_metered(
+        // A stalled transfer is killed and reported as a retriable timeout.
+        let result = process::run_upload(
             &mut self.command_for(address, &args),
             ctx,
-            Some(&mut counted),
-            &mut io::sink(),
-            true,
+            &mut counted,
             Some(&op),
         );
         if let Some((name, _)) = &account {

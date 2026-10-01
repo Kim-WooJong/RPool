@@ -31,8 +31,11 @@ fn cache(ui: &mut egui::Ui, form: &mut MountForm) {
                 gib(ui, tr("OS cache target"), &mut form.vfs_cache_gib, 1, tr("Cache of the native mount. Open files and unsaved writes may exceed it."));
                 gib(ui, tr("Keep disk free"), &mut form.cache_min_free_gib, 0, tr("The OS cache tries to leave this much free disk space."));
                 gib(ui, tr("Pending write limit"), &mut form.spool_gib, 1, tr("Local space for saves not yet uploaded; new writes fail safely at the limit."));
-                ui.label(tr("Background interval")).on_hover_text(tr("How often sync runs. Capacity is measured at least every 60 s regardless."));
+                ui.label(tr("Background interval")).on_hover_text(tr("How often other PCs' changes are fetched. Saved files start uploading at once. Capacity is measured at least every 60 s regardless."));
                 ui.add(egui::DragValue::new(&mut form.interval_seconds).range(2..=86400).suffix(" s"));
+                ui.end_row();
+                ui.label(tr("Parallel uploads")).on_hover_text(tr("Files uploaded at the same time. All of them share the pool's shard workers."));
+                ui.add(egui::DragValue::new(&mut form.upload_files).range(1..=64));
                 ui.end_row();
             });
             theme::hint(

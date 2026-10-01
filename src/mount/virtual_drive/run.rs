@@ -56,6 +56,10 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         .spool_gib
         .checked_mul(1073741824)
         .context("spool limit overflow")?;
+    // Also used by `--sync-only` and import batches.
+    drive
+        .upload
+        .set_files(usize::try_from(args.upload_files).unwrap_or(usize::MAX));
     let drive = Arc::new(drive);
     println!(
         "Virtual workspace opened in {:.3}s",
@@ -254,7 +258,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
             }
         }
     }
-    let joined = maintenance.join();
+    let joined = maintenance.join(&drive);
     let stopped = stopped?;
     println!(
         "Virtual mount stopped; forced={} pending spool/cache/history retained. Cloud replication was not drained; use sync-only separately or resume this workspace.",

@@ -71,7 +71,7 @@ pub(crate) fn run_native(drive: Arc<VirtualDrive>, run: NativeRun<'_>) -> Result
     run.stop.cancel();
     println!("Unmounting native filesystem; pending local data will be retained");
     let stopped = mount.stop();
-    let joined = maintenance.join();
+    let joined = maintenance.join(&drive);
     stopped?;
     joined?;
     println!("Native mount stopped; pending spool/cache/history retained. Cloud replication was not drained.");

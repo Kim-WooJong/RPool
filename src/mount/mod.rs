@@ -39,6 +39,7 @@ mod spool;
 pub(crate) use shared_model::{Content as TestContent, Event as TestEvent};
 mod shared_transport;
 mod upload;
+mod upload_worker;
 mod virtual_drive;
 
 use anyhow::Result;

@@ -207,6 +207,9 @@ pub(crate) struct MountArgs {
     /// Delay between background sync passes.
     #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(2..=86400))]
     pub(crate) interval_seconds: u64,
+    /// Files uploaded at the same time. Uploads start as soon as a write is saved; all files share the pool's `workers` shard transfers.
+    #[arg(long, default_value_t = 4, value_parser = clap::value_parser!(u64).range(1..=64))]
+    pub(crate) upload_files: u64,
     /// Request stop; online unmount retains pending data without draining cloud uploads.
     #[arg(long)]
     pub(crate) stop_file: Option<PathBuf>,
@@ -249,6 +252,18 @@ mod tests {
         ] {
             let args: Vec<_> = base.into_iter().chain([removed]).collect();
             assert!(parse(&args).is_err(), "{removed}");
+        }
+    }
+
+    #[test]
+    fn upload_files_defaults_to_four_and_is_bounded() {
+        let base = ["--pool=p", "--workspace=/w", "--sync-only"];
+        assert_eq!(parse(&base).unwrap().upload_files, 4);
+        let set: Vec<_> = base.into_iter().chain(["--upload-files=8"]).collect();
+        assert_eq!(parse(&set).unwrap().upload_files, 8);
+        for invalid in ["--upload-files=0", "--upload-files=65"] {
+            let args: Vec<_> = base.into_iter().chain([invalid]).collect();
+            assert!(parse(&args).is_err(), "{invalid}");
         }
     }
 

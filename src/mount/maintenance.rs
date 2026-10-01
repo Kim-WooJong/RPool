@@ -1,8 +1,11 @@
-//! Background upkeep of a mounted drive. `sync` and capacity reporting run in
-//! separate workers, so a long upload never leaves the capacity snapshot (and
-//! with it the OS free-space report) stale. Each worker runs at most once at a time.
+//! Background upkeep of a mounted drive. Uploads, the metadata pull and
+//! capacity reporting run in separate workers, so a long upload never leaves
+//! the capacity snapshot (and with it the OS free-space report) stale, and an
+//! acknowledged write never waits for a metadata pull or the interval: the
+//! uploader (`upload_worker`) is woken by the write itself. Each periodic
+//! worker runs at most once at a time.
 //! An idle mount therefore downloads only metadata each interval: the event
-//! listings of the sync poll (records other PCs added are fetched once) and the
+//! listings of the pull (records other PCs added are fetched once) and the
 //! capacity `about` call. Uploaded shards are read back once; later re-checks in
 //! the same process only stat them (`storage::verified`).
 use super::virtual_drive::VirtualDrive;
@@ -82,7 +85,13 @@ impl Periodic {
 }
 
 pub(super) struct Maintenance {
-    sync: Periodic,
+    interval: Duration,
+    /// Long-lived uploader thread (`upload_worker`), started on the first poll.
+    uploader: Option<JoinHandle<()>>,
+    /// Metadata pull of other PCs' changes (formerly the first step of every sync).
+    pull: Periodic,
+    /// Last pull error, logged once per change.
+    pull_error: Arc<Mutex<Option<String>>>,
     capacity: Periodic,
     /// Metadata checkpoint/compaction pass (`metadata_compaction`).
     compaction: Periodic,
@@ -98,7 +107,11 @@ impl Maintenance {
             .map(|c| c.interval_minutes)
             .unwrap_or(super::metadata_compaction::Config::default().interval_minutes);
         Self {
-            sync: Periodic::new(interval),
+            interval,
+            uploader: None,
+            // The mount already pulled before it became ready.
+            pull: Periodic::delayed(interval),
+            pull_error: Arc::new(Mutex::new(None)),
             capacity: Periodic::new(interval.min(CAPACITY_INTERVAL_MAX)),
             compaction: Periodic::delayed(Duration::from_secs(minutes.saturating_mul(60))),
             keepalive: Periodic::new(KEEPALIVE_CHECK),
@@ -137,16 +150,38 @@ impl Maintenance {
                 }
             })
         })?;
-        self.sync.poll(|| {
+        if self.uploader.as_ref().is_some_and(|j| j.is_finished()) {
+            // It only returns on cancellation; anything else is a panic.
+            if let Some(job) = self.uploader.take() {
+                job.join()
+                    .map_err(|_| anyhow!("background upload panicked; local data retained"))?;
+            }
+            if !cancelled.load(Ordering::Acquire) {
+                bail!("background uploader stopped; local data retained");
+            }
+        }
+        if self.uploader.is_none() && !cancelled.load(Ordering::Acquire) {
+            self.uploader = Some(super::upload_worker::spawn(
+                drive.clone(),
+                cancelled.clone(),
+                self.interval,
+            ));
+        }
+        self.pull.poll(|| {
             let (drive, cancelled) = (drive.clone(), cancelled.clone());
+            let last = self.pull_error.clone();
             std::thread::spawn(move || {
                 if cancelled.load(Ordering::Acquire) {
                     return;
                 }
-                match drive.sync() {
-                    Ok(()) => crate::monitor::runtime::note_sync(),
-                    Err(e) => eprintln!("Virtual sync pending: {e:#}"),
+                let error = drive.pull().err().map(|e| format!("{e:#}"));
+                let mut last = last.lock().unwrap_or_else(|p| p.into_inner());
+                if let Some(text) = &error {
+                    if last.as_ref() != Some(text) {
+                        eprintln!("Cloud metadata refresh pending: {text}");
+                    }
                 }
+                *last = error;
             })
         })?;
         self.compaction.poll(|| {
@@ -183,8 +218,16 @@ impl Maintenance {
         })
     }
     /// Waits for running workers (after cancellation was requested).
-    pub(super) fn join(mut self) -> Result<()> {
-        let sync = self.sync.join();
+    pub(super) fn join(mut self, drive: &VirtualDrive) -> Result<()> {
+        // The uploader may be waiting for a wake-up; it sees the cancellation.
+        drive.upload.notify();
+        let upload = match self.uploader.take() {
+            Some(job) => job
+                .join()
+                .map_err(|_| anyhow!("background upload panicked; local data retained")),
+            None => Ok(()),
+        };
+        let sync = self.pull.join().and(upload);
         let capacity = self.capacity.join();
         let compaction = self.compaction.join();
         let keepalive = self.keepalive.join();
@@ -247,10 +290,9 @@ mod tests {
                 .interval,
             CAPACITY_INTERVAL_MAX
         );
-        assert_eq!(
-            Maintenance::new(Duration::from_secs(3600)).sync.interval,
-            Duration::from_secs(3600)
-        );
+        let pull = Maintenance::new(Duration::from_secs(3600)).pull;
+        assert_eq!(pull.interval, Duration::from_secs(3600));
+        assert!(!pull.due(), "the mount pulled before it became ready");
         // Cleanup runs daily, the first pass half an hour after the start.
         let cleanup = &Maintenance::new(Duration::from_secs(30)).cleanup;
         assert_eq!(

@@ -95,6 +95,8 @@ impl VirtualDrive {
                 _lease: self.local_lease(&intent.id),
             },
         );
+        // Acknowledged locally: the uploader starts now, not at the next interval.
+        self.upload.notify();
         Ok(())
     }
     pub(in crate::mount) fn deletion_for(&self, path: &str, revision: &Revision) -> Result<Intent> {
@@ -173,6 +175,8 @@ impl VirtualDrive {
         next.save(&self.root)?;
         *s = next;
         self.pins.lock().unwrap().remove(path);
+        drop(s);
+        self.upload.notify();
         Ok(())
     }
     pub(crate) fn import(&self, source: &str) -> Result<()> {
@@ -202,6 +206,9 @@ impl VirtualDrive {
         next.events.insert(id, event);
         next.save(&self.root)?;
         *s = next;
+        drop(s);
+        // Unpublished: publication is part of the upload pass.
+        self.upload.notify();
         Ok(())
     }
 }

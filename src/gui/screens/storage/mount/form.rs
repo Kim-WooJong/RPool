@@ -19,6 +19,7 @@ pub(crate) struct MountForm {
     pub(super) manifests: Vec<String>,
     pub(super) manifest_input: String,
     pub(super) interval_seconds: u64,
+    pub(super) upload_files: u64,
     pub(super) cache_gib: u64,
     pub(super) vfs_cache_gib: u64,
     pub(super) cache_min_free_gib: u64,
@@ -57,6 +58,7 @@ impl Default for MountForm {
             manifests: Vec::new(),
             manifest_input: String::new(),
             interval_seconds: 30,
+            upload_files: crate::gui::settings::DEFAULT_UPLOAD_FILES,
             cache_gib: 10,
             vfs_cache_gib: 10,
             cache_min_free_gib: 2,
@@ -129,6 +131,7 @@ impl MountForm {
             pc_name: self.pc_name.clone(),
             manifests: self.manifests.clone(),
             interval_seconds: self.interval_seconds,
+            upload_files: self.upload_files,
             cache: self.cache_settings(),
             frontend: self.frontend,
             native_read_only: self.native_read_only,
@@ -168,6 +171,7 @@ impl MountForm {
         self.pc_name = profile.pc_name;
         self.manifests = profile.manifests;
         self.interval_seconds = profile.interval_seconds;
+        self.upload_files = profile.upload_files;
         self.frontend = profile.frontend;
         self.native_read_only = profile.native_read_only;
         self.cache_gib = profile.cache.shard_gib;
@@ -214,6 +218,7 @@ impl MountForm {
         args.push(format!("--cache-min-free-gib={}", self.cache_min_free_gib).into());
         args.push(format!("--spool-gib={}", self.spool_gib).into());
         args.push(format!("--cache-gib={}", self.cache_gib).into());
+        args.push(format!("--upload-files={}", self.upload_files.clamp(1, 64)).into());
     }
 
     /// Forget the shown capacity (for example after identities changed).

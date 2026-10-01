@@ -8,7 +8,9 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+use super::stall::Stall;
 
 pub(super) const CHUNK: usize = 64 * 1024;
 const STDERR_LIMIT: usize = 16 * 1024;
@@ -208,10 +210,46 @@ pub(super) fn run(
 pub(super) fn run_metered(
     command: &mut Command,
     ctx: &OperationContext,
+    source: Option<&mut dyn Read>,
+    sink: &mut dyn Write,
+    mutation: bool,
+    meter: Option<&super::traffic::Op>,
+) -> Result<u64, StorageError> {
+    run_supervised(command, ctx, source, sink, mutation, meter, None)
+}
+
+/// A streamed upload (`rcat`): [`run_metered`] plus stall detection
+/// (`stall`). A stalled rclone is killed and reported as a retriable
+/// `Timeout`, never as an unknown outcome.
+pub(super) fn run_upload(
+    command: &mut Command,
+    ctx: &OperationContext,
+    source: &mut dyn Read,
+    meter: Option<&super::traffic::Op>,
+) -> Result<u64, StorageError> {
+    let stall = Stall::upload();
+    run_supervised(
+        command,
+        ctx,
+        Some(source),
+        &mut std::io::sink(),
+        true,
+        meter,
+        Some(&stall),
+    )
+}
+
+/// Detail of the retriable error of a stalled upload.
+pub(super) const STALLED_DETAIL: &str = "rclone upload stalled; stopped so it can be re-sent";
+
+fn run_supervised(
+    command: &mut Command,
+    ctx: &OperationContext,
     mut source: Option<&mut dyn Read>,
     sink: &mut dyn Write,
     mutation: bool,
     meter: Option<&super::traffic::Op>,
+    stall: Option<&Stall>,
 ) -> Result<u64, StorageError> {
     check(ctx)?;
     command
@@ -247,7 +285,7 @@ pub(super) fn run_metered(
         scope.spawn(move || {
             while !stop.load(Ordering::Acquire) {
                 if let Ok(mut child) = supervisor_child.lock() {
-                    if check(ctx).is_err() {
+                    if check(ctx).is_err() || stall.is_some_and(|s| s.expired(Instant::now())) {
                         let _ = child.kill();
                         return;
                     }
@@ -297,6 +335,10 @@ pub(super) fn run_metered(
                         meter.throttle(ctx, n as u64);
                     }
                     check(ctx)?;
+                    // Throttle time is not a stall; only a blocked write is.
+                    if let Some(stall) = stall {
+                        stall.progress();
+                    }
                     match stdin.write_all(&buffer[..n]) {
                         Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {
                             stdin_broken = true;
@@ -304,12 +346,18 @@ pub(super) fn run_metered(
                         }
                         result => result.map_err(|_| io_error())?,
                     }
+                    if let Some(stall) = stall {
+                        stall.progress();
+                    }
                     if let Some(meter) = meter {
                         meter.sent(n as u64);
                     }
                     total = total.checked_add(n as u64).ok_or_else(io_error)?;
                 }
                 drop(stdin);
+                if let Some(stall) = stall {
+                    stall.closed(total);
+                }
             } else {
                 let mut stdout = stdout.expect("piped stdout");
                 loop {
@@ -353,11 +401,16 @@ pub(super) fn run_metered(
         drop(guard); // Reap before joining stderr, also on callback failures.
         stopped.store(true, Ordering::Release);
         let stderr = errors.join().map_err(|_| io_error())?;
+        let stalled = stall.is_some_and(Stall::fired);
         match result {
             Ok((_, status)) if stdin_broken && status.success() => Err(
                 StorageError::unknown_outcome("rclone stopped reading the upload stream"),
             ),
             Ok((total, status)) if status.success() => Ok(total),
+            // Killed by the stall deadline: the shard is re-sent by the caller.
+            _ if stalled => Err(StorageError::Timeout {
+                detail: STALLED_DETAIL.into(),
+            }),
             Ok((_, status)) => Err(classify(status, &stderr, mutation)),
             Err(_) if mutation => Err(StorageError::unknown_outcome(
                 "rclone mutation interrupted after spawn",
@@ -365,4 +418,57 @@ pub(super) fn run_metered(
             Err(error) => Err(check(ctx).err().unwrap_or(error)),
         }
     })
+}
+
+#[cfg(all(test, unix))]
+mod stall_tests {
+    use super::*;
+    use crate::storage::error::StorageErrorKind;
+    use std::time::Instant;
+
+    /// Runs `script` as a fake rclone upload with a 300 ms stall floor.
+    fn upload(script: &str, bytes: usize) -> (Result<u64, StorageError>, Duration) {
+        let stall = Stall::new(Duration::from_millis(300), 1024 * 1024);
+        let mut command = Command::new("sh");
+        command.args(["-c", script]);
+        let data = vec![7u8; bytes];
+        let started = Instant::now();
+        let result = run_supervised(
+            &mut command,
+            &OperationContext::none(),
+            Some(&mut data.as_slice()),
+            &mut std::io::sink(),
+            true,
+            None,
+            Some(&stall),
+        );
+        (result, started.elapsed())
+    }
+
+    #[test]
+    fn a_stalled_upload_is_killed_and_reported_retriable() {
+        // Accepts every byte, then hangs like a stalled provider connection.
+        let (result, took) = upload("cat >/dev/null; exec sleep 30", 64 * 1024);
+        let error = result.unwrap_err();
+        assert_eq!(error.kind(), StorageErrorKind::Timeout);
+        assert!(error.is_retriable(), "the scheduler re-sends the shard");
+        assert!(
+            took < Duration::from_secs(10),
+            "killed, not waited: {took:?}"
+        );
+        // Never reads stdin: feeding makes no progress.
+        let (result, took) = upload("exec sleep 30", 4 * 1024 * 1024);
+        let error = result.unwrap_err();
+        assert_eq!(error.kind(), StorageErrorKind::Timeout);
+        assert!(took < Duration::from_secs(10), "{took:?}");
+    }
+
+    #[test]
+    fn a_healthy_upload_and_a_real_failure_are_unchanged() {
+        let (result, _) = upload("cat >/dev/null", 1024 * 1024);
+        assert_eq!(result.unwrap(), 1024 * 1024);
+        // A mutation that fails without a stall keeps its unknown outcome.
+        let (result, _) = upload("cat >/dev/null; exit 1", 1024);
+        assert_eq!(result.unwrap_err().kind(), StorageErrorKind::UnknownOutcome);
+    }
 }

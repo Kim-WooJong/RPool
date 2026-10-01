@@ -99,6 +99,10 @@ impl VirtualDrive {
                         content: content.clone(),
                     },
                 );
+                drop(pins);
+                drop(s);
+                // Committed but unpublished: publish without waiting.
+                self.upload.notify();
                 return Ok(());
             }
         }
@@ -127,6 +131,9 @@ impl VirtualDrive {
                 _lease: self.local_lease(&destination.id),
             },
         );
+        drop(pins);
+        drop(s);
+        self.upload.notify();
         Ok(())
     }
     pub(crate) fn rename_directory(&self, from: &str, to: &str) -> Result<()> {
@@ -207,6 +214,9 @@ impl VirtualDrive {
             pins.remove(&old);
             pins.insert(new, revision);
         }
+        drop(pins);
+        drop(state);
+        self.upload.notify();
         Ok(())
     }
 }
