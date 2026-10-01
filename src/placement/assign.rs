@@ -16,7 +16,8 @@ pub(crate) fn assign_remotes(
                 .collect::<Vec<_>>(),
             specs,
         ),
-        Placement::FreeRatio => plan_free_ratio(rclone, remotes, specs, parity_shards.is_some()),
+        Placement::FreeRatio => plan_free_ratio(rclone, remotes, specs, parity_shards),
+        Placement::Proportional => plan_free_ratio(rclone, remotes, specs, None),
         Placement::Resilient | Placement::CapacityFirst => {
             use crate::storage::admin::{BackendAdmin, RcloneAdmin};
             let admin = RcloneAdmin::inherited(rclone);
@@ -60,7 +61,8 @@ pub(crate) fn assign_with_budget(
     parity: Option<usize>,
 ) -> Result<Vec<usize>> {
     let assignments = match placement {
-        Placement::FreeRatio => super::free_ratio::allocate(snapshot, specs, parity.is_some())?,
+        Placement::FreeRatio => super::free_ratio::allocate(snapshot, specs, parity)?,
+        Placement::Proportional => super::free_ratio::allocate(snapshot, specs, None)?,
         Placement::CapacityFirst => super::free_ratio::allocate_capacity_first(snapshot, specs)?,
         Placement::RoundRobin => balanced_assign(
             &snapshot

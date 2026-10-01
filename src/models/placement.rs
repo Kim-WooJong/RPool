@@ -5,7 +5,10 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum Placement {
     RoundRobin,
+    /// Highest free ratio first, at most M shards per account per group.
     FreeRatio,
+    /// Highest free ratio first with no per-account shard limit.
+    Proportional,
     /// Require each resolved backing target to hold at most M shards per group.
     Resilient,
     /// Spend independent account quotas without a provider-outage shard bound.
@@ -17,6 +20,7 @@ impl Placement {
         match self {
             Self::RoundRobin => "round-robin",
             Self::FreeRatio => "free-ratio",
+            Self::Proportional => "proportional",
             Self::Resilient => "resilient",
             Self::CapacityFirst => "capacity-first",
         }
@@ -26,6 +30,7 @@ impl Placement {
         match self {
             Self::RoundRobin => "Round robin",
             Self::FreeRatio => "Free-space ratio",
+            Self::Proportional => "Proportional fill (no provider-outage guarantee)",
             Self::Resilient => "Resilient (provider-outage bound)",
             Self::CapacityFirst => "Capacity-first (no provider-outage guarantee)",
         }
@@ -34,6 +39,8 @@ impl Placement {
     pub(crate) fn protection_note(self) -> Option<&'static str> {
         match self {
             Self::Resilient => Some("Resilient: each declared outage group holds at most M shards per coding group. Independent outage groups are required."),
+            Self::FreeRatio => Some("Free-space ratio: shards go to the accounts with the most free space by ratio, but one account holds at most M shards of each coding group, so losing one account stays recoverable when the pool has enough accounts."),
+            Self::Proportional => Some("Proportional fill: shards go to the accounts with the most free space by ratio, with no per-account limit. Reed-Solomon parity remains, but losing one account may make a file unrecoverable."),
             Self::CapacityFirst => Some("Capacity-first: uses large account quotas without an outage-group shard limit. Reed-Solomon parity remains, but losing one account or provider may make a file unrecoverable."),
             _ => None,
         }

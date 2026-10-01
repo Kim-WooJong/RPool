@@ -117,6 +117,7 @@ fn pool_override(ui: &mut egui::Ui, state: &mut GuiState) {
                     for placement in [
                         Placement::RoundRobin,
                         Placement::FreeRatio,
+                        Placement::Proportional,
                         Placement::Resilient,
                         Placement::CapacityFirst,
                     ] {

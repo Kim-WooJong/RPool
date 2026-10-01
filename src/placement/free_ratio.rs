@@ -5,33 +5,49 @@ pub(crate) fn plan_free_ratio(
     rclone: &str,
     remotes: &[String],
     specs: &[PhysicalSpec],
-    prefer_group_diversity: bool,
+    cap: Option<usize>,
 ) -> Result<Vec<usize>> {
-    plan_free_ratio_with_admin(
-        &RcloneAdmin::inherited(rclone),
-        remotes,
-        specs,
-        prefer_group_diversity,
-    )
+    plan_free_ratio_with_admin(&RcloneAdmin::inherited(rclone), remotes, specs, cap)
 }
 pub(crate) fn plan_free_ratio_with_admin(
     admin: &dyn BackendAdmin,
     remotes: &[String],
     specs: &[PhysicalSpec],
-    prefer_group_diversity: bool,
+    cap: Option<usize>,
 ) -> Result<Vec<usize>> {
     let catalog = admin.catalog()?;
     let snapshot = crate::storage::admin::budget::BudgetSnapshot::query(admin, &catalog, remotes);
     if !snapshot.rejected.is_empty() {
         bail!("quota planning unavailable: {:?}", snapshot.rejected);
     }
-    allocate(&snapshot, specs, prefer_group_diversity)
+    allocate(&snapshot, specs, cap)
 }
 
+/// Pick the target with the highest free ratio for every shard. With
+/// `parity = Some(m)` one account holds at most `max(m, ceil(group/accounts))`
+/// shards of a coding group, so losing one account stays within parity
+/// whenever the account count makes that possible. `None` fills purely by
+/// ratio (the proportional placement) with no outage bound.
+///
+/// Ratio-first is greedy, so when it strands a shard the same cap is retried
+/// with the fewest-shards-first order, which spreads each group evenly.
 pub(crate) fn allocate(
     snapshot: &crate::storage::admin::budget::BudgetSnapshot,
     specs: &[PhysicalSpec],
-    diversity: bool,
+    parity: Option<usize>,
+) -> Result<Vec<usize>> {
+    let ratio_first = allocate_ordered(snapshot, specs, parity, false);
+    match parity {
+        Some(m) if m > 0 && ratio_first.is_err() => allocate_ordered(snapshot, specs, parity, true),
+        _ => ratio_first,
+    }
+}
+
+fn allocate_ordered(
+    snapshot: &crate::storage::admin::budget::BudgetSnapshot,
+    specs: &[PhysicalSpec],
+    parity: Option<usize>,
+    spread: bool,
 ) -> Result<Vec<usize>> {
     let mut budgets = snapshot.budgets();
     let targets = &snapshot.targets;
@@ -44,15 +60,17 @@ pub(crate) fn allocate(
     }
     for spec in specs {
         let group = counts.entry(spec.group).or_default();
-        let ceiling = group_sizes[&spec.group].div_ceil(distinct.len().max(1));
+        let cap = parity
+            .filter(|m| *m > 0)
+            .map(|m| m.max(group_sizes[&spec.group].div_ceil(distinct.len().max(1))));
         let mut best: Option<(usize, usize, f64)> = None;
         for (i, t) in targets.iter().enumerate() {
             let free = budgets[&t.capacity_domain];
             let count = group.get(&t.backing).copied().unwrap_or(0);
-            if free < spec.size || (diversity && count >= ceiling) {
+            if free < spec.size || cap.is_some_and(|m| count >= m) {
                 continue;
             }
-            let rank = if diversity { count } else { 0 };
+            let rank = if spread { count } else { 0 };
             let ratio = free as f64 / t.total.max(1) as f64;
             if best.is_none_or(|(_, r, q)| rank < r || (rank == r && ratio > q)) {
                 best = Some((i, rank, ratio));
@@ -154,12 +172,53 @@ mod tests {
         }
     }
     #[test]
-    fn free_ratio_balances_even_with_unequal_capacity() {
+    fn free_ratio_needs_the_even_share_when_parity_cannot_cover_one_account() {
         let specs = vec![PhysicalSpec { group: 0, size: 1 }; 6];
         let assigned =
-            plan_free_ratio_with_admin(&Uneven, &["a:".into(), "b:".into()], &specs, true).unwrap();
+            plan_free_ratio_with_admin(&Uneven, &["a:".into(), "b:".into()], &specs, Some(2))
+                .unwrap();
         assert_eq!(assigned.iter().filter(|i| **i == 0).count(), 3);
         assert_eq!(assigned.iter().filter(|i| **i == 1).count(), 3);
+    }
+
+    fn snapshot(free: &[u64]) -> crate::storage::admin::budget::BudgetSnapshot {
+        use crate::storage::admin::budget::{BudgetSnapshot, TargetBudget};
+        BudgetSnapshot {
+            targets: free
+                .iter()
+                .enumerate()
+                .map(|(i, f)| TargetBudget {
+                    remote: format!("r{i}:"),
+                    backing: format!("b{i}"),
+                    capacity_domain: format!("d{i}"),
+                    failure_domain: None,
+                    declared: true,
+                    free: *f,
+                    total: 1_000,
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn free_ratio_caps_each_account_at_parity_and_prefers_free_space() {
+        // RS 9+3 over six accounts, one nearly full: it may get 0 shards, while
+        // no account exceeds M = 3 shards of the group.
+        let snap = snapshot(&[1_000, 900, 800, 700, 600, 20]);
+        let specs = vec![PhysicalSpec { group: 0, size: 10 }; 12];
+        let assigned = allocate(&snap, &specs, Some(3)).unwrap();
+        let count = |t: usize| assigned.iter().filter(|i| **i == t).count();
+        assert!((0..6).all(|t| count(t) <= 3), "{assigned:?}");
+        assert_eq!(count(5), 0, "{assigned:?}");
+    }
+
+    #[test]
+    fn proportional_fill_has_no_per_account_cap() {
+        let snap = snapshot(&[1_000, 100]);
+        let specs = vec![PhysicalSpec { group: 0, size: 10 }; 12];
+        let assigned = allocate(&snap, &specs, None).unwrap();
+        assert!(assigned.iter().filter(|i| **i == 0).count() > 3);
     }
 
     #[test]
@@ -172,8 +231,8 @@ mod tests {
                 PhysicalSpec { group: 0, size: 60 },
                 PhysicalSpec { group: 1, size: 60 },
             ];
-            assert!(plan_free_ratio_with_admin(&Admin, &remotes, &specs, false).is_err());
-            assert!(plan_free_ratio_with_admin(&Admin, &remotes, &specs[..1], false).is_ok());
+            assert!(plan_free_ratio_with_admin(&Admin, &remotes, &specs, None).is_err());
+            assert!(plan_free_ratio_with_admin(&Admin, &remotes, &specs[..1], None).is_ok());
         }
     }
 }

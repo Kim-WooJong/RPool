@@ -135,7 +135,7 @@ fn pool_defaults(ui: &mut egui::Ui, state: &mut GuiState) {
                 egui::ComboBox::from_id_salt("settings-placement")
                     .selected_text(tr(state.settings.placement.label()))
                     .show_ui(ui, |ui| {
-                        for placement in [Placement::RoundRobin, Placement::FreeRatio, Placement::Resilient, Placement::CapacityFirst] {
+                        for placement in [Placement::RoundRobin, Placement::FreeRatio, Placement::Proportional, Placement::Resilient, Placement::CapacityFirst] {
                             ui.selectable_value(&mut state.settings.placement, placement, tr(placement.label()));
                         }
                     });

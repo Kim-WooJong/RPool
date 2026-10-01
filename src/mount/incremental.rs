@@ -152,7 +152,7 @@ fn upload_with(
         && base.coding == coding
         && !matches!(
             policy.placement,
-            Placement::Resilient | Placement::CapacityFirst
+            Placement::Resilient | Placement::Proportional | Placement::CapacityFirst
         );
     if !compatible {
         if resumed {

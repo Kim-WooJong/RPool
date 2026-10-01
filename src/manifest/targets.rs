@@ -18,7 +18,9 @@ pub(crate) fn publication_remotes(
 ) -> Vec<String> {
     if matches!(
         placement,
-        crate::models::Placement::Resilient | crate::models::Placement::CapacityFirst
+        crate::models::Placement::Resilient
+            | crate::models::Placement::Proportional
+            | crate::models::Placement::CapacityFirst
     ) {
         manifest_remotes(manifest)
     } else {

@@ -1168,5 +1168,20 @@
   "ko": "{n}일 전",
   "ja": "{n}日前",
   "zh": "{n} 天前"
+ },
+ "Proportional fill (no provider-outage guarantee)": {
+  "ko": "비율 채우기 (공급자 장애 보장 없음)",
+  "ja": "比率充填 (プロバイダー障害の保証なし)",
+  "zh": "按比例填充（无提供商故障保证）"
+ },
+ "Proportional fill: shards go to the accounts with the most free space by ratio, with no per-account limit. Reed-Solomon parity remains, but losing one account may make a file unrecoverable.": {
+  "ko": "비율 채우기: 계정당 제한 없이 여유 공간 비율이 가장 높은 계정에 샤드를 넣어요. Reed-Solomon 패리티는 유지되지만, 계정 하나를 잃으면 파일을 복구하지 못할 수 있어요.",
+  "ja": "比率充填: アカウントごとの上限なしで、空き容量の比率が最も高いアカウントにシャードを置きます。Reed-Solomon パリティは残りますが、アカウントを 1 つ失うとファイルを復元できなくなる場合があります。",
+  "zh": "按比例填充：不设每个账户的上限，把分片放到可用空间比例最高的账户。Reed-Solomon 校验仍然保留，但丢失一个账户可能导致文件无法恢复。"
+ },
+ "Free-space ratio: shards go to the accounts with the most free space by ratio, but one account holds at most M shards of each coding group, so losing one account stays recoverable when the pool has enough accounts.": {
+  "ko": "여유 공간 비율: 여유 공간 비율이 높은 계정에 샤드를 우선 넣되, 코딩 그룹마다 한 계정에 최대 M개까지만 넣어요. 계정 수가 충분하면 계정 하나를 잃어도 복구할 수 있어요.",
+  "ja": "空き容量比率: 空き容量の比率が高いアカウントを優先しますが、各コーディンググループで 1 アカウントあたり最大 M 個までに制限します。アカウント数が十分なら、アカウントを 1 つ失っても復元できます。",
+  "zh": "可用空间比例：优先放到可用空间比例高的账户，但每个编码组在一个账户上最多放 M 个分片。账户数量足够时，丢失一个账户仍可恢复。"
  }
 }
