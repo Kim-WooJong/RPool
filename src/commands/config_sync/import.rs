@@ -3,16 +3,6 @@ use crate::config_sync::{PackageCryptOutcome, PackageImportOutcome};
 use anyhow::Result;
 use std::path::Path;
 
-pub(crate) fn run(input: &Path, dry_run: bool) -> Result<()> {
-    crate::config_sync::import_bundle(input, dry_run)?;
-    if dry_run {
-        println!("portable rpool config is valid: {}", input.display());
-    } else {
-        println!("imported portable rpool config: {}", input.display());
-    }
-    Ok(())
-}
-
 pub(crate) fn run_package(rclone: &str, args: &ImportArgs) -> Result<()> {
     let outcome: PackageImportOutcome = crate::config_sync::import_package(
         &args.artifact_root,

@@ -434,11 +434,6 @@
   "ja": "先にパッケージフォルダーを入力してください。",
   "zh": "请先输入包文件夹。"
  },
- "Enter a JSON bundle path first.": {
-  "ko": "먼저 JSON 번들 경로를 입력하세요.",
-  "ja": "先に JSON バンドルのパスを入力してください。",
-  "zh": "请先输入 JSON 包路径。"
- },
  "Choose…": {
   "ko": "선택…",
   "ja": "選択…",
@@ -553,36 +548,6 @@
   "ko": "패키지 가져오기",
   "ja": "パッケージをインポート",
   "zh": "导入包"
- },
- "Legacy JSON bundle (no crypt secrets)": {
-  "ko": "레거시 JSON 번들 (crypt 비밀 없음)",
-  "ja": "従来の JSON バンドル（crypt シークレットなし）",
-  "zh": "旧版 JSON 包（不含 crypt 密钥）"
- },
- "Bundle file": {
-  "ko": "번들 파일",
-  "ja": "バンドルファイル",
-  "zh": "包文件"
- },
- "Export JSON": {
-  "ko": "JSON 내보내기",
-  "ja": "JSON をエクスポート",
-  "zh": "导出 JSON"
- },
- "Validate JSON (dry run)": {
-  "ko": "JSON 검증 (드라이 런)",
-  "ja": "JSON を検証（ドライラン）",
-  "zh": "验证 JSON（试运行）"
- },
- "Import JSON": {
-  "ko": "JSON 가져오기",
-  "ja": "JSON をインポート",
-  "zh": "导入 JSON"
- },
- "Uses the same confirmation checkbox as the package import.": {
-  "ko": "패키지 가져오기와 같은 확인 체크박스를 사용해요.",
-  "ja": "パッケージのインポートと同じ確認チェックボックスを使用します。",
-  "zh": "使用与包导入相同的确认复选框。"
  },
  "Results appear in the task console below. Restart the GUI after an import to reload pools and settings.": {
   "ko": "결과는 아래 작업 콘솔에 표시돼요. 가져온 뒤에는 GUI를 다시 시작해 풀과 설정을 다시 불러오세요.",

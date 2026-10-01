@@ -20,8 +20,6 @@ pub(crate) struct EncryptionDefaults {
     pub(crate) entropy_bits: usize,
     pub(crate) filename_encryption: String,
     pub(crate) directory_encryption: bool,
-    /// Legacy compatibility field; ignored when selecting the backing path.
-    pub(crate) root: String,
 }
 impl Default for EncryptionDefaults {
     fn default() -> Self {
@@ -29,7 +27,6 @@ impl Default for EncryptionDefaults {
             entropy_bits: 1024,
             filename_encryption: "standard".into(),
             directory_encryption: true,
-            root: String::new(),
         }
     }
 }
@@ -423,7 +420,7 @@ fn main() {
     }
 
     #[test]
-    fn backing_uses_exact_provider_default_and_ignores_legacy_parent() {
+    fn backing_uses_exact_provider_default() {
         for (default, expected) in [
             (None, "cloud:"),
             (Some(""), "cloud:"),
@@ -439,15 +436,9 @@ fn main() {
                 roots.roots.insert("cloud".into(), default.into());
             }
             roots.roots.insert("other".into(), "wrong".into());
-            for legacy_parent in ["", "rpool", "nested/", "/ignored legacy path"] {
-                let defaults = EncryptionDefaults {
-                    root: legacy_parent.into(),
-                    ..EncryptionDefaults::default()
-                };
-                let setup = defaults.setup("cloud_crypt".into(), "cloud".into());
-                setup.validate().unwrap();
-                assert_eq!(crypt_backing(&setup, &roots).unwrap(), expected);
-            }
+            let setup = EncryptionDefaults::default().setup("cloud_crypt".into(), "cloud".into());
+            setup.validate().unwrap();
+            assert_eq!(crypt_backing(&setup, &roots).unwrap(), expected);
         }
         let mut roots = RemoteRootStore::default();
         roots
@@ -477,10 +468,7 @@ fn main() {
                 let original = "[cloud]\ntype = drive\n[other]\ntype = dropbox\n[other_crypt]\ntype = crypt\nremote = other:legacy\npassword = old-key\npassword2 = old-salt\n";
                 fs::write(&config, original).unwrap();
                 if automatic {
-                    let defaults = EncryptionDefaults {
-                        root: "ignored/legacy-parent".into(),
-                        ..EncryptionDefaults::default()
-                    };
+                    let defaults = EncryptionDefaults::default();
                     let report = ensure_encryption_at(&tool, &config, &defaults, &roots).unwrap();
                     assert_eq!(report.created, ["cloud_crypt"]);
                     assert_eq!(report.existing, ["other"]);
@@ -704,7 +692,6 @@ fn main() {
         );
         let mut custom = defaults;
         custom.entropy_bits = 128;
-        custom.root = String::new();
         assert!(custom.validate().is_ok());
         assert_eq!(
             custom.setup("crypt".into(), "cloud".into()).entropy_bits,
@@ -718,47 +705,42 @@ fn main() {
     fn ensure_arguments_round_trip_through_cli() {
         use crate::cli::{Cli, Commands, ProviderCommands};
         use clap::Parser;
-        for root in ["", "with spaces/암호화", "-leading/폴더 space"] {
-            let defaults = EncryptionDefaults {
-                root: root.into(),
-                entropy_bits: 512,
-                filename_encryption: "obfuscate".into(),
-                directory_encryption: false,
-            };
-            defaults.validate().unwrap();
-            let mut argv: Vec<std::ffi::OsString> =
-                ["rpool", "provider", "ensure-encryption", "--json"]
-                    .map(Into::into)
-                    .to_vec();
-            argv.extend(defaults.ensure_args());
-            // Legacy CLI values remain accepted, but are not emitted by defaults.
-            argv.push(format!("--root={root}").into());
-            let parsed = Cli::try_parse_from(argv).unwrap();
-            match parsed.command.unwrap() {
-                Commands::Provider(args) => match args.command {
-                    ProviderCommands::EnsureEncryption {
-                        root,
-                        entropy_bits,
-                        filename_encryption,
-                        directory_encryption,
-                        json,
-                    } => {
-                        assert!(json);
-                        assert_eq!(
-                            EncryptionDefaults {
-                                root,
-                                entropy_bits,
-                                filename_encryption,
-                                directory_encryption
-                            },
-                            defaults
-                        );
-                    }
-                    _ => panic!("expected ensure-encryption"),
-                },
-                _ => panic!("expected provider"),
-            }
+        let defaults = EncryptionDefaults {
+            entropy_bits: 512,
+            filename_encryption: "obfuscate".into(),
+            directory_encryption: false,
+        };
+        defaults.validate().unwrap();
+        let mut argv: Vec<std::ffi::OsString> =
+            ["rpool", "provider", "ensure-encryption", "--json"]
+                .map(Into::into)
+                .to_vec();
+        argv.extend(defaults.ensure_args());
+        let parsed = Cli::try_parse_from(argv).unwrap();
+        match parsed.command.unwrap() {
+            Commands::Provider(args) => match args.command {
+                ProviderCommands::EnsureEncryption {
+                    entropy_bits,
+                    filename_encryption,
+                    directory_encryption,
+                    json,
+                } => {
+                    assert!(json);
+                    assert_eq!(
+                        EncryptionDefaults {
+                            entropy_bits,
+                            filename_encryption,
+                            directory_encryption
+                        },
+                        defaults
+                    );
+                }
+                _ => panic!("expected ensure-encryption"),
+            },
+            _ => panic!("expected provider"),
         }
+        let legacy = ["rpool", "provider", "ensure-encryption", "--root=x"];
+        assert!(Cli::try_parse_from(legacy).is_err());
     }
 
     #[test]
@@ -768,7 +750,6 @@ fn main() {
         let config = dir.path().join("rclone.conf");
         fs::write(&config, "[cloud]\ntype = drive\n").unwrap();
         let defaults = EncryptionDefaults {
-            root: "private/nested".into(),
             entropy_bits: 1024,
             filename_encryption: "off".into(),
             directory_encryption: false,

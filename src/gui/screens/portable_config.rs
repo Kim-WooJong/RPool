@@ -1,6 +1,6 @@
 //! Settings › Portable configuration: move RPool settings between PCs and see
 //! where the active settings files live. Package export/import carries crypt
-//! secrets inside an age-encrypted vault; the legacy JSON bundle never does.
+//! secrets inside an age-encrypted vault.
 use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
@@ -17,7 +17,6 @@ pub(crate) struct PortableForm {
     age: String,
     age_keygen: String,
     rclone_config: String,
-    legacy_file: String,
     import_confirmed: bool,
     error: Option<String>,
 }
@@ -30,7 +29,6 @@ impl Default for PortableForm {
             age: "age".into(),
             age_keygen: "age-keygen".into(),
             rclone_config: String::new(),
-            legacy_file: String::new(),
             import_confirmed: false,
             error: None,
         }
@@ -81,21 +79,6 @@ impl PortableForm {
         self.common(&mut args);
         if dry_run {
             args.push("--dry-run".into());
-        }
-        Ok(args)
-    }
-    /// Legacy `rpool config export FILE` / `config import FILE [--dry-run]`.
-    pub(crate) fn legacy_args(&self, import: Option<bool>) -> Result<Vec<OsString>, String> {
-        let file = required(&self.legacy_file, tr("Enter a JSON bundle path first."))?;
-        let mut args: Vec<OsString> = vec!["config".into()];
-        match import {
-            None => args.extend(["export".into(), file.into()]),
-            Some(dry_run) => {
-                args.extend(["import".into(), file.into()]);
-                if dry_run {
-                    args.push("--dry-run".into());
-                }
-            }
         }
         Ok(args)
     }
@@ -237,54 +220,6 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     });
     ui.add_space(theme::SECTION_GAP);
 
-    ui.strong(tr("Legacy JSON bundle (no crypt secrets)"));
-    egui::Grid::new("portable-legacy")
-        .num_columns(2)
-        .spacing([14.0, 8.0])
-        .show(ui, |ui| {
-            field(
-                ui,
-                tr("Bundle file"),
-                &mut form.legacy_file,
-                "portable-config.json",
-                Some(false),
-            );
-        });
-    ui.add_enabled_ui(!busy, |ui| {
-        ui.horizontal(|ui| {
-            if ui.button(tr("Export JSON")).clicked() {
-                form.error = start(
-                    task,
-                    &rclone,
-                    "Export settings JSON",
-                    form.legacy_args(None),
-                );
-            }
-            if ui.button(tr("Validate JSON (dry run)")).clicked() {
-                form.error = start(
-                    task,
-                    &rclone,
-                    "Validate settings JSON",
-                    form.legacy_args(Some(true)),
-                );
-            }
-            if ui
-                .add_enabled(form.import_confirmed, egui::Button::new(tr("Import JSON")))
-                .on_hover_text(tr(
-                    "Uses the same confirmation checkbox as the package import.",
-                ))
-                .clicked()
-            {
-                form.error = start(
-                    task,
-                    &rclone,
-                    "Import settings JSON",
-                    form.legacy_args(Some(false)),
-                );
-                form.import_confirmed = false;
-            }
-        });
-    });
     if let Some(error) = &form.error {
         let (_, color) = theme::error_colors(ui.visuals().dark_mode);
         ui.label(egui::RichText::new(error).color(color));
@@ -307,10 +242,9 @@ mod tests {
     }
 
     #[test]
-    fn package_and_legacy_actions_build_valid_cli_commands() {
+    fn package_actions_build_valid_cli_commands() {
         let mut form = PortableForm::default();
         assert!(form.export_args().is_err());
-        assert!(form.legacy_args(None).is_err());
         form.package_root = "/sync/rpool pkg".into();
         form.age_recipient = "age1example".into();
         form.age_identity = "/keys/id.txt".into();
@@ -336,18 +270,6 @@ mod tests {
             panic!()
         };
         assert!(!real.dry_run);
-        form.legacy_file = "/b.json".into();
-        for import in [None, Some(true), Some(false)] {
-            let Some(crate::cli::Commands::Config(_)) =
-                parse(form.legacy_args(import).unwrap()).command
-            else {
-                panic!()
-            };
-        }
-        assert!(
-            format!("{:?}", parse(form.legacy_args(Some(true)).unwrap()).command)
-                .contains("dry_run: true")
-        );
     }
 
     #[test]

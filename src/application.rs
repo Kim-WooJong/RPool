@@ -120,10 +120,6 @@ fn dispatch(cli: Cli) -> Result<()> {
                 );
                 Ok(())
             }
-            ConfigCommands::Export { output } => commands::config_sync::export::run(&output),
-            ConfigCommands::Import { input, dry_run } => {
-                commands::config_sync::import::run(&input, dry_run)
-            }
         },
         Commands::Pool(args) => match args.command {
             PoolCommands::Capacity(args) => pool::capacity::run(&cli.rclone, args),
@@ -263,7 +259,6 @@ fn dispatch(cli: Cli) -> Result<()> {
             }
             ProviderCommands::EnsureEncryption {
                 json,
-                root,
                 entropy_bits,
                 filename_encryption,
                 directory_encryption,
@@ -271,7 +266,6 @@ fn dispatch(cli: Cli) -> Result<()> {
                 let report = crate::config_sync::provision::ensure_encryption(
                     std::path::Path::new(&cli.rclone),
                     &crate::config_sync::provision::EncryptionDefaults {
-                        root,
                         entropy_bits,
                         filename_encryption,
                         directory_encryption,
@@ -295,7 +289,6 @@ fn dispatch(cli: Cli) -> Result<()> {
             ProviderCommands::Encrypt {
                 name,
                 provider,
-                root: _,
                 entropy_bits,
                 filename_encryption,
                 directory_encryption,

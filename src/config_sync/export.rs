@@ -51,14 +51,6 @@ fn build_bundle(
     Ok(bundle)
 }
 
-/// Legacy portable-only export retained for existing dot workflows. Crypt
-/// definitions and credentials are intentionally absent from this JSON-only path.
-pub(crate) fn export_bundle(output: &Path) -> Result<PathBuf> {
-    let bundle = build_bundle(Vec::new(), None)?;
-    save_json_atomic(output, &bundle)?;
-    Ok(output.to_path_buf())
-}
-
 /// B7 package export. The portable JSON never contains crypt passwords. If
 /// crypt remotes exist, their already-obscured values are encrypted directly
 /// into `secrets/rclone.age` and the JSON binds to that ciphertext by digest.

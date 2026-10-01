@@ -88,23 +88,6 @@ pub(crate) fn prepare_portable_import(bundle: &PortableConfig) -> Result<Prepare
     })
 }
 
-/// Legacy portable-only import retained for compatibility. A crypt-aware bundle
-/// must use the B7 package importer so secrets can never be silently skipped.
-pub(crate) fn import_bundle(input: &Path, dry_run: bool) -> Result<()> {
-    let bundle: PortableConfig = read_json(input)?;
-    super::validate_bundle(&bundle)?;
-
-    if !bundle.crypt_remotes.is_empty() || bundle.secret_vault.is_some() {
-        anyhow::bail!("crypt-aware import requires `rpool import`; no settings were changed");
-    }
-
-    let prepared = prepare_portable_import(&bundle)?;
-    if dry_run {
-        return Ok(());
-    }
-    prepared.apply()
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PackageCryptOutcome {
     NotPresent,

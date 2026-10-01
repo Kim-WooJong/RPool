@@ -3,12 +3,6 @@ use crate::config_sync::PackageExportOutcome;
 use anyhow::Result;
 use std::path::Path;
 
-pub(crate) fn run(output: &Path) -> Result<()> {
-    let path = crate::config_sync::export_bundle(output)?;
-    println!("exported portable rpool config: {}", path.display());
-    Ok(())
-}
-
 pub(crate) fn run_package(rclone: &str, args: &ExportArgs) -> Result<()> {
     let outcome: PackageExportOutcome = crate::config_sync::export_package(
         &args.artifact_root,

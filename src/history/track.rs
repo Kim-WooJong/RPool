@@ -1,5 +1,5 @@
 use crate::cli::{
-    Commands, ConfigCommands, InventoryCommands, ManifestCommands, PoolCommands, ProviderCommands,
+    Commands, InventoryCommands, ManifestCommands, PoolCommands, ProviderCommands,
     RemoteRootCommands,
 };
 use crate::history::redact_text;
@@ -42,22 +42,7 @@ pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> 
             .to_string(),
             Some(args.artifact_root.display().to_string()),
         ),
-        Commands::Config(args) => match &args.command {
-            ConfigCommands::Paths => return None,
-            ConfigCommands::Export { output } => (
-                "config-export".to_string(),
-                Some(output.display().to_string()),
-            ),
-            ConfigCommands::Import { input, dry_run } => (
-                if *dry_run {
-                    "config-import-dry-run"
-                } else {
-                    "config-import"
-                }
-                .to_string(),
-                Some(input.display().to_string()),
-            ),
-        },
+        Commands::Config(_) => return None,
         Commands::Pool(args) => match &args.command {
             PoolCommands::Capacity(args) => ("pool-capacity".into(), args.name.clone()),
             PoolCommands::PlanReprocess { name, .. } => {

@@ -534,7 +534,6 @@ mod tests {
             entropy_bits: 128,
             filename_encryption: "off".into(),
             directory_encryption: false,
-            root: "custom folder".into(),
         };
         form.apply_defaults(&changed);
         assert_eq!([256, 128, 512, 1024][form.entropy_index], 128);

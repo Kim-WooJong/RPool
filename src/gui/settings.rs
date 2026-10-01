@@ -247,14 +247,13 @@ mod tests {
         settings.encryption.entropy_bits = 512;
         settings.encryption.filename_encryption = "off".into();
         settings.encryption.directory_encryption = false;
-        settings.encryption.root = "nested/crypt".into();
         let decoded: GuiSettings =
             serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
         assert_eq!(decoded.encryption, settings.encryption);
         let partial: GuiSettings =
-            serde_json::from_str(r#"{"encryption":{"root":"custom"}}"#).unwrap();
-        assert_eq!(partial.encryption.root, "custom");
-        assert_eq!(partial.encryption.entropy_bits, 1024);
+            serde_json::from_str(r#"{"encryption":{"entropy_bits":512}}"#).unwrap();
+        assert_eq!(partial.encryption.filename_encryption, "standard");
+        assert_eq!(partial.encryption.entropy_bits, 512);
     }
     #[test]
     fn invalid_encryption_settings_are_rejected_before_saving() {

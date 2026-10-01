@@ -7,9 +7,6 @@ pub(crate) mod error;
 #[cfg(test)]
 pub(crate) mod memory;
 pub(crate) mod native_crypt;
-// Unix-only synthetic prototype. Windows reparse-safe support is not implemented.
-#[cfg(all(test, unix))]
-pub(crate) mod local;
 pub(crate) mod rclone;
 pub(crate) mod reader;
 pub(crate) mod reference;
@@ -28,7 +25,3 @@ pub(crate) use remote_config::list_crypt_remotes;
 mod verified_tests;
 #[cfg(test)]
 mod writer_tests;
-
-// Default-off, Memory-only synthetic OpenDAL; no production native route.
-#[cfg(all(test, feature = "opendal-prototype"))]
-pub(crate) mod opendal;

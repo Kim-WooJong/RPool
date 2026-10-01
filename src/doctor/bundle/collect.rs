@@ -68,13 +68,10 @@ pub(crate) fn collect(sources: &Sources) -> Collected {
 }
 
 fn build_info(now_unix: u64) -> String {
-    let features: Vec<&str> = [
-        ("winfsp", cfg!(feature = "winfsp")),
-        ("opendal-prototype", cfg!(feature = "opendal-prototype")),
-    ]
-    .into_iter()
-    .filter_map(|(name, on)| on.then_some(name))
-    .collect();
+    let features: Vec<&str> = [("winfsp", cfg!(feature = "winfsp"))]
+        .into_iter()
+        .filter_map(|(name, on)| on.then_some(name))
+        .collect();
     format!(
         "rpool {}\nprofile: {}\nos: {}\narch: {}\nfamily: {}\nfeatures: {}\nexported_unix: {}\n",
         env!("CARGO_PKG_VERSION"),

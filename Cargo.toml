@@ -19,15 +19,12 @@ path = "src/main.rs"
 # On a Windows build machine without WinFsp (SDK import library), build with
 # `--no-default-features`: that binary mounts through WebDAV only.
 default = ["winfsp"]
-# Synthetic Memory adapter only; does not enable production native writes.
-opendal-prototype = ["dep:opendal"]
 # Native WinFsp frontend (mount milestone M4), default on Windows. Building it
 # needs WinFsp with its SDK import library (MSVC toolchain) on the Windows build
 # machine; the DLL is delay-loaded, so PCs without WinFsp fall back to WebDAV.
 winfsp = ["dep:winfsp_wrs", "dep:winfsp_wrs_build"]
 
 [dependencies]
-opendal = { version = "=0.59.3", default-features = false, optional = true }
 tokio = { version = "1.52", default-features = false, features = ["rt-multi-thread", "net", "sync", "time", "io-util"] }
 anyhow = "1"
 # Explicit OpenGL renderer avoids the wgpu staging-buffer failure reported on Windows.
@@ -46,7 +43,6 @@ tempfile = "3.27.0"
 dav-server = { version = "0.8", default-features = false }
 hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
-http-body-util = "0.1"
 bytes = "1"
 futures-util = "0.3"
 aes = "0.8.4"
@@ -71,7 +67,3 @@ winfsp_wrs_build = { version = "0.4.1", optional = true }
 [target.'cfg(target_os = "linux")'.dependencies]
 fuser = { version = "0.18", default-features = false }
 libc = "0.2"
-
-# Isolated synthetic LocalBackend: descriptor-relative, no-follow Unix filesystem I/O.
-[target.'cfg(unix)'.dev-dependencies]
-rustix = { version = "1.1.5", features = ["fs"] }

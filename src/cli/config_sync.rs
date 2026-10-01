@@ -59,19 +59,4 @@ pub(crate) struct ConfigArgs {
 pub(crate) enum ConfigCommands {
     /// Print resolved active settings paths and portable coverage as JSON (no file contents).
     Paths,
-    /// Legacy JSON-only portable rpool settings export. Crypt secrets are excluded.
-    Export {
-        /// Destination JSON bundle.
-        output: PathBuf,
-    },
-
-    /// Legacy JSON-only import while preserving machine-local state.
-    Import {
-        /// Source JSON bundle.
-        input: PathBuf,
-
-        /// Validate the bundle without changing local configuration.
-        #[arg(long)]
-        dry_run: bool,
-    },
 }
