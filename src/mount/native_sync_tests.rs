@@ -177,8 +177,8 @@ fn native_crypt_mount_uploads_encrypted_objects_readable_through_rclone_crypt() 
         "rclone crypt lists RPool's native objects"
     );
 
-    // Routing control: the same upload into a base32768 crypt remote is refused
-    // by the native gate, and succeeds through rclone crypt when opted out.
+    // base32768 crypt remote: native and rclone crypt writes both succeed and
+    // rclone crypt lists the (non-ASCII) stored names.
     for native in [true, false] {
         let root = temp.path().join(format!("ws-control-{native}"));
         fs::create_dir(&root).unwrap();
@@ -204,17 +204,18 @@ fn native_crypt_mount_uploads_encrypted_objects_readable_through_rclone_crypt() 
             .unwrap();
         core.write_at(handle, 0, b"control").unwrap();
         core.release(handle).unwrap();
-        let result = drive.sync();
-        let pending = drive.state.lock().unwrap().pending.len();
-        if native {
-            assert!(pending > 0, "native gate must refuse base32768: {result:?}");
-            assert!(
-                fs::read_dir(&data4).unwrap().next().is_none(),
-                "nothing written"
-            );
-        } else {
-            result.unwrap();
-            assert_eq!(pending, 0);
-        }
+        drive.sync().unwrap();
+        assert_eq!(
+            drive.state.lock().unwrap().pending.len(),
+            0,
+            "native={native}"
+        );
+        assert!(fs::read_dir(&data4).unwrap().next().is_some(), "written");
+        let listed = String::from_utf8(run(
+            &rclone,
+            &["--config", conf.to_str().unwrap(), "lsf", "-R", "c4:"],
+        ))
+        .unwrap();
+        assert!(listed.contains("virtual-"), "native={native}: {listed}");
     }
 }
