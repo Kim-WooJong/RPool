@@ -4,6 +4,7 @@ mod drive;
 mod drive_state;
 mod explorer;
 mod filters;
+pub(crate) mod history;
 mod rebuild;
 mod state;
 mod table;
@@ -73,7 +74,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     }
     match view {
         LibraryView::Drive => {
-            drive::body(ui, &mut state.inventory.drive, &state.settings.rclone);
+            drive::body(ui, &mut state.inventory.drive, task, &state.settings.rclone);
         }
         LibraryView::Archives => archives(ui, state, task),
     }

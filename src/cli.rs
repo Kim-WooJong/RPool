@@ -1,5 +1,6 @@
 mod config_sync;
 mod doctor;
+mod drive;
 mod history;
 mod inventory;
 mod manifest;
@@ -17,6 +18,10 @@ use crate::models::Placement;
 use clap::{Parser, Subcommand};
 pub(crate) use config_sync::{ConfigArgs, ConfigCommands, ExportArgs, ImportArgs};
 pub(crate) use doctor::DoctorArgs;
+pub(crate) use drive::{
+    DriveArgs, DriveCommands, DriveTarget, RetentionArgs, RetentionCommands, TrashArgs,
+    TrashCommands, VersionsArgs, VersionsCommands,
+};
 pub(crate) use history::{HistoryArgs, HistoryCommands};
 pub(crate) use inventory::{InventoryArgs, InventoryCommands};
 pub(crate) use manifest::{ManifestArgs, ManifestCommands};
@@ -171,6 +176,9 @@ pub(crate) enum Commands {
 
     /// Create and inspect reusable storage pools.
     Pool(PoolArgs),
+
+    /// Trash, file versions and rollback of a pool's online drive.
+    Drive(DriveArgs),
 
     /// Verify, replicate, or recover manifest replicas.
     Manifest(ManifestArgs),

@@ -137,6 +137,11 @@ impl RpoolGui {
             storage::speed_test::handle_task_completion(&mut self.state, &self.task, status);
             storage::metadata_card::handle_task_completion(&mut self.state, &self.task, status);
             maintenance::handle_task_completion(&mut self.state, &self.task, status);
+            files::inventory::history::handle_task_completion(
+                &mut self.state.inventory.drive.history,
+                &self.task,
+                status,
+            );
         }
         files::upload::poll_batch(&mut self.state, &mut self.task);
         if task_finished.is_some() {

@@ -2,6 +2,7 @@
 //! at several window sizes, saves each frame as `<dir>/<size>-<page>.ppm`,
 //! then closes. Used to review the layout without screen-recording rights.
 use super::screens::files::inventory::drive_sample::{self, SampleView};
+use super::screens::files::inventory::history::sample::{self as history_sample, Fixture};
 use super::state::{DriveTab, FilesSection, GuiState, MaintenanceSection, Page, StorageSection};
 use eframe::egui;
 use std::path::PathBuf;
@@ -63,6 +64,22 @@ const PAGES: &[(&str, Setter)] = &[
             },
         )
     }),
+    ("files-trash", |s| history(s, Fixture::Trash)),
+    ("files-versions", |s| history(s, Fixture::Versions)),
+    ("files-rollback", |s| history(s, Fixture::Rollback)),
+    ("files-rollback-confirm", |s| {
+        history(s, Fixture::RollbackConfirm)
+    }),
+    ("storage-pools-retention", |s| {
+        s.page = Page::Storage;
+        s.storage_section = StorageSection::Pools;
+        if std::env::var_os("RPOOL_GUI_SNAPSHOT_HISTORY").is_none() {
+            return;
+        }
+        if let Some(pool) = s.pool_names.first().cloned() {
+            history_sample::retention_card(s, &pool);
+        }
+    }),
     ("files-upload", |s| {
         s.page = Page::Files;
         s.files_section = FilesSection::Upload;
@@ -116,6 +133,19 @@ fn library_sample(s: &mut GuiState, view: SampleView) {
     }
 }
 
+/// `RPOOL_GUI_SNAPSHOT_HISTORY=1`: Files › Library on the sample drive with
+/// sample trash, versions or rollback data; otherwise the plain Library.
+fn history(s: &mut GuiState, fixture: Fixture) {
+    s.page = Page::Files;
+    s.files_section = FilesSection::Inventory;
+    if std::env::var_os("RPOOL_GUI_SNAPSHOT_HISTORY").is_none() {
+        return;
+    }
+    if let Some(pool) = s.pool_names.first().cloned() {
+        history_sample::show(&mut s.inventory.drive, &pool, fixture);
+    }
+}
+
 pub(crate) struct Snapshots {
     dir: PathBuf,
     step: usize,
@@ -153,7 +183,8 @@ impl Snapshots {
             }
             // `RPOOL_GUI_SNAPSHOT_LIBRARY=1` needs a pool to show the sample
             // drive under; an empty config gets a "family" pool name only.
-            if std::env::var_os("RPOOL_GUI_SNAPSHOT_LIBRARY").is_some()
+            if (std::env::var_os("RPOOL_GUI_SNAPSHOT_LIBRARY").is_some()
+                || std::env::var_os("RPOOL_GUI_SNAPSHOT_HISTORY").is_some())
                 && state.pool_names.is_empty()
             {
                 state.pool_names.push("family".into());
@@ -196,6 +227,8 @@ impl Snapshots {
                 }
             }
         }
+        // No fade-in: dialogs are captured fully drawn however fast frames run.
+        ctx.all_styles_mut(|style| style.animation_time = 0.0);
         let Some((size, dims, page, set)) = self.current() else {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;

@@ -3,6 +3,7 @@
 //! read-only listing returned by `crate::pool::browse::browse`.
 
 use super::explorer::ExplorerState;
+use super::history::HistoryForm;
 use crate::pool::browse::PoolBrowse;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::mpsc::{Receiver, TryRecvError};
@@ -204,6 +205,15 @@ pub(crate) enum DriveLoad {
     Failed(String),
 }
 
+/// [`DriveForm::parts`].
+pub(crate) struct DriveParts<'a> {
+    pub(crate) pool: &'a str,
+    pub(crate) load: Option<&'a DriveLoad>,
+    pub(crate) explorer: &'a mut ExplorerState,
+    pub(crate) query: &'a mut String,
+    pub(crate) history: &'a mut HistoryForm,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct DriveForm {
     /// The pool being browsed; empty until one is picked (no "All pools").
@@ -211,6 +221,8 @@ pub(crate) struct DriveForm {
     pub(crate) query: String,
     /// Current folder, history, sort, view and selection of the explorer.
     pub(crate) explorer: ExplorerState,
+    /// Trash, versions and rollback (per pool, in memory).
+    pub(crate) history: HistoryForm,
     results: BTreeMap<String, DriveLoad>,
     /// Listing runs off the UI thread: reading cloud metadata takes seconds.
     pending: Option<(String, Receiver<BrowseResult>)>,
@@ -229,6 +241,7 @@ impl DriveForm {
             };
             self.select(only);
         }
+        self.history.sync(pools, &self.pool);
     }
 
     pub(crate) fn select(&mut self, pool: String) {
@@ -243,14 +256,16 @@ impl DriveForm {
         self.results.get(&self.pool)
     }
 
-    /// The pool, its listing, the explorer and the search, borrowed apart.
-    pub(crate) fn parts(&mut self) -> (&str, Option<&DriveLoad>, &mut ExplorerState, &mut String) {
-        (
-            &self.pool,
-            self.results.get(&self.pool),
-            &mut self.explorer,
-            &mut self.query,
-        )
+    /// The pool, its listing, the explorer, the search and the history
+    /// views, borrowed apart.
+    pub(crate) fn parts(&mut self) -> DriveParts<'_> {
+        DriveParts {
+            pool: &self.pool,
+            load: self.results.get(&self.pool),
+            explorer: &mut self.explorer,
+            query: &mut self.query,
+            history: &mut self.history,
+        }
     }
 
     pub(crate) fn is_loading(&self) -> bool {

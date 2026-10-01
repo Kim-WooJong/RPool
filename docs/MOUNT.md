@@ -259,6 +259,13 @@ archives. Never manually delete those earlier objects while a revision uses them
 Provider drain with `--delete-source` is rejected for virtual-drive archives;
 copy-only migration and reprocessing retain the referenced originals.
 
+### Trash, versions and rollback
+
+`rpool drive trash|versions|rollback|retention` (v6 and v7, mounted or not)
+list deleted files and previous versions and restore them as new revisions;
+see [DRIVE_HISTORY_DESIGN.md](DRIVE_HISTORY_DESIGN.md). v6 never deletes data;
+an explicitly set v7 retention defers snapshot GC of bytes it still needs.
+
 ### Future history-count configuration — stored, NOT enforced yet
 
 Each workspace has `pool-sync-config.json`:

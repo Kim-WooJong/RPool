@@ -89,6 +89,8 @@ impl ExplorerState {
             }
             Action::Sort(key) => self.sort.toggle(key),
             Action::Move(step) => self.step(tree, rows, step),
+            // Taken by `explorer::show` before it applies an action.
+            Action::History(_) => {}
         }
     }
 

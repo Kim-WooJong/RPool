@@ -32,6 +32,13 @@ fn library(state: &mut GuiState, view: SampleView) {
     files::inventory::drive_sample::show(&mut state.inventory.drive, "family", view);
 }
 
+/// Files › Library with a trash/versions/rollback sample open.
+fn history(state: &mut GuiState, fixture: files::inventory::history::sample::Fixture) {
+    state.page = Page::Files;
+    state.files_section = FilesSection::Inventory;
+    files::inventory::history::sample::show(&mut state.inventory.drive, "family", fixture);
+}
+
 fn page(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner, usage: &mut UsageRefresh) {
     match state.page {
         Page::Dashboard => dashboard::show(ui, state, usage),
@@ -130,6 +137,16 @@ fn every_page_fits_small_medium_and_large_windows() {
                 },
             )
         },
+        |s| history(s, files::inventory::history::sample::Fixture::Trash),
+        |s| history(s, files::inventory::history::sample::Fixture::Versions),
+        |s| history(s, files::inventory::history::sample::Fixture::Rollback),
+        |s| {
+            history(
+                s,
+                files::inventory::history::sample::Fixture::RollbackConfirm,
+            )
+        },
+        |s| files::inventory::history::sample::retention_card(s, "family"),
         |s| {
             s.page = Page::Files;
             s.files_section = FilesSection::Upload

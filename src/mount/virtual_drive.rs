@@ -96,6 +96,10 @@ pub(crate) struct VirtualDrive {
     pub checkpoint_keep: usize,
     /// A pool layout change this mount keeps for later (pending old-layout work).
     pub layout_deferral: Option<super::layout_refresh::Deferral>,
+    /// Explicitly saved drive retention of the pool (`rpool drive retention
+    /// set`); v7 snapshot GC keeps the bytes it still needs. `None`: only the
+    /// snapshot `history_limit` decides (unchanged behaviour).
+    pub history_retention: Option<crate::drive_history::model::Retention>,
     _lock: File,
 }
 impl VirtualDrive {
@@ -159,6 +163,7 @@ impl VirtualDrive {
             checkpoint_coordinator: false,
             checkpoint_keep: 0,
             layout_deferral: None,
+            history_retention: None,
             _lock: lock,
         })
     }
@@ -427,6 +432,7 @@ impl VirtualDrive {
             checkpoint_coordinator: false,
             checkpoint_keep: 0,
             layout_deferral,
+            history_retention: crate::drive_history::retention::explicit(pool),
             _lock: lock,
         })
     }
@@ -853,7 +859,7 @@ impl VirtualDrive {
     }
     /// MOVE expresses an explicit namespace operation, unlike an unconditioned PUT.
     /// A missing destination must descend from its current deletion, not an old editor base.
-    fn move_destination(&self, path: &str) -> Result<Intent> {
+    pub(super) fn move_destination(&self, path: &str) -> Result<Intent> {
         let visible = self.view()?.get(path).cloned();
         let mut intent = self.begin_observed(path, visible.as_ref())?;
         let state = self.state.lock().unwrap();
@@ -1805,6 +1811,7 @@ fn fixture_with(root: &Path, state: Namespace) -> VirtualDrive {
         checkpoint_coordinator: false,
         checkpoint_keep: 0,
         layout_deferral: None,
+        history_retention: None,
         _lock: File::create(root.join("virtual.lock")).unwrap(),
     }
 }

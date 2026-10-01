@@ -1,6 +1,6 @@
 //! Back / Forward / Up buttons and the breadcrumb path bar.
 
-use super::action::Action;
+use super::action::{Action, HistoryRequest};
 use super::breadcrumb;
 use super::nav::Nav;
 use crate::gui::i18n::tr;
@@ -38,6 +38,21 @@ pub(crate) fn show(ui: &mut egui::Ui, pool: &str, nav: &Nav) -> Option<Action> {
         );
         ui.add_space(6.0);
         breadcrumb::show(ui, pool, nav.current(), &mut action);
+        ui.add_space(10.0);
+        let hint = if nav.current().is_empty() {
+            tr("Put the whole drive back the way it was at an earlier time.")
+        } else {
+            tr("Put this folder back the way it was at an earlier time.")
+        };
+        if ui
+            .button(format!("↺ {}", tr("Roll back…")))
+            .on_hover_text(hint)
+            .clicked()
+        {
+            action = Some(Action::History(HistoryRequest::Rollback(
+                nav.current().to_string(),
+            )));
+        }
     });
     action
 }

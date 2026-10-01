@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+- **Trash, file versions and rollback for the drive.** Nothing destroys
+  history: restoring and rolling back publish new revisions that older RPool
+  reads as ordinary edits.
+  - **Trash:** deleted files and folders, with original folder, size, when
+    and by which PC, and expiry (default 30 days). Restore to the original
+    place (`name (restored).ext` if taken) or into a chosen folder
+    (`--into`), delete permanently, empty. Purges are marks published to
+    every PC.
+  - **Versions:** every revision of a file, newest first, including
+    deletions and conflict copies (default: 20 versions / 90 days kept);
+    restore one as the current version or as a copy.
+  - **Rollback:** a folder or the whole drive back to a time (presets or a
+    date), previewed first (reverted / restored / moved to the trash /
+    skipped), applied only with `--confirm`; a rollback can itself be undone.
+  - Works on mounted drives (the mount process carries out the request), on
+    an unmounted workspace, and from the cloud without a workspace. Times
+    come from the cloud listing (records carry none). v7 keeps the data of
+    trash entries and kept versions once retention is set for the pool; v6
+    never deletes data (purge/expiry only hide entries and report the bytes
+    that could be freed).
+  - CLI: `rpool drive trash list|restore|purge|empty`, `rpool drive versions
+    list|restore`, `rpool drive rollback`, `rpool drive retention show|set`.
+    GUI: Files › Library gets a Files/Trash toggle, a Versions panel and
+    "Roll back…"; Storage › Pools gets a "Trash & versions" card.
+    Design: `docs/DRIVE_HISTORY_DESIGN.md`.
+
 - **Drive metadata no longer blocks a new PC (checkpoints and compaction).**
   v6 events and v7 snapshots are covered by content-addressed checkpoint
   objects (`<root>/checkpoints/{chunks,heads,marks}`) written by any PC after

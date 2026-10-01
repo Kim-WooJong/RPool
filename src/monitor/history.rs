@@ -22,7 +22,7 @@ pub(crate) fn civil_from_days(days: i64) -> (i64, u32, u32) {
 }
 
 /// Days since 1970-01-01 of a proleptic Gregorian date.
-fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
+pub(crate) fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
     let year = year - i64::from(month <= 2);
     let era = year.div_euclid(400);
     let yoe = year.rem_euclid(400);

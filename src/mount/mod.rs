@@ -11,6 +11,7 @@ pub(crate) mod drive_generation_write;
 pub(crate) mod drive_references;
 mod frontend;
 mod fs_core;
+pub(crate) mod history_bridge;
 mod incremental;
 pub(crate) mod layout_refresh;
 mod lifecycle;

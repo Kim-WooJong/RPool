@@ -141,6 +141,7 @@ pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> 
             }
         },
         Commands::Doctor(_) => ("doctor".to_string(), None),
+        Commands::Drive(args) => crate::drive_history::command::describe(args),
     };
 
     let target = target.map(|value| redact_text(&value, 300));

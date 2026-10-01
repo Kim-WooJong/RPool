@@ -16,6 +16,8 @@ const CAPACITY_INTERVAL_MAX: Duration = Duration::from_secs(60);
 /// How often idle accounts are checked for an automatic keep-alive (the
 /// interval itself is the `keepalive_days` account-limit setting).
 const KEEPALIVE_CHECK: Duration = Duration::from_secs(3600);
+/// How often waiting drive history requests (`rpool drive …`) are picked up.
+const HISTORY_REQUESTS: Duration = Duration::from_secs(2);
 
 struct Periodic {
     interval: Duration,
@@ -64,6 +66,8 @@ pub(super) struct Maintenance {
     /// Metadata checkpoint/compaction pass (`metadata_compaction`).
     compaction: Periodic,
     keepalive: Periodic,
+    /// Drive history requests of other processes (`drive_history::request`).
+    history: Periodic,
 }
 impl Maintenance {
     pub(super) fn new(interval: Duration) -> Self {
@@ -75,6 +79,7 @@ impl Maintenance {
             capacity: Periodic::new(interval.min(CAPACITY_INTERVAL_MAX)),
             compaction: Periodic::delayed(Duration::from_secs(minutes.saturating_mul(60))),
             keepalive: Periodic::new(KEEPALIVE_CHECK),
+            history: Periodic::new(HISTORY_REQUESTS),
         }
     }
     /// Starts whichever worker is due; `report` refreshes and publishes capacity.
@@ -127,6 +132,22 @@ impl Maintenance {
                     compact(&drive);
                 }
             })
+        })?;
+        if drive.pool_sync_roots.is_empty() {
+            return Ok(());
+        }
+        self.history.poll(|| {
+            let (drive, cancelled) = (drive.clone(), cancelled.clone());
+            std::thread::spawn(move || {
+                if cancelled.load(Ordering::Acquire) {
+                    return;
+                }
+                match crate::drive_history::dispatch::serve_mount(&drive) {
+                    Ok(0) => {}
+                    Ok(n) => println!("Answered {n} drive history request(s)"),
+                    Err(e) => eprintln!("Drive history request failed: {e:#}"),
+                }
+            })
         })
     }
     /// Waits for running workers (after cancellation was requested).
@@ -135,7 +156,11 @@ impl Maintenance {
         let capacity = self.capacity.join();
         let compaction = self.compaction.join();
         let keepalive = self.keepalive.join();
-        sync.and(capacity).and(compaction).and(keepalive)
+        let history = self.history.join();
+        sync.and(capacity)
+            .and(compaction)
+            .and(keepalive)
+            .and(history)
     }
 }
 

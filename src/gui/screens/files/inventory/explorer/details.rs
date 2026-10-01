@@ -1,6 +1,6 @@
 //! The line under the list: the selected entry, then the folder summary.
 
-use super::action::Action;
+use super::action::{Action, HistoryRequest};
 use super::summary::{icon, items_label, type_label};
 use crate::gui::i18n::tr;
 use crate::gui::screens::files::inventory::drive_state::DriveTree;
@@ -34,6 +34,14 @@ pub(crate) fn show(
             ));
             if global && ui.link(tr("Show in folder")).clicked() {
                 *action = Some(Action::Reveal(node.path.clone()));
+            }
+            if !node.is_dir
+                && ui
+                    .small_button(format!("🕘 {}", tr("Versions…")))
+                    .on_hover_text(tr("Earlier versions of this file, to restore one."))
+                    .clicked()
+            {
+                *action = Some(Action::History(HistoryRequest::Versions(node.path.clone())));
             }
         }
         None => {

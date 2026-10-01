@@ -1,5 +1,4 @@
 //! JSON contract of `rpool drive trash|versions|rollback --json` (CLI ↔ GUI).
-#![allow(dead_code)] // Contract stub: remove once CLI and GUI use it.
 use serde::{Deserialize, Serialize};
 
 pub(crate) const HISTORY_VERSION: u32 = 1;

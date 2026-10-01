@@ -6,6 +6,9 @@ use super::shared_model::{Content, Event};
 use super::virtual_drive::VirtualDrive;
 use crate::prelude::*;
 
+/// Drive history export and the retention guard of snapshot GC.
+#[path = "peer_snapshot_history.rs"]
+pub(crate) mod history;
 /// Pool change migration: read a generation, build adopted records.
 #[path = "peer_snapshot_migration.rs"]
 pub(crate) mod migration;
@@ -1147,9 +1150,14 @@ impl VirtualDrive {
         self.materialize_snapshots(&mut state, &analysis)?;
         let gc = self.root.join("snapshot-gc");
         fs::create_dir_all(&gc)?;
+        // Trash/version retention may still need bytes of a retired snapshot.
+        let deferred = self.history_gc_deferred(&state, &analysis);
         for (old, successor) in &analysis.gc {
             let snapshot = &state.snapshots[old];
             let path = gc.join(format!("{old}.json"));
+            if !path.exists() && deferred.contains(old) {
+                continue;
+            }
             if !path.exists() {
                 let metadata: BTreeSet<_> = snapshot
                     .payloads

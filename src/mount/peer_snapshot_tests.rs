@@ -1036,3 +1036,69 @@ fn browse_adopts_recorded_history_limit_and_never_publishes() {
     );
     assert_eq!(sizes(&b), sizes(&a));
 }
+
+#[test]
+fn drive_retention_defers_snapshot_gc_until_versions_expire() {
+    let root = tempfile::tempdir().unwrap();
+    let mut d = drive(root.path());
+    d.pool_history_limit = 0;
+    d.history_retention = Some(crate::drive_history::model::Retention {
+        trash_days: 30,
+        keep_versions: 20,
+        version_days: 90,
+    });
+    let io = FakeIo::default();
+    for text in [b"version0", b"version1", b"version2"] {
+        stage(&d, &io, "file", text);
+        d.sync_snapshots_with(&io).unwrap();
+    }
+    // history_limit 0 alone would collect version0/1; retention keeps them.
+    let live: BTreeSet<_> = io.0.borrow().payloads.values().cloned().collect();
+    assert!(live.contains(b"version0".as_slice()) && live.contains(b"version1".as_slice()));
+    let export = d.snapshot_export().unwrap();
+    let times = BTreeMap::new();
+    let history =
+        crate::drive_history::source_v7::build(&export, &times, 0, BTreeSet::new()).unwrap();
+    let restorable = history
+        .revs
+        .values()
+        .filter(|r| r.content.as_ref().is_some_and(|c| c.restorable))
+        .count();
+    assert_eq!(restorable, 3);
+    // Once every record is older than the version period, GC proceeds.
+    d.history_retention.as_mut().unwrap().version_days = 1;
+    let seen: BTreeMap<String, u64> = export
+        .snapshots
+        .keys()
+        .chain(export.names.keys())
+        .map(|id| (id.clone(), 0))
+        .collect();
+    durable_json(&d.root.join("drive-history-seen.json"), &seen).unwrap();
+    d.sync_snapshots_with(&io).unwrap();
+    let live: BTreeSet<_> = io.0.borrow().payloads.values().cloned().collect();
+    assert!(!live.contains(b"version0".as_slice()) && !live.contains(b"version1".as_slice()));
+    assert!(live.contains(b"version2".as_slice()));
+}
+
+#[test]
+fn drive_retention_keeps_deleted_file_bytes_while_in_the_trash() {
+    let root = tempfile::tempdir().unwrap();
+    let mut d = drive(root.path());
+    d.pool_history_limit = 0;
+    let io = FakeIo::default();
+    stage(&d, &io, "gone", b"deleted bytes");
+    d.sync_snapshots_with(&io).unwrap();
+    d.history_retention = Some(crate::drive_history::model::Retention::default());
+    d.delete("gone").unwrap();
+    d.sync_snapshots_with(&io).unwrap();
+    d.sync_snapshots_with(&io).unwrap();
+    let live: BTreeSet<_> = io.0.borrow().payloads.values().cloned().collect();
+    assert!(live.contains(b"deleted bytes".as_slice()));
+    let export = d.snapshot_export().unwrap();
+    let history =
+        crate::drive_history::source_v7::build(&export, &BTreeMap::new(), 10, BTreeSet::new())
+            .unwrap();
+    let trash = crate::drive_history::trash_list_for_tests(&history);
+    assert_eq!(trash.len(), 1);
+    assert_eq!(trash[0].path, "/gone");
+}

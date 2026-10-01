@@ -30,5 +30,6 @@ pub(crate) fn remove_pool(name: &str) -> Result<PathBuf> {
     if store.pools.remove(name).is_none() {
         bail!("pool not found: {name}");
     }
+    store.retention.remove(name);
     save_pool_store(&store)
 }

@@ -2,6 +2,7 @@
 
 use super::action::Action;
 use super::columns::Columns;
+use super::context;
 use super::paint::cell;
 use super::scroll::reveal_offset;
 use super::sort::SortKey;
@@ -165,7 +166,7 @@ fn row(
         cell(ui, rect, left, width, kind, false);
     }
     let response = response.on_hover_text(&node.path);
-    if response.double_clicked() && node.is_dir {
+    let mut action = if response.double_clicked() && node.is_dir {
         Some(Action::Open(node.path.clone()))
     } else if response.clicked() {
         let on_folder = folder_rect
@@ -178,5 +179,7 @@ fn row(
         })
     } else {
         None
-    }
+    };
+    context::menu(&response, node, &mut action);
+    action
 }

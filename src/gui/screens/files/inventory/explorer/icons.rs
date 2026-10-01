@@ -98,13 +98,15 @@ fn tile(ui: &mut egui::Ui, tree: &DriveTree, id: usize, selected: bool) -> Optio
         p.text,
     );
     let response = response.on_hover_text(&node.path);
-    if response.double_clicked() && node.is_dir {
+    let mut action = if response.double_clicked() && node.is_dir {
         Some(Action::Open(node.path.clone()))
     } else if response.clicked() {
         Some(Action::Select(node.path.clone()))
     } else {
         None
-    }
+    };
+    super::context::menu(&response, node, &mut action);
+    action
 }
 
 #[cfg(test)]

@@ -111,7 +111,7 @@ pub(crate) fn sort(generations: &mut [Generation]) {
 }
 
 /// `2026-09-30T05:06:38.549521135Z` or `…+09:00` as Unix nanoseconds.
-fn parse_rfc3339(text: &str) -> Option<i128> {
+pub(crate) fn parse_rfc3339(text: &str) -> Option<i128> {
     let (date, rest) = text.split_once('T')?;
     let mut d = date.split('-');
     let (y, m, day): (i64, i64, i64) = (

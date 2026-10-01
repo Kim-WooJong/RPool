@@ -230,6 +230,7 @@ fn dispatch(cli: Cli) -> Result<()> {
                 commands::inventory::info(&archive_id, json)
             }
         },
+        Commands::Drive(args) => crate::drive_history::command::run(&cli.rclone, args),
         Commands::History(args) => match args.command {
             HistoryCommands::List { limit, json } => commands::history::list(limit, json),
             HistoryCommands::Prune { keep } => commands::history::prune(keep),

@@ -6,13 +6,14 @@
 mod action;
 mod breadcrumb;
 mod columns;
+mod context;
 mod details;
 mod icons;
 mod keys;
 mod list;
 mod nav;
 mod navbar;
-mod paint;
+pub(crate) mod paint;
 #[cfg(any(test, debug_assertions))]
 pub(crate) mod sample;
 mod scroll;
@@ -21,6 +22,7 @@ mod sort;
 mod state;
 mod summary;
 
+pub(crate) use action::HistoryRequest;
 pub(crate) use state::{ExplorerState, ViewMode};
 pub(crate) use summary::{files_label, folders_label};
 
@@ -33,13 +35,15 @@ use summary::FolderSummary;
 /// Room kept below the list for the details and summary lines.
 const FOOTER: f32 = 64.0;
 
+/// Draws the explorer; returns a request for the versions panel or the
+/// rollback dialog when the user asked for one.
 pub(crate) fn show(
     ui: &mut egui::Ui,
     pool: &str,
     tree: &DriveTree,
     state: &mut ExplorerState,
     query: &mut String,
-) {
+) -> Option<HistoryRequest> {
     state.sync(tree);
     let folder = tree.folder(state.nav.current()).unwrap_or(None);
     let global = search::is_global(query, state.search_all);
@@ -101,8 +105,13 @@ pub(crate) fn show(
     }
     details::show(ui, tree, selected, &summary, global, &mut action);
 
-    if let Some(action) = action {
-        state.apply(action, tree, &rows, query);
-        ui.ctx().request_repaint();
+    match action {
+        Some(action::Action::History(request)) => return Some(request),
+        Some(action) => {
+            state.apply(action, tree, &rows, query);
+            ui.ctx().request_repaint();
+        }
+        None => {}
     }
+    None
 }

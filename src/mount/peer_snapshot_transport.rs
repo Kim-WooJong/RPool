@@ -184,6 +184,13 @@ impl PayloadIo for StorageWriter {
         self.ensure_destination(object)?;
         match self.delete(object) {
             Err(e) if missing(&e) => Ok(()),
+            // rclone reports deleting an absent object as a failed mutation
+            // (unknown outcome), e.g. the owner-root manifest a compaction
+            // snapshot never wrote. Absent afterwards is what GC wants.
+            Err(error) => match self.reader().stat(object) {
+                Err(e) if missing(&e) => Ok(()),
+                _ => Err(error),
+            },
             result => result,
         }
     }

@@ -57,6 +57,12 @@ pub(crate) struct PoolStore {
     pub(crate) version: u32,
     #[serde(default)]
     pub(crate) pools: std::collections::BTreeMap<String, PoolDefinition>,
+    /// Drive trash/version retention per pool name (`rpool drive retention`).
+    /// Kept beside the definitions so it travels with portable export/import;
+    /// a missing entry means the defaults. Older RPool ignores the field.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub(crate) retention:
+        std::collections::BTreeMap<String, crate::drive_history::model::Retention>,
 }
 
 impl Default for PoolStore {
@@ -64,6 +70,7 @@ impl Default for PoolStore {
         Self {
             version: 1,
             pools: std::collections::BTreeMap::new(),
+            retention: std::collections::BTreeMap::new(),
         }
     }
 }

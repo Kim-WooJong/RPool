@@ -20,4 +20,15 @@ pub(crate) enum Action {
     Sort(SortKey),
     /// Arrow keys: move the selection by this many rows.
     Move(isize),
+    /// Versions, rollback: handled by the history views, not the explorer.
+    History(HistoryRequest),
+}
+
+/// What the explorer asks the trash/versions/rollback views to open.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum HistoryRequest {
+    /// The versions panel of a file (explorer path).
+    Versions(String),
+    /// The rollback dialog of a folder (explorer path, `""` = whole drive).
+    Rollback(String),
 }

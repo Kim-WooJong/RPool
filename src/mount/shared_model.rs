@@ -92,7 +92,7 @@ impl Event {
 }
 
 // Equality and ancestor relationships are both collisions for materialized files.
-pub(super) fn overlaps(a: &str, b: &str) -> bool {
+pub(crate) fn overlaps(a: &str, b: &str) -> bool {
     let a = a.to_lowercase();
     let b = b.to_lowercase();
     a == b
@@ -103,7 +103,7 @@ pub(super) fn overlaps(a: &str, b: &str) -> bool {
 pub(crate) fn conflict_path(path: &str, worker: &str, id: &str, attempt: usize) -> Result<String> {
     labelled_path(path, worker, id, attempt, false)
 }
-pub(super) fn peer_path(path: &str, worker: &str, id: &str, attempt: usize) -> Result<String> {
+pub(crate) fn peer_path(path: &str, worker: &str, id: &str, attempt: usize) -> Result<String> {
     labelled_path(path, worker, id, attempt, true)
 }
 fn labelled_path(path: &str, worker: &str, id: &str, attempt: usize, peer: bool) -> Result<String> {

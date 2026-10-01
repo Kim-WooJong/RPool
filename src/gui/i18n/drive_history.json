@@ -1,0 +1,697 @@
+{
+ "0 means unlimited. A version is removed once it is past either limit; the current version is always kept.": {
+  "ko": "0은 제한 없음이에요. 버전은 두 제한 중 하나라도 넘으면 지워지고, 현재 버전은 항상 유지돼요.",
+  "ja": "0は無制限です。どちらかの上限を超えたバージョンは削除されます。現在のバージョンは常に残ります。",
+  "zh": "0 表示不限制。版本超过任一限制即被删除；当前版本始终保留。"
+ },
+ "1 day": {
+  "ko": "1일",
+  "ja": "1日",
+  "zh": "1 天"
+ },
+ "1 hour ago": {
+  "ko": "1시간 전",
+  "ja": "1時間前",
+  "zh": "1 小时前"
+ },
+ "1 item · {size}": {
+  "ko": "항목 1개 · {size}",
+  "ja": "1項目 · {size}",
+  "zh": "1 项 · {size}"
+ },
+ "24 hours ago": {
+  "ko": "24시간 전",
+  "ja": "24時間前",
+  "zh": "24 小时前"
+ },
+ "30 days in the trash, 20 versions for 90 days.": {
+  "ko": "휴지통 30일, 버전 20개를 90일 동안 보관해요.",
+  "ja": "ゴミ箱に30日、バージョンを20個まで90日間保持します。",
+  "zh": "回收站保留 30 天，版本保留 20 个、90 天。"
+ },
+ "7 days ago": {
+  "ko": "7일 전",
+  "ja": "7日前",
+  "zh": "7 天前"
+ },
+ "All {n} items in the trash ({size}) will be deleted permanently. They cannot be restored afterwards.": {
+  "ko": "휴지통의 항목 {n}개({size})가 모두 영구 삭제돼요. 삭제 후에는 복원할 수 없어요.",
+  "ja": "ゴミ箱の{n}項目（{size}）がすべて完全に削除されます。削除後は復元できません。",
+  "zh": "回收站中的全部 {n} 项（{size}）将被永久删除，删除后无法恢复。"
+ },
+ "Another file now has this name; restoring keeps both.": {
+  "ko": "지금 같은 이름의 다른 파일이 있어요. 복원하면 둘 다 유지돼요.",
+  "ja": "現在、同じ名前の別のファイルがあります。復元すると両方が残ります。",
+  "zh": "现在已有同名的其他文件；恢复会保留两者。"
+ },
+ "Another operation is running; wait for it to finish.": {
+  "ko": "다른 작업이 실행 중이에요. 끝날 때까지 기다려 주세요.",
+  "ja": "別の操作を実行中です。終わるまでお待ちください。",
+  "zh": "另一个操作正在运行，请等待其完成。"
+ },
+ "Apply rollback…": {
+  "ko": "되돌리기 적용…",
+  "ja": "ロールバックを適用…",
+  "zh": "应用回滚…"
+ },
+ "Apply {n} changes? Files are put back as they were at {time}; you can undo this by restoring versions or items from the trash.": {
+  "ko": "변경 {n}개를 적용할까요? 파일이 {time} 시점 상태로 돌아가요. 버전이나 휴지통 항목을 복원하면 되돌릴 수 있어요.",
+  "ja": "{n}件の変更を適用しますか？ファイルは{time}時点の状態に戻ります。バージョンやゴミ箱の項目を復元すれば元に戻せます。",
+  "zh": "应用 {n} 项更改？文件将恢复到 {time} 时的状态；可通过恢复版本或回收站中的项目撤销。"
+ },
+ "Back to an older version ({n})": {
+  "ko": "이전 버전으로 돌아감 ({n})",
+  "ja": "以前のバージョンに戻る（{n}）",
+  "zh": "恢复到旧版本（{n}）"
+ },
+ "Back to the files": {
+  "ko": "파일 목록으로",
+  "ja": "ファイル一覧に戻る",
+  "zh": "返回文件"
+ },
+ "Back to {time} ({zone}).": {
+  "ko": "{time}({zone}) 시점으로 돌아가요.",
+  "ja": "{time}（{zone}）の時点に戻ります。",
+  "zh": "回到 {time}（{zone}）。"
+ },
+ "Cannot be rolled back ({n})": {
+  "ko": "되돌릴 수 없음 ({n})",
+  "ja": "ロールバック不可（{n}）",
+  "zh": "无法回滚（{n}）"
+ },
+ "Choose the folder to put the item into.": {
+  "ko": "항목을 넣을 폴더를 골라 주세요.",
+  "ja": "項目を入れるフォルダーを選んでください。",
+  "zh": "选择要放入该项的文件夹。"
+ },
+ "Choose the folder to put the {n} items into.": {
+  "ko": "항목 {n}개를 넣을 폴더를 골라 주세요.",
+  "ja": "{n}項目を入れるフォルダーを選んでください。",
+  "zh": "选择要放入这 {n} 项的文件夹。"
+ },
+ "Clear selection": {
+  "ko": "선택 해제",
+  "ja": "選択を解除",
+  "zh": "清除选择"
+ },
+ "Close": {
+  "ko": "닫기",
+  "ja": "閉じる",
+  "zh": "关闭"
+ },
+ "Current": {
+  "ko": "현재",
+  "ja": "現在",
+  "zh": "当前"
+ },
+ "Days in the trash": {
+  "ko": "휴지통 보관 일수",
+  "ja": "ゴミ箱での保持日数",
+  "zh": "回收站保留天数"
+ },
+ "Days in the trash must be 0 to {max}.": {
+  "ko": "휴지통 보관 일수는 0~{max}이어야 해요.",
+  "ja": "ゴミ箱での保持日数は0〜{max}にしてください。",
+  "zh": "回收站保留天数必须为 0 到 {max}。"
+ },
+ "Days to keep versions": {
+  "ko": "버전 보관 일수",
+  "ja": "バージョンの保持日数",
+  "zh": "版本保留天数"
+ },
+ "Days to keep versions must be 0 to {max}.": {
+  "ko": "버전 보관 일수는 0~{max}이어야 해요.",
+  "ja": "バージョンの保持日数は0〜{max}にしてください。",
+  "zh": "版本保留天数必须为 0 到 {max}。"
+ },
+ "Defaults": {
+  "ko": "기본값",
+  "ja": "既定値",
+  "zh": "默认值"
+ },
+ "Delete expired ({n})": {
+  "ko": "만료 항목 삭제({n})",
+  "ja": "期限切れを削除（{n}）",
+  "zh": "删除已过期项（{n}）"
+ },
+ "Delete permanently?": {
+  "ko": "영구 삭제할까요?",
+  "ja": "完全に削除しますか？",
+  "zh": "永久删除？"
+ },
+ "Delete permanently…": {
+  "ko": "영구 삭제…",
+  "ja": "完全に削除…",
+  "zh": "永久删除…"
+ },
+ "Deleted": {
+  "ko": "삭제됨",
+  "ja": "削除",
+  "zh": "已删除"
+ },
+ "Deleted 1 item permanently.": {
+  "ko": "항목 1개를 영구 삭제했어요.",
+  "ja": "1項目を完全に削除しました。",
+  "zh": "已永久删除 1 项。"
+ },
+ "Deleted by {pc}": {
+  "ko": "{pc}에서 삭제했어요",
+  "ja": "{pc}で削除",
+  "zh": "由 {pc} 删除"
+ },
+ "Deleted files and folders of this drive appear here until they expire, so you can restore them.": {
+  "ko": "이 드라이브에서 삭제한 파일과 폴더는 만료될 때까지 여기에 남아 있어서 복원할 수 있어요.",
+  "ja": "このドライブで削除したファイルやフォルダーは期限までここに残り、復元できます。",
+  "zh": "此驱动器中删除的文件和文件夹会保留在这里直到过期，可随时恢复。"
+ },
+ "Deleted files and folders, to restore them.": {
+  "ko": "삭제한 파일과 폴더를 복원할 수 있어요.",
+  "ja": "削除したファイルとフォルダー（復元用）。",
+  "zh": "已删除的文件和文件夹，可恢复。"
+ },
+ "Deleted files stay in the trash until you delete them or empty the trash.": {
+  "ko": "삭제한 파일은 직접 삭제하거나 휴지통을 비울 때까지 휴지통에 남아요.",
+  "ja": "削除したファイルは、完全に削除するかゴミ箱を空にするまでゴミ箱に残ります。",
+  "zh": "删除的文件会一直留在回收站，直到你永久删除或清空回收站。"
+ },
+ "Deleted files wait in the trash and earlier versions of changed files are kept, so they can be restored from Files › Library.": {
+  "ko": "삭제한 파일은 휴지통에 남고, 바뀐 파일의 이전 버전도 보관돼서 파일 › 라이브러리에서 복원할 수 있어요.",
+  "ja": "削除したファイルはゴミ箱に残り、変更したファイルの以前のバージョンも保持されるので、ファイル › ライブラリから復元できます。",
+  "zh": "删除的文件会留在回收站，已更改文件的旧版本也会保留，可在 文件 › 资料库 中恢复。"
+ },
+ "Deleted the expired items permanently.": {
+  "ko": "만료된 항목을 영구 삭제했어요.",
+  "ja": "期限切れの項目を完全に削除しました。",
+  "zh": "已永久删除过期项。"
+ },
+ "Deleted {n} items permanently.": {
+  "ko": "항목 {n}개를 영구 삭제했어요.",
+  "ja": "{n}項目を完全に削除しました。",
+  "zh": "已永久删除 {n} 项。"
+ },
+ "Deleted {time} by {pc}": {
+  "ko": "{time}에 {pc}에서 삭제했어요",
+  "ja": "{time}に{pc}で削除",
+  "zh": "{time} 由 {pc} 删除"
+ },
+ "Deleted, coming back ({n})": {
+  "ko": "삭제됐다가 돌아옴 ({n})",
+  "ja": "削除済み、戻る（{n}）",
+  "zh": "已删除，将恢复（{n}）"
+ },
+ "Earlier versions of this file, to restore one.": {
+  "ko": "이 파일의 이전 버전을 보고 복원할 수 있어요.",
+  "ja": "このファイルの以前のバージョン（復元用）。",
+  "zh": "此文件的旧版本，可从中恢复。"
+ },
+ "Empty the trash?": {
+  "ko": "휴지통을 비울까요?",
+  "ja": "ゴミ箱を空にしますか？",
+  "zh": "清空回收站？"
+ },
+ "Empty trash": {
+  "ko": "휴지통 비우기",
+  "ja": "ゴミ箱を空にする",
+  "zh": "清空回收站"
+ },
+ "Empty trash…": {
+  "ko": "휴지통 비우기…",
+  "ja": "ゴミ箱を空にする…",
+  "zh": "清空回收站…"
+ },
+ "Every previous version is kept: the pool grows with each change to a file.": {
+  "ko": "이전 버전을 모두 보관해요. 파일을 바꿀 때마다 풀 사용량이 늘어나요.",
+  "ja": "以前のバージョンをすべて保持します。ファイルを変更するたびにプールの使用量が増えます。",
+  "zh": "保留所有旧版本：每次更改文件，池占用都会增加。"
+ },
+ "Expired": {
+  "ko": "만료됨",
+  "ja": "期限切れ",
+  "zh": "已过期"
+ },
+ "Expires in 1 day": {
+  "ko": "1일 후 만료",
+  "ja": "1日後に期限切れ",
+  "zh": "1 天后过期"
+ },
+ "Expires in {n} days": {
+  "ko": "{n}일 후 만료",
+  "ja": "{n}日後に期限切れ",
+  "zh": "{n} 天后过期"
+ },
+ "Expires today": {
+  "ko": "오늘 만료",
+  "ja": "今日で期限切れ",
+  "zh": "今天过期"
+ },
+ "Go back to": {
+  "ko": "되돌아갈 시점",
+  "ja": "戻す時点",
+  "zh": "回到"
+ },
+ "Items marked “from rollback” were created after the time a rollback went back to, so the rollback moved them here. Restore them to undo that part of the rollback.": {
+  "ko": "“되돌리기로 이동” 표시가 있는 항목은 되돌린 시점 이후에 만들어져서 되돌리기가 여기로 옮긴 거예요. 복원하면 되돌리기의 그 부분이 취소돼요.",
+  "ja": "「ロールバックで移動」と表示された項目は、ロールバック先の時点より後に作成されたため、ここに移動されました。復元するとロールバックのその部分を取り消せます。",
+  "zh": "标记为“因回滚移入”的项目是在回滚时间点之后创建的，因此被回滚移到这里。恢复它们即可撤销回滚的这一部分。"
+ },
+ "Its data has expired or was deleted permanently.": {
+  "ko": "데이터가 만료됐거나 영구 삭제됐어요.",
+  "ja": "データの期限が切れたか、完全に削除されました。",
+  "zh": "其数据已过期或已被永久删除。"
+ },
+ "Kept until deleted": {
+  "ko": "삭제할 때까지 보관",
+  "ja": "削除するまで保持",
+  "zh": "保留直到删除"
+ },
+ "Leaves the trash": {
+  "ko": "휴지통 보관 기한",
+  "ja": "ゴミ箱の保持期限",
+  "zh": "离开回收站"
+ },
+ "Make the selected version the current one.": {
+  "ko": "선택한 버전을 현재 버전으로 만들어요.",
+  "ja": "選択したバージョンを現在のバージョンにします。",
+  "zh": "将所选版本设为当前版本。"
+ },
+ "Marks the deletion: there is no content to restore.": {
+  "ko": "삭제 기록이에요. 복원할 내용이 없어요.",
+  "ja": "削除の記録です。復元する内容はありません。",
+  "zh": "这是删除记录：没有可恢复的内容。"
+ },
+ "Modified": {
+  "ko": "수정됨",
+  "ja": "変更",
+  "zh": "已修改"
+ },
+ "Moved here by a rollback: it was created after the rollback's time.": {
+  "ko": "되돌리기로 여기에 옮겨졌어요. 되돌린 시점 이후에 만들어진 항목이에요.",
+  "ja": "ロールバックでここに移動しました。ロールバック先の時点より後に作成されています。",
+  "zh": "由回滚移到这里：它创建于回滚时间点之后。"
+ },
+ "Newer, moving to the trash ({n})": {
+  "ko": "새로 생겨서 휴지통으로 이동 ({n})",
+  "ja": "新しいもの、ゴミ箱へ移動（{n}）",
+  "zh": "较新，移到回收站（{n}）"
+ },
+ "No earlier versions of this file are recorded.": {
+  "ko": "이 파일의 이전 버전 기록이 없어요.",
+  "ja": "このファイルの以前のバージョンは記録されていません。",
+  "zh": "没有记录此文件的旧版本。"
+ },
+ "No folders match.": {
+  "ko": "일치하는 폴더가 없어요.",
+  "ja": "一致するフォルダーはありません。",
+  "zh": "没有匹配的文件夹。"
+ },
+ "Nothing changed here since {time}.": {
+  "ko": "{time} 이후 여기에서 바뀐 게 없어요.",
+  "ja": "{time}以降、ここでは何も変更されていません。",
+  "zh": "自 {time} 以来此处没有任何更改。"
+ },
+ "Original folder": {
+  "ko": "원래 폴더",
+  "ja": "元のフォルダー",
+  "zh": "原文件夹"
+ },
+ "Permanently delete the items whose time in the trash is over.": {
+  "ko": "휴지통 보관 기간이 끝난 항목을 영구 삭제해요.",
+  "ja": "ゴミ箱での保持期間が過ぎた項目を完全に削除します。",
+  "zh": "永久删除回收站保留期已过的项目。"
+ },
+ "Pick a date and time": {
+  "ko": "날짜와 시간 지정",
+  "ja": "日時を指定",
+  "zh": "选择日期和时间"
+ },
+ "Pick a time in the past.": {
+  "ko": "지난 시간을 골라 주세요.",
+  "ja": "過去の時刻を選んでください。",
+  "zh": "请选择过去的时间。"
+ },
+ "Preview again": {
+  "ko": "다시 미리 보기",
+  "ja": "もう一度プレビュー",
+  "zh": "重新预览"
+ },
+ "Preview changes": {
+  "ko": "변경 미리 보기",
+  "ja": "変更をプレビュー",
+  "zh": "预览更改"
+ },
+ "Put the selected items back where they were.": {
+  "ko": "선택한 항목을 원래 위치로 되돌려요.",
+  "ja": "選択した項目を元の場所に戻します。",
+  "zh": "将所选项目放回原处。"
+ },
+ "Put the selected items into a folder you choose.": {
+  "ko": "선택한 항목을 고른 폴더에 넣어요.",
+  "ja": "選択した項目を選んだフォルダーに入れます。",
+  "zh": "将所选项目放入你选择的文件夹。"
+ },
+ "Put the whole drive back the way it was at an earlier time.": {
+  "ko": "드라이브 전체를 이전 시점 상태로 되돌려요.",
+  "ja": "ドライブ全体を以前の時点の状態に戻します。",
+  "zh": "将整个驱动器恢复到较早时间的状态。"
+ },
+ "Put this folder back the way it was at an earlier time.": {
+  "ko": "이 폴더를 이전 시점 상태로 되돌려요.",
+  "ja": "このフォルダーを以前の時点の状態に戻します。",
+  "zh": "将此文件夹恢复到较早时间的状态。"
+ },
+ "Read the trash again.": {
+  "ko": "휴지통을 다시 읽어요.",
+  "ja": "ゴミ箱を読み直します。",
+  "zh": "重新读取回收站。"
+ },
+ "Reading the settings…": {
+  "ko": "설정을 읽는 중이에요…",
+  "ja": "設定を読み込み中…",
+  "zh": "正在读取设置…"
+ },
+ "Reading the trash…": {
+  "ko": "휴지통을 읽는 중이에요…",
+  "ja": "ゴミ箱を読み込み中…",
+  "zh": "正在读取回收站…"
+ },
+ "Reading the versions…": {
+  "ko": "버전을 읽는 중이에요…",
+  "ja": "バージョンを読み込み中…",
+  "zh": "正在读取版本…"
+ },
+ "Restore as a copy": {
+  "ko": "사본으로 복원",
+  "ja": "コピーとして復元",
+  "zh": "恢复为副本"
+ },
+ "Restore here": {
+  "ko": "여기에 복원",
+  "ja": "ここに復元",
+  "zh": "恢复到此处"
+ },
+ "Restore into: {folder}": {
+  "ko": "복원 위치: {folder}",
+  "ja": "復元先：{folder}",
+  "zh": "恢复到：{folder}"
+ },
+ "Restore this version": {
+  "ko": "이 버전 복원",
+  "ja": "このバージョンを復元",
+  "zh": "恢复此版本"
+ },
+ "Restore to a folder": {
+  "ko": "폴더로 복원",
+  "ja": "フォルダーに復元",
+  "zh": "恢复到文件夹"
+ },
+ "Restore to…": {
+  "ko": "다른 위치로 복원…",
+  "ja": "別の場所に復元…",
+  "zh": "恢复到…"
+ },
+ "Restored": {
+  "ko": "복원됨",
+  "ja": "復元",
+  "zh": "已恢复"
+ },
+ "Restored 1 item from the trash.": {
+  "ko": "휴지통에서 항목 1개를 복원했어요.",
+  "ja": "ゴミ箱から1項目を復元しました。",
+  "zh": "已从回收站恢复 1 项。"
+ },
+ "Restored an earlier version of {name} as a copy next to it.": {
+  "ko": "{name}의 이전 버전을 옆에 사본으로 복원했어요.",
+  "ja": "{name}の以前のバージョンをコピーとして隣に復元しました。",
+  "zh": "已将 {name} 的旧版本恢复为旁边的副本。"
+ },
+ "Restored an earlier version of {name}; the replaced one is kept as a version.": {
+  "ko": "{name}의 이전 버전을 복원했어요. 바뀌기 전 내용은 버전으로 남아 있어요.",
+  "ja": "{name}の以前のバージョンを復元しました。置き換えられた内容はバージョンとして残ります。",
+  "zh": "已恢复 {name} 的旧版本；被替换的内容会保留为一个版本。"
+ },
+ "Restored {n} items from the trash.": {
+  "ko": "휴지통에서 항목 {n}개를 복원했어요.",
+  "ja": "ゴミ箱から{n}項目を復元しました。",
+  "zh": "已从回收站恢复 {n} 项。"
+ },
+ "Restoring keeps the current content as a version, so nothing is lost.": {
+  "ko": "복원해도 현재 내용은 버전으로 남아서 잃는 게 없어요.",
+  "ja": "復元しても現在の内容はバージョンとして残るので、何も失われません。",
+  "zh": "恢复时当前内容会保留为一个版本，不会丢失任何内容。"
+ },
+ "Roll back the whole drive": {
+  "ko": "드라이브 전체 되돌리기",
+  "ja": "ドライブ全体をロールバック",
+  "zh": "回滚整个驱动器"
+ },
+ "Roll back this folder…": {
+  "ko": "이 폴더 되돌리기…",
+  "ja": "このフォルダーをロールバック…",
+  "zh": "回滚此文件夹…"
+ },
+ "Roll back “{folder}”": {
+  "ko": "“{folder}” 되돌리기",
+  "ja": "「{folder}」をロールバック",
+  "zh": "回滚“{folder}”"
+ },
+ "Roll back…": {
+  "ko": "되돌리기…",
+  "ja": "ロールバック…",
+  "zh": "回滚…"
+ },
+ "Rollback puts files back the way they were at the chosen time. It can be undone: changed files get a new version with the old content, and files created after that time move to the trash.": {
+  "ko": "되돌리기는 파일을 고른 시점의 상태로 돌려놔요. 다시 되돌릴 수도 있어요. 바뀐 파일은 옛 내용으로 새 버전이 만들어지고, 그 시점 이후에 만든 파일은 휴지통으로 옮겨져요.",
+  "ja": "ロールバックはファイルを選んだ時点の状態に戻します。元に戻すこともできます。変更されたファイルには以前の内容で新しいバージョンが作られ、その時点より後に作成されたファイルはゴミ箱に移動します。",
+  "zh": "回滚会将文件恢复到所选时间的状态，并且可以撤销：已更改的文件会以旧内容生成新版本，在该时间之后创建的文件会移到回收站。"
+ },
+ "Rolled back {n} changes. Files created after that time are in the trash.": {
+  "ko": "변경 {n}개를 되돌렸어요. 그 시점 이후에 만든 파일은 휴지통에 있어요.",
+  "ja": "{n}件の変更をロールバックしました。その時点より後に作成されたファイルはゴミ箱にあります。",
+  "zh": "已回滚 {n} 项更改。在该时间之后创建的文件在回收站中。"
+ },
+ "Rolling back…": {
+  "ko": "되돌리는 중이에요…",
+  "ja": "ロールバック中…",
+  "zh": "正在回滚…"
+ },
+ "Save": {
+  "ko": "저장",
+  "ja": "保存",
+  "zh": "保存"
+ },
+ "Save the selected version as a new file next to this one.": {
+  "ko": "선택한 버전을 이 파일 옆에 새 파일로 저장해요.",
+  "ja": "選択したバージョンをこのファイルの隣に新しいファイルとして保存します。",
+  "zh": "将所选版本另存为此文件旁边的新文件。"
+ },
+ "Saved the trash and version settings.": {
+  "ko": "휴지통과 버전 설정을 저장했어요.",
+  "ja": "ゴミ箱とバージョンの設定を保存しました。",
+  "zh": "已保存回收站和版本设置。"
+ },
+ "Saved: trash {trash} · versions per file {count} · version age {days}": {
+  "ko": "저장됨: 휴지통 {trash} · 파일당 버전 {count} · 버전 보관 {days}",
+  "ja": "保存済み：ゴミ箱 {trash} · ファイルごとのバージョン {count} · バージョン保持 {days}",
+  "zh": "已保存：回收站 {trash} · 每个文件版本 {count} · 版本保留 {days}"
+ },
+ "Search folders…": {
+  "ko": "폴더 검색…",
+  "ja": "フォルダーを検索…",
+  "zh": "搜索文件夹…"
+ },
+ "Search the trash…": {
+  "ko": "휴지통 검색…",
+  "ja": "ゴミ箱を検索…",
+  "zh": "搜索回收站…"
+ },
+ "Select a version to restore it.": {
+  "ko": "복원할 버전을 선택해 주세요.",
+  "ja": "復元するバージョンを選択してください。",
+  "zh": "选择要恢复的版本。"
+ },
+ "Select all shown items": {
+  "ko": "표시된 항목 모두 선택",
+  "ja": "表示中の項目をすべて選択",
+  "zh": "选择所有显示的项目"
+ },
+ "Select and load a saved pool to see its trash and version settings.": {
+  "ko": "저장된 풀을 선택하고 불러오면 휴지통과 버전 설정을 볼 수 있어요.",
+  "ja": "保存済みのプールを選択して読み込むと、ゴミ箱とバージョンの設定を確認できます。",
+  "zh": "选择并加载已保存的池以查看其回收站和版本设置。"
+ },
+ "Selected items with a file of the same name at their old place: {n}. Restore keeps both (the restored item gets a new name); Restore to… puts them into another folder.": {
+  "ko": "원래 위치에 같은 이름의 파일이 있는 선택 항목: {n}개. 복원하면 둘 다 유지되고(복원된 항목에 새 이름이 붙어요), 다른 위치로 복원…을 쓰면 다른 폴더에 넣을 수 있어요.",
+  "ja": "元の場所に同じ名前のファイルがある選択項目：{n}件。復元すると両方が残り（復元した項目には新しい名前が付きます）、「別の場所に復元…」で別のフォルダーに入れられます。",
+  "zh": "原位置已有同名文件的所选项目：{n} 项。恢复会保留两者（恢复的项目会使用新名称）；“恢复到…”可放入其他文件夹。"
+ },
+ "The change failed: {error} (see Jobs for details).": {
+  "ko": "변경에 실패했어요: {error} (자세한 내용은 작업에서 확인해 주세요).",
+  "ja": "変更に失敗しました：{error}（詳細はジョブを確認してください）。",
+  "zh": "更改失败：{error}（详情请查看任务）。"
+ },
+ "The change failed; see Jobs for details.": {
+  "ko": "변경에 실패했어요. 자세한 내용은 작업에서 확인해 주세요.",
+  "ja": "変更に失敗しました。詳細はジョブを確認してください。",
+  "zh": "更改失败；详情请查看任务。"
+ },
+ "The change was cancelled.": {
+  "ko": "변경이 취소됐어요.",
+  "ja": "変更はキャンセルされました。",
+  "zh": "更改已取消。"
+ },
+ "The command printed no readable result.": {
+  "ko": "명령이 읽을 수 있는 결과를 출력하지 않았어요.",
+  "ja": "コマンドは読み取れる結果を出力しませんでした。",
+  "zh": "命令未输出可读取的结果。"
+ },
+ "The folders and files on the drive.": {
+  "ko": "드라이브의 폴더와 파일이에요.",
+  "ja": "ドライブ上のフォルダーとファイル。",
+  "zh": "驱动器上的文件夹和文件。"
+ },
+ "The preview failed: {error}": {
+  "ko": "미리 보기에 실패했어요: {error}",
+  "ja": "プレビューに失敗しました：{error}",
+  "zh": "预览失败：{error}"
+ },
+ "The query stopped unexpectedly.": {
+  "ko": "조회가 예기치 않게 중단됐어요.",
+  "ja": "照会が予期せず停止しました。",
+  "zh": "查询意外停止。"
+ },
+ "The settings could not be read: {error}": {
+  "ko": "설정을 읽지 못했어요: {error}",
+  "ja": "設定を読み込めませんでした：{error}",
+  "zh": "无法读取设置：{error}"
+ },
+ "The trash could not be read: {error}": {
+  "ko": "휴지통을 읽지 못했어요: {error}",
+  "ja": "ゴミ箱を読み込めませんでした：{error}",
+  "zh": "无法读取回收站：{error}"
+ },
+ "The trash is empty now.": {
+  "ko": "휴지통을 비웠어요.",
+  "ja": "ゴミ箱を空にしました。",
+  "zh": "回收站现已清空。"
+ },
+ "The trash is empty.": {
+  "ko": "휴지통이 비어 있어요.",
+  "ja": "ゴミ箱は空です。",
+  "zh": "回收站是空的。"
+ },
+ "The versions could not be read: {error}": {
+  "ko": "버전을 읽지 못했어요: {error}",
+  "ja": "バージョンを読み込めませんでした：{error}",
+  "zh": "无法读取版本：{error}"
+ },
+ "This is the current version.": {
+  "ko": "현재 버전이에요.",
+  "ja": "これは現在のバージョンです。",
+  "zh": "这是当前版本。"
+ },
+ "Trash": {
+  "ko": "휴지통",
+  "ja": "ゴミ箱",
+  "zh": "回收站"
+ },
+ "Trash & versions": {
+  "ko": "휴지통 및 버전",
+  "ja": "ゴミ箱とバージョン",
+  "zh": "回收站和版本"
+ },
+ "Type the time as YYYY-MM-DD HH:MM, e.g. 2026-09-30 14:00.": {
+  "ko": "시간을 YYYY-MM-DD HH:MM 형식으로 입력해 주세요(예: 2026-09-30 14:00).",
+  "ja": "時刻は YYYY-MM-DD HH:MM の形式で入力してください（例：2026-09-30 14:00）。",
+  "zh": "请按 YYYY-MM-DD HH:MM 格式输入时间，例如 2026-09-30 14:00。"
+ },
+ "Undo changes": {
+  "ko": "변경 취소",
+  "ja": "変更を元に戻す",
+  "zh": "撤销更改"
+ },
+ "Versions": {
+  "ko": "버전",
+  "ja": "バージョン",
+  "zh": "版本"
+ },
+ "Versions to keep must be 0 to {max}.": {
+  "ko": "보관할 버전 수는 0~{max}이어야 해요.",
+  "ja": "保持するバージョン数は0〜{max}にしてください。",
+  "zh": "保留版本数必须为 0 到 {max}。"
+ },
+ "Versions to keep per file": {
+  "ko": "파일당 보관할 버전 수",
+  "ja": "ファイルごとに保持するバージョン数",
+  "zh": "每个文件保留的版本数"
+ },
+ "Versions…": {
+  "ko": "버전…",
+  "ja": "バージョン…",
+  "zh": "版本…"
+ },
+ "Was in: {folder}": {
+  "ko": "원래 위치: {folder}",
+  "ja": "元の場所：{folder}",
+  "zh": "原位置：{folder}"
+ },
+ "Working out the changes…": {
+  "ko": "변경 내용을 계산하는 중이에요…",
+  "ja": "変更内容を計算中…",
+  "zh": "正在计算更改…"
+ },
+ "Working…": {
+  "ko": "처리 중이에요…",
+  "ja": "処理中…",
+  "zh": "处理中…"
+ },
+ "Yes, apply rollback": {
+  "ko": "네, 되돌리기 적용",
+  "ja": "はい、ロールバックを適用",
+  "zh": "是，应用回滚"
+ },
+ "from rollback": {
+  "ko": "되돌리기로 이동",
+  "ja": "ロールバックで移動",
+  "zh": "因回滚移入"
+ },
+ "name in use": {
+  "ko": "이름 사용 중",
+  "ja": "名前が使用中",
+  "zh": "名称已占用"
+ },
+ "{n} changes": {
+  "ko": "변경 {n}개",
+  "ja": "{n}件の変更",
+  "zh": "{n} 项更改"
+ },
+ "{n} days": {
+  "ko": "{n}일",
+  "ja": "{n}日",
+  "zh": "{n} 天"
+ },
+ "{n} items ({size}) will be deleted permanently. They cannot be restored afterwards.": {
+  "ko": "항목 {n}개({size})가 영구 삭제돼요. 삭제 후에는 복원할 수 없어요.",
+  "ja": "{n}項目（{size}）が完全に削除されます。削除後は復元できません。",
+  "zh": "{n} 项（{size}）将被永久删除，删除后无法恢复。"
+ },
+ "{n} items · {size}": {
+  "ko": "항목 {n}개 · {size}",
+  "ja": "{n}項目 · {size}",
+  "zh": "{n} 项 · {size}"
+ },
+ "{n} more folders: narrow the search.": {
+  "ko": "폴더 {n}개가 더 있어요. 검색어를 좁혀 주세요.",
+  "ja": "ほかに{n}個のフォルダーがあります。検索を絞り込んでください。",
+  "zh": "还有 {n} 个文件夹：请缩小搜索范围。"
+ },
+ "{n} selected · {size}": {
+  "ko": "{n}개 선택됨 · {size}",
+  "ja": "{n}件選択 · {size}",
+  "zh": "已选 {n} 项 · {size}"
+ },
+ "…and {n} more": {
+  "ko": "…외 {n}개",
+  "ja": "…ほか{n}件",
+  "zh": "…还有 {n} 项"
+ }
+}
