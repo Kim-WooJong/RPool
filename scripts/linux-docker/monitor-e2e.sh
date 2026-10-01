@@ -28,7 +28,7 @@ done
 mount_pool() { # NAME
   mkdir -p $E/mnt-$1
   D="--capacity-domain b${1}1=a1 --capacity-domain b${1}2=a2 --capacity-domain b${1}3=a3 --failure-domain b${1}1=g1 --failure-domain b${1}2=g2 --failure-domain b${1}3=g3"
-  $RPOOL mount --virtual-drive --pool-sync --pool pool-$1 --workspace $E/ws/$1 --mountpoint $E/mnt-$1 \
+  $RPOOL mount --pool pool-$1 --workspace $E/ws/$1 --mountpoint $E/mnt-$1 \
     --pool-worker PC-A --stop-file $E/stop-$1 --interval-seconds 2 $D > $E/mount-$1.log 2>&1 &
   eval PID_$1=$!
 }

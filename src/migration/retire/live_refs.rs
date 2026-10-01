@@ -50,7 +50,7 @@ pub(crate) fn collect(sources: &Sources<'_>) -> References {
     refs
 }
 
-fn inventory(sources: &Sources<'_>, refs: &mut References) {
+pub(crate) fn inventory(sources: &Sources<'_>, refs: &mut References) {
     let store = match crate::inventory::load_inventory() {
         Ok(store) => store,
         Err(error) => {
@@ -84,7 +84,7 @@ fn inventory(sources: &Sources<'_>, refs: &mut References) {
     }
 }
 
-fn cloud_manifests(sources: &Sources<'_>, refs: &mut References) {
+pub(crate) fn cloud_manifests(sources: &Sources<'_>, refs: &mut References) {
     let mut by_id: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (root, listing) in sources.listings {
         if let Some(files) = listing.files() {
@@ -125,7 +125,7 @@ fn cloud_manifests(sources: &Sources<'_>, refs: &mut References) {
 
 /// Migrations still in progress may read their sources or be writing
 /// copies: everything they name is referenced.
-fn other_migrations(sources: &Sources<'_>, refs: &mut References) {
+pub(crate) fn other_migrations(sources: &Sources<'_>, refs: &mut References) {
     let ids = match discover(sources.rclone, sources.pool) {
         Ok(ids) => ids,
         Err(error) => {

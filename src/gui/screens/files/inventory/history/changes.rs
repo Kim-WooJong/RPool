@@ -17,13 +17,12 @@ pub(crate) fn start(
     change: Change,
     args: Vec<OsString>,
 ) {
-    let retention = matches!(change, Change::Retention(_));
     let result = task.start_rpool(change.task_name(), rclone, args);
     let state = form.pool(pool);
-    let slot = if retention {
-        &mut state.retention_notice
-    } else {
-        &mut state.notice
+    let slot = match change {
+        Change::Retention(_) => &mut state.retention_notice,
+        Change::Cleanup { .. } => &mut state.cleanup_notice,
+        _ => &mut state.notice,
     };
     match result {
         Ok(()) => {
@@ -62,6 +61,7 @@ pub(crate) fn success_text(change: &Change) -> String {
             &[("n", changes)],
         ),
         Change::Retention(_) => tr("Saved the trash and version settings.").into(),
+        Change::Cleanup { .. } => tr("Cleanup finished. Newly found data waits for its grace period; data past it was deleted.").into(),
     }
 }
 
@@ -122,6 +122,16 @@ pub(crate) fn handle_task_completion(form: &mut HistoryForm, task: &TaskRunner, 
     // Retention changes touch no files; everything else reloads the views.
     if matches!(change, Change::Retention(_)) {
         form.pool(&pool).retention_notice = Some(notice);
+    } else if matches!(change, Change::Cleanup { .. }) {
+        let history = form.pool(&pool);
+        history.cleanup_confirm = super::state::CleanupConfirm::None;
+        // Show the new state; deleted versions are no longer restorable.
+        history.cleanup.stale = history.cleanup.value.is_some();
+        history.trash.stale = true;
+        history.cleanup_notice = Some(notice);
+        if let Some(panel) = form.versions.as_mut().filter(|v| v.pool == pool) {
+            panel.fetch.stale = true;
+        }
     } else {
         form.invalidate(&pool);
         form.pool(&pool).notice = Some(notice);
@@ -170,6 +180,29 @@ mod tests {
         let status = failed.poll().unwrap();
         handle_task_completion(&mut form, &failed, status);
         assert!(matches!(&form.pool("family").notice, Some((false, _))));
+    }
+
+    #[test]
+    fn a_finished_cleanup_refreshes_its_preview() {
+        let mut form = HistoryForm::default();
+        let mut task = TaskRunner::default();
+        let change = Change::Cleanup { force: true };
+        task.fake_running(change.task_name());
+        form.running = Some(("p".into(), change));
+        let pool = form.pool("p");
+        pool.cleanup = Fetch::ready(super::super::sample::cleanup_report(1_000));
+        pool.cleanup_confirm = super::super::state::CleanupConfirm::Guard;
+        task.fake_finish(true);
+        let status = task.poll().unwrap();
+        handle_task_completion(&mut form, &task, status);
+        let pool = form.pool("p");
+        assert!(pool.cleanup.needs_load() && pool.trash.needs_load());
+        assert_eq!(
+            pool.cleanup_confirm,
+            super::super::state::CleanupConfirm::None
+        );
+        assert!(matches!(&pool.cleanup_notice, Some((true, _))));
+        assert!(pool.notice.is_none());
     }
 
     #[test]

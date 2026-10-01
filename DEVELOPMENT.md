@@ -1,10 +1,10 @@
 # rpool development rules
 
-Current delivery/version policy: [VERSIONING.md](docs/VERSIONING.md). Source lives in the Git repository and changes are recorded as Git commits; there are no source snapshots or ZIP deliveries. Build and test in a working copy under `projects/rpool/`, never inside the source repository, with `CARGO_TARGET_DIR` outside the source tree. Older checkpoint notes below that mention ZIP deliveries, reserved versions or "no cargo runs" are historical.
+Current delivery/version policy: [VERSIONING.md](docs/VERSIONING.md). Source lives in the Git repository and changes are recorded as Git commits; there are no source snapshots or ZIP deliveries. Build and test in a working copy under `projects/rpool/`, never inside the source repository, with `CARGO_TARGET_DIR` outside the source tree.
 
-## Storage pivot validation checkpoint
+## Structure
 
-Run cargo test --locked --bin rpool and cargo test --locked --features opendal-prototype --bin rpool, plus both cargo build variants. The 3-OS workflow includes these configurations but has not been executed here. Retired paths are listed explicitly in scripts/update-cleanup.nu; review with --dry-run before applying to an older tree. No blanket dead-code/unused suppression: preserve justified contract/crypto surfaces and record remaining diagnostics. See docs/architecture/verification.md for executed vs pending checks.
+No blanket dead-code/unused suppression: preserve justified contract/crypto surfaces and fix or record remaining diagnostics. Removed features are deleted with their code, options and GUI; Git history is the record, so no retired-path cleanup list is kept.
 
 The project follows three structural rules by default.
 
@@ -138,13 +138,9 @@ The GUI sidebar has eight top-level work areas (`src/gui/navigation.rs`): Overvi
 
 - Files inventory presentation is split under `src/gui/screens/files/inventory/` into data mapping, filters, table, details, rebuild controls, and view state.
 
-## Upgrade hygiene
+## Drive mode
 
-- Every version that retires or relocates source files must update `scripts/update-cleanup.nu`.
-- The cleanup list must be explicit; never delete broad directories or glob arbitrary user files.
-- The script must verify it is operating on an rpool project before deleting anything.
-- Keep `--dry-run` available so an in-place update can be inspected before removal.
-- A clean Git checkout never requires the cleanup script; it exists for overlaying a newer tree onto an older copy.
+`rpool mount` has one mode: the virtual drive with v6 pool sync (`src/mount/`, see `docs/MOUNT.md` and `docs/PEER_SYNC_DESIGN.md`). Earlier modes (v3 shared root, v5 bounded shared, v7 peer snapshots, "this PC only" retention, full local replica) were removed with their options; their workspaces are refused at open. Do not reintroduce mode switches: new drive behaviour extends the v6 format compatibly (older RPool must keep reading it, or refuse loudly as metadata compaction does). Every CLI change ships with the matching GUI change.
 
 
 ## GUI progress protocol
@@ -182,37 +178,10 @@ The latest scrub/repair summary is stored as local derived metadata (`integrity.
 `integrity.json` is advisory/rebuildable state written after scrub and repair scans. The Metadata screen owns manifest-replica operations and inventory rebuild; Diagnostics owns Doctor presentation. Do not make inventory or integrity snapshots authoritative over manifests or remote shards.
 
 
-## Crypt Secret Portability checkpoint
+## Crypt Secret Portability
 
-See `docs/CRYPT_SECRET_PORTABILITY.md` and
-`docs/CRYPT_SECRET_PORTABILITY_STATE.json` before continuing. B5 transactional
-restoration now supports both rclone-encrypted and ordinary plaintext rclone
-configs without creating additional plaintext staging/backup files. B7 top-level
-`rpool export` / `rpool import` integration is complete. The 11 ignored B6
-real-tool tests passed on macOS ARM64 and Linux ARM64 on 2026-09-24
-([runtime-validation](docs/architecture/runtime-validation.md)); Windows has not
-run them. The full-project ZIP delivery of this checkpoint is historical.
+Design and invariants: `docs/CRYPT_SECRET_PORTABILITY.md`. Transactional restore supports both rclone-encrypted and plaintext rclone configs without extra plaintext staging/backup files. The ignored real-tool tests in `src/config_sync/b6_integration_tests.rs` create isolated rclone configs, local crypt remotes and age identities and check exact obscured-value preservation, decryption of pre-existing crypt data after restore, optional `password2`, idempotency and fail-before-mutation cases. Run them with `cargo test -- --ignored config_sync::b6` (needs rclone, age and age-keygen). They passed on macOS ARM64 and Linux ARM64 on 2026-09-24; Windows has not run them.
 
+## Cross-platform priority
 
-## Crypt Secret Portability checkpoint — B6
-
-B6 adds ignored real-tool integration coverage in `src/config_sync/b6_integration_tests.rs`.
-The harness creates isolated temporary rclone configs, local backends, crypt remotes,
-age identities and encrypted sentinels. It checks exact obscured-value preservation,
-actual pre-existing crypt data decryption after restore, optional password2 behavior,
-idempotency, and fail-before-mutation behavior for wrong/missing identities, corrupted
-vaults, invalid schema, missing passwords, name mismatches and non-crypt targets.
-Run them with `cargo test -- --ignored config_sync::b6` (needs rclone, age and
-age-keygen). B7 CLI orchestration is complete. The planned v0.5.16 sequence was
-superseded by 0.6.0 (see `docs/VERSIONING.md`).
-# Cross-platform priority (2026-09-23)
-
-Windows is the primary user environment. New work must consider Windows,
-macOS and Linux, preserve native path/argument handling, and avoid shell-only
-test fixtures. Report executed platforms separately from intended support.
-The storage cross-platform GitHub Actions workflow covers all three OSes, but
-the repository has no remote, so it has never run; `scripts/ci-local.sh` is the
-check that is actually executed.
-The Step4 LocalBackend remains a Unix-only synthetic prototype; Windows
-reparse-safe local implementation is still pending. Step5 RcloneBackend and its
-Rust fake-process fixtures use cross-platform std process/I/O APIs.
+Windows is the primary user environment. New work must consider Windows, macOS and Linux, preserve native path/argument handling, and avoid shell-only test fixtures. Report executed platforms separately from intended support. There is no hosted CI; `scripts/ci-local.sh` (macOS/Linux, plus the Windows cross check when the `x86_64-pc-windows-gnu` target is installed) and the Docker scripts in `scripts/linux-docker/` are the checks that are actually run. WinFsp and other Windows-only paths are compiled but have not been run on Windows.

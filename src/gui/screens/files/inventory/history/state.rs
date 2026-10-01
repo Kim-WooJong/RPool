@@ -4,7 +4,9 @@
 use super::query::Fetch;
 use super::rollback_time::TimePreset;
 use super::selection::Selection;
-use crate::drive_history::model::{Retention, RollbackPlan, TrashEntry, VersionEntry};
+use crate::drive_history::model::{
+    CleanupReport, Retention, RollbackPlan, TrashEntry, VersionEntry,
+};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Trash, retention and notices of one pool.
@@ -21,6 +23,22 @@ pub(crate) struct PoolHistory {
     pub(crate) notice: Option<(bool, String)>,
     /// Result of the last retention change (shown on the Pools card).
     pub(crate) retention_notice: Option<(bool, String)>,
+    /// Last `drive cleanup` preview ("Check now").
+    pub(crate) cleanup: Fetch<CleanupReport>,
+    /// Confirmation step of "Clean up now".
+    pub(crate) cleanup_confirm: CleanupConfirm,
+    /// Result of the last cleanup run.
+    pub(crate) cleanup_notice: Option<(bool, String)>,
+}
+
+/// "Clean up now" asks once, and once more when the mass-delete guard
+/// would stop the run.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum CleanupConfirm {
+    #[default]
+    None,
+    First,
+    Guard,
 }
 
 /// The versions side panel of one file.
@@ -87,6 +105,10 @@ pub(crate) enum Change {
         trashed: Vec<String>,
     },
     Retention(Retention),
+    /// `drive cleanup --confirm` (`force`: past the mass-delete guard).
+    Cleanup {
+        force: bool,
+    },
 }
 
 impl Change {
@@ -99,6 +121,7 @@ impl Change {
             Change::Version { .. } => "Version restore",
             Change::Rollback { .. } => "Rollback",
             Change::Retention(_) => "Trash and version settings",
+            Change::Cleanup { .. } => "Drive cleanup",
         }
     }
 }

@@ -1,13 +1,20 @@
 # Online drive write path and native frontend plan
 
-Updated: 2026-09-29. This is an implementation plan, not a claim that the
+Updated: 2026-10-01. This is an implementation plan, not a claim that the
 amplification or the 4 GiB roundtrip has already been fixed.
+
+Status: Phase 2 (filesystem core) is done, and Phase 3 has a Linux FUSE
+frontend (verified in Docker) and a Windows WinFsp frontend (compiled, not run);
+`--frontend auto` uses them by default where the build has one
+(`NATIVE_MOUNT_CRYPT_PLAN.md`). Phases 0 and 1 below concern the WebDAV route,
+which remains the fallback and the only route on macOS. The drive has one mode,
+the virtual drive with v6 pool sync.
 
 ## Goal and current evidence
 
 For one identifiable logical write generation, make retained transient bytes
 and published revisions independent of the number of OS write callbacks. Keep
-every independently acknowledged edit, v7 causal branch/original, reader-pinned
+every independently acknowledged edit, pool-sync conflict branch/original, reader-pinned
 revision, and unsynced byte. Cloud replication remains asynchronous and distinct
 from local save acknowledgement.
 
@@ -48,7 +55,7 @@ power-loss durability, or a 4 GiB cloud roundtrip.
    DAV write opens (truncate vs non-truncate), accepted body bytes, baseline
    copy bytes, completed seals, and incomplete bodies. Log aggregate counters
    only; never paths, tokens, request bodies, or headers. Separate actual
-   recursive spool bytes (including v7 `captured/` originals), allocated disk
+   recursive spool bytes, allocated disk
    blocks, pending count, and rclone VFS cache bytes. The existing `spool_bytes()`
    limit counts only each intent's top-level `content`; do not use it alone as
    total-space evidence.
@@ -64,7 +71,7 @@ power-loss durability, or a 4 GiB cloud roundtrip.
    VFS path.
 
 Exit gate: identify whether the growth comes from repeated full PUTs, baseline
-copies, v7 captured originals, or a combination. No unsafe server-side
+copies, or both. No unsafe server-side
 same-path coalescing before this gate.
 
 ## Phase 1 — remove avoidable amplification on the existing frontend
@@ -98,13 +105,12 @@ immutable pending intents:
   writes remain sibling edits. Sync claims frozen data before copying pending.
 - Per-path operation locks cover open through acknowledgement and coordinate
   reads, deletion, MOVE, freeze, and upload claim. Establish lock ordering and
-  atomic resolve-and-pin reads before enabling staging. Preserve v7 ancestry,
-  captured originals, unresolved conflicts, and existing refusal to MOVE with
+  atomic resolve-and-pin reads before enabling staging. Preserve pool-sync ancestry,
+  unresolved conflicts, and existing refusal to MOVE with
   pending edits.
 - Range writes need copy-on-write or a transactional log so a crash cannot
   damage the old acknowledged image. Do not implement them by in-place mutation
-  of a checkpoint. Add byte/count admission accounting for content, captured
-  originals, and candidates; budget rejection retains the old checkpoint.
+  of a checkpoint. Add byte/count admission accounting for content and candidates; budget rejection retains the old checkpoint.
 - Add a persisted format/protocol version and explicit rollback/migration rule.
   Older binaries must not silently ignore staged records.
 
@@ -120,7 +126,7 @@ Build stable file identity plus explicit handle/write-generation APIs:
 `lookup`, `open`, `read-at`, `write-at`, `truncate`, `flush/fsync`, `release`,
 `rename`, `delete`, and `freeze`. Specify which operation acknowledges local
 durability and which merely starts cloud sync. Keep immutable reader revisions,
-v7 causal parents, and atomic metadata MOVE. A native adapter must not bypass
+pool-sync causal parents, and atomic metadata MOVE. A native adapter must not bypass
 the same quota, retention, upload, and recovery rules. Use protocol-independent
 operation traces and fault injection before connecting an OS frontend.
 
@@ -146,13 +152,14 @@ workspaces, and an independent hash readback. Finally repeat the fresh 4 GiB
 copy with 9+3 placement, publish to real cloud, and read it from a separate
 workspace. Measure latency, cumulative bytes written, peak/retained spool,
 VFS/native cache, remote traffic, and clean/uncertain stop independently.
-Only after those gates may native become default or DAV support be retired.
+Native became the `auto` default on 2026-09-30 for Linux FUSE (and WinFsp
+builds); the gates above are still required before DAV support is retired.
 
 ## Roles and acceptance boundaries
 
 `main` owns the trace, code integration, source/work-copy separation, test runs,
 and final verification. Expert architecture work reviews the staging durability,
-lock ordering, v7 causality, and native OS contracts; an independent expert
+lock ordering, pool-sync causality, and native OS contracts; an independent expert
 reviews crash/conflict regression evidence before a frontend default switch.
 
 Current safe acceptance is narrow: a single completed new-file PUT gives one

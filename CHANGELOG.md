@@ -1,6 +1,44 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 — 2026-10-01
+
+Major version: the old drive modes were removed (see the first entry), so
+this release is incompatible with workspaces and options of earlier modes.
+
+**Migration notes.**
+- Only the v6 pool-sync virtual drive remains. Workspaces created with
+  v1 ("this PC only"), v3 (shared root), v5 (bounded shared), v7 (peer
+  snapshots) or as a full local replica do not open ("removed drive mode;
+  create a new workspace"). Copy their files out with the previous version
+  first, then mount the pool with a new workspace and copy them in.
+- Removed options are rejected: `--virtual-drive`, `--pool-sync` (now
+  implicit), `--pool-retention`, `--pool-history-limit`,
+  `--diagnostic-read-only`, `--bounded-shared`, `--shared-coordinator`,
+  `--shared-keep-previous`, `--shared-root`, `--worker-name` (use
+  `--pool-worker`), `--retention-report`, `--apply-retention`,
+  `--exclusive-archive-ownership`, `--keep-previous`, `--migrate-excluded`,
+  the hidden `--root` of `provider ensure-encryption`/`encrypt`, and
+  `rpool config export|import` (use `rpool export|import`).
+- Version history moved to the trash/versions/rollback feature with per-pool
+  retention (`rpool drive retention`), and unreferenced data is reclaimed by
+  `rpool drive cleanup` (automatic, with a grace period).
+- Saved GUI settings keep loading; removed fields are ignored and the PC name
+  is kept.
+
+- **Drive cleanup: deleted and expired data frees cloud space.** Archives
+  that only expired versions or purged/expired trash entries still name are
+  marked, wait a grace period (default 7 days, all PCs see the mark), are
+  re-checked against every reference (all drive generations incl.
+  checkpoints, inventory, other manifests, migrations, this PC's pending
+  state) and then deleted, manifests first, resumably; a mass-delete guard
+  (50 % or 10,000 objects) needs `--force`. Runs automatically from the mount
+  (daily, after 30 minutes) unless turned off. CLI `rpool drive cleanup
+  [--confirm] [--force] [--cancel]`, settings `rpool drive retention set
+  --auto-cleanup --cleanup-grace-days`; GUI: "Reclaimable space" in the
+  "Trash & versions" card.
+- **Docs**: historical design/step documents removed; README, MOUNT,
+  PEER_SYNC, compaction, history, migration and other docs describe the
+  single drive mode; Docker scripts use the current CLI.
 
 - **One drive mode.** `rpool mount` always runs the virtual drive with pool
   sync (v6). Removed, with their code, options and GUI: the v7 peer-snapshot

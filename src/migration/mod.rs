@@ -19,7 +19,7 @@ pub(crate) mod drive_source;
 pub(crate) mod drive_status;
 #[cfg(test)]
 pub(crate) mod drive_test_support;
-mod enumerate;
+pub(crate) mod enumerate;
 mod estimate;
 pub(crate) mod execute;
 pub(crate) mod journal;

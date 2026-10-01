@@ -18,7 +18,7 @@ $RPOOL pool set e2e --remote c1: --remote c2: --remote c3: --data-shards 2 --par
 WS=$E/ws-parent/ws
 start() {
   rm -f $E/stop
-  $RPOOL mount --virtual-drive --pool e2e --workspace $WS --mountpoint $E/mnt --frontend fuse \
+  $RPOOL mount --pool e2e --workspace $WS --mountpoint $E/mnt --frontend fuse \
     --stop-file $E/stop --interval-seconds 2 \
     --capacity-domain b1=acct1 --capacity-domain b2=acct2 --capacity-domain b3=acct3 \
     --failure-domain b1=g1 --failure-domain b2=g2 --failure-domain b3=g3 "$@" > $E/mount.log 2>&1 &

@@ -3,10 +3,10 @@
 //! Saved in the pool store (`pools.json`, `retention` map by pool name) so it
 //! travels with portable export/import; a missing entry means the defaults.
 //! Retention never deletes anything by itself: it decides which trash entries
-//! are still listed and which old revisions must keep their data (for a
-//! future guarded cleanup).
+//! are still listed and which old revisions must keep their data (the drive
+//! cleanup, `cleanup`, deletes only what it does not keep).
 use super::graph::History;
-use super::model::Retention;
+use super::model::{CleanupSettings, Retention};
 use crate::prelude::*;
 
 pub(crate) const DAY: u64 = 86_400;
@@ -49,6 +49,41 @@ pub(crate) fn update(
     value.version_days = version_days.unwrap_or(value.version_days);
     validate(&value)?;
     store.retention.insert(pool.to_owned(), value);
+    crate::pool::save_pool_store(&store)?;
+    Ok(value)
+}
+
+/// Longest cleanup grace period (days).
+pub(crate) const MAX_GRACE_DAYS: u32 = 3_650;
+
+/// Automatic cleanup settings of `pool` (defaults when never set).
+pub(crate) fn load_cleanup(pool: &str) -> Result<CleanupSettings> {
+    let store = crate::pool::load_pool_store()?;
+    if !store.pools.contains_key(pool) {
+        bail!("pool not found: {pool}");
+    }
+    Ok(store.drive_cleanup.get(pool).copied().unwrap_or_default())
+}
+
+/// Changes the given cleanup settings of `pool` and saves the pool store.
+/// The grace period is at least one day: it is what lets every PC publish
+/// (or restore) before marked data goes.
+pub(crate) fn update_cleanup(
+    pool: &str,
+    auto: Option<bool>,
+    grace_days: Option<u32>,
+) -> Result<CleanupSettings> {
+    let mut store = crate::pool::load_pool_store()?;
+    if !store.pools.contains_key(pool) {
+        bail!("pool not found: {pool}");
+    }
+    let mut value = store.drive_cleanup.get(pool).copied().unwrap_or_default();
+    value.auto = auto.unwrap_or(value.auto);
+    value.grace_days = grace_days.unwrap_or(value.grace_days);
+    if !(1..=MAX_GRACE_DAYS).contains(&value.grace_days) {
+        bail!("cleanup grace must be between 1 and {MAX_GRACE_DAYS} days");
+    }
+    store.drive_cleanup.insert(pool.to_owned(), value);
     crate::pool::save_pool_store(&store)?;
     Ok(value)
 }

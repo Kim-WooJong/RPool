@@ -59,6 +59,16 @@
   "ja": "{n}件の変更を適用しますか？ファイルは{time}時点の状態に戻ります。バージョンやゴミ箱の項目を復元すれば元に戻せます。",
   "zh": "应用 {n} 项更改？文件将恢复到 {time} 时的状态；可通过恢复版本或回收站中的项目撤销。"
  },
+ "Automatic cleanup is off for this pool.": {
+  "ko": "이 풀은 자동 정리가 꺼져 있어요.",
+  "ja": "このプールでは自動クリーンアップがオフです。",
+  "zh": "此存储池的自动清理已关闭。"
+ },
+ "Automatic cleanup is on: data nothing needs is marked and deleted {n} days later.": {
+  "ko": "자동 정리가 켜져 있어요: 더 이상 필요 없는 데이터는 표시해 두었다가 {n}일 뒤에 삭제해요.",
+  "ja": "自動クリーンアップはオンです。不要になったデータは印を付け、{n}日後に削除します。",
+  "zh": "自动清理已开启：不再需要的数据会先被标记，{n} 天后删除。"
+ },
  "Back to an older version ({n})": {
   "ko": "이전 버전으로 돌아감 ({n})",
   "ja": "以前のバージョンに戻る（{n}）",
@@ -79,6 +89,11 @@
   "ja": "ロールバック不可（{n}）",
   "zh": "无法回滚（{n}）"
  },
+ "Check now": {
+  "ko": "지금 확인",
+  "ja": "今すぐ確認",
+  "zh": "立即检查"
+ },
  "Choose the folder to put the item into.": {
   "ko": "항목을 넣을 폴더를 골라 주세요.",
   "ja": "項目を入れるフォルダーを選んでください。",
@@ -88,6 +103,21 @@
   "ko": "항목 {n}개를 넣을 폴더를 골라 주세요.",
   "ja": "{n}項目を入れるフォルダーを選んでください。",
   "zh": "选择要放入这 {n} 项的文件夹。"
+ },
+ "Clean up now": {
+  "ko": "지금 정리",
+  "ja": "今すぐクリーンアップ",
+  "zh": "立即清理"
+ },
+ "Cleanup finished. Newly found data waits for its grace period; data past it was deleted.": {
+  "ko": "정리를 마쳤어요. 새로 찾은 데이터는 유예 기간을 기다리고, 유예 기간이 지난 데이터는 삭제됐어요.",
+  "ja": "クリーンアップが完了しました。新しく見つかったデータは猶予期間を待ち、猶予期間を過ぎたデータは削除されました。",
+  "zh": "清理已完成。新发现的数据等待宽限期结束；已过宽限期的数据已删除。"
+ },
+ "Cleanup is postponed until every reference can be read: {reason}": {
+  "ko": "모든 참조를 읽을 수 있을 때까지 정리를 미뤄요: {reason}",
+  "ja": "すべての参照を読み取れるまでクリーンアップを延期します: {reason}",
+  "zh": "在所有引用都可读取之前推迟清理：{reason}"
  },
  "Clear selection": {
   "ko": "선택 해제",
@@ -168,6 +198,11 @@
   "ko": "삭제한 파일과 폴더를 복원할 수 있어요.",
   "ja": "削除したファイルとフォルダー（復元用）。",
   "zh": "已删除的文件和文件夹，可恢复。"
+ },
+ "Deleted files and old versions keep using space on the accounts until a cleanup removes data nothing needs any more.": {
+  "ko": "삭제한 파일과 이전 버전은 정리로 더 이상 필요 없는 데이터를 지우기 전까지 계정 공간을 계속 사용해요.",
+  "ja": "削除したファイルや古いバージョンは、クリーンアップで不要なデータを削除するまでアカウントの容量を使い続けます。",
+  "zh": "已删除的文件和旧版本会一直占用账户空间，直到清理删除不再需要的数据。"
  },
  "Deleted files stay in the trash until you delete them or empty the trash.": {
   "ko": "삭제한 파일은 직접 삭제하거나 휴지통을 비울 때까지 휴지통에 남아요.",
@@ -294,6 +329,11 @@
   "ja": "新しいもの、ゴミ箱へ移動（{n}）",
   "zh": "较新，移到回收站（{n}）"
  },
+ "Newly found data ({new}) is marked now and deleted after the grace period. Data whose grace period has ended ({due}) is deleted permanently now and cannot be restored.": {
+  "ko": "새로 찾은 데이터({new})는 지금 표시하고 유예 기간이 지나면 삭제해요. 유예 기간이 끝난 데이터({due})는 지금 영구 삭제되고 복원할 수 없어요.",
+  "ja": "新しく見つかったデータ（{new}）は今印を付け、猶予期間の後に削除します。猶予期間が終わったデータ（{due}）は今完全に削除され、復元できません。",
+  "zh": "新发现的数据（{new}）现在标记，宽限期后删除。宽限期已结束的数据（{due}）现在永久删除，无法恢复。"
+ },
  "No earlier versions of this file are recorded.": {
   "ko": "이 파일의 이전 버전 기록이 없어요.",
   "ja": "このファイルの以前のバージョンは記録されていません。",
@@ -378,6 +418,21 @@
   "ko": "버전을 읽는 중이에요…",
   "ja": "バージョンを読み込み中…",
   "zh": "正在读取版本…"
+ },
+ "Ready to delete now: {size}": {
+  "ko": "지금 삭제 가능: {size}",
+  "ja": "今すぐ削除可能: {size}",
+  "zh": "现在可删除：{size}"
+ },
+ "Reclaimable space": {
+  "ko": "확보할 수 있는 공간",
+  "ja": "回収できる容量",
+  "zh": "可回收空间"
+ },
+ "Reclaimable: {size} ({n} files)": {
+  "ko": "확보 가능: {size} (파일 {n}개)",
+  "ja": "回収可能: {size}（{n} ファイル）",
+  "zh": "可回收：{size}（{n} 个文件）"
  },
  "Restore as a copy": {
   "ko": "사본으로 복원",
@@ -539,6 +594,11 @@
   "ja": "変更はキャンセルされました。",
   "zh": "更改已取消。"
  },
+ "The check failed: {error}": {
+  "ko": "확인하지 못했어요: {error}",
+  "ja": "確認できませんでした: {error}",
+  "zh": "检查失败：{error}"
+ },
  "The command printed no readable result.": {
   "ko": "명령이 읽을 수 있는 결과를 출력하지 않았어요.",
   "ja": "コマンドは読み取れる結果を出力しませんでした。",
@@ -548,6 +608,11 @@
   "ko": "드라이브의 폴더와 파일이에요.",
   "ja": "ドライブ上のフォルダーとファイル。",
   "zh": "驱动器上的文件夹和文件。"
+ },
+ "The mass-delete guard stops this cleanup: {why}. Continue only if that much old data is expected.": {
+  "ko": "대량 삭제 보호 장치가 이 정리를 막았어요: {why}. 오래된 데이터가 그만큼 있는 게 맞을 때만 계속하세요.",
+  "ja": "大量削除ガードがこのクリーンアップを止めました: {why}。それだけ古いデータがあると分かっている場合のみ続行してください。",
+  "zh": "批量删除保护阻止了此次清理：{why}。只有在确实有这么多旧数据时才继续。"
  },
  "The preview failed: {error}": {
   "ko": "미리 보기에 실패했어요: {error}",
@@ -629,6 +694,11 @@
   "ja": "バージョン…",
   "zh": "版本…"
  },
+ "Waiting: {size} until {date}": {
+  "ko": "대기 중: {date}까지 {size}",
+  "ja": "待機中: {date} まで {size}",
+  "zh": "等待中：{size}，直到 {date}"
+ },
  "Was in: {folder}": {
   "ko": "원래 위치: {folder}",
   "ja": "元の場所：{folder}",
@@ -658,6 +728,11 @@
   "ko": "이름 사용 중",
   "ja": "名前が使用中",
   "zh": "名称已占用"
+ },
+ "{account}: {size}": {
+  "ko": "{account}: {size}",
+  "ja": "{account}: {size}",
+  "zh": "{account}：{size}"
  },
  "{n} changes": {
   "ko": "변경 {n}개",

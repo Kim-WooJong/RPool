@@ -104,3 +104,86 @@ pub(crate) struct RollbackPlan {
     pub skipped: Vec<(String, String)>,
     pub applied: bool,
 }
+
+/// Default days a cleanup mark waits before its data is deleted.
+pub(crate) const DEFAULT_CLEANUP_GRACE_DAYS: u32 = 7;
+
+/// Per-pool automatic cleanup (portable, saved with the pool).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct CleanupSettings {
+    /// The mount's maintenance loop marks and deletes unreferenced data.
+    pub auto: bool,
+    /// Days between marking data and deleting it.
+    pub grace_days: u32,
+}
+
+impl Default for CleanupSettings {
+    fn default() -> Self {
+        Self {
+            auto: true,
+            grace_days: DEFAULT_CLEANUP_GRACE_DAYS,
+        }
+    }
+}
+
+/// What a `rpool drive cleanup` run did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum CleanupMode {
+    /// Nothing written (no `--confirm`).
+    Preview,
+    /// Marks published and/or due data deleted.
+    Applied,
+    /// Pending marks dropped (`--cancel`).
+    Cancelled,
+    /// A reference source could not be read: nothing was marked or deleted.
+    Postponed,
+}
+
+/// Size of a set of drive archives.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct CleanupTotals {
+    /// Archive folders (`virtual-*`, including incremental parts).
+    pub archives: u64,
+    /// File versions whose data they hold.
+    pub files: u64,
+    pub objects: u64,
+    pub bytes: u64,
+}
+
+/// Reclaimable data on one account (rclone remote).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct CleanupAccount {
+    pub account: String,
+    pub objects: u64,
+    pub bytes: u64,
+}
+
+/// `rpool drive cleanup --json` result (CLI ↔ GUI).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CleanupReport {
+    pub version: u32,
+    pub pool: String,
+    pub mode: CleanupMode,
+    /// Unreferenced data not marked yet (`--confirm` marks it).
+    pub candidates: CleanupTotals,
+    /// Marked, waiting for the grace period to end.
+    pub waiting: CleanupTotals,
+    /// Marked and past the grace period (`--confirm` deletes it after a
+    /// fresh re-check), including interrupted deletions.
+    pub due: CleanupTotals,
+    /// Deleted by this run.
+    pub deleted: CleanupTotals,
+    /// Marks dropped by this run (data referenced again, or `--cancel`).
+    pub released: u64,
+    /// Earliest time marked data may be deleted.
+    pub next_deletion_unix: Option<u64>,
+    /// Reclaimable data (candidates, waiting and due) per account.
+    pub accounts: Vec<CleanupAccount>,
+    /// Why deleting the due data is refused without `--force` (mass-delete guard).
+    pub guard: Option<String>,
+    /// Reference sources that could not be read (everything postponed).
+    pub postponed: Vec<String>,
+    pub settings: CleanupSettings,
+    pub notes: Vec<String>,
+}

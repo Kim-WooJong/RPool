@@ -25,28 +25,43 @@ pub(crate) fn from_drive(drive: &VirtualDrive, rclone: &str, now: u64) -> Result
     let native_crypt = drive.policy.native_crypt;
     let (times, time_notes) = super::times::list(rclone, &roots);
     notes.extend(time_notes);
-    let purged = purged(rclone, &roots, native_crypt, &mut notes);
+    let (purged, cleaned) = marks(rclone, &roots, native_crypt, &mut notes);
     let (events, unpublished) = bridge::v6_events(drive);
-    let history = super::source_v6::build(events, &times, &unpublished, now, purged)?;
+    let mut history = super::source_v6::build(events, &times, &unpublished, now, purged)?;
+    forget_cleaned(&mut history, &cleaned);
     Ok(Loaded { history, notes })
 }
 
-fn purged(
+/// Purged trash ids and archives the cleanup deleted (or is deleting).
+fn marks(
     rclone: &str,
     roots: &[String],
     native_crypt: bool,
     notes: &mut Vec<String>,
-) -> BTreeSet<String> {
+) -> (BTreeSet<String>, BTreeSet<String>) {
     let result = super::marks::Remote::open(rclone, roots, native_crypt).and_then(|stores| {
         let stores: Vec<&dyn super::marks::MarkStore> = stores.iter().map(|s| s as _).collect();
-        super::marks::purged(&stores)
+        Ok((
+            super::marks::purged(&stores)?,
+            super::cleanup::records::unrestorable(&super::cleanup::records::read(&stores)?),
+        ))
     });
     result.unwrap_or_else(|error| {
         notes.push(format!(
-            "purge marks unavailable ({error:#}); purged entries may show"
+            "purge marks unavailable ({error:#}); purged entries may show and restoring cleaned-up data fails"
         ));
-        BTreeSet::new()
+        (BTreeSet::new(), BTreeSet::new())
     })
+}
+
+/// Revisions whose data the cleanup removed are no longer restorable.
+pub(crate) fn forget_cleaned(history: &mut History, cleaned: &BTreeSet<String>) {
+    if cleaned.is_empty() {
+        return;
+    }
+    history.payloads.retain(|_, payload| {
+        super::cleanup::select::folders(&payload.manifest).is_disjoint(cleaned)
+    });
 }
 
 /// The drive generation a workspace-less command uses: the newest one, as
@@ -94,9 +109,10 @@ pub(crate) fn from_cloud(rclone: &str, pool: &str, now: u64) -> Result<Loaded> {
     let mut notes = Vec::new();
     let (times, time_notes) = super::times::list(rclone, &roots);
     notes.extend(time_notes);
-    let purged = purged(rclone, &roots, policy.native_crypt, &mut notes);
+    let (purged, cleaned) = marks(rclone, &roots, policy.native_crypt, &mut notes);
     let events =
         crate::mount::metadata_pool::read_v6(rclone, pool, &policy, generation.epoch.as_deref())?;
-    let history = super::source_v6::build(events, &times, &BTreeSet::new(), now, purged)?;
+    let mut history = super::source_v6::build(events, &times, &BTreeSet::new(), now, purged)?;
+    forget_cleaned(&mut history, &cleaned);
     Ok(Loaded { history, notes })
 }

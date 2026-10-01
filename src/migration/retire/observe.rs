@@ -21,7 +21,10 @@ fn remote_name(root: &str) -> &str {
 }
 
 /// One listing per root, in parallel; unconfigured remotes are not called.
-fn list_roots(rclone: &str, roots: &BTreeSet<String>) -> BTreeMap<String, RemoteListing> {
+pub(crate) fn list_roots(
+    rclone: &str,
+    roots: &BTreeSet<String>,
+) -> BTreeMap<String, RemoteListing> {
     let configured: Option<BTreeSet<String>> =
         RcloneAdmin::inherited(rclone).discover().ok().map(|names| {
             names

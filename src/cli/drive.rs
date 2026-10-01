@@ -44,6 +44,23 @@ pub(crate) enum DriveCommands {
     },
     /// Trash and version retention of a pool.
     Retention(RetentionArgs),
+    /// Delete drive data no current file, trash entry or kept version needs
+    /// any more (preview unless --confirm). Data is first marked and deleted
+    /// by a later run once the grace period has passed.
+    Cleanup {
+        #[command(flatten)]
+        target: DriveTarget,
+        /// Mark new candidates and delete marked data past its grace period.
+        #[arg(long, conflicts_with = "cancel")]
+        confirm: bool,
+        /// Delete even when it exceeds the mass-delete guard (half of the
+        /// drive's stored data or 10,000 objects in one run).
+        #[arg(long, requires = "confirm")]
+        force: bool,
+        /// Drop every pending mark (deletions already started go on).
+        #[arg(long)]
+        cancel: bool,
+    },
 }
 
 #[derive(Args, Debug)]
@@ -155,6 +172,12 @@ pub(crate) enum RetentionCommands {
         /// Days previous versions are kept.
         #[arg(long)]
         version_days: Option<u32>,
+        /// Let mounts delete unreferenced drive data automatically (daily).
+        #[arg(long)]
+        auto_cleanup: Option<bool>,
+        /// Days marked data waits before it is deleted (at least 1).
+        #[arg(long)]
+        cleanup_grace_days: Option<u32>,
         #[arg(long)]
         json: bool,
     },
@@ -335,6 +358,45 @@ mod tests {
                 (trash_days, keep_versions, version_days),
                 (Some(7), Some(0), None)
             ),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn cleanup_parses() {
+        match drive(&["cleanup", "--pool", "p", "--confirm", "--force", "--json"]) {
+            DriveCommands::Cleanup {
+                target,
+                confirm,
+                force,
+                cancel,
+            } => assert!(target.json && confirm && force && !cancel),
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(
+            drive(&["cleanup", "--pool", "p", "--cancel"]),
+            DriveCommands::Cleanup { cancel: true, .. }
+        ));
+        assert!(fails(&["cleanup", "--pool", "p", "--force"]));
+        assert!(fails(&["cleanup", "--pool", "p", "--cancel", "--confirm"]));
+        match drive(&[
+            "retention",
+            "set",
+            "--pool",
+            "p",
+            "--auto-cleanup",
+            "false",
+            "--cleanup-grace-days",
+            "14",
+        ]) {
+            DriveCommands::Retention(RetentionArgs {
+                command:
+                    RetentionCommands::Set {
+                        auto_cleanup,
+                        cleanup_grace_days,
+                        ..
+                    },
+            }) => assert_eq!((auto_cleanup, cleanup_grace_days), (Some(false), Some(14))),
             other => panic!("{other:?}"),
         }
     }

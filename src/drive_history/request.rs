@@ -103,7 +103,7 @@ pub(crate) fn wait(
 
 /// Sends `op` to the mount of `workspace` and returns its answer.
 pub(crate) fn submit(workspace: &Path, pool: &str, op: &Op) -> Result<Answer> {
-    let timeout = if op.writes_drive() {
+    let timeout = if op.long_running() {
         Duration::from_secs(6 * 3600)
     } else {
         Duration::from_secs(300)

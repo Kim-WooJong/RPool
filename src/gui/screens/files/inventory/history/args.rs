@@ -101,6 +101,24 @@ pub(crate) fn retention_set(pool: &str, retention: Retention) -> Vec<OsString> {
     args
 }
 
+/// `drive cleanup` preview (read-only, captured as a query).
+pub(crate) fn cleanup_preview(pool: &str) -> Vec<OsString> {
+    let mut args = base(&["cleanup"], pool);
+    args.push("--json".into());
+    args
+}
+
+/// Confirmed `drive cleanup` (task runner); `force` passes the mass-delete guard.
+pub(crate) fn cleanup_run(pool: &str, force: bool) -> Vec<OsString> {
+    let mut args = base(&["cleanup"], pool);
+    args.push("--confirm".into());
+    if force {
+        args.push("--force".into());
+    }
+    args.push("--json".into());
+    args
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,5 +279,27 @@ mod cli_round_trip {
         parses(rollback("p", "/Docs", 1_700_000_000, true));
         parses(retention_show("p"));
         parses(retention_set("p", Retention::default()));
+        parses(cleanup_preview("p"));
+        parses(cleanup_run("p", false));
+        parses(cleanup_run("p", true));
+        let s = |args: Vec<OsString>| -> Vec<String> {
+            args.into_iter().map(|a| a.into_string().unwrap()).collect()
+        };
+        assert_eq!(
+            s(cleanup_run("p", true)),
+            [
+                "drive",
+                "cleanup",
+                "--pool",
+                "p",
+                "--confirm",
+                "--force",
+                "--json"
+            ]
+        );
+        assert_eq!(
+            s(cleanup_preview("p")),
+            ["drive", "cleanup", "--pool", "p", "--json"]
+        );
     }
 }

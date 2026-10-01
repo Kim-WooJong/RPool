@@ -1,8 +1,7 @@
 #!/bin/sh
-# Two "PCs" (workspaces A and B) mount one pool-sync pool through the default
+# Two "PCs" (workspaces A and B) mount one pool through the default
 # `auto` frontend (native FUSE on Linux) inside this container: propagation,
 # delete, concurrent-edit conflicts, atomic save, and ciphertext-only remotes.
-# MODE=v7 adds --pool-retention (private snapshots with history deletion).
 # NATIVE_CRYPT=0 writes through rclone crypt instead of native crypt.
 set -eu
 fail() { echo "FAIL: $*"; exit 1; }
@@ -11,9 +10,8 @@ cargo build --locked --bin rpool 2>&1 | tail -1
 RPOOL=/target/debug/rpool
 command -v rclone >/dev/null || { apt-get update -qq >/dev/null && apt-get install -y -qq unzip >/dev/null && curl -sS https://rclone.org/install.sh | bash >/dev/null; }
 rclone version | head -1
-RETENTION=""; [ "${MODE:-v6}" = v7 ] && RETENTION="--pool-retention --pool-history-limit 1"
 NC="--native-crypt"; [ "${NATIVE_CRYPT:-1}" = 0 ] && NC=""
-echo "mode: ${MODE:-v6} native_crypt: ${NATIVE_CRYPT:-1}"
+echo "native_crypt: ${NATIVE_CRYPT:-1}"
 E=/e2e-pool; rm -rf $E; mkdir -p $E/home $E/cfg $E/mntA $E/mntB $E/ws
 export HOME=$E/home RPOOL_CONFIG_DIR=$E/cfg
 for i in 1 2 3; do
@@ -25,7 +23,7 @@ $RPOOL pool set shared --remote c1: --remote c2: --remote c3: --data-shards 2 --
 DOMAINS="--capacity-domain b1=a1 --capacity-domain b2=a2 --capacity-domain b3=a3 --failure-domain b1=g1 --failure-domain b2=g2 --failure-domain b3=g3"
 start() { # name
   rm -f $E/stop$1
-  $RPOOL mount --virtual-drive --pool-sync $RETENTION --pool shared --workspace $E/ws/$1 --mountpoint $E/mnt$1 \
+  $RPOOL mount --pool shared --workspace $E/ws/$1 --mountpoint $E/mnt$1 \
     --pool-worker PC-$1 --stop-file $E/stop$1 --interval-seconds 2 $DOMAINS > $E/mount$1.log 2>&1 &
   eval PID$1=$!
   for i in $(seq 1 90); do grep -q "$E/mnt$1 " /proc/mounts && return 0; sleep 1; done

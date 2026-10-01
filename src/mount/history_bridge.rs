@@ -79,6 +79,44 @@ pub(crate) fn v6_events(drive: &VirtualDrive) -> (BTreeMap<String, Event>, BTree
     (state.events.clone(), unpublished)
 }
 
+/// Manifests this open drive may still read besides its events' current
+/// view: open files (read pins) and the parents of local writes not
+/// uploaded yet (an incremental upload reuses its base's shards).
+/// The drive cleanup keeps them (`drive_history::cleanup`).
+pub(crate) fn kept_contents(drive: &VirtualDrive) -> Vec<(String, Content)> {
+    let mut out = Vec::new();
+    for (path, revision) in drive.pins.lock().unwrap().iter() {
+        if let super::virtual_drive::Revision::Cloud { id, content } = revision {
+            out.push((format!("open file {path} ({id})"), content.clone()));
+        }
+    }
+    let peer: Vec<String> = drive
+        .peer_read_pins
+        .lock()
+        .unwrap()
+        .values()
+        .cloned()
+        .collect();
+    let state = drive.state.lock().unwrap();
+    let mut ids: BTreeSet<String> = peer.into_iter().collect();
+    for intent in &state.pending {
+        ids.extend(intent.parents.iter().cloned());
+        if let Some(previous) = intent
+            .depends_on
+            .as_ref()
+            .and_then(|id| state.committed_intents.get(id))
+        {
+            ids.insert(previous.clone());
+        }
+    }
+    for id in ids {
+        if let Some(content) = state.events.get(&id).and_then(|e| e.content.as_ref()) {
+            out.push((format!("local drive state ({id})"), content.clone()));
+        }
+    }
+    out
+}
+
 /// Paths with local writes not yet uploaded (history operations refuse them).
 pub(crate) fn pending_paths(drive: &VirtualDrive) -> BTreeSet<String> {
     drive

@@ -1,6 +1,8 @@
 //! `rpool drive …` CLI: builds the [`Op`], runs it where it belongs
 //! (`dispatch`) and prints text or the JSON contract.
-use super::model::{RollbackPlan, TrashEntry, VersionEntry};
+use super::model::{
+    CleanupMode, CleanupReport, CleanupTotals, RollbackPlan, TrashEntry, VersionEntry,
+};
 use super::ops::{Op, PurgeReport, RestoreReport};
 use super::restore::Action;
 use crate::cli::{
@@ -45,6 +47,21 @@ pub(crate) fn describe(args: &DriveArgs) -> (String, Option<String>) {
             RetentionCommands::Show { pool, .. } => ("drive-retention-show", pool),
             RetentionCommands::Set { pool, .. } => ("drive-retention-set", pool),
         },
+        DriveCommands::Cleanup {
+            target,
+            confirm,
+            cancel,
+            ..
+        } => (
+            if *cancel {
+                "drive-cleanup-cancel"
+            } else if *confirm {
+                "drive-cleanup"
+            } else {
+                "drive-cleanup-preview"
+            },
+            &target.pool,
+        ),
     };
     (name.into(), Some(pool.clone()))
 }
@@ -122,6 +139,19 @@ pub(crate) fn op(command: &DriveCommands, now: u64) -> Result<Option<(Op, DriveT
             },
             target.clone(),
         ),
+        DriveCommands::Cleanup {
+            target,
+            confirm,
+            force,
+            cancel,
+        } => (
+            Op::Cleanup(super::cleanup::Request {
+                confirm: *confirm,
+                force: *force,
+                cancel: *cancel,
+            }),
+            target.clone(),
+        ),
         DriveCommands::Retention(_) => return Ok(None),
     }))
 }
@@ -151,12 +181,23 @@ fn retention(command: &RetentionCommands) -> Result<()> {
             trash_days,
             keep_versions,
             version_days,
+            auto_cleanup,
+            cleanup_grace_days,
             json,
-        } => (
-            super::retention::update(pool, *trash_days, *keep_versions, *version_days)?,
-            *json,
-        ),
+        } => {
+            if auto_cleanup.is_some() || cleanup_grace_days.is_some() {
+                super::retention::update_cleanup(pool, *auto_cleanup, *cleanup_grace_days)?;
+            }
+            (
+                super::retention::update(pool, *trash_days, *keep_versions, *version_days)?,
+                *json,
+            )
+        }
     };
+    let pool = match command {
+        RetentionCommands::Show { pool, .. } | RetentionCommands::Set { pool, .. } => pool,
+    };
+    let cleanup = super::retention::load_cleanup(pool)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&value)?);
     } else {
@@ -177,6 +218,11 @@ fn retention(command: &RetentionCommands) -> Result<()> {
             }
         );
         println!("Previous versions kept for: {}", days(value.version_days));
+        println!(
+            "Automatic cleanup: {} (marked data is deleted after {})",
+            if cleanup.auto { "on" } else { "off" },
+            days(cleanup.grace_days)
+        );
     }
     Ok(())
 }
@@ -275,6 +321,7 @@ fn print_text(op: &Op, value: Value) -> Result<()> {
                 println!("Preview only: add --confirm to purge.");
             }
         }
+        Op::Cleanup(_) => print_cleanup(&serde_json::from_value(value)?),
         Op::TrashRestore { .. } | Op::VersionsRestore { .. } => {
             let report: RestoreReport = serde_json::from_value(value)?;
             for change in &report.changes {
@@ -294,4 +341,82 @@ fn print_text(op: &Op, value: Value) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn print_cleanup(report: &CleanupReport) {
+    let bytes = crate::presentation::format_bytes;
+    let line = |label: &str, t: &CleanupTotals| {
+        println!(
+            "{label}: {} in {} archive(s), {} file version(s), {} object(s)",
+            bytes(t.bytes),
+            t.archives,
+            t.files,
+            t.objects
+        );
+    };
+    match report.mode {
+        CleanupMode::Cancelled => {
+            println!("Dropped {} pending mark(s).", report.released);
+        }
+        CleanupMode::Postponed => {
+            println!("Cleanup postponed: these references could not be read:");
+            for source in &report.postponed {
+                println!("  {source}");
+            }
+        }
+        CleanupMode::Preview | CleanupMode::Applied => {
+            let applied = report.mode == CleanupMode::Applied;
+            line(
+                if applied {
+                    "Marked now"
+                } else {
+                    "Reclaimable, not marked yet"
+                },
+                &report.candidates,
+            );
+            line("Waiting for the grace period", &report.waiting);
+            line(
+                if applied {
+                    "Due (deleted unless refused)"
+                } else {
+                    "Due for deletion"
+                },
+                &report.due,
+            );
+            if applied {
+                line("Deleted", &report.deleted);
+            }
+            for account in &report.accounts {
+                println!(
+                    "  {}: {} ({} objects)",
+                    account.account,
+                    bytes(account.bytes),
+                    account.objects
+                );
+            }
+            if report.released > 0 {
+                println!(
+                    "Released {} mark(s): data is referenced again.",
+                    report.released
+                );
+            }
+        }
+    }
+    if let Some(next) = report.next_deletion_unix {
+        println!("Next deletion: {}", super::time_arg::format(next));
+    }
+    if let Some(guard) = &report.guard {
+        println!("Mass-delete guard: {guard}; add --force to delete anyway.");
+    }
+    for note in &report.notes {
+        println!("{note}");
+    }
+    println!(
+        "Automatic cleanup: {}, grace {} day(s).",
+        if report.settings.auto { "on" } else { "off" },
+        report.settings.grace_days
+    );
+    if report.mode == CleanupMode::Preview {
+        println!("Preview only: add --confirm to mark and delete due data.");
+    }
 }

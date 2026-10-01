@@ -1,7 +1,9 @@
 # Native mount with rclone-compatible crypt
 
-Updated: 2026-09-29. This is a plan. It extends Phases 2 and 3 of
-`MOUNT_WRITE_ROADMAP.md` and does not replace them.
+Updated: 2026-10-01. Plan and milestone status. It extends Phases 2 and 3 of
+`MOUNT_WRITE_ROADMAP.md` and does not replace them. The drive has one mode,
+the virtual drive with v6 pool sync (`docs/MOUNT.md`); status notes below that
+were written while other modes existed are updated to that state.
 
 ## Goal
 
@@ -24,8 +26,7 @@ OS  ──  WinFsp (Windows) │ FUSE (Linux) │ NFS or FSKit (macOS)     front
      storage backend (per pool)
        ├─ rclone crypt remote (current behaviour; the default)
        └─ native crypt ─ transport to the crypt's *base* remote
-                          ├─ rclone (subprocess now, rcd sidecar later)
-                          └─ OpenDAL, opt-in, only for S3/WebDAV/Koofr-class providers
+                          └─ rclone (subprocess writes; persistent `rclone rcd` for reads)
 ```
 
 The frontend and crypt are independent layers. A native mount can still use
@@ -55,8 +56,9 @@ frontend. Each layer ships and is verified separately.
 | M5 ✅ | Linux FUSE (`fuser`) | Linux machine (Docker Linux VM: kernel tests pass) |
 | M6 | macOS frontend, only after the wedged test mount is cleared by a reboot | New workspace. Clean and uncertain stop measured. |
 
-WebDAV stays the default until M4 or later passes the fresh 4 GiB 9+3 cloud
-round-trip gate described in the roadmap.
+`--frontend auto` (default since 2026-09-30) picks the native frontend where
+the build has one and falls back to WebDAV (see "Native by default"). The
+fresh 4 GiB 9+3 cloud round-trip gate in the roadmap is still open for M4.
 
 ## M1 status (2026-09-29)
 
@@ -104,8 +106,8 @@ which a native writer publishes onto a local base, `rclone cat` returns the
 same bytes, and the base holds only `RCLONE\0\0` ciphertext under encrypted
 names. No cloud provider was used.
 
-Not covered: mounts, repair, scrub, migrate and manifest replication still
-write through rclone crypt. Objects are interchangeable, so mixing is safe.
+Not covered at M2: mounts, repair, scrub, migrate and manifest replication
+still wrote through rclone crypt (mounts were added later, see below). Objects are interchangeable, so mixing is safe.
 Server-side copy and rename through `CryptBackend` are not wired.
 
 ## M3a status (2026-09-30)
@@ -132,8 +134,8 @@ Server-side copy and rename through `CryptBackend` are not wired.
 - Unlink or rename-over leaves open handles working. `fsync` of the replaced
   file returns `Stale`, and its unsealed spool is discarded at last release.
 - File identity is per session and not persisted; there is no new on-disk
-  format. Shared-history (`bounded_shared`, `peer_retention`) and pool-sync
-  workspaces are refused until traces cover them.
+  format. Pool-sync workspaces were refused at M3a; they are served since
+  "Native by default" below.
 
 Verified by `cargo test --bin rpool fs_core` on a fixture workspace (no OS
 mount, rclone or network): local acknowledgement without upload, abrupt exit
@@ -176,8 +178,7 @@ M3b is done (see below).
   writes, fsync, rename, delete and mkdir all complete.
 - **DAV stays on its own path.** FsCore treats a later save of the same file
   as a trusted continuation. A DAV PUT carries no such identity (roadmap
-  Phase 1, Case B), and DAV must also serve pool-sync and shared-history
-  workspaces, so moving DAV onto FsCore would change its conservative
+  Phase 1, Case B), so moving DAV onto FsCore would change its conservative
   behaviour. The native frontends (M4, M5) use FsCore directly.
 
 Not covered: a real upload through rclone interleaved with writes (the fixture
@@ -186,8 +187,8 @@ has no remote), power loss below the filesystem, and multi-process access.
 ## M5 status (2026-09-30): Linux FUSE
 
 `src/mount/frontend/fuse/` implements `fuser::Filesystem` (fuser 0.18, pure-Rust
-mount, no libfuse) over `FsCore`. `rpool mount --virtual-drive --frontend fuse`
-(optionally `--native-read-only`) mounts a local virtual-drive workspace with it.
+mount, no libfuse) over `FsCore`. `rpool mount --frontend fuse` (optionally
+`--native-read-only`) mounts a drive workspace with it.
 The shared lifecycle in `src/mount/frontend/run.rs` runs background `sync`, and
 it unmounts when the stop file appears or when the OS unmounts the filesystem.
 
@@ -204,7 +205,7 @@ it unmounts when the stop file appears or when the OS unmounts the filesystem.
 
 Verified on Linux 6.12 (Docker Desktop linuxkit VM, `--device /dev/fuse
 --cap-add SYS_ADMIN`; not this Mac's kernel). The script
-`projects/rpool/docker-linux/run-tests.sh` runs `cargo fmt --check`, `cargo
+`scripts/linux-docker/run-tests.sh` runs `cargo fmt --check`, `cargo
 check --all-targets` with warnings denied, the ignored kernel tests and the
 whole suite. The kernel tests cover:
 
@@ -240,12 +241,12 @@ data local ("No quota-known upload targets"), as with the DAV route.
 ## M4 status (2026-09-30): Windows WinFsp, compiled but not run
 
 `src/mount/frontend/winfsp/` implements `winfsp_wrs::FileSystemInterface`
-(winfsp_wrs 0.4.1, MIT) over `FsCore`. It is built only with `--features
-winfsp` on Windows, because linking needs WinFsp and its SDK import library
-installed; `build.rs` delay-loads `winfsp-x64.dll`, and `winfsp_wrs::init()`
-loads it from WinFsp's install directory at mount time. Default builds,
-including the existing Windows CI job, are unchanged.
-Usage: `rpool mount --virtual-drive --frontend winfsp --mountpoint R: ...`.
+(winfsp_wrs 0.4.1, MIT) over `FsCore`. The `winfsp` feature is on by default
+and only has an effect on Windows, where linking needs WinFsp and its SDK
+import library installed (otherwise build with `--no-default-features`);
+`build.rs` delay-loads `winfsp-x64.dll`, and `winfsp_wrs::init()` loads it from
+WinFsp's install directory at mount time.
+Usage: `rpool mount --frontend winfsp --mountpoint R: ...`.
 
 - **Contexts.** A per-open integer key (Descriptor mode) is used, never a
   pointer, so a volume-level Flush (NULL context) is safe.
@@ -277,9 +278,8 @@ Verified on macOS only:
   by core tests.
 
 **Not verified:** any WinFsp runtime behaviour on Windows (mount, Explorer,
-Office-style save patterns, cached/paging I/O, delete-on-close, stop). The
-new `winfsp-frontend` CI job (continue-on-error) will build it on
-windows-latest after a push. The M4 exit gate is still open: a Windows machine
+Office-style save patterns, cached/paging I/O, delete-on-close, stop). There
+is no hosted CI. The M4 exit gate is still open: a Windows machine
 must pass listing, reads, stop and small writes with remount and recovery.
 
 Testing also found and fixed a core defect: when the final seal at
@@ -290,14 +290,12 @@ recovery.
 ## Native by default (2026-09-30)
 
 - **Frontend `auto` is the default in the CLI and GUI.** It uses the native
-  frontend where one exists for the build and the workspace mode, otherwise
-  WebDAV:
+  frontend where one exists for the build, otherwise WebDAV:
   - Linux: FUSE.
   - Windows: WinFsp, in `winfsp` builds only.
   - macOS: WebDAV (no native frontend yet).
-  - Bounded shared, shared-root and replica workspaces: WebDAV.
 - **Explicit choices still apply.** `--frontend dav|fuse|winfsp` is honoured,
-  and an explicit native choice for an unsupported mode is refused.
+  and an explicit native choice the build cannot serve is refused.
 - **Pool sync v6 is served natively.** Design review by an independent
   expert. The changes:
   - Native opens protect served revisions from retention without the DAV
@@ -320,33 +318,11 @@ recovery.
 - **Leftover rclone cache.** A previous WebDAV session's rclone VFS cache is
   set aside, not deleted, before a native mount; it is never replayed.
 - **Native crypt covers mounted drives.** New GUI pools default to it.
-- **v7 is served natively** (`peer_snapshot_native.rs`):
-  - Writes and deletes carry the native ancestry, and deletes capture the
-    original before the snapshot plan.
-  - `rename_native` moves pending chains and synced files together under
-    the sync gate. Write order: NameOp, `intent.json`, one namespace save,
-    pins, then materialized snapshots.
-  - Renaming a fresh file over an existing one (an atomic save) rewrites
-    the fresh chain's last intent as the next revision of the target, with
-    the target's read ancestry. A save after a peer edit is therefore a
-    preserved conflict.
-  - Moves v7 cannot express (a pending snapshot plan, deletions inside the
-    chain, outside dependents, a non-fresh source over a target) return
-    `CrossDevice`/`Busy`, mapped to EXDEV/EBUSY, and leave state unchanged.
-  - Six FakeIo scenarios cover these, and the randomized traces run in v7.
 - **FUSE seals on `release` and `fsync`.** `flush` runs on every close of
   every duplicate descriptor, so sealing there sealed an empty file when a
   shell did `open; dup2; close` before writing.
 - **Kernel-level check:** `scripts/linux-docker/pool-sync-e2e.sh` mounts one
-  pool from two workspaces (MODE=v6 or v7) in Docker FUSE.
-  - Both modes pass (2026-09-30): propagation, an atomic save from B, a
-    delete, a sequential edit with no conflict copy, concurrent edits kept
-    as the original plus both named copies, clean stops, and no plaintext
-    content or names in the remotes.
-  - In v7, sync published the temp file before the rename, so the rename
-    returned EXDEV and `mv` fell back to copy and delete. The result is
-    correct.
-  - v7 sync is slow: one pass takes tens of seconds even in this small test,
-    because each snapshot object costs separate rclone calls. This is a
-    performance follow-up, not a correctness problem.
-
+  pool from two workspaces in Docker FUSE and passes (2026-09-30):
+  propagation, an atomic save from B, a delete, a sequential edit with no
+  conflict copy, concurrent edits kept as the original plus both named
+  copies, clean stops, and no plaintext content or names in the remotes.

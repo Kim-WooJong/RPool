@@ -1,4 +1,4 @@
-# Pool change migration: design (proposed, 2026-09-30)
+# Pool change migration: design and status
 
 User request: when an account is removed or the pool configuration changes,
 move the data onto the remaining storages automatically. First compute and
@@ -6,8 +6,10 @@ show what moves and how long it takes, record progress in the cloud so any PC
 can resume, and collect the files that cannot be recovered so the user can
 see them.
 
-Status (2026-09-30): phase 1 (WP0–WP6 plus the GUI wizard) is implemented
-for uploaded archives: `rpool pool migrate plan|run|status|lost|abandon`
+Status (2026-10-01): phases 1–4 are implemented (archives, server-side
+copies, the drive with epoch adoption, cleanup). The drive is the v6 pool-sync
+drive, the only drive mode. Phase 1 (WP0–WP6 plus the GUI wizard) covers
+uploaded archives: `rpool pool migrate plan|run|status|lost|abandon`
 and Storage › Account changes › Pool change migration. Differences from
 the proposal:
 
@@ -88,11 +90,11 @@ migration, strings in `gui/i18n/migration_retire.json`):
   orphan (another PC may use it). Objects on accounts that left the pool are
   only deleted with `--include-removed-accounts` (and only when still
   listable); otherwise they are reported as left behind.
-- **What is kept.** Drive revisions (`virtual-*`, `peer-v7-*`), lost
+- **What is kept.** Drive revisions (`virtual-*`), lost
   entries, anything a fresh reference check finds: every manifest of the
   local inventory and every manifest replica on the listed accounts, all
-  drive metadata in the cloud (every v6 event and v7 snapshot of every
-  generation, read only, as `pool browse` reads it), local drive workspaces
+  drive metadata in the cloud (every v6 event of every generation, incl.
+  checkpoints, read only, as `pool browse` reads it), local drive workspaces
   (`--workspace`; the GUI adds running drive sessions), and every archive id
   named by another migration still in progress. A reference is any path
   component or archive id equal to the item. If any of these sources cannot
@@ -133,32 +135,25 @@ rclone remotes or several PCs).
 
 ## Phase 3 as implemented: drive migration and epoch adoption
 
-The drive (v6 pool-sync events and v7 private snapshots; both are in use, the
-GUI default is v6) is migrated file by file with the archive machinery and
+The drive (v6 pool-sync events) is migrated file by file with the archive machinery and
 then **adopted** into a new metadata epoch. No workspace is needed: the
 source is read from the cloud records, and any PC can run, resume or adopt.
 
 **Plan** (`migration/drive_plan.rs`, `drive_source.rs`,
-`mount/drive_generation_read.rs`, `mount/peer_snapshot_migration.rs`).
+`mount/drive_generation_read.rs`).
 `pool migrate plan` includes the drive unless `--no-drive` (GUI: "Include the
 drive", on by default). The current generation is chosen as `pool browse`
 chooses it, but adoption-aware (`drive_generations::effective`). Its visible
-files (and conflict copies) are read without a workspace: v6 by collecting
-and projecting the events; v7 by collecting snapshots and names, analysing
-them with their own recorded policy (a v7 genesis depends on the remote set
-it was written with, so the mount's own validation cannot be used after an
-account left), and materializing them in a throwaway workspace so paths are
-named exactly as a mount names them. Each file's payload manifest is
+files (and conflict copies) are read without a workspace by collecting and
+projecting the events (checkpoints included). Each file's payload manifest is
 classified by the archive planner (`plan_entry`, same listings, probe,
-losses, server-side copy estimate). v6 files that need no move are kept: the
-new generation references their existing archive (v6 pool sync never deletes
-payloads, see the answers below). v7 payloads are private to a generation
-(its peer GC deletes them), so every v7 file gets a private copy
-(`estimate::private_copy_transfer`; server-side where possible). The drive
-plan (`drive-plan.json`, no manifests) is published before `plan.json`, with
-its own counts, bytes, ETA (`speed::estimate_seconds`), a quota check of
-archives and drive together, and the bootstrap budget check (10,000 records /
-64 MiB per kind; otherwise adoption is refused). The target epoch is
+losses, server-side copy estimate). Files that need no move are kept: the
+new generation references their existing archive (pool sync does not delete
+payloads, see the answers below). The drive plan (`drive-plan.json`, no
+manifests) is published before `plan.json`, with its own counts, bytes, ETA
+(`speed::estimate_seconds`) and a quota check of archives and drive together.
+(The former bootstrap budget check is gone: a new PC opens a large drive from
+metadata checkpoints.) The target epoch is
 deterministic, `blake3("rpool-migration-drive-epoch-v1", migration_id)`.
 
 **Run** (`migration/drive_run.rs`). After the archives, `pool migrate run`
@@ -167,8 +162,7 @@ source again and runs the planned entries whose revision is still current
 through the unchanged state machine (`execute::run_core`: claims, leases,
 `--take-over`, `--parallel`, stop file, lost/unknown), with records keyed
 `drive-<blake3(path, revision)>`. Builds use `relocate` / `reencode_manifest`
-under new ids (`migrate-*`; v7 `peer-v7-<owner>` so the payload is privately
-owned). "Switched" only means the new archive is ready: nothing in the drive
+under new ids (`virtual-<random>` for drive files, `migrate-*` for archives). "Switched" only means the new archive is ready: nothing in the drive
 changes. Files changed since planning, and files not checked at plan time,
 are left to the adoption.
 
@@ -178,14 +172,12 @@ are left to the adoption.
 1. waits until the freeze is `SETTLE_SECONDS` (5 min) old, longer than a
    mounted PC goes without re-checking the fence (2 min);
 2. reads the source again; every file whose revision has a `Switched` record
-   uses its new archive, kept v6 files their archive; changed or unchecked
+   uses its new archive, kept files their archive; changed or unchecked
    files are classified and run now (catch-up);
 3. refuses while any file is unresolved (claimed by a running PC, provider
    error), and refuses lost files unless `--accept-lost`;
 4. publishes deterministic records to `<root>/epochs/<epoch>/` on every
-   new-policy remote (v6: one parentless event per file; v7: one fresh
-   snapshot + name per file, policy genesis from the new epoch's roots and
-   the source's history limit), reads the new generation back like a fresh
+   new-policy remote (one parentless event per file), reads the new generation back like a fresh
    PC and compares it, and only then writes `drive-adoption.json` (the
    commit point). Re-running is idempotent; a second PC writes identical
    records.
@@ -211,7 +203,7 @@ adoption. Nothing is deleted anywhere; the source generation stays readable.
 published before the freeze took hold) — they stay in that PC's workspace
 and are exported when it is switched; previous versions (only the visible
 files and conflict copies are carried over; history stays in the source
-generation); empty directories (v6 directories are local only); files
+generation); empty directories (directories are local only); files
 written by a PC that kept publishing without checking the fence (an offline
 PC that never re-checks before reconnecting is caught at its next sync or
 mount, but anything it published to the frozen generation after the
@@ -220,15 +212,14 @@ adoption read is not in the new one).
 **Interfaces for phase 4 (retire)**: drive records use `drive-*` entry keys
 (`drive_model::is_drive_key`), not archive ids; their `new_archive_id` is the
 new drive payload, which an adopted generation references. Retire must skip
-drive keys, never delete `virtual-*` / `peer-v7-*` objects, and treat kept v6
-archives as still referenced by the new generation.
+drive keys, never delete `virtual-*` objects, and treat kept archives as
+still referenced by the new generation.
 
-**Needs real validation**: rclone crypt remotes (v6 and v7, native crypt on
-and off), two PCs (one mounted on the old generation during run and adopt,
+**Needs real validation**: rclone crypt remotes (native crypt on and off), two PCs (one mounted on the old generation during run and adopt,
 one without a workspace opening the adopted drive), interrupted adoption,
 and the bootstrap of a large drive.
 
-## What exists today (five separate flows)
+## Flows that existed before `pool migrate` (still available)
 
 | Flow | Code | Limits |
 |---|---|---|
@@ -236,7 +227,6 @@ and the bootstrap of a large drive.
 | `pool plan-reprocess` / `reprocess` | `pool/reprocess.rs`, GUI `storage/reprocess.rs` | Needs an explicit manifest list. Always a full restore plus re-`put`. ETA uses rates the user types in. Receipts are local only. Handles K/M and degraded sources. |
 | `mount --apply-pool-changes` | `mount/pool_transition.rs` | Drive only. Makes a new metadata epoch and copies the locally known view. All or nothing if bytes are missing. No lost-file list. Local journal. |
 | `--account-recovery-from` | `mount/account_recovery.rs` | Copies the drive into a new pool. Local per-file report. |
-| `mount --migrate-excluded` | `mount/workspace_capacity.rs` | Legacy replica path. |
 
 Scrub and repair (`maintenance/*`) already classify every shard as ok,
 missing, bad size, corrupt or error, and never count a provider error as an
@@ -248,8 +238,8 @@ erasure. `repair_group` rebuilds only onto the same remote and object.
   locations are the only trustworthy "old policy".
 - The archive inventory is local. Other PCs must list the manifest replicas in
   the cloud to see all archives.
-- Drive revisions are immutable archives (`virtual-<intent>`,
-  `peer-v7-…`) whose manifests are embedded in events or snapshots. Moving
+- Drive revisions are immutable archives (`virtual-*`) whose manifests
+  are embedded in events. Moving
   their shards in place does not change what readers see, so the drive
   changes only through a new epoch.
 - Metadata roots depend on the full remote set, so a remote-set change always
@@ -314,8 +304,8 @@ reuses reprocess, maintenance, placement and pool_transition internals.
    - Later, relocation may borrow unchanged shards. The manifest is then
      marked, and nothing borrowed is ever deleted.
 5. Never delete during `run`. A separate `retire --confirm` removes old-only
-   objects after a final verify. It never touches `virtual-*`, `peer-v7-*` or
-   borrowed objects.
+   objects after a final verify. It never touches `virtual-*` or borrowed
+   objects.
 6. Resume by folding the journal:
    - `switched` entries are skipped after a quick re-verify.
    - `verified` entries are re-verified, then switched.
@@ -439,7 +429,7 @@ bootstrap budget.
 - **WP6 Orchestrator and CLI:** `migration/execute.rs`, `cli/pool.rs`,
   `commands/pool/migrate.rs`.
 - **WP7 Drive:** done as `migration/drive_*`, `mount/drive_generation_*`,
-  `mount/peer_snapshot_migration.rs`, `mount/adoption_*` (adoption publishes
+  `mount/adoption_*` (adoption publishes
   the new epoch directly instead of going through `pool_transition`, which
   needs the original workspace and re-uploads every file; see "Phase 3 as
   implemented").
@@ -489,11 +479,8 @@ Answered from the code (2026-10-01, phase 3):
   the original generation, and `pool browse` guessed the newest generation by
   record time. Phase 3 adds the adoption marker in the cloud journal and makes
   new workspaces, browse and old-generation workspaces follow it.
-- **GC of borrowed shards.** v6 pool-sync payloads are never deleted (remote
-  retention refuses shared workspaces, and pool sync is shared), and
-  `provider drain --delete-source` refuses `virtual-*` / `peer-v7-*` sources,
-  so a new v6 generation may reference an unchanged archive. v7 peer GC
-  deletes the exact payload objects of retired snapshots, so v7 payloads are
-  never shared between generations (every adopted v7 file gets a private
-  copy). Migration replacements (`migrate-*`) are referenced by no owned-
-  archive registry, so drive retention never deletes them.
+- **GC of borrowed shards.** Pool-sync payloads are not deleted by the drive
+  itself, and `provider drain --delete-source` refuses `virtual-*` sources, so
+  a new generation may reference an unchanged archive. Any drive data
+  reclamation (see `DRIVE_HISTORY_DESIGN.md`) must therefore treat every
+  generation's events as references, as `retire` does.

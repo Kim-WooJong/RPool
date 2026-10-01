@@ -18,11 +18,18 @@ const CAPACITY_INTERVAL_MAX: Duration = Duration::from_secs(60);
 const KEEPALIVE_CHECK: Duration = Duration::from_secs(3600);
 /// How often waiting drive history requests (`rpool drive …`) are picked up.
 const HISTORY_REQUESTS: Duration = Duration::from_secs(2);
+/// Automatic drive cleanup (`drive_history::cleanup`): daily, the first pass
+/// a while after the mount starts (not during the start-up sync).
+const CLEANUP_INTERVAL: Duration = Duration::from_secs(24 * 3600);
+const CLEANUP_FIRST: Duration = Duration::from_secs(30 * 60);
 
 struct Periodic {
     interval: Duration,
     last: Option<Instant>,
     job: Option<JoinHandle<()>>,
+    created: Instant,
+    /// Wait before the first run (when `last` is `None`).
+    first: Duration,
 }
 impl Periodic {
     fn new(interval: Duration) -> Self {
@@ -30,6 +37,21 @@ impl Periodic {
             interval,
             last: None,
             job: None,
+            created: Instant::now(),
+            first: Duration::ZERO,
+        }
+    }
+    /// First run `first` after creation, then every `interval`.
+    fn first_after(first: Duration, interval: Duration) -> Self {
+        Self {
+            first,
+            ..Self::new(interval)
+        }
+    }
+    fn due(&self) -> bool {
+        match self.last {
+            Some(t) => t.elapsed() >= self.interval,
+            None => self.created.elapsed() >= self.first,
         }
     }
     /// First run one interval after creation.
@@ -43,8 +65,7 @@ impl Periodic {
         if self.job.as_ref().is_some_and(|j| j.is_finished()) {
             self.join()?;
         }
-        let due = self.last.is_none_or(|t| t.elapsed() >= self.interval);
-        if self.job.is_none() && due {
+        if self.job.is_none() && self.due() {
             self.job = Some(start());
             self.last = Some(Instant::now());
         }
@@ -68,6 +89,8 @@ pub(super) struct Maintenance {
     keepalive: Periodic,
     /// Drive history requests of other processes (`drive_history::request`).
     history: Periodic,
+    /// Daily drive cleanup pass (`drive_history::cleanup::auto`).
+    cleanup: Periodic,
 }
 impl Maintenance {
     pub(super) fn new(interval: Duration) -> Self {
@@ -80,6 +103,7 @@ impl Maintenance {
             compaction: Periodic::delayed(Duration::from_secs(minutes.saturating_mul(60))),
             keepalive: Periodic::new(KEEPALIVE_CHECK),
             history: Periodic::new(HISTORY_REQUESTS),
+            cleanup: Periodic::first_after(CLEANUP_FIRST, CLEANUP_INTERVAL),
         }
     }
     /// Starts whichever worker is due; `report` refreshes and publishes capacity.
@@ -136,6 +160,14 @@ impl Maintenance {
         if drive.pool_sync_roots.is_empty() {
             return Ok(());
         }
+        self.cleanup.poll(|| {
+            let (drive, cancelled) = (drive.clone(), cancelled.clone());
+            std::thread::spawn(move || {
+                if !cancelled.load(Ordering::Acquire) {
+                    cleanup(&drive, cancelled);
+                }
+            })
+        })?;
         self.history.poll(|| {
             let (drive, cancelled) = (drive.clone(), cancelled.clone());
             std::thread::spawn(move || {
@@ -157,10 +189,26 @@ impl Maintenance {
         let compaction = self.compaction.join();
         let keepalive = self.keepalive.join();
         let history = self.history.join();
+        let cleanup = self.cleanup.join();
         sync.and(capacity)
             .and(compaction)
             .and(keepalive)
             .and(history)
+            .and(cleanup)
+    }
+}
+
+/// One automatic drive cleanup pass; never fails the mount (errors and
+/// postponements are only logged; the next pass retries).
+fn cleanup(drive: &VirtualDrive, cancelled: Arc<AtomicBool>) {
+    match crate::drive_history::cleanup::auto(drive, cancelled) {
+        None => {}
+        Some(Err(e)) => eprintln!("Drive cleanup pending: {e:#}"),
+        Some(Ok(report)) => {
+            if let Some(line) = crate::drive_history::cleanup::log_line(&report) {
+                eprintln!("{line}");
+            }
+        }
     }
 }
 
@@ -203,6 +251,17 @@ mod tests {
             Maintenance::new(Duration::from_secs(3600)).sync.interval,
             Duration::from_secs(3600)
         );
+        // Cleanup runs daily, the first pass half an hour after the start.
+        let cleanup = &Maintenance::new(Duration::from_secs(30)).cleanup;
+        assert_eq!(
+            (cleanup.interval, cleanup.first, cleanup.last),
+            (CLEANUP_INTERVAL, CLEANUP_FIRST, None)
+        );
+        assert!(!cleanup.due());
+        let mut started = Periodic::first_after(Duration::ZERO, CLEANUP_INTERVAL);
+        assert!(started.due());
+        started.last = Some(Instant::now());
+        assert!(!started.due(), "then it waits a day");
         // Compaction never runs at mount start; it waits one interval.
         assert!(Maintenance::new(Duration::from_secs(30))
             .compaction

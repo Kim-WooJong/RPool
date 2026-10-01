@@ -161,7 +161,7 @@ fn inherited_cancellation() -> Vec<Arc<AtomicBool>> {
 
 /// Per-operation deadline + cancellation, propagated into adapters. A remote
 /// write that may have committed after a cancel/timeout is `UnknownOutcome`,
-/// not a clean cancel (target.md §3.4, ADR-004).
+/// not a clean cancel (ADR-004).
 #[derive(Clone)]
 pub(crate) struct OperationContext {
     deadline: Option<Instant>,

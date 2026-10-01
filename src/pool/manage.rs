@@ -31,5 +31,6 @@ pub(crate) fn remove_pool(name: &str) -> Result<PathBuf> {
         bail!("pool not found: {name}");
     }
     store.retention.remove(name);
+    store.drive_cleanup.remove(name);
     save_pool_store(&store)
 }

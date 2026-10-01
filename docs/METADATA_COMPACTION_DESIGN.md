@@ -1,14 +1,12 @@
-# Pool metadata checkpoints and compaction (v6 events, v7 snapshots)
+# Pool metadata checkpoints and compaction (v6 events)
 
-Status: implemented (format 1). Applies to the coordinator-free pool-sync
-families: v6 namespace events (`.rpool-sync/events-v6/<scope>`) and v7 peer
-snapshots/name records (`.rpool-sync/snapshots-v7/<scope>`), including their
-`epochs/<epoch>/` generations. The v5 coordinator checkpoint (`shared_checkpoint*`)
-is unchanged; it keeps its own budget.
+Status: implemented (format 1). Applies to the drive's pool-sync metadata, the
+v6 namespace events (`.rpool-sync/events-v6/<scope>`), including their
+`epochs/<epoch>/` generations.
 
 ## Problem
 
-Every v6 event / v7 record is one immutable, content-addressed object. A fresh
+Every v6 event is one immutable, content-addressed object. A fresh
 bootstrap (new PC, lost workspace) used to read all of them and failed at
 10,000 unseen records or 64 MiB per replica ("peer compaction is not yet
 implemented"). A long-used drive therefore became unopenable on a new PC.
@@ -20,7 +18,7 @@ implemented"). A long-used drive therefore became unopenable on a new PC.
 | `R/checkpoints/chunks/<id>.json` | `Chunk {format:1, family, records: {kind: {record id: exact record JSON}}}` (≤ 8 MiB) |
 | `R/checkpoints/heads/<id>.json`  | `Head {format:1, family, created_unix, chunks:[chunk ids], records, bytes}` |
 | `R/checkpoints/marks/<id>.json`  | `Mark {format:1, family, checkpoint:<head id>, marked_unix, records:{kind:[ids]}}` |
-| `R/events/<gate>.json` (v6), `R/snapshots/events/<gate>.json` (v7) | compaction gate record (below) |
+| `R/events/<gate>.json` | compaction gate record (below) |
 
 All objects are content addressed (`id = blake3(bytes)`), verified on every read,
 written with readback and never overwritten — exactly like existing records. They
@@ -29,7 +27,7 @@ crypt), so they are as confidential as the records they contain. There is no
 signing key in RPool; integrity comes from content addressing: a checkpoint can
 only *repeat* records whose ids it names, it cannot invent or alter one, because
 every embedded record is re-hashed against its id and re-validated by the normal
-model (`Event::validate`, `reduce`, `peer_snapshot_model::analyze`).
+model (`Event::validate`, `reduce`).
 
 A checkpoint is **lossless**: it embeds the exact bytes of the records it covers.
 Heads are incremental: a new head lists every chunk of every valid existing head
@@ -94,12 +92,10 @@ as a monitoring alert, never fail the mount. Thresholds live in
   gate nothing is ever deleted**, so older versions keep working exactly as before
   (including their old 10,000 / 64 MiB bootstrap limit).
 * Deletion is gated by an explicit, one-time opt-in:
-  `rpool pool compact <NAME> --enable-deletion` publishes the **gate record**:
-  * v6: an `Event` with `version: 2` in `events/`;
-  * v7: a `Snapshot` with `version: 8` in `snapshots/`.
+  `rpool pool compact <NAME> --enable-deletion` publishes the **gate record**, an
+  `Event` with `version: 2` in `events/`.
   Newer RPool recognises the fixed gate id and skips it. Older RPool parses it and
-  stops with "unsupported namespace event version" / "snapshot version …
-  mismatch" on its next pull or bootstrap — it is broken *loudly*, never
+  stops with "unsupported namespace event version" on its next pull or bootstrap — it is broken *loudly*, never
   silently shown an incomplete drive. Enable deletion only after every PC runs a
   version with checkpoints (this one or later).
 * Future formats bump `format`; readers ignore heads of unknown format (and fail
@@ -118,8 +114,8 @@ warning level or compaction fails.
 
 * Lossless format: total checkpoint bytes still grow linearly with history; the
   local workspace keeps every record (as before). Semantic pruning (dropping
-  superseded v6 events / covered v7 snapshots) would change conflict projection
-  (common ancestors) and v7 coverage proofs and is deliberately not done.
+  superseded events) would change conflict projection (common ancestors) and
+  the history that trash/versions/rollback read, and is deliberately not done.
 * Chunk consolidation (merging many small chunks) is not implemented; each
   checkpoint adds ≥ 2,000 records per chunk by default, so chunk count stays low.
 * A single record whose JSON-escaped form exceeds a chunk (≈ 6 MiB) is never

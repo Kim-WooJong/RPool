@@ -31,11 +31,11 @@ and rclone quota support but do not scan file contents or synchronize metadata.
 | Logical file usage | Available from a mounted/workspace namespace, including visible conflicts and queued writes. Pure pool queries return `namespace_used: null` rather than pretending usage is zero. |
 
 Aliases sharing a quota domain are **not added**. Independently declared accounts
-can be combined. Account identity declarations remain available in the Mount
-screen's **Account capacity / outage identities** section without mounting.
+can be combined. Account identity declarations (capacity group, outage group per
+backing account) are edited in Storage › Pools, without mounting.
 Unknown identities are conservatively grouped; rejected quota targets and incomplete
 coverage are displayed explicitly. The Pools capacity preview now lists included
-backing quotas and exclusions and links to the Mount identity editor. No quota
+backing quotas and exclusions next to the identity editor. No quota
 response means unknown, not known full.
 
 For a single logical file of `L` bytes, with `K` data shards, `M` parity shards
@@ -45,7 +45,7 @@ efficiency; many small files use proportionally more parity and metadata.
 
 Resilient also enforces outage-domain constraints. Consequently the coding-only
 upper bound may be large while no tested placement fits. The feasible estimator
-limits simulation to 65,536 physical shards; `estimate_limited` identifies a cap.
+limits simulation to 262,144 physical shards; `estimate_limited` identifies a cap.
 Greedy placement has non-monotone boundaries, so a zero search result is not proof
 that every possible file size is impossible. Metadata/encryption overhead,
 small-file padding, and concurrent writers can reduce actual writable bytes.
@@ -67,27 +67,21 @@ For example, one 2 TiB account plus three 2 GiB accounts with `K=3, M=1` can
 make the strict Resilient writable bound much smaller than the coding-only
 figure. Capacity-first can use the large account beyond that strict bound, but
 it does not preserve the same failure guarantee. The mode applies to new
-uploads. Existing archives keep their saved shard locations; existing mounted
-workspaces keep their frozen policy until explicitly reconfigured.
+uploads and to the drive's next mount; existing archives keep their saved shard
+locations until `rpool pool migrate` moves them.
 
 ## Mounted space reporting
 
-Virtual mode supplies DAV used/total using current logical namespace usage and
+The drive supplies used/total using current logical namespace usage and
 planner-estimated additional space. Known pending uploads reserve data **and parity**
 against their planned account destinations. Same-size replacements cannot revive a
 previous quota sample. Refresh failure invalidates the cache; samples older than
 120 seconds or with no eligible quota target return quota-unavailable. When the
 namespace changes before the next sample, additional space is conservatively zero.
 
-V7 retained-version private-copy demand is not fully predictable from aggregate
-quota. While v7 work is queued, extra writable space is reported as zero until sync
-finishes; this does not stop its already queued synchronization. New independent
-file estimates are not promises that an arbitrary history-heavy overwrite will fit.
-
-The GUI shows the account quota and theoretical bound separately from the virtual
-namespace's estimated ceiling. Replica mode is a local filesystem and correctly
-continues reporting local-disk capacity to the OS; cloud pool figures are separate.
-VFS-cached writes not yet delivered to RPool and OS/rclone caching can delay display.
+The GUI shows the account quota and theoretical bound separately from the
+drive's estimated ceiling. Kept history (trash, earlier versions) occupies
+account quota but is not logical file usage. VFS-cached writes not yet delivered to RPool and OS/rclone caching can delay display.
 
 Validation covers injected provider reports, placement/reservation regressions,
 headless GUI stale-result handling and real local HTTP DAV quota responses. Actual

@@ -7,7 +7,7 @@
 # small metadata polling (no data shard is read back again).
 # rclone is wrapped by a shim that logs the verb and remote paths only;
 # RPOOL_RCLONE_DAEMON=0 makes every read a visible subprocess.
-# Env: MODE=v6|v7 (v7 adds --pool-retention), NATIVE_CRYPT=1|0, ALLOW_REREAD=1
+# Env: NATIVE_CRYPT=1|0, ALLOW_REREAD=1
 #      to only report (not fail on) repeated shard downloads during upload,
 #      IDLE_LIMIT bytes allowed per remote over the idle window (default 65536),
 #      DAEMON=1 to keep reads in `rclone rcd` (then only subprocesses are logged).
@@ -17,10 +17,9 @@ cd /src
 command -v rclone >/dev/null || { apt-get update -qq >/dev/null && apt-get install -y -qq unzip >/dev/null && curl -sS https://rclone.org/install.sh | bash >/dev/null; }
 cargo build --locked --bin rpool 2>&1 | tail -1
 RPOOL=/target/debug/rpool
-MODE=${MODE:-v6}; NATIVE=${NATIVE_CRYPT:-1}; LIMIT=${IDLE_LIMIT:-65536}
-RETENTION=""; [ "$MODE" = v7 ] && RETENTION="--pool-retention --pool-history-limit 1"
+NATIVE=${NATIVE_CRYPT:-1}; LIMIT=${IDLE_LIMIT:-65536}
 NC=""; [ "$NATIVE" = 1 ] && NC="--native-crypt"
-echo "mode: $MODE native_crypt: $NATIVE"
+echo "native_crypt: $NATIVE"
 E=/e2e-idle; rm -rf $E; mkdir -p $E/home $E/cfg $E/ws $E/mnt $E/bin
 export HOME=$E/home RPOOL_CONFIG_DIR=$E/cfg
 REAL=$(command -v rclone)
@@ -41,7 +40,7 @@ for i in 1 2 3; do
 done
 $RPOOL pool set idle --remote c1: --remote c2: --remote c3: --data-shards 2 --parity-shards 1 --shard-mib 1 $NC >/dev/null
 D="--capacity-domain b1=a1 --capacity-domain b2=a2 --capacity-domain b3=a3 --failure-domain b1=g1 --failure-domain b2=g2 --failure-domain b3=g3"
-$RPOOL mount --virtual-drive --pool-sync $RETENTION --pool idle --workspace $E/ws/A --mountpoint $E/mnt \
+$RPOOL mount --pool idle --workspace $E/ws/A --mountpoint $E/mnt \
   --pool-worker PC-A --stop-file $E/stop --interval-seconds 5 $D > $E/mount.log 2>&1 &
 PID=$!
 for i in $(seq 1 90); do grep -q "$E/mnt " /proc/mounts && break; sleep 1; done
@@ -101,7 +100,7 @@ echo "most reads of one data/parity shard during upload: ${max:-0}"
 idle A A-alone
 # Second PC joins while A stays mounted, reads the data twice, then both idle.
 mkdir -p $E/mntB
-$RPOOL mount --virtual-drive --pool-sync $RETENTION --pool idle --workspace $E/ws/B --mountpoint $E/mntB \
+$RPOOL mount --pool idle --workspace $E/ws/B --mountpoint $E/mntB \
   --pool-worker PC-B --stop-file $E/stopB --interval-seconds 5 $D > $E/mountB.log 2>&1 &
 PIDB=$!
 for i in $(seq 1 120); do [ -e $E/mntB/big.bin ] && break; sleep 1; done

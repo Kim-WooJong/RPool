@@ -257,3 +257,133 @@ fn v6_trash_versions_rollback_and_mount_requests_end_to_end() {
     let trash: Vec<TrashEntry> = op(&rclone, "hist", None, Op::TrashList);
     assert!(trash.is_empty(), "{trash:?}");
 }
+
+/// Top-level `virtual-*` folders stored on the pool's accounts.
+fn drive_folders(rclone: &str) -> BTreeSet<String> {
+    let roots: BTreeSet<String> = ["c1:".to_string(), "c2:".to_string()].into();
+    let listings = crate::migration::retire::observe::list_roots(rclone, &roots);
+    let mut out = BTreeSet::new();
+    for listing in listings.values() {
+        let files = listing.files().expect("listed");
+        for path in files.keys() {
+            let first = path.split('/').next().unwrap();
+            if first.starts_with("virtual-") {
+                out.insert(first.to_owned());
+            }
+        }
+    }
+    out
+}
+
+#[test]
+#[ignore = "requires rclone; sets process environment"]
+fn v6_cleanup_deletes_unreferenced_archives_after_the_grace_period() {
+    use super::cleanup::{execute, live::LiveIo, select::folders};
+    let rclone = rclone();
+    let temp = tempfile::tempdir().unwrap();
+    setup(temp.path(), &rclone, &["gc"]);
+    super::retention::update("gc", Some(1), Some(1), Some(1)).unwrap();
+    let ws_a = temp.path().join("pc-a");
+    let a = open(&rclone, "gc", &ws_a, "PC-A");
+    write(&a, "f.txt", b"one");
+    write(&a, "f.txt", b"two");
+    write(&a, "f.txt", b"three");
+    write(&a, "keep.txt", b"kept file");
+    write(&a, "gone.txt", b"deleted file");
+    a.delete("gone.txt").unwrap();
+    write(&a, "purge.txt", b"purged file");
+    a.delete("purge.txt").unwrap();
+    a.sync().unwrap();
+    drop(a);
+    let trash: Vec<TrashEntry> = op(&rclone, "gc", None, Op::TrashList);
+    let purge = trash.iter().find(|e| e.path == "/purge.txt").unwrap();
+    let purged: PurgeReport = op(
+        &rclone,
+        "gc",
+        None,
+        Op::TrashPurge {
+            ids: vec![purge.id.clone()],
+            expired: false,
+            all: false,
+            confirm: true,
+        },
+    );
+    assert!(purged.applied);
+    let before = drive_folders(&rclone);
+    let versions: Vec<VersionEntry> = op(
+        &rclone,
+        "gc",
+        None,
+        Op::VersionsList {
+            path: "/f.txt".into(),
+        },
+    );
+    assert!(versions.iter().all(|v| v.restorable));
+
+    let retention = super::retention::load("gc").unwrap();
+    let settings = super::retention::load_cleanup("gc").unwrap();
+    let mut options = execute::Options::new(retention, settings);
+    // A preview writes nothing.
+    let mut io = LiveIo::open(&rclone, "gc", None).unwrap();
+    io.clock_offset = 10 * super::retention::DAY;
+    let preview = execute::run(&io, "gc", &options).unwrap();
+    assert!(preview.postponed.is_empty(), "{preview:?}");
+    assert!(preview.candidates.files >= 4, "{preview:?}");
+    // Ten days later: marked, nothing deleted.
+    options.confirm = true;
+    let marked = execute::run(&io, "gc", &options).unwrap();
+    assert_eq!(marked.candidates, preview.candidates);
+    assert_eq!(marked.deleted.archives, 0);
+    assert_eq!(drive_folders(&rclone), before);
+    // Past the grace: deleted (only the current files remain, which is more
+    // than the guard's share, so it is forced).
+    io.clock_offset = 20 * super::retention::DAY;
+    let refused = execute::run(&io, "gc", &options).unwrap();
+    assert!(
+        refused.guard.is_some() && refused.deleted.archives == 0,
+        "{refused:?}"
+    );
+    options.force = true;
+    let deleted = execute::run(&io, "gc", &options).unwrap();
+    assert_eq!(
+        deleted.deleted.archives, marked.candidates.archives,
+        "{deleted:?}"
+    );
+    let after = drive_folders(&rclone);
+    assert!(after.len() < before.len());
+
+    // Current files read back; their archives are all that is left.
+    let b = open(&rclone, "gc", &temp.path().join("pc-b"), "PC-B");
+    assert_eq!(read(&b, "f.txt"), b"three");
+    assert_eq!(read(&b, "keep.txt"), b"kept file");
+    let mut kept = BTreeSet::new();
+    for revision in b.view().unwrap().values() {
+        if let Revision::Cloud { content, .. } = revision {
+            kept.extend(folders(&content.manifest));
+        }
+    }
+    drop(b);
+    assert!(after.is_subset(&kept), "{after:?} vs {kept:?}");
+    // Old versions are no longer offered for restore.
+    let versions: Vec<VersionEntry> = op(
+        &rclone,
+        "gc",
+        None,
+        Op::VersionsList {
+            path: "/f.txt".into(),
+        },
+    );
+    assert!(versions.iter().any(|v| !v.restorable && !v.current));
+    assert!(versions.iter().any(|v| v.restorable && v.current));
+    // Nothing left to do.
+    let again = execute::run(&io, "gc", &options).unwrap();
+    assert_eq!(
+        (
+            again.candidates.archives,
+            again.due.archives,
+            again.deleted.archives
+        ),
+        (0, 0, 0),
+        "{again:?}"
+    );
+}

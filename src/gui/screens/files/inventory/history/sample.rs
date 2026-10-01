@@ -5,7 +5,8 @@ use super::query::Fetch;
 use super::rollback_time::TimePreset;
 use super::state::{RollbackDialog, VersionsPanel};
 use crate::drive_history::model::{
-    ChangeAction, Retention, RollbackChange, RollbackPlan, TrashEntry, VersionEntry, VersionKind,
+    ChangeAction, CleanupAccount, CleanupMode, CleanupReport, CleanupSettings, CleanupTotals,
+    Retention, RollbackChange, RollbackPlan, TrashEntry, VersionEntry, VersionKind,
     HISTORY_VERSION,
 };
 
@@ -188,6 +189,44 @@ pub(crate) fn retention() -> Retention {
     }
 }
 
+/// A cleanup preview: some data reclaimable, some waiting, some due, and
+/// the mass-delete guard would stop the due part.
+pub(crate) fn cleanup_report(now: u64) -> CleanupReport {
+    let totals = |archives, files, bytes| CleanupTotals {
+        archives,
+        files,
+        objects: archives * 3,
+        bytes,
+    };
+    CleanupReport {
+        version: HISTORY_VERSION,
+        pool: "family".into(),
+        mode: CleanupMode::Preview,
+        candidates: totals(12, 9, 1_800_000_000),
+        waiting: totals(40, 31, 6_400_000_000),
+        due: totals(3, 3, 250_000_000),
+        deleted: CleanupTotals::default(),
+        released: 0,
+        next_deletion_unix: Some(now + 3 * DAY),
+        accounts: vec![
+            CleanupAccount {
+                account: "gdrive-family-photos".into(),
+                objects: 90,
+                bytes: 5_000_000_000,
+            },
+            CleanupAccount {
+                account: "onedrive".into(),
+                objects: 75,
+                bytes: 3_450_000_000,
+            },
+        ],
+        guard: Some("120 objects exceed the limit of 100 per run".into()),
+        postponed: Vec::new(),
+        settings: CleanupSettings::default(),
+        notes: Vec::new(),
+    }
+}
+
 /// What the sample shows in Library › Drive files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Fixture {
@@ -261,6 +300,8 @@ pub(crate) fn retention_card(state: &mut crate::gui::state::GuiState, pool: &str
     state.inventory.drive.history.reveal_retention = true;
     let history = state.inventory.drive.history.pool(pool);
     history.retention = Fetch::ready(retention());
+    history.cleanup = Fetch::ready(cleanup_report(crate::utils::now_unix()));
+    history.cleanup_confirm = super::state::CleanupConfirm::Guard;
     history.retention_draft = Some(Retention {
         version_days: 0,
         keep_versions: 0,

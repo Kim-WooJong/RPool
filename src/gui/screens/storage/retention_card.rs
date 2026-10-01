@@ -1,6 +1,7 @@
 //! "Trash & versions" card on the Pools page: how long deleted files stay
 //! in the trash and how many / how long previous versions are kept, by
-//! `rpool drive retention show|set` (0 means unlimited).
+//! `rpool drive retention show|set` (0 means unlimited), and below it the
+//! space a drive cleanup can reclaim (`cleanup_section`).
 
 use crate::drive_history::model::Retention;
 use crate::gui::i18n::{tr, trf};
@@ -156,6 +157,7 @@ fn body(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner, pool: &s
             args,
         );
     }
+    super::cleanup_section::show(ui, history, task, &rclone, pool);
 }
 
 fn badges_notice(ui: &mut egui::Ui, success: bool, text: &str) {

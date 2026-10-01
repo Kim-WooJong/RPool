@@ -63,6 +63,12 @@ pub(crate) struct PoolStore {
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub(crate) retention:
         std::collections::BTreeMap<String, crate::drive_history::model::Retention>,
+    /// Automatic drive cleanup per pool name (`rpool drive retention set
+    /// --auto-cleanup/--cleanup-grace-days`); a missing entry means the
+    /// defaults (on, 7 days). Older RPool ignores the field.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub(crate) drive_cleanup:
+        std::collections::BTreeMap<String, crate::drive_history::model::CleanupSettings>,
 }
 
 impl Default for PoolStore {
@@ -71,6 +77,7 @@ impl Default for PoolStore {
             version: 1,
             pools: std::collections::BTreeMap::new(),
             retention: std::collections::BTreeMap::new(),
+            drive_cleanup: std::collections::BTreeMap::new(),
         }
     }
 }

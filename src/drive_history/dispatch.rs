@@ -84,6 +84,10 @@ pub(crate) fn run(rclone: &str, pool: &str, workspace: Option<&Path>, op: &Op) -
 
 /// Runs `op` on an open drive (workspace, scratch or inside the mount).
 pub(crate) fn on_drive(drive: &VirtualDrive, rclone: &str, pool: &str, op: &Op) -> Result<Answer> {
+    if let Op::Cleanup(request) = op {
+        let report = super::cleanup::run(rclone, pool, Some(drive), request)?;
+        return Ok((serde_json::to_value(report)?, Vec::new()));
+    }
     let now = crate::utils::now_unix();
     let loaded = super::load::from_drive(drive, rclone, now)?;
     let retention = super::retention::load(pool)?;
@@ -117,6 +121,10 @@ pub(crate) fn serve_mount(drive: &VirtualDrive) -> Result<usize> {
 }
 
 fn cloud(rclone: &str, pool: &str, op: &Op) -> Result<Answer> {
+    if let Op::Cleanup(request) = op {
+        let report = super::cleanup::run(rclone, pool, None, request)?;
+        return Ok((serde_json::to_value(report)?, Vec::new()));
+    }
     if op.writes_drive() {
         return scratch(rclone, pool, op);
     }

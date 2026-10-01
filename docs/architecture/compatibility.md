@@ -58,7 +58,7 @@
 ### 1.7 crypt portability
 
 - crypt fixed paths, JSON allowlist, vault binding, bundle schema, exact obscured secret bytes 보존.
-- `rpool export/import`와 JSON-only `rpool config export/import` 역할 구분 보존.
+- `rpool export/import` artifact 계약 보존(legacy JSON-only `rpool config export/import`는 제거됨; `rpool config paths`만 남음).
 - `config/portable-config.json` + `secrets/rclone.age` artifact layout 보존.
 - portable JSON에 crypt secret을 넣지 않음.
 - obscured password/password2를 age 암호화 vault에 넣고 exact value로 복원.
@@ -96,14 +96,11 @@
   예: provider drain은 v2를 요구하므로 v1 지원을 몰래 추가 안 함.
 - CLI/GUI entry point는 기존과 호환되게 유지.
 - `--rclone` compatibility argument 보존.
-- legacy 실행 인자 호환 보존.
+- 제거된 drive mode의 flag(v3/v5/v7, this-PC-only, full local replica)는 호환 대상이 아니다. 남은 command의 인자 호환은 보존.
 
 ## 4. version 관리
 
-- v0.5.16은 기존 Settings/UI Persistence(D1–D4)에 예약됨.
-- 이번 pivot은 v0.5.16을 소비 안 함.
-- version bump는 별도 결정 없이 안 함.
-- 문서상 `next/unreleased: storage pivot`으로 관리.
+- 버전 규칙은 `docs/VERSIONING.md`를 따른다. persisted format 변경은 위 보존 계약을 깨지 않는 범위에서만 한다.
 
 ## 5. rollback
 
@@ -122,8 +119,6 @@
   보장은 아니며 Unix 생성 권한은 tempfile의 제한된 기본 권한을 따른다.
 - 고정 v1/v2 plain/RS fixture는 합성 데이터이며 기존 알고리즘과 문서의 LE preimage
   규칙을 독립적으로 구성해 얻은 root를 고정했다. 운영 사용자 데이터는 사용하지 않았다.
-- crypt/config 및 manifest 핵심 23개 파일은 입력 ZIP과 동일하다.
-  자세한 해시 목록: `step10-baseline-audit.json`.
 - MetadataStore/authority, native volume key, fencing, multi-writer, quorum/failover,
   reader/GC coordination은 구현 또는 검증 완료가 아니다. ADR-003 조건은 계속 차단 조건이다.
 - rollback은 legacy source/config 호환성 범위이며 원격 데이터 자동 복구를 보장하지 않는다.

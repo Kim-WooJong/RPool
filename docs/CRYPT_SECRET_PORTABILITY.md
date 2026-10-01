@@ -1,20 +1,10 @@
-# Crypt Secret Portability — B1-B7 completed source checkpoint
+# Crypt Secret Portability
 
-Date: 2026-09-23. Internal work only; no patch ZIP/release was produced.
-
-## Source provenance
-
-The accessible source inputs for this checkpoint were `rpool.zip` and
-`rpool-v0.5.15-baseline-build-hotfix.zip`. Previously described B1–B4 working
-files were not present in this runtime or found in the available file search.
-Their required foundation was reimplemented here; equality with the previously
-reported implementation is NOT established. Do not claim the old 36-check or
-12-test reports apply to this working tree.
-
-`Cargo.toml` remains v0.5.15. Its stale v0.5.12 root package entry in Cargo.lock
-was aligned to v0.5.15. getrandom 0.3.4 and tempfile 3.27.0 were already locked
-transitive packages; they are now direct dependencies. No dependency version
-upgrade, build, cargo command, or external age/rclone execution was performed.
+Status: implemented (B1–B7): `rpool export` / `rpool import` carry ordinary
+portable rpool settings plus an age-encrypted vault of the already-obscured
+rclone crypt passwords. The legacy JSON-only `rpool config export/import`
+commands were removed; `rpool config paths` remains. The real-tool tests passed
+on macOS ARM64 and Linux ARM64 on 2026-09-24; Windows has not run them.
 
 ## Implemented ownership
 
@@ -102,11 +92,11 @@ retained for explicit/manual resolution.
 
 ## B6 real-tool verification harness
 
-B6 now includes ignored Rust integration tests in
+B6 is a set of ignored Rust integration tests in
 `src/config_sync/b6_integration_tests.rs`. They use only fresh temporary
 directories and explicit `--config` paths, so they do not use the user's normal
-rclone configuration. The tests are source-complete but have NOT been executed
-in this environment.
+rclone configuration. They passed on macOS ARM64 and Linux ARM64 on
+2026-09-24.
 
 The real-tool scenarios cover:
 
@@ -139,11 +129,8 @@ manually with `cargo test b6_real_ -- --ignored --test-threads=1`.
 
 ## Remaining limits and gates
 
-- B6 runtime execution is still pending on a machine with rclone, age, and
-  age-keygen. The source harness exists, but no runtime success is claimed.
-- B7 CLI orchestration is connected through top-level `rpool export` / `rpool import`.
-  The legacy `rpool config export/import` path remains JSON-only and fails closed
-  on crypt-aware bundles so it cannot silently skip secret restoration.
+- CLI orchestration is the top-level `rpool export` / `rpool import`; there is
+  no other import path for portable configuration.
 - The B7 artifact has fixed `config/portable-config.json` and `secrets/rclone.age`
   locations. The portable JSON stores only a BLAKE3 digest of the ciphertext; a
   mixed/stale JSON-vault pair is rejected before age decryption or mutation.
@@ -162,7 +149,7 @@ manually with `cargo test b6_real_ -- --ignored --test-threads=1`.
 - The sidecar lock coordinates rpool restores, not independent rclone/editor
   writers. Digest checks detect many conflicts but are not a portable atomic
   compare-and-swap with non-cooperating processes. Keep external writers stopped.
-- Windows/macOS/Linux behavior has NOT been runtime tested. File handles close
+- Runtime-tested on macOS ARM64 and Linux ARM64 (B6 tests); not on Windows. File handles close
   before replacement; read/write handles are used for candidate sync. Unix file
   modes are preserved. Windows custom ACL equivalence is not established by
   std::fs::Permissions and remains a platform validation item.
@@ -175,32 +162,12 @@ manually with `cargo test b6_real_ -- --ignored --test-threads=1`.
 - A crash can retain encrypted candidate/rclone backup files under the dedicated
   local recovery directory. Do not include that directory in portable exports.
 
-## Static-only acceptance
+## Validation
 
-The source audit checks Rust string/comment/delimiter balance, reachable mod
-resolution, Cargo TOML/lock consistency, obsolete-path safety, forbidden output
-patterns and the ordering/guards in the restore pipeline. These are NOT Rust
-parsing/type checking, cryptographic verification or executed tests.
-
-55 Rust test functions are now present in the Crypt Secret Portability fragment.
-Ten are ignored B6 real-tool integration tests; the transaction tests continue
-to use explicit fake encrypted fixtures for deterministic fault injection. None
-of the Rust tests has been executed in this environment.
-
-B1-B7 source work is complete. Historical note: this checkpoint was delivered as a
-full-project ZIP without cargo runs. Since then source lives in Git
-(`docs/VERSIONING.md`), and the 11 ignored B6 real-tool tests passed on macOS ARM64
-and Linux ARM64 on 2026-09-24 (`docs/architecture/runtime-validation.md`); Windows
-has not run them.
-
-## Cleanup
-
-Retired src/models/sync_config.rs is added to the explicit cleanup list. Four
-already-listed obsolete GUI sources present in the uploaded ZIP were removed
-from this worktree, including the conflicting maintenance/integrity.rs.
-No legacy plaintext secret files were identified in the input archive, so no
-invented secret-cache paths were added. Never sweep recovery snapshots or age
-identities from the update-cleanup script.
+The transaction tests use explicit fake encrypted fixtures for deterministic
+fault injection and run with the normal suite. The B6 real-tool tests
+(`src/config_sync/b6_integration_tests.rs`, ignored by default) need rclone,
+age and age-keygen and passed on macOS ARM64 and Linux ARM64 on 2026-09-24.
 
 ## Primary references reviewed
 

@@ -119,3 +119,12 @@ pub(crate) fn set_retention(pool: &str, value: Retention) -> Result<Retention> {
         Some(value.version_days),
     )
 }
+/// `rpool drive cleanup` (preview unless `request.confirm`).
+pub(crate) fn cleanup(
+    rclone: &str,
+    pool: &str,
+    workspace: Option<&Path>,
+    request: super::cleanup::Request,
+) -> Result<(super::model::CleanupReport, Vec<String>)> {
+    run(rclone, pool, workspace, Op::Cleanup(request))
+}

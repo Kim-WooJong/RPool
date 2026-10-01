@@ -37,6 +37,8 @@ pub(crate) enum Op {
         at: u64,
         confirm: bool,
     },
+    /// Physical cleanup of unreferenced drive data (`cleanup`).
+    Cleanup(super::cleanup::Request),
 }
 impl Op {
     /// Changes the drive (needs an open drive, never a read-only listing).
@@ -47,6 +49,10 @@ impl Op {
                 | Self::VersionsRestore { .. }
                 | Self::Rollback { confirm: true, .. }
         )
+    }
+    /// May run for a long time (uploads, deletions): a mount request waits longer.
+    pub(crate) fn long_running(&self) -> bool {
+        self.writes_drive() || matches!(self, Self::Cleanup(_))
     }
     /// Publishes a purge mark (no drive write).
     pub(crate) fn marks(&self) -> bool {
@@ -105,6 +111,7 @@ pub(crate) fn read(
         Op::TrashRestore { .. } | Op::VersionsRestore { .. } => {
             bail!("restore needs an open drive")
         }
+        Op::Cleanup(_) => bail!("cleanup runs through dispatch"),
     })
 }
 
@@ -126,7 +133,7 @@ pub(crate) fn purge_report(
         .filter_map(|id| history.last_content(id))
         .collect();
     let keep: BTreeSet<String> = keep.difference(&freed).cloned().collect();
-    let notes = vec!["the drive keeps all data; purged files are hidden on every PC and their data becomes eligible for a future guarded cleanup (nothing is deleted now)".into()];
+    let notes = vec!["purged files are hidden on every PC; their data is deleted later by the drive cleanup (`rpool drive cleanup`, automatic in mounts) after its grace period".into()];
     Ok(PurgeReport {
         version: HISTORY_VERSION,
         pool: pool.into(),

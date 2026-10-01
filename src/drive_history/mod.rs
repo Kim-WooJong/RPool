@@ -6,7 +6,9 @@
 //! restoring or rolling back publishes new revisions. Only `trash purge` /
 //! `trash empty` (and expiry after the retention period) make a deleted
 //! file's data eligible for removal. `--json` prints the [`model`] types;
-//! the GUI reads those (or calls [`api`] in process).
+//! the GUI reads those (or calls [`api`] in process). `rpool drive cleanup`
+//! ([`cleanup`]) is the one guarded path that deletes data: archives no
+//! current revision, trash entry or kept version needs, after a grace period.
 //!
 //! Design: `docs/DRIVE_HISTORY_DESIGN.md`. Layout:
 //! - `graph`: normalized revision graph; `source_v6` builds it,
@@ -17,6 +19,7 @@
 //!   mount, a workspace or from the cloud. `command`, `time_arg`: CLI.
 pub(crate) mod api;
 mod apply;
+pub(crate) mod cleanup;
 pub(crate) mod command;
 pub(crate) mod dispatch;
 mod graph;

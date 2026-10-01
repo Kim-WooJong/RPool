@@ -39,7 +39,7 @@ pool() { # shard-mib parity
 WS=$E/ws
 start() { # log
   rm -f $E/stop
-  $R mount --virtual-drive --pool lay --workspace $WS --mountpoint $E/mnt --frontend fuse \
+  $R mount --pool lay --workspace $WS --mountpoint $E/mnt --frontend fuse \
     --stop-file $E/stop --status-file $E/ctl/capacity.json --interval-seconds 2 \
     --capacity-domain b1=a1 --capacity-domain b2=a2 --capacity-domain b3=a3 \
     --failure-domain b1=g1 --failure-domain b2=g2 --failure-domain b3=g3 > $E/$1.log 2>&1 &

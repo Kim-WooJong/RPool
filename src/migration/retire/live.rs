@@ -35,6 +35,24 @@ impl LiveIo {
     }
 }
 
+/// Deletes one pool object; an object that is already gone is not an error
+/// (also used by the drive cleanup, `drive_history::cleanup`).
+pub(crate) fn delete_object(rclone: &str, native_crypt: bool, address: &str) -> Result<()> {
+    let storage = StorageWriter::for_pool(rclone, native_crypt);
+    storage.ensure_destination(address)?;
+    match storage.delete(address) {
+        Ok(()) => Ok(()),
+        Err(error)
+            if error
+                .downcast_ref::<StorageError>()
+                .is_some_and(|e| e.kind() == StorageErrorKind::NotFound) =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(error),
+    }
+}
+
 impl RetireIo for LiveIo {
     fn plan(&self) -> Result<Plan> {
         let plan = self
@@ -63,19 +81,7 @@ impl RetireIo for LiveIo {
         super::observe::observe(&self.rclone, &self.pool, plan, records, options)
     }
     fn delete(&self, address: &str) -> Result<()> {
-        let storage = StorageWriter::for_pool(&self.rclone, self.native_crypt);
-        storage.ensure_destination(address)?;
-        match storage.delete(address) {
-            Ok(()) => Ok(()),
-            Err(error)
-                if error
-                    .downcast_ref::<StorageError>()
-                    .is_some_and(|e| e.kind() == StorageErrorKind::NotFound) =>
-            {
-                Ok(())
-            }
-            Err(error) => Err(error),
-        }
+        delete_object(&self.rclone, self.native_crypt, address)
     }
     fn forget(&self, archive_id: &str) -> Result<()> {
         crate::inventory::remove_entry(archive_id).map(|_| ())

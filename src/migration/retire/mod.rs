@@ -10,14 +10,14 @@
 //!   quarantine. `io` / `live` / `observe`: the side-effect boundary.
 pub(crate) mod execute;
 mod fossil;
-mod guard;
+pub(crate) mod guard;
 pub(crate) mod io;
 pub(crate) mod live;
-mod live_refs;
+pub(crate) mod live_refs;
 pub(crate) mod model;
-mod observe;
+pub(crate) mod observe;
 pub(crate) mod plan;
-mod refs;
+pub(crate) mod refs;
 pub(crate) mod restore;
 #[cfg(test)]
 mod test_fixture;
