@@ -13,11 +13,19 @@ fn english_is_the_default_and_passes_through() {
 #[test]
 fn tables_parse_and_every_entry_has_all_three_languages() {
     let mut incomplete = Vec::new();
-    for (name, text) in TABLES {
-        let parsed: HashMap<String, Entry> = serde_json::from_str(text).unwrap();
-        for (key, entry) in parsed {
-            if entry.ko.is_none() || entry.ja.is_none() || entry.zh.is_none() {
-                incomplete.push(format!("{name}: {key}"));
+    for (name, texts) in TABLES {
+        let parsed: Vec<HashMap<String, String>> = texts
+            .iter()
+            .map(|text| serde_json::from_str(text).unwrap())
+            .collect();
+        let mut keys: Vec<&String> = parsed.iter().flat_map(|t| t.keys()).collect();
+        keys.sort();
+        keys.dedup();
+        for key in keys {
+            for (index, table) in parsed.iter().enumerate() {
+                if !table.contains_key(key) {
+                    incomplete.push(format!("{}/{name}: {key}", LANGUAGES[index]));
+                }
             }
         }
     }

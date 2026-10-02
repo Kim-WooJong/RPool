@@ -1,9 +1,10 @@
 //! GUI languages. English is the source text and the default; Korean,
-//! Japanese and Chinese (Simplified) come from the JSON tables in this folder,
+//! Japanese and Chinese (Simplified) come from `locales/<language>/<area>.json` at the crate root (registered in
+//! `TABLES` below),
 //! keyed by the exact English text:
 //!
 //! ```json
-//! { "Mount": { "ko": "마운트", "ja": "マウント", "zh": "挂载" } }
+//! { "Mount": "마운트" }
 //! ```
 //!
 //! Wrap every user-facing literal in [`tr`], or [`trf`] when it has values
@@ -67,31 +68,38 @@ pub(crate) fn language() -> Language {
         .unwrap_or_default()
 }
 
-/// Every table file. Each part of the GUI owns one, so translators do not
-/// edit the same file.
-const TABLES: [(&str, &str); 11] = [
-    ("core", include_str!("core.json")),
-    ("drive", include_str!("drive.json")),
-    ("storage", include_str!("storage.json")),
-    ("files_health", include_str!("files_health.json")),
-    ("monitoring", include_str!("monitoring.json")),
-    ("tooling", include_str!("tooling.json")),
-    ("metadata", include_str!("metadata.json")),
-    ("migration_retire", include_str!("migration_retire.json")),
-    ("limits", include_str!("limits.json")),
-    ("migration_drive", include_str!("migration_drive.json")),
-    ("drive_history", include_str!("drive_history.json")),
+/// Every table: one file per GUI area and language, under
+/// `locales/<ko|ja|zh>/<area>.json`, each a flat map from the exact English
+/// text to its translation. Each area has its own files, so translators of
+/// different screens or languages never edit the same file.
+macro_rules! table {
+    ($name:literal) => {
+        (
+            $name,
+            [
+                include_str!(concat!("../../../locales/ko/", $name, ".json")),
+                include_str!(concat!("../../../locales/ja/", $name, ".json")),
+                include_str!(concat!("../../../locales/zh/", $name, ".json")),
+            ],
+        )
+    };
+}
+const TABLES: [(&str, [&str; 3]); 11] = [
+    table!("core"),
+    table!("drive"),
+    table!("drive_history"),
+    table!("files_health"),
+    table!("limits"),
+    table!("metadata"),
+    table!("migration_drive"),
+    table!("migration_retire"),
+    table!("monitoring"),
+    table!("storage"),
+    table!("tooling"),
 ];
 
-#[derive(Deserialize)]
-struct Entry {
-    #[serde(default)]
-    ko: Option<String>,
-    #[serde(default)]
-    ja: Option<String>,
-    #[serde(default)]
-    zh: Option<String>,
-}
+/// Language folders, in `Language::index` order.
+const LANGUAGES: [&str; 3] = ["ko", "ja", "zh"];
 
 type Table = HashMap<String, [Option<&'static str>; 3]>;
 
@@ -99,13 +107,20 @@ fn table() -> &'static Table {
     static TABLE: OnceLock<Table> = OnceLock::new();
     TABLE.get_or_init(|| {
         let mut table = Table::new();
-        for (name, text) in TABLES {
-            let parsed: HashMap<String, Entry> = serde_json::from_str(text)
-                .unwrap_or_else(|e| panic!("i18n table {name}.json is invalid: {e}"));
-            for (english, entry) in parsed {
-                // Leaked once per process: the tables are small and live forever.
-                let leak = |s: Option<String>| s.map(|s| &*Box::leak(s.into_boxed_str()));
-                table.insert(english, [leak(entry.ko), leak(entry.ja), leak(entry.zh)]);
+        for (name, texts) in TABLES {
+            for (index, text) in texts.into_iter().enumerate() {
+                let parsed: HashMap<String, String> =
+                    serde_json::from_str(text).unwrap_or_else(|e| {
+                        panic!(
+                            "i18n table {}/{name}.json is invalid: {e}",
+                            LANGUAGES[index]
+                        )
+                    });
+                for (english, translated) in parsed {
+                    // Leaked once per process: the tables are small and live forever.
+                    let leaked: &'static str = Box::leak(translated.into_boxed_str());
+                    table.entry(english).or_insert([None; 3])[index] = Some(leaked);
+                }
             }
         }
         table

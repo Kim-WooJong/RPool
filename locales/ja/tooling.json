@@ -1,0 +1,12 @@
+{
+  "A ZIP for bug reports: versions, doctor report, rclone and RPool settings without secrets, recent mount logs and monitoring status. Review it before sharing.": "バグ報告用の ZIP です。バージョン、診断結果、秘密情報を除いた rclone と RPool の設定、最近のマウントログ、モニタリング状態を含みます。共有する前に内容を確認してください。",
+  "Cannot read the rclone version. RPool needs rclone {minimum} or newer.": "rclone のバージョンを読み取れません。RPool には rclone {minimum} 以降が必要です。",
+  "Diagnostics bundle": "診断バンドル",
+  "Dismiss": "閉じる",
+  "Export diagnostics…": "診断情報をエクスポート…",
+  "Exporting to {path}. The task console shows the result.": "{path} にエクスポートしています。結果はタスクコンソールに表示されます。",
+  "ZIP archive": "ZIP アーカイブ",
+  "rclone did not run ({error}). Set the rclone executable in Settings › General; RPool needs rclone {minimum} or newer.": "rclone を実行できませんでした（{error}）。設定 › 一般で rclone の実行ファイルを指定してください。RPool には rclone {minimum} 以降が必要です。",
+  "rclone {version} is too old: RPool needs {minimum} or newer. Update rclone before mounting or exporting diagnostics.": "rclone {version} は古すぎます。RPool には {minimum} 以降が必要です。マウントや診断情報のエクスポートの前に rclone を更新してください。",
+  "rclone {version} works, but {recommended} or newer is recommended (security fix for rclone's remote control server).": "rclone {version} でも動作しますが、{recommended} 以降を推奨します（rclone のリモート制御サーバーのセキュリティ修正）。"
+}

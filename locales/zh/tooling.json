@@ -1,0 +1,12 @@
+{
+  "A ZIP for bug reports: versions, doctor report, rclone and RPool settings without secrets, recent mount logs and monitoring status. Review it before sharing.": "用于问题报告的 ZIP：包含版本、诊断报告、去除机密信息的 rclone 和 RPool 设置、最近的挂载日志以及监控状态。分享前请先检查内容。",
+  "Cannot read the rclone version. RPool needs rclone {minimum} or newer.": "无法读取 rclone 版本。RPool 需要 rclone {minimum} 或更高版本。",
+  "Diagnostics bundle": "诊断包",
+  "Dismiss": "关闭",
+  "Export diagnostics…": "导出诊断信息…",
+  "Exporting to {path}. The task console shows the result.": "正在导出到 {path}。结果显示在任务控制台中。",
+  "ZIP archive": "ZIP 压缩包",
+  "rclone did not run ({error}). Set the rclone executable in Settings › General; RPool needs rclone {minimum} or newer.": "无法运行 rclone（{error}）。请在 设置 › 常规 中指定 rclone 可执行文件；RPool 需要 rclone {minimum} 或更高版本。",
+  "rclone {version} is too old: RPool needs {minimum} or newer. Update rclone before mounting or exporting diagnostics.": "rclone {version} 版本过旧：RPool 需要 {minimum} 或更高版本。请在挂载或导出诊断信息前更新 rclone。",
+  "rclone {version} works, but {recommended} or newer is recommended (security fix for rclone's remote control server).": "rclone {version} 可以使用，但建议使用 {recommended} 或更高版本（修复了 rclone 远程控制服务器的安全问题）。"
+}

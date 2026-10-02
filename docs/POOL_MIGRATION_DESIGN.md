@@ -76,7 +76,7 @@ native crypt on and off). Phases 3 and 4 are implemented as well (below).
 
 Phase 4 (cleanup, 2026-10-01) is implemented (`migration/retire/*`,
 `rpool pool migrate retire|restore`, GUI step "Clean up" after a complete
-migration, strings in `gui/i18n/migration_retire.json`):
+migration, strings in `locales/*/migration_retire.json`):
 
 - **What may go.** Only after the migration is complete and not abandoned.
   *Originals* whose winning record is `Switched`, when the replacement passes

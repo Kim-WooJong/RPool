@@ -1,0 +1,18 @@
+{
+  "Check metadata": "メタデータを確認",
+  "Checkpointed {n} records.": "{n} 件の記録をチェックポイントに入れました。",
+  "Checkpoints let a new PC open the drive from a few objects instead of reading every file record.": "チェックポイントがあると、新しいPCはファイル記録を一つずつ読まずに少数のオブジェクトからドライブを開けます。",
+  "Compact now": "今すぐ圧縮",
+  "Compact now would checkpoint {n} records.": "今すぐ圧縮すると {n} 件の記録をチェックポイントに入れます。",
+  "Deleting checkpointed records is a one-time opt-in from the command line (`rpool pool compact <pool> --enable-deletion`), only after every PC is upgraded.": "チェックポイント済みの記録の削除は、すべてのPCを更新した後にコマンドラインで一度だけ有効にします（`rpool pool compact <pool> --enable-deletion`）。",
+  "Deletion of checkpointed records is off.": "チェックポイント済みの記録の削除は無効です。",
+  "Deletion of checkpointed records is on: {deleted} deleted, {deletable} due.": "チェックポイント済みの記録の削除は有効です: {deleted} 件削除、{deletable} 件が対象。",
+  "Drive metadata": "ドライブのメタデータ",
+  "Drive metadata is growing without a checkpoint; new PCs may not open it. Compact it on the Pools page.": "ドライブのメタデータがチェックポイントなしで増えています。新しいPCで開けない場合があるので、プールのページで圧縮してください。",
+  "Metadata task failed; see Jobs for details.": "メタデータの処理に失敗しました。詳しくはジョブを確認してください。",
+  "Metadata: {records} records, {checkpoints} checkpoints, {uncovered} not yet in a checkpoint": "メタデータ: 記録 {records} 件、チェックポイント {checkpoints} 件、未チェックポイント {uncovered} 件",
+  "Reading the pool's metadata…": "プールのメタデータを読み込んでいます…",
+  "Select and load a saved pool to check its metadata.": "メタデータを確認するには、保存済みのプールを選んで読み込んでください。",
+  "This pool has no drive metadata yet.": "このプールにはまだドライブのメタデータがありません。",
+  "{n} unreadable checkpoints were ignored.": "読み取れないチェックポイント {n} 件を無視しました。"
+}

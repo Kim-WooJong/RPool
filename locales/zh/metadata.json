@@ -1,0 +1,18 @@
+{
+  "Check metadata": "检查元数据",
+  "Checkpointed {n} records.": "已将 {n} 条记录纳入检查点。",
+  "Checkpoints let a new PC open the drive from a few objects instead of reading every file record.": "有了检查点，新电脑只需读取少量对象即可打开驱动器，而不必逐个读取文件记录。",
+  "Compact now": "立即压缩",
+  "Compact now would checkpoint {n} records.": "立即压缩会将 {n} 条记录纳入检查点。",
+  "Deleting checkpointed records is a one-time opt-in from the command line (`rpool pool compact <pool> --enable-deletion`), only after every PC is upgraded.": "删除已纳入检查点的记录需在所有电脑升级后，通过命令行一次性开启（`rpool pool compact <pool> --enable-deletion`）。",
+  "Deletion of checkpointed records is off.": "删除已纳入检查点的记录处于关闭状态。",
+  "Deletion of checkpointed records is on: {deleted} deleted, {deletable} due.": "已开启删除已纳入检查点的记录：已删除 {deleted} 条，可删除 {deletable} 条。",
+  "Drive metadata": "驱动器元数据",
+  "Drive metadata is growing without a checkpoint; new PCs may not open it. Compact it on the Pools page.": "驱动器元数据在没有检查点的情况下不断增长，新电脑可能无法打开。请在池页面中压缩。",
+  "Metadata task failed; see Jobs for details.": "元数据任务失败；详情请查看任务。",
+  "Metadata: {records} records, {checkpoints} checkpoints, {uncovered} not yet in a checkpoint": "元数据：{records} 条记录，{checkpoints} 个检查点，{uncovered} 条尚未纳入检查点",
+  "Reading the pool's metadata…": "正在读取池的元数据…",
+  "Select and load a saved pool to check its metadata.": "请选择并加载已保存的池以检查其元数据。",
+  "This pool has no drive metadata yet.": "此池还没有驱动器元数据。",
+  "{n} unreadable checkpoints were ignored.": "已忽略 {n} 个无法读取的检查点。"
+}
