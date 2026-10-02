@@ -2,6 +2,8 @@
 //!
 //! Lock order: `namespace` → one generation slot → drive locks. The id, handle
 //! and slot-map locks are leaves: never lock a slot while holding one of them.
+//! A seal's fsync and full hash (`prehash`) run with none of these locks held,
+//! so a large file's close never blocks lookups, listings or namespace changes.
 use super::error::{FsError, FsResult};
 use super::generation::Generation;
 use super::handles::{Handle, HandleId, HandleTable, View};
@@ -321,9 +323,24 @@ impl FsCore {
         })
     }
 
+    /// Whether `handle` is an open write handle (whose close may seal).
+    pub(crate) fn writes(&self, handle: HandleId) -> bool {
+        lock(&self.handles).is_ok_and(|h| h.get(handle).is_ok_and(|h| h.write))
+    }
+
     /// Closes a handle. The last write handle seals the file's unsealed writes;
     /// an unlinked file's unsealed writes are discarded instead.
+    /// The seal's flush and hash run before the namespace lock is taken
+    /// (`prehash`), so other operations are not held up by a large file.
     pub(crate) fn release(&self, handle: HandleId) -> FsResult<()> {
+        // Best guess at whether this closes the last writer; `finish` decides
+        // under the lock and re-hashes itself if a write raced this hash.
+        let closing = lock(&self.handles)?.get(handle)?;
+        let hashed = if closing.write && lock(&self.handles)?.writers(closing.file) == 1 {
+            self.prehash(closing.file)
+        } else {
+            Ok(())
+        };
         let _namespace = self.shared()?;
         let (released, writers, remaining) = {
             let mut handles = lock(&self.handles)?;
@@ -336,7 +353,7 @@ impl FsCore {
         };
         let mut result = Ok(());
         if released.write && writers == 0 {
-            result = self.finish(released.file);
+            result = self.finish(released.file, hashed);
         }
         if !remaining {
             let mut slots = lock(&self.slots)?;
@@ -350,10 +367,12 @@ impl FsCore {
         result
     }
 
-    fn finish(&self, file: FileId) -> FsResult<()> {
+    /// `hashed` is the result of this release's `prehash`; its failure is a
+    /// seal failure (as when the seal itself flushed and hashed).
+    fn finish(&self, file: FileId, hashed: FsResult<()>) -> FsResult<()> {
         let linked = lock(&self.ids)?.path(file).is_some();
         if linked {
-            let sealed = self.seal_file(file);
+            let sealed = hashed.and_then(|()| self.seal_file(file));
             if sealed.is_err() {
                 // No writer is left to retry. Forget the unacknowledged
                 // generation; its spool stays on disk for recovery.

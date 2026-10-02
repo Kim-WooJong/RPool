@@ -2,7 +2,9 @@
 //! mounts without libfuse; on macOS it mounts through macFUSE (FSKit backend
 //! first), loaded at runtime (`macfuse`). The last close (`release`) and
 //! `fsync` are the local durability points; per-descriptor `flush` does not
-//! seal.
+//! seal. Both reply from a worker thread (`detached`) after the seal, so one
+//! large file's seal never stalls the session's request loop.
+mod detached;
 mod errno;
 mod filesystem;
 mod inodes;

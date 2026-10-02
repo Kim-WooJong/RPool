@@ -39,3 +39,26 @@ pub(crate) fn arm(name: &'static str) {
 pub(crate) fn disarm() -> Option<&'static str> {
     ARMED.with(|armed| armed.take())
 }
+
+/// Test hook run between the spool fsync and its hash, on the sealing thread.
+#[cfg(test)]
+pub(crate) mod hash_hook {
+    use std::cell::RefCell;
+    thread_local! {
+        static HOOK: RefCell<Option<Box<dyn FnMut()>>> = RefCell::new(None);
+    }
+    /// Install `hook` for seals hashed on the current thread.
+    pub(crate) fn set(hook: impl FnMut() + 'static) {
+        HOOK.with(|h| *h.borrow_mut() = Some(Box::new(hook)));
+    }
+    pub(crate) fn clear() {
+        HOOK.with(|h| *h.borrow_mut() = None);
+    }
+    pub(crate) fn run() {
+        HOOK.with(|h| {
+            if let Some(hook) = h.borrow_mut().as_mut() {
+                hook();
+            }
+        });
+    }
+}

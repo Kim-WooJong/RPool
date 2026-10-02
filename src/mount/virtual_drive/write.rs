@@ -52,19 +52,29 @@ impl VirtualDrive {
             depends_on,
         })
     }
-    pub(super) fn prepare_seal(&self, mut intent: Intent) -> Result<Intent> {
-        let path = self.spool_path(&intent);
+    /// The expensive half of a seal: fsync the spool image and hash all of it.
+    /// Takes no lock, so callers may run it with no filesystem lock held; the
+    /// result is only valid while nothing writes the image (callers check).
+    pub(crate) fn hash_spool(&self, intent: &Intent) -> Result<(u64, String)> {
+        let path = self.spool_path(intent);
         // Windows cannot flush through a read-only handle (os error 5).
         let file = crate::utils::open_for_sync(&path)
             .with_context(|| format!("seal: open spool {}", path.display()))?;
         crate::mount::crash::point("seal.before_fsync")?;
         file.sync_all()
             .with_context(|| format!("seal: flush spool {}", path.display()))?;
-        intent.size = file.metadata()?.len();
+        let size = file.metadata()?.len();
         drop(file);
-        intent.hash = crate::utils::hash_file_range(&path, 0, intent.size)
+        #[cfg(test)]
+        crate::mount::crash::hash_hook::run();
+        let hash = crate::utils::hash_file_range(&path, 0, size)
             .with_context(|| format!("seal: hash spool {}", path.display()))?;
-        durable_json(&path.parent().unwrap().join("intent.json"), &intent)
+        Ok((size, hash))
+    }
+    /// Records an intent whose image `hash_spool` flushed and hashed.
+    fn record_intent(&self, intent: &Intent) -> Result<()> {
+        let path = self.spool_path(intent);
+        durable_json(&path.parent().unwrap().join("intent.json"), intent)
             .context("seal: record intent")?;
         crate::mount::crash::point("seal.after_intent_record")?;
         #[cfg(unix)]
@@ -72,10 +82,22 @@ impl VirtualDrive {
             File::open(path.parent().unwrap())?.sync_all()?;
             File::open(self.root.join("spool"))?.sync_all()?;
         }
+        Ok(())
+    }
+    /// Flush, hash and durably record a spool image's intent.
+    pub(super) fn prepare_seal(&self, mut intent: Intent) -> Result<Intent> {
+        (intent.size, intent.hash) = self.hash_spool(&intent)?;
+        self.record_intent(&intent)?;
         Ok(intent)
     }
-    pub(crate) fn seal(&self, intent: Intent) -> Result<()> {
-        let intent = self.prepare_seal(intent)?;
+    pub(crate) fn seal(&self, mut intent: Intent) -> Result<()> {
+        (intent.size, intent.hash) = self.hash_spool(&intent)?;
+        self.seal_hashed(intent)
+    }
+    /// Seal with `intent.size`/`intent.hash` from a `hash_spool` of the
+    /// unchanged image: record the intent, then publish it as pending.
+    pub(crate) fn seal_hashed(&self, intent: Intent) -> Result<()> {
+        self.record_intent(&intent)?;
         let mut s = self
             .state
             .lock()

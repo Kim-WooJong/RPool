@@ -1,5 +1,6 @@
 //! `fuser::Filesystem` over `FsCore`. Paths come from the inode table; every
 //! data operation goes through a core handle.
+use super::detached::Detached;
 use super::errno::errno;
 use super::inodes::Inodes;
 use crate::mount::fs_core::{Access, Attr, FsCore, FsError, HandleId};
@@ -32,6 +33,8 @@ pub(super) struct RpoolFs {
     uid: u32,
     gid: u32,
     started: SystemTime,
+    /// Seals (`release`, `fsync`) replying off the request loop.
+    seals: Detached,
 }
 
 fn join(parent: &str, name: &OsStr) -> Result<String, Errno> {
@@ -59,6 +62,7 @@ impl RpoolFs {
             uid: owner.uid(),
             gid: owner.gid(),
             started: SystemTime::now(),
+            seals: Detached::default(),
         })
     }
     fn inodes(&self) -> std::sync::MutexGuard<'_, Inodes> {
@@ -128,6 +132,11 @@ impl RpoolFs {
 }
 
 impl Filesystem for RpoolFs {
+    fn destroy(&mut self) {
+        // Every sealing reply is sent before the session ends.
+        self.seals.wait_idle();
+    }
+
     fn lookup(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
         match self.child(parent, name).and_then(|p| self.entry(&p)) {
             Ok(attr) => reply.entry(&TTL, &attr, Generation(0)),
@@ -381,9 +390,16 @@ impl Filesystem for RpoolFs {
         _flush: bool,
         reply: ReplyEmpty,
     ) {
-        match self.core.release(handle(fh)) {
+        let (core, fh) = (self.core.clone(), handle(fh));
+        let release = move || match core.release(fh) {
             Ok(()) => reply.ok(),
             Err(e) => reply.error(errno(e)),
+        };
+        // Only a write handle's last close seals; others reply inline.
+        if self.core.writes(fh) {
+            self.seals.run(release);
+        } else {
+            release();
         }
     }
 
@@ -395,10 +411,11 @@ impl Filesystem for RpoolFs {
         _datasync: bool,
         reply: ReplyEmpty,
     ) {
-        match self.core.fsync(handle(fh)) {
+        let (core, fh) = (self.core.clone(), handle(fh));
+        self.seals.run(move || match core.fsync(fh) {
             Ok(()) => reply.ok(),
             Err(e) => reply.error(errno(e)),
-        }
+        });
     }
 
     fn readdir(

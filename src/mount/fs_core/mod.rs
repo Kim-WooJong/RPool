@@ -29,6 +29,8 @@ mod namespace_ops;
 #[cfg(test)]
 mod peer_tests;
 #[cfg(test)]
+mod seal_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod trace_tests;

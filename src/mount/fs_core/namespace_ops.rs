@@ -172,6 +172,14 @@ impl FsCore {
     pub(crate) fn rename(&self, from: &str, to: &str) -> FsResult<()> {
         checked(from)?;
         checked(to)?;
+        // Hash moved unsealed files before taking the exclusive lock, so the
+        // seals below only record intents.
+        let prefix = format!("{from}/");
+        for (path, (file, _, _)) in self.unsealed()? {
+            if path == from || path.starts_with(&prefix) {
+                self.prehash(file)?;
+            }
+        }
         let _namespace = self.exclusive()?;
         let source = self.lookup(from)?;
         if from == to {
@@ -186,7 +194,6 @@ impl FsCore {
             {
                 return Err(FsError::Exists);
             }
-            let prefix = format!("{from}/");
             for (path, (file, _, _)) in self.unsealed()? {
                 if path.starts_with(&prefix) {
                     self.seal_file(file)?;

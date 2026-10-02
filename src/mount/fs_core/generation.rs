@@ -1,6 +1,11 @@
 //! One unsealed write generation of a file: a begun intent and its spool image.
 //! All write handles of the file share it. Its bytes are not acknowledged
 //! until `seal` succeeds.
+//!
+//! Sealing a large image is slow (fsync, then a full BLAKE3 pass), so the core
+//! hashes with no lock held and caches the result here, keyed by `version`;
+//! `seal` then only records the intent. Any write or truncate bumps `version`,
+//! which makes a cached hash stale, and `seal` falls back to hashing itself.
 use crate::mount::namespace::Intent;
 use crate::mount::native_ancestry::Ancestry;
 use crate::mount::virtual_drive::{Revision, VirtualDrive};
@@ -12,6 +17,10 @@ pub(super) struct Generation {
     pub(super) intent: Intent,
     file: File,
     pub(super) size: u64,
+    /// Bumped by every change to the image, all made under the slot lock.
+    pub(super) version: u64,
+    /// `(version, size, hash)` of a flushed, hashed image (`FsCore::prehash`).
+    hashed: Option<(u64, u64, String)>,
     _lease: Arc<()>,
 }
 impl Generation {
@@ -69,6 +78,8 @@ impl Generation {
             intent,
             file,
             size: 0,
+            version: 0,
+            hashed: None,
         };
         if let Some(revision) = visible {
             if let Err(error) = generation.copy_baseline(drive, revision, keep) {
@@ -103,12 +114,14 @@ impl Generation {
         offset: u64,
         bytes: &[u8],
     ) -> Result<()> {
+        self.version += 1;
         self.file.seek(SeekFrom::Start(offset))?;
         let result = drive.write_spool_bytes(&mut self.file, bytes);
         self.size = self.file.metadata()?.len();
         result
     }
     pub(super) fn truncate(&mut self, drive: &VirtualDrive, len: u64) -> Result<()> {
+        self.version += 1;
         drive.resize_spool(&self.file, len)?;
         self.size = len;
         Ok(())
@@ -122,11 +135,32 @@ impl Generation {
         self.file.read_exact(&mut bytes)?;
         Ok(bytes)
     }
+    /// Whether a hash of the current image is cached.
+    pub(super) fn hashed(&self) -> bool {
+        self.hashed.as_ref().is_some_and(|h| h.0 == self.version)
+    }
+    /// Cache a `hash_spool` result taken while the image was at `version`.
+    pub(super) fn set_hashed(&mut self, version: u64, size: u64, hash: String) {
+        if version == self.version {
+            self.hashed = Some((version, size, hash));
+        }
+    }
     /// Durable local acknowledgement: fsync the image, record and publish the
-    /// intent as pending. On error the generation stays unsealed.
+    /// intent as pending. On error the generation stays unsealed. A cached
+    /// hash of the unchanged image (already fsynced) skips the flush and hash.
     pub(super) fn seal(&self, drive: &VirtualDrive) -> Result<()> {
-        self.file.sync_all().context("seal: flush spool image")?;
-        drive.seal(self.intent.clone())
+        match &self.hashed {
+            Some((version, size, hash)) if *version == self.version => {
+                let mut intent = self.intent.clone();
+                intent.size = *size;
+                intent.hash = hash.clone();
+                drive.seal_hashed(intent)
+            }
+            _ => {
+                self.file.sync_all().context("seal: flush spool image")?;
+                drive.seal(self.intent.clone())
+            }
+        }
     }
     /// Drop never-acknowledged bytes.
     pub(super) fn discard(self, drive: &VirtualDrive) -> Result<()> {
