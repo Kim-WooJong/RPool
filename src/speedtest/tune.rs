@@ -67,9 +67,14 @@ fn files_at(level: usize) -> usize {
     (level * FILES_PER_SLOT).max(MIN_FILES)
 }
 
-/// Progress bar share of one level (or of writing the read set): tuning
-/// moves an unknown number of bytes, so the bar advances per step instead.
-pub(crate) const STEP_BYTES: u64 = 16 * 1024 * 1024;
+/// Progress bar share of one level (or of writing the read set). Tuning
+/// moves an unknown number of bytes in a roughly fixed time, so the bar
+/// advances per step, weighted like one remote's normal test (its upload
+/// and read back) and reported as transferred: the bar then grows with
+/// time and the GUI's rate-based remaining time stays meaningful.
+pub(crate) fn step_bytes(plan: &TestPlan) -> u64 {
+    (2 * plan.bytes_per_remote).max(1024 * 1024)
+}
 
 /// The bar share of one remote's tuning: one step per level (plus the read
 /// set). Levels skipped by an early stop are settled by the caller.
@@ -77,13 +82,14 @@ pub(crate) fn expected_bytes(plan: &TestPlan) -> u64 {
     let levels = LEVELS.len() as u64;
     let uploads = if plan.tune_uploads { levels } else { 0 };
     let downloads = if plan.tune_downloads { levels + 1 } else { 0 };
-    (uploads + downloads) * STEP_BYTES
+    (uploads + downloads) * step_bytes(plan)
 }
 
 /// One step of the bar done.
-fn step_done(outcome: &mut TuneOutcome) {
-    super::progress::settle(STEP_BYTES, 0);
-    outcome.reported += STEP_BYTES;
+fn step_done(run: &Run<'_>, outcome: &mut TuneOutcome) {
+    let step = step_bytes(run.plan);
+    crate::progress::advance(step, step);
+    outcome.reported += step;
 }
 
 /// Whether another level should run after `steps`.
@@ -359,7 +365,7 @@ fn upload_levels(
         let measured = timed_twice(run, level, &files, |engine, progress| {
             transfer::upload_into(engine, at, &files, level, &seed, &attempted, progress)
         });
-        step_done(outcome);
+        step_done(run, outcome);
         tuning.steps.push(TuningStep {
             parallel: level,
             files: files.len(),
@@ -401,7 +407,7 @@ fn download_levels(
             &Transfer::silent(),
         )
     };
-    step_done(outcome);
+    step_done(run, outcome);
     if let Some(error) = cancelled_or(engine, written.error()).or_else(|| {
         (!written.complete()).then(|| "not every read-set shard was written".to_owned())
     }) {
@@ -428,7 +434,7 @@ fn download_levels(
             let measured = timed_twice(run, level, &reads, |engine, progress| {
                 transfer::download_into(engine, at, &reads, level, &expected, progress)
             });
-            step_done(outcome);
+            step_done(run, outcome);
             tuning.steps.push(TuningStep {
                 parallel: level,
                 files: count,
@@ -563,10 +569,10 @@ mod tests {
         };
         assert_eq!(expected_bytes(&plan), 0);
         plan.tune_uploads = true;
-        // One bar step per level.
-        assert_eq!(expected_bytes(&plan), 6 * STEP_BYTES);
+        // One bar step per level, weighted like the normal test (2 x 1 MiB).
+        assert_eq!(expected_bytes(&plan), 6 * 2 * MIB);
         plan.tune_downloads = true;
         // Plus the download levels and the read set.
-        assert_eq!(expected_bytes(&plan), 13 * STEP_BYTES);
+        assert_eq!(expected_bytes(&plan), 13 * 2 * MIB);
     }
 }
