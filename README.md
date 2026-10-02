@@ -199,20 +199,24 @@ fixed cost per request, b one stream's rate), largest for small shards
 where L dominates. A count that suits them also suits large shards, which a
 lower count already fills with bandwidth, so a higher cap costs them
 nothing; the count measured with 64 MiB shards would starve many small
-files. Every level is **time-boxed**: the first 5 s are discarded (process
-start, TLS, first answer), the bytes moved in the next 15 s give the rate;
-then no further shard starts, but the ones in flight finish, so every
-started upload also commits and a provider that rejects concurrent commits
-(Dropbox) still shows an error. A level that finishes earlier is rated on
-all its bytes. The process caps are lifted meanwhile, so throttling (a rate
-that stops rising) or refused concurrent writes (an error) show; shards
-left unstarted are not errors. Climbing stops at the first error or after
-two levels without a 10% gain. The recommendation is the smallest tested
-count within 10% of the best rate; the table prints the
+files. Every level is **time-boxed**: shards started in the first 5 s
+(process start, TLS, first answer) are not rated; after 15 s more no
+further shard starts, but the ones in flight finish, so every started upload
+also commits and a provider that rejects concurrent commits (Dropbox) still
+shows an error. The rate is `level × shard / mean duration` of the shards
+started in the window (Little's law: every slot stays busy), which does not
+jump by a whole shard at low levels. The process caps are lifted
+meanwhile, and an account's requests per second are split as a cap of that
+level would split them, so throttling (a rate that stops rising) or refused
+concurrent writes (an error; uploads run without rclone retries) show. A
+failed level is run once more before it counts (a reset connection is not
+a limit). Climbing stops at a failed level or after two levels without a
+10% gain. The recommendation is the smallest tested count within 5% of the
+best rate (a cap errs high: a level too low throttles small files); the table prints the
 `provider limits set --max-uploads` command, and the GUI's Apply sets the
 account's Simultaneous shard uploads. `--tune-downloads` (GUI: "Find the
-best number of simultaneous shard downloads") writes a read set of 16 such
-shards per remote and reads it back, verified, at the same time-boxed
+best number of simultaneous shard downloads") writes a read set of 64 such
+shards per remote (under the account's normal caps) and reads it back, verified, at the same time-boxed
 levels; its recommendation is applied as `--max-downloads` / Simultaneous
 shard downloads.
 

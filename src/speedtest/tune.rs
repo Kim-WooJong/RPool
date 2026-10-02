@@ -58,8 +58,10 @@ pub(crate) const WINDOW: Duration = Duration::from_millis(900);
 const GAIN: f64 = 1.10;
 /// Levels without gain after which climbing stops.
 const FLAT_LEVELS: usize = 2;
-/// The recommendation reaches at least this share of the best rate.
-const ENOUGH: f64 = 0.90;
+/// The recommendation reaches at least this share of the best rate. A cap
+/// is an upper bound: erring a level high costs little, a level low
+/// throttles small files.
+const ENOUGH: f64 = 0.95;
 
 fn files_at(level: usize) -> usize {
     (level * FILES_PER_SLOT).max(MIN_FILES)
@@ -95,7 +97,7 @@ pub(crate) fn climb_further(steps: &[TuningStep]) -> bool {
     let mut best = 0.0f64;
     let mut flat = 0;
     for rate in steps.iter().filter_map(|s| s.bytes_per_s) {
-        if rate >= best * GAIN {
+        if rate > 0.0 && rate >= best * GAIN {
             flat = 0;
         } else {
             flat += 1;
@@ -130,7 +132,9 @@ pub(crate) struct TuneOutcome {
 }
 
 /// Shards uploaded once and read back at every download level.
-const READ_SET: usize = 16;
+/// Twice the highest level, so no shard is read by two slots at once and
+/// each read within a level is mostly of a different object.
+const READ_SET: usize = 64;
 
 /// Runs the requested tunings on one remote; never fails the remote.
 pub(crate) fn run(
@@ -171,14 +175,55 @@ struct Measured {
     error: Option<String>,
 }
 
-/// Runs one level with both process caps lifted: after [`WARM_UP`] the
-/// bytes moved during [`WINDOW`] give the rate. Then no further file starts
-/// but the ones in flight finish, so every started upload also commits (a
-/// provider that rejects concurrent commits, e.g. Dropbox, shows as an error
-/// even with shards too large for the window). A level that finishes
-/// earlier is rated on all of its bytes.
+/// Sets a flag when dropped, also while a panic unwinds (the level's
+/// watcher must always end).
+struct SetOnDrop<'a>(&'a AtomicBool);
+impl Drop for SetOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
+/// Fewest shards whose duration rates a level by their mean.
+const MIN_SAMPLES: usize = 3;
+
+/// Rate of `level` slots from the shards that started in `[from, until]`:
+/// with every slot busy, throughput is `level × shard / mean duration`
+/// (Little's law). Unlike counting finished shards in the window, this does
+/// not jump by a whole shard (about ±1/n of n shards) at low levels, and a
+/// shard still in flight when the window ends counts once it finishes.
+pub(crate) fn rate_from_durations(
+    level: usize,
+    shard_bytes: u64,
+    finished: &[(Instant, Instant)],
+    from: Instant,
+    until: Option<Instant>,
+    min_samples: usize,
+) -> Option<f64> {
+    let samples: Vec<f64> = finished
+        .iter()
+        .filter(|(began, _)| *began >= from && until.is_none_or(|end| *began <= end))
+        .map(|(began, ended)| ended.duration_since(*began).as_secs_f64())
+        .collect();
+    if samples.is_empty() || samples.len() < min_samples {
+        return None;
+    }
+    let mean = samples.iter().sum::<f64>() / samples.len() as f64;
+    Some(level as f64 * shard_bytes as f64 / mean.max(1e-3))
+}
+
+/// Runs one level with both process caps lifted (and the account's requests
+/// per second split as a cap of `level` would split them). Shards started
+/// in the first [`WARM_UP`] (process start, TLS, the provider's first
+/// answer) are not rated; after [`WINDOW`] more no further shard starts, but
+/// the ones in flight finish, so every started upload also commits (a
+/// provider that rejects concurrent commits, e.g. Dropbox, shows as an
+/// error). The rate comes from the durations of the shards started in the
+/// window ([`rate_from_durations`]); with too few of them (shards slower
+/// than the window), from every shard that finished.
 fn timed<T: Send>(
     run: &Run<'_>,
+    level: usize,
     files: &[TestFile],
     go: impl FnOnce(&super::engine::Engine, &Transfer) -> Phase<T>,
 ) -> Measured {
@@ -188,32 +233,26 @@ fn timed<T: Send>(
     let progress = Transfer::silent();
     let finished = AtomicBool::new(false);
     let started = Instant::now();
-    let moved = || progress.moved.load(Ordering::Relaxed);
-    let (phase, window) = std::thread::scope(|scope| {
+    let (phase, drained_at) = std::thread::scope(|scope| {
         let watcher = scope.spawn(|| {
-            let mut warm = None;
-            let mut window = None;
+            let mut drained_at = None;
             while !finished.load(Ordering::Acquire) {
                 if run.engine.cancelled() {
                     stop.store(true, Ordering::Release);
                 }
-                let at = started.elapsed();
-                if warm.is_none() && at >= WARM_UP {
-                    warm = Some((at, moved()));
-                }
-                if window.is_none() && at >= WARM_UP + WINDOW {
+                if drained_at.is_none() && started.elapsed() >= WARM_UP + WINDOW {
                     drain.store(true, Ordering::Release);
-                    window = warm.map(|start| (start, (at, moved())));
+                    drained_at = Some(Instant::now());
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
-            window
+            drained_at
         });
         let phase = {
-            let _uncapped = crate::storage::rclone::uncap_for_speed_test();
+            let _done = SetOnDrop(&finished);
+            let _uncapped = crate::storage::rclone::uncap_for_speed_test(level);
             go(&engine, &progress)
         };
-        finished.store(true, Ordering::Release);
         (phase, watcher.join().unwrap_or(None))
     });
     let error = if run.engine.cancelled() {
@@ -221,15 +260,60 @@ fn timed<T: Send>(
     } else {
         phase.error().map(str::to_owned)
     };
-    let rate = match (&error, window) {
-        (Some(_), _) => None,
-        (None, Some(((t0, b0), (t1, b1)))) => Some(rate(b1.saturating_sub(b0), t1 - t0)),
-        (None, None) if phase.complete() => {
-            Some(rate(files.iter().map(|f| f.size).sum(), phase.wall))
-        }
-        (None, None) => None,
+    let shard = files.first().map_or(0, |f| f.size);
+    let durations = progress
+        .finished
+        .lock()
+        .map(|f| f.clone())
+        .unwrap_or_default();
+    let rate = match error {
+        Some(_) => None,
+        None => rate_from_durations(
+            level,
+            shard,
+            &durations,
+            started + WARM_UP,
+            drained_at,
+            MIN_SAMPLES,
+        )
+        // Shards slower than the window: every finished one, warm-up included.
+        .or_else(|| rate_from_durations(level, shard, &durations, started, None, 1))
+        .or_else(|| {
+            phase
+                .complete()
+                .then(|| rate(files.iter().map(|f| f.size).sum(), phase.wall))
+        }),
     };
     Measured { rate, error }
+}
+
+/// [`timed`], once more after a failure that may be transient (a reset
+/// connection, a 5xx): a level fails only when it fails twice.
+fn timed_twice<T: Send>(
+    run: &Run<'_>,
+    level: usize,
+    files: &[TestFile],
+    go: impl Fn(&super::engine::Engine, &Transfer) -> Phase<T>,
+) -> Measured {
+    let first = timed(run, level, files, &go);
+    if first.error.is_none() || run.engine.cancelled() {
+        return first;
+    }
+    timed(run, level, files, &go)
+}
+
+/// Removes a level's shards, up to three passes: a tuning level can leave
+/// hundreds of small shards, and on an account that deletes one at a time
+/// (Dropbox) some deletes may time out waiting for their turn.
+fn clean(
+    engine: &super::engine::Engine,
+    files: &[TestFile],
+    attempted: &[AtomicBool],
+    parallel: usize,
+    dir: &str,
+    test_dir: &str,
+) -> bool {
+    (0..3).any(|_| cleanup::remove_run(engine, files, attempted, parallel, dir, test_dir))
 }
 
 /// `count` shard files under `dir` (named by index).
@@ -272,7 +356,7 @@ fn upload_levels(
         let attempted: Vec<AtomicBool> = files.iter().map(|_| AtomicBool::new(false)).collect();
         // Distinct contents per level: no provider-side dedupe.
         let seed = level_seed(&run.seed, &format!("tune-{level}"));
-        let measured = timed(run, &files, |engine, progress| {
+        let measured = timed_twice(run, level, &files, |engine, progress| {
             transfer::upload_into(engine, at, &files, level, &seed, &attempted, progress)
         });
         step_done(outcome);
@@ -283,7 +367,7 @@ fn upload_levels(
             error: measured.error,
         });
         at.status("cleaning up");
-        if !cleanup::remove_run(engine, &files, &attempted, level, &dir, test_dir) {
+        if !clean(engine, &files, &attempted, level, &dir, test_dir) {
             outcome.leftover.push(dir);
         }
     }
@@ -304,13 +388,14 @@ fn download_levels(
     let set = shard_files(run, &dir, READ_SET);
     let attempted: Vec<AtomicBool> = set.iter().map(|_| AtomicBool::new(false)).collect();
     at.status("tuning downloads: writing the read set");
+    // Setup, not a measurement: written under the account's normal caps
+    // (Dropbox: one at a time).
     let written = {
-        let _uncapped = crate::storage::rclone::uncap_for_speed_test();
         transfer::upload_into(
             engine,
             at,
             &set,
-            READ_SET,
+            16,
             &level_seed(&run.seed, "tune-read"),
             &attempted,
             &Transfer::silent(),
@@ -340,7 +425,7 @@ fn download_levels(
                 })
                 .collect();
             let expected: Vec<blake3::Hash> = (0..count).map(|i| digests[i % READ_SET]).collect();
-            let measured = timed(run, &reads, |engine, progress| {
+            let measured = timed_twice(run, level, &reads, |engine, progress| {
                 transfer::download_into(engine, at, &reads, level, &expected, progress)
             });
             step_done(outcome);
@@ -354,7 +439,7 @@ fn download_levels(
         tuning.recommended = recommend(&tuning.steps);
     }
     at.status("cleaning up");
-    if !cleanup::remove_run(engine, &set, &attempted, READ_SET, &dir, test_dir) {
+    if !clean(engine, &set, &attempted, 16, &dir, test_dir) {
         outcome.leftover.push(dir);
     }
 }
@@ -422,14 +507,47 @@ mod tests {
             step(8, Some(8.0), None),
             step(16, Some(8.1), None),
         ];
-        // 7.5 >= 0.9 * 8.1.
-        assert_eq!(recommend(&steps), Some(4));
+        // 7.5 < 0.95 * 8.1 <= 8.0.
+        assert_eq!(recommend(&steps), Some(8));
         // Errors never count, the counts before them do.
         let limited = [
             step(1, Some(3.0), None),
             step(2, None, Some("rate limited")),
         ];
         assert_eq!(recommend(&limited), Some(1));
+    }
+
+    #[test]
+    fn rate_follows_little_law_over_the_window() {
+        let t0 = Instant::now();
+        let at = |s: f64| t0 + Duration::from_secs_f64(s);
+        // 4 slots, 1 MB shards of 2 s each: 2 MB/s.
+        let finished: Vec<_> = (0..12)
+            .map(|i| {
+                let began = at(f64::from(i / 4) * 2.0);
+                (began, began + Duration::from_secs(2))
+            })
+            .collect();
+        let rate =
+            rate_from_durations(4, 1_000_000, &finished, at(0.0), None, MIN_SAMPLES).unwrap();
+        assert!((rate - 2_000_000.0).abs() < 1.0, "{rate}");
+        // Shards started before `from` or after `until` do not count.
+        assert_eq!(
+            rate_from_durations(4, 1_000_000, &finished, at(3.0), Some(at(3.5)), MIN_SAMPLES),
+            None,
+            "too few samples"
+        );
+        assert!(
+            rate_from_durations(4, 1_000_000, &finished, at(2.0), Some(at(4.0)), MIN_SAMPLES)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn zero_rates_never_count_as_a_gain() {
+        let zeros = [step(1, Some(0.0), None), step(2, Some(0.0), None)];
+        assert!(!climb_further(&zeros));
+        assert_eq!(recommend(&zeros), None);
     }
 
     #[test]

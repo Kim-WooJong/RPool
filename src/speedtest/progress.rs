@@ -90,6 +90,8 @@ pub(crate) struct Transfer {
     reported: AtomicU64,
     /// Moves bytes without reporting them (tuning reports whole levels).
     silent: bool,
+    /// (start, end) of every file that succeeded, for tuning's rate.
+    pub finished: std::sync::Mutex<Vec<(Instant, Instant)>>,
 }
 
 impl Transfer {
@@ -99,6 +101,7 @@ impl Transfer {
             files_done: AtomicUsize::new(0),
             reported: AtomicU64::new(0),
             silent: false,
+            finished: std::sync::Mutex::new(Vec::new()),
         }
     }
     /// A transfer that never reports bytes through the protocol.

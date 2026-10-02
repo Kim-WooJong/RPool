@@ -125,6 +125,10 @@ impl RcloneContext {
         let settings = crate::storage::account::runtime::settings();
         let (account, kind) = self.account_of(address)?;
         let dropbox = kind == "dropbox";
+        // The speed test measures a level as if it were the cap.
+        if let Some(calls) = limit::tuning_calls() {
+            return Some(split_tps(total, calls));
+        }
         let calls = match lane {
             TpsLane::Upload => settings
                 .upload_cap(&account, dropbox)

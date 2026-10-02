@@ -68,11 +68,15 @@ fn run<T: Send>(
                     let Some(file) = files.get(index) else {
                         break;
                     };
+                    let began = Instant::now();
                     let outcome = step(index, file);
                     if outcome.is_err() {
                         failed.store(true, Ordering::Release);
                     } else {
                         progress.files_done.fetch_add(1, Ordering::Relaxed);
+                        if let Ok(mut finished) = progress.finished.lock() {
+                            finished.push((began, Instant::now()));
+                        }
                     }
                     if let Ok(mut results) = results.lock() {
                         results[index] = Some(outcome);

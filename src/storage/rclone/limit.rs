@@ -6,7 +6,7 @@ use super::process;
 use crate::storage::error::StorageError;
 use crate::storage::traits::OperationContext;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
 /// Concurrent rclone operations per remote name. `RPOOL_RCLONE_PER_REMOTE`.
@@ -117,20 +117,31 @@ fn acquire_lane(
 /// itself decides how many calls run, so neither cap may hide the account's
 /// real behavior (e.g. Dropbox rejecting a second write).
 static UNCAPPED: AtomicBool = AtomicBool::new(false);
+/// The calls the speed test runs at once while uncapped (0 = not set).
+static TUNING_CALLS: AtomicUsize = AtomicUsize::new(0);
 
 /// Lifts both caps of this process until dropped (speed test tuning only).
 pub(crate) struct Uncapped(());
 impl Drop for Uncapped {
     fn drop(&mut self) {
+        TUNING_CALLS.store(0, Ordering::Release);
         UNCAPPED.store(false, Ordering::Release);
     }
 }
-pub(crate) fn uncap_for_speed_test() -> Uncapped {
+/// `calls`: how many run at once, so an account's requests per second are
+/// split as the cap `calls` would split them (0 = unknown).
+pub(crate) fn uncap_for_speed_test(calls: usize) -> Uncapped {
+    TUNING_CALLS.store(calls, Ordering::Release);
     UNCAPPED.store(true, Ordering::Release);
     Uncapped(())
 }
 fn uncapped() -> bool {
     UNCAPPED.load(Ordering::Acquire)
+}
+/// The speed test's simultaneous calls while it lifts the caps.
+pub(super) fn tuning_calls() -> Option<usize> {
+    let calls = TUNING_CALLS.load(Ordering::Acquire);
+    (uncapped() && calls > 0).then_some(calls)
 }
 
 /// One slot of the general per-remote cap.
