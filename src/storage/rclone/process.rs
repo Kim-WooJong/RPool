@@ -148,12 +148,24 @@ pub(super) fn denial(text: &str) -> Option<StorageError> {
     }
 }
 
+/// A provider rate limit: HTTP 429 as a standalone number (not part of a
+/// longer number such as a byte count or an id), or the words "rate limit" /
+/// "too many requests".
 pub(super) fn rate_limited(text: &str) -> Option<StorageError> {
     let text = text.to_ascii_lowercase();
-    (text.contains("429") || text.contains("rate limit")).then(|| StorageError::RateLimited {
-        retry_after: None,
-        detail: "rclone rate limited".into(),
-    })
+    let bytes = text.as_bytes();
+    let standalone_429 = text.match_indices("429").any(|(at, _)| {
+        let before = at.checked_sub(1).map(|i| bytes[i]);
+        let after = bytes.get(at + 3).copied();
+        !before.is_some_and(|b| b.is_ascii_alphanumeric())
+            && !after.is_some_and(|b| b.is_ascii_alphanumeric())
+    });
+    (standalone_429 || text.contains("rate limit") || text.contains("too many requests")).then(
+        || StorageError::RateLimited {
+            retry_after: None,
+            detail: "rclone rate limited".into(),
+        },
+    )
 }
 
 pub(super) fn classify(status: ExitStatus, stderr: &[u8], mutation: bool) -> StorageError {
@@ -470,5 +482,20 @@ mod stall_tests {
         // A mutation that fails without a stall keeps its unknown outcome.
         let (result, _) = upload("cat >/dev/null; exit 1", 1024);
         assert_eq!(result.unwrap_err().kind(), StorageErrorKind::UnknownOutcome);
+    }
+}
+
+#[cfg(test)]
+mod rate_limit_tests {
+    #[test]
+    fn only_a_standalone_429_or_rate_limit_words_count() {
+        let hit = |t: &str| super::rate_limited(t).is_some();
+        assert!(hit("HTTP error 429 (429 Too Many Requests)"));
+        assert!(hit("status=429"));
+        assert!(hit("Rate limit exceeded"));
+        assert!(hit("too many requests"));
+        assert!(!hit("wrote 4290000 bytes"));
+        assert!(!hit("object a429b not found"));
+        assert!(!hit("failed: 14291 items"));
     }
 }
