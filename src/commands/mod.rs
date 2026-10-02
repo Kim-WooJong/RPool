@@ -23,7 +23,7 @@ pub(crate) use status::status;
 pub(crate) use usage::usage;
 pub(crate) use verify::{reverify_with_storage, verify, verify_with_storage};
 
-pub(crate) use put::put_with_storage;
+pub(crate) use put::{put_sealed_with_storage, put_with_storage};
 
 #[cfg(test)]
 pub(crate) use repair::repair_with_storage;

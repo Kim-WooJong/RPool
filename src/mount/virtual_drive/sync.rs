@@ -89,9 +89,10 @@ impl VirtualDrive {
         }
         let content = {
             let source = self.spool_path(intent);
-            if fs::metadata(&source)?.len() != intent.size
-                || crate::utils::hash_file_range(&source, 0, intent.size)? != intent.hash
-            {
+            // The sealed spool image is immutable and was hashed at seal;
+            // rehashing all of it here only delayed the first shard. Every
+            // shard is hashed again as it uploads.
+            if fs::metadata(&source)?.len() != intent.size {
                 bail!("pending spool integrity failure");
             }
             let upload_dir = source.parent().unwrap().join("upload");

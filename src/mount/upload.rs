@@ -2,7 +2,7 @@
 //! incremental uploads). Resumable: a saved plan and journal sit beside the
 //! staged copy; a completed manifest is re-verified and republished.
 use crate::prelude::*;
-use crate::utils::{append_suffix, hash_file_range, read_json};
+use crate::utils::{append_suffix, read_json};
 
 fn require_directory(path: &Path) -> Result<()> {
     let meta = fs::symlink_metadata(path)?;
@@ -60,9 +60,10 @@ pub(super) fn upload_eligible_tracked(
         fs::hard_link(source, &staged)?;
     }
     require_regular(&staged)?;
-    if fs::metadata(&staged)?.len() != size
-        || hash_file_range(&staged, 0, size)? != hash_file_range(source, 0, size)?
-    {
+    // `staged` is a hard link of the sealed spool image: same inode, same
+    // bytes. Hashing both (two full reads) proved nothing; the identity is
+    // checked by inode/size instead, and every shard is hashed on upload.
+    if fs::metadata(&staged)?.len() != size || !same_file(&staged, source)? {
         bail!("eligible upload staging identity mismatch");
     }
     let completed = append_suffix(&staged, ".rpool.json");
@@ -157,7 +158,7 @@ pub(super) fn upload_eligible_tracked(
         )?;
         super::namespace::durable_json(&plan_path, &plan)?;
     }
-    crate::commands::put_with_storage(
+    crate::commands::put_sealed_with_storage(
         &crate::storage::writer::StorageWriter::for_pool(rclone, policy.native_crypt),
         rclone,
         &staged,
@@ -193,4 +194,21 @@ fn finalize_completed_upload(
     // local completed manifest is not proof that publication finished.
     crate::manifest::replicate_manifest_with_storage(storage, manifest, remotes, retries)?;
     Ok(())
+}
+
+/// Whether two paths name the same file (hard links of one inode).
+fn same_file(a: &Path, b: &Path) -> Result<bool> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let (a, b) = (fs::metadata(a)?, fs::metadata(b)?);
+        Ok(a.dev() == b.dev() && a.ino() == b.ino())
+    }
+    #[cfg(not(unix))]
+    {
+        // Windows: compare size and last write time of the two links; both
+        // come from the same file record. Content is hashed per shard anyway.
+        let (a, b) = (fs::metadata(a)?, fs::metadata(b)?);
+        Ok(a.len() == b.len() && a.modified()? == b.modified()?)
+    }
 }

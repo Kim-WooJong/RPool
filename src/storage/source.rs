@@ -1,11 +1,30 @@
-//! Owned portable upload snapshot: all data and parity use one byte sequence.
+//! The byte sequence an upload reads: all data and parity come from it.
+//!
+//! A user file (`rpool put`) may change while it uploads, so it is copied to
+//! an owned snapshot first. A drive upload reads a sealed spool image, which
+//! is immutable once acknowledged, so it is used in place: no copy and no
+//! extra full-file hashing before the first shard leaves.
 use crate::prelude::*;
 use crate::utils::hash_file_range;
 pub(crate) struct UploadSource {
-    owner: tempfile::TempDir,
+    /// Owned snapshot directory (kept alive, removed on drop), or None for a
+    /// sealed source used in place.
+    _owner: Option<tempfile::TempDir>,
+    path: PathBuf,
     size: u64,
 }
 impl UploadSource {
+    /// A sealed, immutable file (drive spool image), read in place.
+    pub(crate) fn sealed(source: &Path, size: u64) -> Result<Self> {
+        if fs::metadata(source)?.len() != size {
+            bail!("source size changed");
+        }
+        Ok(Self {
+            _owner: None,
+            path: source.to_path_buf(),
+            size,
+        })
+    }
     pub(crate) fn capture(source: &Path, size: u64) -> Result<Self> {
         if fs::metadata(source)?.len() != size {
             bail!("source size changed");
@@ -26,10 +45,14 @@ impl UploadSource {
         {
             bail!("source changed while creating upload snapshot");
         }
-        Ok(Self { owner, size })
+        Ok(Self {
+            _owner: Some(owner),
+            path,
+            size,
+        })
     }
     pub(crate) fn path(&self) -> PathBuf {
-        self.owner.path().join("upload-source")
+        self.path.clone()
     }
     pub(crate) fn size(&self) -> u64 {
         self.size

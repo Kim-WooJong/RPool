@@ -64,6 +64,73 @@ pub(crate) fn put_with_storage(
     explicit_id: Option<String>,
     pool_name: Option<String>,
 ) -> Result<()> {
+    put_source(
+        storage,
+        rclone,
+        source,
+        remotes,
+        shard_mib,
+        workers,
+        placement,
+        retries,
+        data_shards,
+        parity_shards,
+        explicit_id,
+        pool_name,
+        false,
+    )
+}
+
+/// `put_with_storage` for a sealed, immutable source (a drive spool image):
+/// read in place instead of snapshotting it first.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn put_sealed_with_storage(
+    storage: &StorageWriter,
+    rclone: &str,
+    source: &Path,
+    remotes: Vec<String>,
+    shard_mib: u64,
+    workers: usize,
+    placement: Placement,
+    retries: u32,
+    data_shards: usize,
+    parity_shards: usize,
+    explicit_id: Option<String>,
+    pool_name: Option<String>,
+) -> Result<()> {
+    put_source(
+        storage,
+        rclone,
+        source,
+        remotes,
+        shard_mib,
+        workers,
+        placement,
+        retries,
+        data_shards,
+        parity_shards,
+        explicit_id,
+        pool_name,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn put_source(
+    storage: &StorageWriter,
+    rclone: &str,
+    source: &Path,
+    remotes: Vec<String>,
+    shard_mib: u64,
+    workers: usize,
+    placement: Placement,
+    retries: u32,
+    data_shards: usize,
+    parity_shards: usize,
+    explicit_id: Option<String>,
+    pool_name: Option<String>,
+    sealed: bool,
+) -> Result<()> {
     ensure_positive(workers, "workers")?;
     let shard_size = crate::models::shard_size::shard_bytes(shard_mib)
         .context("invalid --shard-mib")?
@@ -98,7 +165,11 @@ pub(crate) fn put_with_storage(
         bail!("Reed-Solomon coding for an empty file is not useful; use --parity-shards 0");
     }
 
-    let snapshot = UploadSource::capture(&source, meta.len())?;
+    let snapshot = if sealed {
+        UploadSource::sealed(&source, meta.len())?
+    } else {
+        UploadSource::capture(&source, meta.len())?
+    };
     let snapshot_path = snapshot.path();
     let source_size = snapshot.size();
     let archive_id = explicit_id.unwrap_or_else(|| make_archive_id(&source, &meta));

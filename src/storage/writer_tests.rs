@@ -264,6 +264,10 @@ fn captured_source_is_stable_after_original_changes_and_expected_hash_is_enforce
     let snapshot = super::source::UploadSource::capture(&f.source, 9).unwrap();
     fs::write(&f.source, b"XXXXXXXXX").unwrap();
     assert_eq!(fs::read(snapshot.path()).unwrap(), b"ABCDEFGHI");
+    // A sealed source is read in place, without a copy.
+    let sealed = super::source::UploadSource::sealed(&f.source, 9).unwrap();
+    assert_eq!(sealed.path(), f.source);
+    assert!(super::source::UploadSource::sealed(&f.source, 8).is_err());
     let shard = shard_from_plan(
         &f.plan.shards[0],
         blake3::hash(b"ABCD").to_hex().to_string(),
