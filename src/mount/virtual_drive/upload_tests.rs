@@ -229,3 +229,27 @@ fn an_acknowledged_write_wakes_the_uploader_at_once() {
     drive.upload.notify();
     worker.join().unwrap();
 }
+
+#[test]
+fn with_a_publisher_running_an_upload_pass_only_wakes_it() {
+    let root = tempfile::tempdir().unwrap();
+    let drive = fixture(root.path());
+    write(&drive, "a", b"one");
+    drive.publisher_running.store(true, Ordering::Release);
+    let before = drive.publish.generation();
+    let report = drive
+        .upload_pending_with(
+            &mut RetryBook::default(),
+            &AtomicBool::new(false),
+            &|intent| uploaded(&drive, intent, Duration::ZERO),
+        )
+        .unwrap();
+    assert_eq!(report.committed, 1);
+    // Woken by the commit and by the end of the pass; publishing and the
+    // committed-spool cleanup are left to the publisher.
+    assert!(drive.publish.generation() >= before + 2);
+    assert!(
+        drive.publish_gate.try_lock().is_ok(),
+        "pass did not publish"
+    );
+}

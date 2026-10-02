@@ -107,6 +107,8 @@ pub(super) struct Maintenance {
     interval: Duration,
     /// Long-lived uploader thread (`upload_worker`), started on the first poll.
     uploader: Option<JoinHandle<()>>,
+    /// Long-lived metadata publisher thread (`publisher`).
+    publisher: Option<JoinHandle<()>>,
     /// Recent uploader restarts after a panic (`RESTART_WINDOW`).
     uploader_restarts: Vec<Instant>,
     /// Metadata pull of other PCs' changes (formerly the first step of every sync).
@@ -130,6 +132,7 @@ impl Maintenance {
         Self {
             interval,
             uploader: None,
+            publisher: None,
             uploader_restarts: Vec::new(),
             // The mount already pulled before it became ready.
             pull: Periodic::delayed(interval),
@@ -190,6 +193,23 @@ impl Maintenance {
                         bail!("background upload keeps failing; local data retained");
                     }
                 }
+            }
+        }
+        if !drive.pool_sync_roots.is_empty() {
+            if self.publisher.as_ref().is_some_and(|j| j.is_finished()) {
+                if let Some(Err(panic)) = self.publisher.take().map(JoinHandle::join) {
+                    eprintln!(
+                        "Background metadata publication failed ({}); restarting it. Local data retained.",
+                        panic_text(&*panic)
+                    );
+                }
+            }
+            if self.publisher.is_none() && !cancelled.load(Ordering::Acquire) {
+                self.publisher = Some(super::publisher::spawn(
+                    drive.clone(),
+                    cancelled.clone(),
+                    self.interval,
+                ));
             }
         }
         if self.uploader.is_none() && !cancelled.load(Ordering::Acquire) {
@@ -253,6 +273,15 @@ impl Maintenance {
     pub(super) fn join(mut self, drive: &VirtualDrive) -> Result<()> {
         // The uploader may be waiting for a wake-up; it sees the cancellation.
         drive.upload.notify();
+        drive.publish.notify();
+        if let Some(job) = self.publisher.take() {
+            if let Err(panic) = job.join() {
+                eprintln!(
+                    "Background metadata publication failed ({}).",
+                    panic_text(&*panic)
+                );
+            }
+        }
         let upload = match self.uploader.take() {
             Some(job) => job
                 .join()

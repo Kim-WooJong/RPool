@@ -69,12 +69,29 @@ impl VirtualDrive {
             .lock()
             .map_err(|_| anyhow!("sync lock poisoned"))?;
         let report = self.upload_round(book, cancelled, upload);
+        drop(_gate);
+        if self
+            .publisher_running
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            // The mount's publisher publishes in the background, so the next
+            // upload pass starts at once instead of waiting for every
+            // account to take the new metadata records.
+            self.publish.notify();
+            return Ok(report);
+        }
         // A round can run long: re-check the (cached) fence before publishing.
         crate::mount::adoption_fence::check_publish(self)?;
         self.publish_and_clean()?;
         Ok(report)
     }
-    fn publish_and_clean(&self) -> Result<()> {
+    /// Publishes committed metadata and removes committed spool images; one
+    /// caller at a time (the uploader, the publisher thread, `sync`).
+    pub(crate) fn publish_and_clean(&self) -> Result<()> {
+        let _publishing = self
+            .publish_gate
+            .lock()
+            .map_err(|_| anyhow!("publish lock poisoned"))?;
         if !self.pool_sync_roots.is_empty() {
             self.publish_pool()?;
         }

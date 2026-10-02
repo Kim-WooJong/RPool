@@ -53,6 +53,9 @@ impl VirtualDrive {
             peer_read_pins: Mutex::new(BTreeMap::new()),
             layout_deferral: None,
             upload: UploadControl::default(),
+            publish: UploadControl::default(),
+            publish_gate: Mutex::new(()),
+            publisher_running: std::sync::atomic::AtomicBool::new(false),
             _lock: lock,
         })
     }
@@ -227,6 +230,9 @@ impl VirtualDrive {
             peer_read_pins: Mutex::new(BTreeMap::new()),
             layout_deferral,
             upload: UploadControl::default(),
+            publish: UploadControl::default(),
+            publish_gate: Mutex::new(()),
+            publisher_running: std::sync::atomic::AtomicBool::new(false),
             _lock: lock,
         })
     }

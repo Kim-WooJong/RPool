@@ -115,6 +115,13 @@ pub(crate) struct VirtualDrive {
     pub layout_deferral: Option<super::layout_refresh::Deferral>,
     /// Wakes the mount's uploader when work is queued (`upload_wake`).
     pub upload: UploadControl,
+    /// Wakes the mount's metadata publisher after a commit (`publisher`).
+    pub publish: UploadControl,
+    /// Serializes metadata publication and committed-spool cleanup.
+    pub publish_gate: Mutex<()>,
+    /// Set while the mount's publisher thread runs: upload passes then only
+    /// wake it instead of publishing inline (new uploads never wait for it).
+    pub publisher_running: std::sync::atomic::AtomicBool,
     _lock: File,
 }
 
@@ -153,6 +160,9 @@ fn fixture_with(root: &Path, state: Namespace) -> VirtualDrive {
         peer_read_pins: Mutex::new(BTreeMap::new()),
         layout_deferral: None,
         upload: UploadControl::default(),
+        publish: UploadControl::default(),
+        publish_gate: Mutex::new(()),
+        publisher_running: std::sync::atomic::AtomicBool::new(false),
         _lock: File::create(root.join("virtual.lock")).unwrap(),
     }
 }

@@ -125,6 +125,7 @@ impl VirtualDrive {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 scoped(budget.clone(), || upload(&intent))
                     .and_then(|content| self.commit_uploaded(&intent, content))
+                    .inspect(|_| self.publish.notify())
             }))
             .unwrap_or_else(|_| Err(anyhow!("upload worker panicked; local data retained")));
             let mut guard = shared.lock().unwrap_or_else(|p| p.into_inner());

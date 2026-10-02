@@ -40,6 +40,7 @@ mod spool;
 /// Synthetic metadata for read-only listing tests outside `mount`.
 #[cfg(test)]
 pub(crate) use shared_model::{Content as TestContent, Event as TestEvent};
+mod publisher;
 mod shared_transport;
 mod upload;
 mod upload_worker;
