@@ -26,6 +26,19 @@ const HISTORY_REQUESTS: Duration = Duration::from_secs(2);
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(24 * 3600);
 const CLEANUP_FIRST: Duration = Duration::from_secs(30 * 60);
 
+/// Uploader restarts tolerated within `RESTART_WINDOW` before the mount stops.
+const MAX_RESTARTS: usize = 5;
+const RESTART_WINDOW: Duration = Duration::from_secs(600);
+
+/// The message of a thread panic, for the log.
+fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
+    panic
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| panic.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+        .unwrap_or_else(|| "unknown panic".into())
+}
+
 struct Periodic {
     interval: Duration,
     last: Option<Instant>,
@@ -74,13 +87,19 @@ impl Periodic {
         }
         Ok(())
     }
+    /// Waits for the finished job. A panic is logged and the job runs again
+    /// at its next due time: background upkeep failing must never unmount
+    /// the drive (all data stays in the workspace).
     fn join(&mut self) -> Result<()> {
-        match self.job.take() {
-            Some(job) => job
-                .join()
-                .map_err(|_| anyhow!("background maintenance panicked; local data retained")),
-            None => Ok(()),
+        if let Some(job) = self.job.take() {
+            if let Err(panic) = job.join() {
+                eprintln!(
+                    "Background maintenance failed ({}); it will run again. Local data retained.",
+                    panic_text(&*panic)
+                );
+            }
         }
+        Ok(())
     }
 }
 
@@ -88,6 +107,8 @@ pub(super) struct Maintenance {
     interval: Duration,
     /// Long-lived uploader thread (`upload_worker`), started on the first poll.
     uploader: Option<JoinHandle<()>>,
+    /// Recent uploader restarts after a panic (`RESTART_WINDOW`).
+    uploader_restarts: Vec<Instant>,
     /// Metadata pull of other PCs' changes (formerly the first step of every sync).
     pull: Periodic,
     /// Last pull error, logged once per change.
@@ -109,6 +130,7 @@ impl Maintenance {
         Self {
             interval,
             uploader: None,
+            uploader_restarts: Vec::new(),
             // The mount already pulled before it became ready.
             pull: Periodic::delayed(interval),
             pull_error: Arc::new(Mutex::new(None)),
@@ -151,13 +173,23 @@ impl Maintenance {
             })
         })?;
         if self.uploader.as_ref().is_some_and(|j| j.is_finished()) {
-            // It only returns on cancellation; anything else is a panic.
+            // It only returns on cancellation; anything else is a panic. The
+            // drive stays mounted and a new uploader resumes the queue (the
+            // pending saves are in the workspace); only a crash loop stops it.
             if let Some(job) = self.uploader.take() {
-                job.join()
-                    .map_err(|_| anyhow!("background upload panicked; local data retained"))?;
-            }
-            if !cancelled.load(Ordering::Acquire) {
-                bail!("background uploader stopped; local data retained");
+                if let Err(panic) = job.join() {
+                    let now = Instant::now();
+                    self.uploader_restarts
+                        .retain(|t| now.duration_since(*t) < RESTART_WINDOW);
+                    self.uploader_restarts.push(now);
+                    eprintln!(
+                        "Background upload failed ({}); restarting it. Local data retained.",
+                        panic_text(&*panic)
+                    );
+                    if self.uploader_restarts.len() > MAX_RESTARTS {
+                        bail!("background upload keeps failing; local data retained");
+                    }
+                }
             }
         }
         if self.uploader.is_none() && !cancelled.load(Ordering::Acquire) {
