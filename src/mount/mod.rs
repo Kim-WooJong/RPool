@@ -10,7 +10,7 @@ pub(crate) mod drive_generation_read;
 pub(crate) mod drive_generation_write;
 pub(crate) mod drive_references;
 mod frontend;
-mod fs_core;
+pub(crate) mod fs_core;
 pub(crate) mod history_bridge;
 mod incremental;
 pub(crate) mod layout_refresh;
@@ -25,7 +25,7 @@ pub(crate) mod metadata_limits;
 pub(crate) mod metadata_pool;
 #[cfg(test)]
 mod metadata_tests;
-mod namespace;
+pub(crate) mod namespace;
 mod native_ancestry;
 pub(crate) mod peer_projection;
 pub(crate) mod pool_sync;
@@ -40,7 +40,7 @@ pub(crate) use shared_model::{Content as TestContent, Event as TestEvent};
 mod shared_transport;
 mod upload;
 mod upload_worker;
-mod virtual_drive;
+pub(crate) mod virtual_drive;
 
 use anyhow::Result;
 

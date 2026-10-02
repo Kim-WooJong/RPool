@@ -30,6 +30,10 @@ pub(crate) struct PoolBrowse {
 ///
 /// v6 events are collected and projected directly without any workspace.
 pub(crate) fn browse(rclone: &str, pool: &str) -> anyhow::Result<PoolBrowse> {
+    // A pool mounted here is listed from its workspace: instant, and current.
+    if let Some(local) = super::browse_local::browse_mounted(pool) {
+        return Ok(local);
+    }
     use anyhow::Context;
     let policy = super::load_pool_store()?
         .pools

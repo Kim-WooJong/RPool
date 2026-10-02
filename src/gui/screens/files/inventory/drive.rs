@@ -14,9 +14,15 @@ use eframe::egui;
 /// Toolbar items after the pool picker: Files/Trash, Refresh, search and
 /// status.
 pub(crate) fn toolbar(ui: &mut egui::Ui, form: &mut DriveForm, rclone: &str) {
+    // Keep a mounted pool's listing current while the page is shown.
+    ui.ctx()
+        .request_repaint_after(super::drive_state::MOUNTED_REFRESH);
     if form.poll() | history::poll(&mut form.history, &form.pool, rclone) {
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(100));
+    }
+    if form.needs_mounted_refresh() {
+        form.start(rclone);
     }
     if form.needs_load() || !form.is_loading() && std::mem::take(&mut form.history.refresh_drive) {
         form.start(rclone);

@@ -1,5 +1,6 @@
 pub(crate) mod browse;
 pub(crate) mod browse_generations;
+mod browse_local;
 pub(crate) mod capacity;
 pub(crate) mod estimate;
 mod load;

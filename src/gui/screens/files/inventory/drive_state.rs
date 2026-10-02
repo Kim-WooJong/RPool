@@ -226,7 +226,13 @@ pub(crate) struct DriveForm {
     results: BTreeMap<String, DriveLoad>,
     /// Listing runs off the UI thread: reading cloud metadata takes seconds.
     pending: Option<(String, Receiver<BrowseResult>)>,
+    /// When each pool's listing arrived and whether it came from a drive
+    /// mounted on this PC (cheap to re-read, so it is kept current).
+    loaded: BTreeMap<String, (std::time::Instant, bool)>,
 }
+
+/// How often the listing of a pool mounted on this PC is re-read.
+pub(crate) const MOUNTED_REFRESH: std::time::Duration = std::time::Duration::from_secs(3);
 
 impl DriveForm {
     /// Keeps the selection valid for the current pools: preselects the only
@@ -278,6 +284,16 @@ impl DriveForm {
         !self.pool.is_empty() && !self.results.contains_key(&self.pool) && !self.is_loading()
     }
 
+    /// A listing read from this PC's mounted drive that is older than
+    /// [`MOUNTED_REFRESH`]: re-read so new saves show up without a refresh.
+    pub(crate) fn needs_mounted_refresh(&self) -> bool {
+        !self.is_loading()
+            && self
+                .loaded
+                .get(&self.pool)
+                .is_some_and(|(at, mounted)| *mounted && at.elapsed() >= MOUNTED_REFRESH)
+    }
+
     /// Lists the selected pool on a background thread, replacing any
     /// listing still running for another pool.
     pub(crate) fn start(&mut self, rclone: &str) {
@@ -314,6 +330,9 @@ impl DriveForm {
     }
 
     pub(crate) fn apply(&mut self, pool: String, result: BrowseResult) {
+        let mounted = result.as_ref().is_ok_and(|b| b.mode == "v6-mounted");
+        self.loaded
+            .insert(pool.clone(), (std::time::Instant::now(), mounted));
         let load = match result {
             Ok(browse) => DriveLoad::Ready(DriveTree::build(browse)),
             Err(error) => DriveLoad::Failed(error),
