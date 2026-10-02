@@ -498,7 +498,9 @@ fn quota_never_reuses_same_size_committed_replacement_or_expired_snapshot() {
         let parents = state.base("file").unwrap();
         add(&mut state, "file", Some(b"new"), parents, "b");
     }
-    assert_eq!(drive.quota(), Some((3, Some(3))));
+    // The new 3-byte revision is charged against the estimate; the old one
+    // stays stored, so free space shrinks although the used size is the same.
+    assert_eq!(drive.quota(), Some((3, Some(100))));
     drive
         .capacity
         .lock()

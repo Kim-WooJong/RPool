@@ -179,9 +179,10 @@ fn real_http_auth_put_range_listing_and_quota() {
         body,
         true,
     );
-    // Newly queued writes have not yet been reserved by the last quota sample.
+    // A write queued after the last quota sample is charged against its
+    // estimate instead of zeroing the free space.
     assert!(quota.contains(">5</"), "{quota}");
-    assert!(quota.contains(">0</"), "{quota}");
+    assert!(quota.contains(">95</"), "{quota}");
     {
         let state = drive.state.lock().unwrap();
         let mut cached = drive.capacity.lock().unwrap();
