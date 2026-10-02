@@ -1,9 +1,15 @@
+//! The "Rebuild inventory" panel of Library › Uploaded archives: recreates the
+//! local inventory index from a folder of manifest files.
+
 use super::state::InventoryForm;
 use crate::gui::i18n::tr;
 use crate::gui::task::TaskRunner;
 use eframe::egui;
 use std::ffi::OsString;
 
+/// Draws the rebuild panel (manifest folder field, Browse…, Rebuild). Shown by
+/// `inventory::archives` while `form.show_rebuild` is on; a failed start is
+/// stored in `form.error`.
 pub(crate) fn show(
     ui: &mut egui::Ui,
     form: &mut InventoryForm,
@@ -41,6 +47,8 @@ pub(crate) fn show(
     });
 }
 
+/// Starts `rpool inventory rebuild <directory>` as a background task.
+/// Errors when no directory is set (or the task runner refuses to start).
 fn start_rebuild(form: &InventoryForm, task: &mut TaskRunner, rclone: &str) -> Result<(), String> {
     let directory = form.manifest_directory.trim();
     if directory.is_empty() {

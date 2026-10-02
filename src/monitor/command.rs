@@ -9,13 +9,19 @@ use std::io::{IsTerminal, Write};
 use std::path::Path;
 
 #[derive(Serialize)]
+/// One mount in the `--json` output.
 struct Item<'a> {
+    /// Registry entry of the mount.
     entry: &'a MountEntry,
+    /// Latest status file; `None` when unreadable.
     status: Option<NetStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Traffic history with `--history-minutes`.
     history: Option<Vec<HistoryPoint>>,
 }
 
+/// True when both paths resolve to the same directory (canonical, else
+/// absolute, else as given).
 fn same_dir(a: &Path, b: &Path) -> bool {
     let canonical = |p: &Path| {
         p.canonicalize()
@@ -25,6 +31,7 @@ fn same_dir(a: &Path, b: &Path) -> bool {
     canonical(a) == canonical(b)
 }
 
+/// Keeps the mounts matching `--pool` and `--workspace` (when given).
 pub(crate) fn select(mounts: Vec<MountEntry>, args: &MonitorArgs) -> Vec<MountEntry> {
     mounts
         .into_iter()
@@ -53,6 +60,8 @@ fn history_totals(points: &[HistoryPoint]) -> BTreeMap<&str, (u64, u64, u64, u64
 /// One selected mount: registry entry, live status, history.
 pub(crate) type Row = (MountEntry, Option<NetStatus>, Option<Vec<HistoryPoint>>);
 
+/// Human text for the selected mounts, with per-remote history totals when
+/// `minutes` is set.
 pub(crate) fn render_text(items: &[Row], minutes: Option<u64>, now: u64) -> String {
     if items.is_empty() {
         return "No mounted pools are running.\n".into();
@@ -80,6 +89,9 @@ pub(crate) fn render_text(items: &[Row], minutes: Option<u64>, now: u64) -> Stri
     out
 }
 
+/// Entry point of `rpool mount monitor` (called by `application`): prints
+/// once, or every second with `--watch`; JSON with `--json`. Fails when a
+/// selection matches no mount (without `--watch`).
 pub(crate) fn run(args: &MonitorArgs) -> Result<()> {
     let terminal = std::io::stdout().is_terminal();
     loop {

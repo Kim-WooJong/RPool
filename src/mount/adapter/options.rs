@@ -30,6 +30,7 @@ pub(in crate::mount) fn vfs_cache_policy() -> (&'static str, &'static str) {
     ("full", "60s")
 }
 
+/// rclone subcommand for a native mount: `nfsmount` on macOS, `mount` elsewhere.
 pub(super) fn native_mount_command() -> &'static str {
     if cfg!(target_os = "macos") {
         "nfsmount"
@@ -39,6 +40,7 @@ pub(super) fn native_mount_command() -> &'static str {
 }
 
 #[cfg(target_os = "macos")]
+/// Fails unless `rclone version` reports v1.65 or newer (needed for `nfsmount`).
 pub(super) fn check_nfsmount_version(rclone: &str) -> Result<()> {
     let output = Command::new(rclone)
         .arg("version")
@@ -69,6 +71,7 @@ pub(super) fn check_nfsmount_version(rclone: &str) -> Result<()> {
 }
 
 // rclone owns native cache eviction: never remove dirty/open native files ourselves.
+/// Adds rclone VFS cache size, free-space floor (GiB) and poll interval options.
 pub(super) fn configure_cache(command: &mut Command, limit_gib: u64, min_free_gib: u64) {
     command.args([
         "--vfs-cache-max-size",

@@ -1,7 +1,14 @@
+//! Structural validation of portable config bundles.
+//!
+//! `validate_bundle` is called by `config_sync::export` and `config_sync::import`
+//! before a bundle is written or applied.
 use crate::models::{PortableConfig, CONFIG_SYNC_FORMAT, CONFIG_SYNC_VERSION};
 use crate::pool::{validate_pool, validate_pool_name};
 use anyhow::{bail, Result};
 
+/// Reject a bundle with an unknown format/version, invalid account limits,
+/// a vault binding without crypt remotes, duplicate crypt remotes, invalid
+/// pools, or invalid GUI defaults (zero shard size/workers, bad RS counts).
 pub(crate) fn validate_bundle(bundle: &PortableConfig) -> Result<()> {
     if bundle.format != CONFIG_SYNC_FORMAT {
         bail!("unsupported config bundle format: {}", bundle.format);

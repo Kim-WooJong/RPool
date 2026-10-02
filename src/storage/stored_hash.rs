@@ -14,19 +14,31 @@ pub(crate) const SUPPORTED: [&str; 4] = ["blake3", "sha1", "md5", "dropbox"];
 /// each 4 MiB block.
 const DROPBOX_BLOCK: usize = 4 * 1024 * 1024;
 
+/// Running state of one hash kind.
 enum State {
+    /// BLAKE3 (boxed: the hasher is large).
     Blake3(Box<blake3::Hasher>),
+    /// SHA-1.
     Sha1(Sha1),
+    /// MD5.
     Md5(Md5),
+    /// Dropbox `content_hash` over [`DROPBOX_BLOCK`] blocks.
     Dropbox {
+        /// Hash over the finished block digests.
         blocks: Sha256,
+        /// Hash of the block being filled.
         block: Sha256,
+        /// Bytes already in the current block.
         filled: usize,
     },
 }
 
+/// Incremental hash of an upload stream in a kind the provider reports. Created by
+/// `RcloneContext::write_streamed` and fed through [`Hashing`].
 pub(crate) struct StreamHash {
+    /// rclone hash name (one of [`SUPPORTED`]).
     kind: &'static str,
+    /// The running hasher.
     state: State,
 }
 
@@ -49,10 +61,12 @@ impl StreamHash {
         Some(Self { kind, state })
     }
 
+    /// rclone name of the hash kind (`blake3`, `sha1`, `md5`, `dropbox`).
     pub(crate) fn kind(&self) -> &'static str {
         self.kind
     }
 
+    /// Feeds the next bytes of the stream.
     pub(crate) fn update(&mut self, mut bytes: &[u8]) {
         match &mut self.state {
             State::Blake3(h) => {
@@ -105,7 +119,9 @@ impl StreamHash {
 pub(crate) struct Expected {
     /// The object's address on the provider (the crypt's base remote).
     pub(crate) address: String,
+    /// rclone hash name the value is in.
     pub(crate) kind: String,
+    /// Object size in bytes the provider must report.
     pub(crate) size: u64,
     /// Lower-case hex.
     pub(crate) value: String,
@@ -113,7 +129,9 @@ pub(crate) struct Expected {
 
 /// `read` passes the bytes through and hashes them.
 pub(crate) struct Hashing<'a> {
+    /// The upload source being read.
     pub(crate) inner: &'a mut dyn std::io::Read,
+    /// Hasher fed with every byte read (`None` = pass-through only).
     pub(crate) hash: Option<StreamHash>,
 }
 

@@ -11,41 +11,58 @@ use super::ops::Op;
 use crate::prelude::*;
 use std::time::{Duration, Instant};
 
+/// Version of the request file format; other versions are answered with an error.
 pub(crate) const REQUEST_VERSION: u32 = 1;
 
 /// A request's JSON result and notes for stderr.
 pub(crate) type Answer = (Value, Vec<String>);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// One request file written by `send`.
 pub(crate) struct Request {
+    /// Always `REQUEST_VERSION`.
     pub version: u32,
+    /// Random hex id; also the file name.
     pub id: String,
+    /// Pool the request is for; the mount refuses other pools.
     pub pool: String,
+    /// Operation to run.
     pub op: Op,
+    /// When the request was written (unix seconds).
     pub created_unix: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// The mount's answer in `responses/<id>.json`.
 pub(crate) struct Response {
+    /// Id of the answered request.
     pub id: String,
+    /// Whether the op succeeded.
     pub ok: bool,
     #[serde(default)]
+    /// JSON result of the op (`Null` on failure).
     pub value: Value,
     #[serde(default)]
+    /// Error text when `ok` is false.
     pub error: Option<String>,
     #[serde(default)]
+    /// Notes for stderr.
     pub notes: Vec<String>,
 }
 
+/// `<workspace>/drive-history`, holding `requests/` and `responses/`.
 pub(crate) fn root(workspace: &Path) -> PathBuf {
     workspace.join("drive-history")
 }
+/// Directory of pending request files.
 fn requests(workspace: &Path) -> PathBuf {
     root(workspace).join("requests")
 }
+/// Directory of answers.
 fn responses(workspace: &Path) -> PathBuf {
     root(workspace).join("responses")
 }
+/// Request ids are 1..=64 hex characters (guards file names read from disk).
 fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_hexdigit())
 }
@@ -178,6 +195,7 @@ pub(crate) fn serve(
     Ok(answered)
 }
 
+/// An error response for request `id`.
 fn failure(id: &str, error: String) -> Response {
     Response {
         id: id.into(),

@@ -97,6 +97,7 @@ pub(crate) fn providers_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut
     );
 }
 
+/// Translated message for an invalid plan.
 fn plan_error_text(error: PlanError) -> String {
     match error {
         PlanError::Size => trf("Size must be 1 to {max} MiB.", &[("max", &MAX_SIZE_MIB)]),
@@ -107,6 +108,7 @@ fn plan_error_text(error: PlanError) -> String {
     }
 }
 
+/// Preset tabs, the preset's size controls and the tuning checkboxes.
 fn plan_controls(ui: &mut egui::Ui, form: &mut SpeedTestForm, enabled: bool, shard: u64) {
     ui.add_enabled_ui(enabled, |ui| {
         ui.horizontal_wrapped(|ui| {
@@ -193,6 +195,9 @@ fn summary(ui: &mut egui::Ui, plan: Plan, accounts: usize) {
     }
 }
 
+/// Shared card body for one target: plan controls and summary, Run / confirm
+/// / Cancel, progress while running, notices and the last result (whose
+/// "Apply" saves the recommended limit).
 fn body(
     ui: &mut egui::Ui,
     form: &mut SpeedTestForm,
@@ -334,10 +339,14 @@ fn save_limit(account: &str, kind: TuneKind, value: usize) -> Result<(), String>
 /// Which tunings to add to a run.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Tune {
+    /// Add `--tune-uploads`.
     pub(crate) uploads: bool,
+    /// Add `--tune-downloads`.
     pub(crate) downloads: bool,
 }
 
+/// Argv of the speed test for `target`, with tuning flags inserted right
+/// after `pool|provider speed-test`.
 fn args(target: &Target, remotes: &[String], plan: Plan, tune: Tune) -> Vec<std::ffi::OsString> {
     let mut args = match target {
         Target::Pool(name) => plan::pool_args(name, plan),
@@ -353,6 +362,7 @@ fn args(target: &Target, remotes: &[String], plan: Plan, tune: Tune) -> Vec<std:
     args
 }
 
+/// Starts the speed test task for `target`, or records the start error.
 fn start(
     form: &mut SpeedTestForm,
     task: &mut TaskRunner,

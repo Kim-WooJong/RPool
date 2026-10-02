@@ -23,19 +23,25 @@ const UNLOCKED_STARTS: usize = 3;
 
 /// What a new generation starts from; equal plans start equal generations.
 struct Plan {
+    /// Drive path the generation writes.
     path: String,
+    /// Visible revision it copies its baseline from, `None` for a new file.
     base: Option<Revision>,
+    /// Ancestry recorded for the edit (pool-sync workspaces only).
     ancestry: Option<Ancestry>,
 }
 impl Plan {
+    /// True when starting needs a baseline copy (`keep` > 0 bytes of an existing base).
     fn copies(&self, keep: u64) -> bool {
         self.base.as_ref().is_some_and(|b| keep.min(b.size()) > 0)
     }
+    /// Same path, base revision and ancestry, so a generation started for `other` fits `self`.
     fn same(&self, other: &Plan) -> bool {
         self.path == other.path
             && self.base.as_ref().map(Revision::id) == other.base.as_ref().map(Revision::id)
             && self.ancestry == other.ancestry
     }
+    /// Starts a generation from this plan keeping the first `keep` baseline bytes.
     fn start(&self, drive: &VirtualDrive, keep: u64) -> Result<Generation> {
         Generation::start(
             drive,
@@ -48,26 +54,44 @@ impl Plan {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// How a handle is opened.
 pub(crate) enum Access {
+    /// Read-only handle.
     Read,
-    Write { truncate: bool, append: bool },
+    /// Write handle; `truncate` empties the file at open, `append` writes at the end.
+    Write {
+        /// Empty the file when it is opened.
+        truncate: bool,
+        /// Every write goes to the current end of the file.
+        append: bool,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// Attributes of a file or directory as frontends report them.
 pub(crate) struct Attr {
+    /// Session file id; `None` for directories and not-yet-seen files.
     pub(crate) id: Option<FileId>,
+    /// Size in bytes (0 for directories).
     pub(crate) size: u64,
+    /// Is a directory.
     pub(crate) directory: bool,
     /// Revision or intent id; changes whenever content changes.
     pub(crate) tag: String,
 }
 
+/// Frontend-independent filesystem core of a mounted virtual drive. FUSE and WinFsp
+/// frontends call it for every operation; it owns handles, unsealed generations and ids.
 pub(crate) struct FsCore {
+    /// Drive that stores revisions and pending writes.
     pub(super) drive: Arc<VirtualDrive>,
     /// Shared by data operations, exclusive for namespace changes.
     pub(super) namespace: RwLock<()>,
+    /// Path ↔ file id table.
     pub(super) ids: Mutex<IdTable>,
+    /// Open handles.
     pub(super) handles: Mutex<HandleTable>,
+    /// Generation slot per file with open writes.
     pub(super) slots: Mutex<BTreeMap<FileId, Slot>>,
     /// Pool-sync workspace: peers change files, so handles keep the revision
     /// they started from and edits descend from what was actually read.
@@ -76,11 +100,13 @@ pub(crate) struct FsCore {
     pub(super) observed: Mutex<BTreeMap<FileId, Revision>>,
 }
 
+/// Locks `mutex`, mapping poisoning to an I/O error.
 pub(super) fn lock<T>(mutex: &Mutex<T>) -> FsResult<std::sync::MutexGuard<'_, T>> {
     mutex
         .lock()
         .map_err(|_| FsError::Io(anyhow!("filesystem core lock poisoned")))
 }
+/// `InvalidPath` unless `path` is a valid drive path.
 pub(super) fn checked(path: &str) -> FsResult<()> {
     valid_path(path).map_err(|_| FsError::InvalidPath)
 }
@@ -125,19 +151,23 @@ impl FsCore {
         let exists = self.visible(path)?.is_some();
         Ok(self.drive.unread_ancestry(path, exists)?)
     }
+    /// Namespace lock in shared mode (data operations).
     pub(super) fn shared(&self) -> FsResult<std::sync::RwLockReadGuard<'_, ()>> {
         self.namespace
             .read()
             .map_err(|_| FsError::Io(anyhow!("filesystem core lock poisoned")))
     }
+    /// Namespace lock in exclusive mode (namespace changes).
     pub(super) fn exclusive(&self) -> FsResult<std::sync::RwLockWriteGuard<'_, ()>> {
         self.namespace
             .write()
             .map_err(|_| FsError::Io(anyhow!("filesystem core lock poisoned")))
     }
+    /// The file's generation slot, created on first use.
     pub(super) fn slot(&self, file: FileId) -> FsResult<Slot> {
         Ok(lock(&self.slots)?.entry(file).or_default().clone())
     }
+    /// Visible revision at `path`, `None` if no file is there.
     pub(super) fn visible(&self, path: &str) -> FsResult<Option<Revision>> {
         Ok(self.drive.visible_revision(path)?)
     }
@@ -148,6 +178,9 @@ impl FsCore {
         slot.summary()
     }
 
+    /// Opens `path` with `access`. `create` allows creating a missing file for writing,
+    /// `exclusive` fails if it exists. Truncating or creating writes start a generation at once;
+    /// reads of a file without unsealed writes get a snapshot of the visible revision.
     pub(crate) fn open(
         &self,
         path: &str,
@@ -225,6 +258,8 @@ impl FsCore {
         }))
     }
 
+    /// Reads `count` bytes at `offset` as the handle sees the file: its snapshot, the shared
+    /// unsealed generation, or the current base revision.
     pub(crate) fn read_at(&self, handle: HandleId, offset: u64, count: usize) -> FsResult<Vec<u8>> {
         let handle = lock(&self.handles)?.get(handle)?;
         let base = match handle.view {
@@ -399,6 +434,7 @@ impl FsCore {
         Ok(bytes.len())
     }
 
+    /// Truncates or extends the file to `len` bytes through a write handle (starts a generation if needed).
     pub(crate) fn truncate(&self, handle: HandleId, len: u64) -> FsResult<()> {
         self.mutate(handle, len, |generation, drive| {
             generation.truncate(drive, len)

@@ -1,8 +1,14 @@
+//! Builds the `UploadPlan` of a file: data shards (and parity shards per
+//! coding group), object names and target remotes.
+
 use crate::manifest::coding_group_count;
 use crate::placement::assign_remotes;
 use crate::prelude::*;
 use crate::utils::remote_join;
 
+/// Plans the shards of a `source_size`-byte file as `archive_id`: data
+/// shards (`data/` or `shards/`), whole-size parity per coding group, each
+/// assigned a remote via `assign_remotes`. Used by `put` and mount uploads.
 pub(crate) fn build_upload_plan(
     rclone: &str,
     source_size: u64,

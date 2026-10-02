@@ -143,17 +143,28 @@ pub(super) fn new_archive_id() -> Result<String> {
     Ok(format!("virtual-{}", super::execute::random_hex(16)?))
 }
 
+/// [`Effects`] of the run state machine for drive files: builds new
+/// `virtual-*` archives from the planned files; the switch itself happens
+/// only at adoption.
 struct DriveEffects<'a> {
+    /// rclone executable.
     rclone: &'a str,
+    /// The migration's cloud journal (records are appended here).
     journal: &'a Journal,
+    /// Target pool policy the new archives are built for.
     target: &'a PoolDefinition,
+    /// Visible drive files by entry key, read again from the cloud.
     files: BTreeMap<String, DriveFile>,
+    /// Local work directory (`<config>/migrations/<id>/drive`).
     work_root: PathBuf,
+    /// Stop cleanly between files when this file exists.
     stop_file: Option<PathBuf>,
+    /// Take over other PCs' unexpired claims.
     take_over: bool,
 }
 
 impl DriveEffects<'_> {
+    /// The current drive file of `entry`; fails when it changed since planning.
     fn file(&self, entry: &Entry) -> Result<&DriveFile> {
         self.files
             .get(&entry.archive_id)

@@ -1,3 +1,8 @@
+//! Background discovery of rclone remotes and their quotas for the GUI.
+//! `UsageRefresh` runs one worker thread at a time; `gui::app` starts it at
+//! startup and on refresh, and applies the resulting `UsageSnapshot` to the
+//! state (provider cards, encryption prompt, capacity bars).
+
 use crate::gui::i18n::{tr, trf};
 use crate::models::QuotaReport;
 use crate::storage::admin::{collect_quota_reports, BackendAdmin, RcloneAdmin};
@@ -5,26 +10,40 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::Arc;
 use std::thread;
 
+/// Result of one remote discovery plus quota query.
 pub(crate) struct UsageSnapshot {
+    /// Debug rendering of the remote catalog; lets the encryption check notice
+    /// when the rclone configuration changed.
     pub(crate) catalog_signature: String,
+    /// Some physical provider is not wrapped by a crypt remote.
     pub(crate) needs_encryption: bool,
+    /// Physical providers without a covering crypt remote.
     pub(crate) missing_encryption: Vec<String>,
+    /// Quota per capacity remote; empty when capacity could not be queried.
     pub(crate) reports: Vec<QuotaReport>,
+    /// Configured crypt remotes.
     pub(crate) crypt_remotes: Vec<String>,
+    /// Backing (non-crypt) provider remotes.
     pub(crate) backing_remotes: Vec<String>,
     /// Backend type (`drive`, `dropbox`, …) and wrapping crypt remotes of
     /// each backing provider, for the provider cards.
     pub(crate) providers: ProviderDetails,
+    /// Set when capacity was unavailable; discovery results are still valid.
     pub(crate) warning: Option<String>,
 }
 
+/// Per-provider details for the provider cards.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ProviderDetails {
+    /// Backing remote name -> rclone backend type (`drive`, `dropbox`, …).
     pub(crate) kinds: std::collections::BTreeMap<String, String>,
+    /// Backing remote (placement target) -> crypt remotes wrapping it.
     pub(crate) crypts: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 impl ProviderDetails {
+    /// Collects backend types of `backing` and groups `crypts` by the backing
+    /// section they resolve to; unresolvable crypts are skipped.
     fn from_catalog(
         catalog: &crate::storage::admin::RemoteCatalog,
         backing: &[String],
@@ -49,16 +68,23 @@ impl ProviderDetails {
     }
 }
 
+/// Handle to the running discovery worker, if any.
 #[derive(Default)]
 pub(crate) struct UsageRefresh {
+    /// Channel of the running worker; `None` when idle.
     receiver: Option<Receiver<Result<UsageSnapshot, String>>>,
+    /// A refresh is in progress.
     running: bool,
 }
 
 impl UsageRefresh {
+    /// Starts a refresh with the given rclone executable and quota worker count.
     pub(crate) fn start(&mut self, rclone: String, workers: usize) {
         self.start_with_admin(Arc::new(RcloneAdmin::inherited(&rclone)), workers);
     }
+    /// Starts a refresh with any [`BackendAdmin`] (tests inject fakes). Ignored
+    /// while one is running. Capacity errors become a warning, discovery errors
+    /// an `Err` result.
     pub(crate) fn start_with_admin(&mut self, admin: Arc<dyn BackendAdmin>, workers: usize) {
         if self.running {
             return;
@@ -113,6 +139,7 @@ impl UsageRefresh {
         self.running = true;
     }
 
+    /// Returns the result once the worker has finished, else `None`.
     pub(crate) fn poll(&mut self) -> Option<Result<UsageSnapshot, String>> {
         let result = match self.receiver.as_ref()?.try_recv() {
             Ok(result) => result,
@@ -126,6 +153,7 @@ impl UsageRefresh {
         Some(result)
     }
 
+    /// Whether a refresh is in progress.
     pub(crate) fn is_running(&self) -> bool {
         self.running
     }

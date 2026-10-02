@@ -5,6 +5,8 @@ use crate::gui::state::Page;
 use crate::gui::theme;
 use eframe::egui;
 
+/// Navigation entries: page, icon and English label (translated when drawn).
+/// A separator is drawn before the seventh entry (Activity).
 const ITEMS: &[(Page, &str, &str)] = &[
     (Page::Dashboard, "🏠", "Overview"),
     (Page::Drive, "💾", "Drive"),
@@ -16,6 +18,8 @@ const ITEMS: &[(Page, &str, &str)] = &[
     (Page::Settings, "⚙", "Settings"),
 ];
 
+/// Draw the left navigation into `ui` and switch `page` on click; `compact`
+/// shows icons only. Called by `app` for the side panel.
 pub(crate) fn show(ui: &mut egui::Ui, page: &mut Page, compact: bool) {
     let p = theme::pal(ui);
     ui.add_space(14.0);
@@ -50,6 +54,7 @@ pub(crate) fn show(ui: &mut egui::Ui, page: &mut Page, compact: bool) {
     }
 }
 
+/// One navigation button with selection accent; icon-only with hover text when `compact`.
 fn nav_button(
     ui: &mut egui::Ui,
     page: &mut Page,

@@ -1,7 +1,12 @@
+//! `rpool doctor`: prints the `crate::doctor` check reports or writes a
+//! redacted diagnostics bundle.
 use crate::doctor::run_checks;
 use anyhow::{bail, Result};
 use std::path::Path;
 
+/// Runs the doctor checks (local-only, or rclone plus metadata checks) and prints
+/// them as a table or JSON; fails when any check reports `fail`. With `bundle`
+/// it writes the diagnostics ZIP instead. Called by `application::dispatch`.
 pub(crate) fn doctor(
     rclone: &str,
     json: bool,

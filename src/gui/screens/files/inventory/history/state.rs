@@ -12,10 +12,13 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Trash, retention and notices of one pool.
 #[derive(Debug, Default)]
 pub(crate) struct PoolHistory {
+    /// The pool's trash listing (`drive trash list`), loaded while the trash is open.
     pub(crate) trash: Fetch<Vec<TrashEntry>>,
+    /// Selected trash entries.
     pub(crate) selection: Selection,
     /// Drive paths a rollback applied in this session moved to the trash.
     pub(crate) from_rollback: BTreeSet<String>,
+    /// Saved retention limits (`drive retention show`), for the Pools card.
     pub(crate) retention: Fetch<Retention>,
     /// Values being edited on the Pools card (`None`: show the saved ones).
     pub(crate) retention_draft: Option<Retention>,
@@ -35,31 +38,40 @@ pub(crate) struct PoolHistory {
 /// would stop the run.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum CleanupConfirm {
+    /// No confirmation shown.
     #[default]
     None,
+    /// First "Clean up now?" confirmation.
     First,
+    /// Second confirmation: the run would hit the mass-delete guard.
     Guard,
 }
 
 /// The versions side panel of one file.
 #[derive(Debug, Default)]
 pub(crate) struct VersionsPanel {
+    /// Pool the file belongs to.
     pub(crate) pool: String,
     /// Drive path (`/Docs/a.txt`).
     pub(crate) path: String,
+    /// The file's version list (`drive versions list`).
     pub(crate) fetch: Fetch<Vec<VersionEntry>>,
+    /// Id of the version picked in the list, if any.
     pub(crate) selected: Option<String>,
 }
 
 /// The "Roll back…" dialog.
 #[derive(Debug, Default)]
 pub(crate) struct RollbackDialog {
+    /// Pool being rolled back.
     pub(crate) pool: String,
     /// Folder (drive path, `/` for the whole drive).
     pub(crate) scope: String,
+    /// Chosen time preset.
     pub(crate) preset: TimePreset,
     /// Typed local time for [`TimePreset::Custom`].
     pub(crate) custom: String,
+    /// Read-only rollback preview (`drive rollback` without `--confirm`).
     pub(crate) preview: Fetch<RollbackPlan>,
     /// Second step: "Apply rollback" was clicked once.
     pub(crate) confirming: bool,
@@ -68,19 +80,29 @@ pub(crate) struct RollbackDialog {
 /// Confirmation dialogs of the trash view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TrashDialog {
+    /// "Delete permanently" of the selected entries.
     Purge {
+        /// Trash entry ids to purge.
         ids: Vec<String>,
+        /// Number of entries, for the message.
         count: usize,
+        /// Their total size in bytes.
         bytes: u64,
     },
+    /// "Empty trash": every entry.
     Empty {
+        /// Number of entries in the trash.
         count: usize,
+        /// Total size of the trash in bytes.
         bytes: u64,
     },
     /// "Restore to…": the chosen folder (explorer path, `""` = root).
     RestoreTo {
+        /// Trash entry ids to restore.
         ids: Vec<String>,
+        /// Chosen destination folder (explorer path, `""` = drive root).
         folder: String,
+        /// Search text of the folder picker.
         filter: String,
     },
 }
@@ -88,25 +110,39 @@ pub(crate) enum TrashDialog {
 /// A change started in the task runner, to finish when it completes.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Change {
+    /// Trash entries restored (to the old place or a chosen folder).
     Restore {
+        /// Number of entries.
         count: usize,
     },
+    /// Trash entries deleted permanently.
     Purge {
+        /// Number of entries.
         count: usize,
     },
+    /// Every expired trash entry deleted.
     PurgeExpired,
+    /// The whole trash emptied.
     Empty,
+    /// A version of a file restored.
     Version {
+        /// File name, for the result notice.
         name: String,
+        /// Restored beside the current file instead of replacing it.
         as_copy: bool,
     },
+    /// A rollback applied.
     Rollback {
+        /// Number of changes it made.
         changes: usize,
+        /// Drive paths it moved to the trash, marked "from rollback" afterwards.
         trashed: Vec<String>,
     },
+    /// New retention limits saved.
     Retention(Retention),
     /// `drive cleanup --confirm` (`force`: past the mass-delete guard).
     Cleanup {
+        /// Past the mass-delete guard (`--force`).
         force: bool,
     },
 }
@@ -126,13 +162,19 @@ impl Change {
     }
 }
 
+/// Trash / versions / rollback state of the Library, in `DriveForm::history`.
+/// Polled by `history::poll`, drawn by the trash view, versions panel and dialogs.
 #[derive(Debug, Default)]
 pub(crate) struct HistoryForm {
     /// The Library shows the trash instead of the drive.
     pub(crate) trash_open: bool,
+    /// Per-pool trash, retention and notices, created on first use.
     pools: BTreeMap<String, PoolHistory>,
+    /// The open versions side panel, if any.
     pub(crate) versions: Option<VersionsPanel>,
+    /// The open rollback dialog, if any.
     pub(crate) rollback: Option<RollbackDialog>,
+    /// The open trash confirmation dialog, if any.
     pub(crate) dialog: Option<TrashDialog>,
     /// `(pool, change)` running in the task runner.
     pub(crate) running: Option<(String, Change)>,
@@ -143,10 +185,12 @@ pub(crate) struct HistoryForm {
 }
 
 impl HistoryForm {
+    /// The state of `pool`, created empty if missing.
     pub(crate) fn pool(&mut self, pool: &str) -> &mut PoolHistory {
         self.pools.entry(pool.to_string()).or_default()
     }
 
+    /// The state of `pool`, if it has any.
     pub(crate) fn get(&self, pool: &str) -> Option<&PoolHistory> {
         self.pools.get(pool)
     }
@@ -165,6 +209,8 @@ impl HistoryForm {
         }
     }
 
+    /// Opens the versions panel of `path` (drive path) in `pool`; keeps the panel
+    /// and its list when that file is already open.
     pub(crate) fn open_versions(&mut self, pool: &str, path: String) {
         if self
             .versions
@@ -180,6 +226,8 @@ impl HistoryForm {
         });
     }
 
+    /// Opens the rollback dialog for `scope` (drive path, `/` = whole drive) with
+    /// `custom` prefilled, clearing the pool's last notice.
     pub(crate) fn open_rollback(&mut self, pool: &str, scope: String, custom: String) {
         self.pool(pool).notice = None;
         self.rollback = Some(RollbackDialog {
@@ -190,6 +238,7 @@ impl HistoryForm {
         });
     }
 
+    /// Whether a change of `pool` is running in the task runner.
     pub(crate) fn is_running(&self, pool: &str) -> bool {
         self.running.as_ref().is_some_and(|(p, _)| p == pool)
     }

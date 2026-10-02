@@ -10,11 +10,13 @@ use std::ops::Bound;
 
 /// The committed files of one event set.
 pub(crate) struct Projection {
+    /// Namespace version the events were projected with.
     version: u32,
     /// Every event id with its content size (0 for a deletion). Also the
     /// cache key: event ids are content hashes, so the same ids and
     /// version project to the same files.
     sizes: BTreeMap<String, u64>,
+    /// Committed visible files (cloud revisions) by path.
     files: BTreeMap<String, Revision>,
     /// Sum of `files` sizes.
     committed: u128,
@@ -23,6 +25,7 @@ pub(crate) struct Projection {
 }
 
 impl Projection {
+    /// Projects `events` from scratch (see `namespace::resolve_events`).
     pub(super) fn build(version: u32, events: &BTreeMap<String, Event>) -> Result<Self> {
         let resolved = super::super::namespace::resolve_events(version, events)?;
         Ok(Self::from_resolved(version, events, &resolved))
@@ -36,6 +39,7 @@ impl Projection {
             &*state.projected()?,
         ))
     }
+    /// Builds the projection from already resolved files.
     fn from_resolved(
         version: u32,
         events: &BTreeMap<String, Event>,
@@ -95,9 +99,13 @@ impl Projection {
     }
 }
 
+/// A pending write's spool image as seen through the overlay.
 struct Spooled {
+    /// Intent id.
     id: String,
+    /// Spool image file.
     path: PathBuf,
+    /// Sealed size in bytes.
     size: u64,
 }
 
@@ -107,13 +115,16 @@ pub(crate) struct Pending {
     last: BTreeMap<String, Option<Spooled>>,
     /// Every spooled intent `(id, size)`, for capacity accounting.
     spooled: Vec<(String, u64)>,
+    /// Explicit directories of the namespace (shared, not copied).
     directories: crate::mount::namespace::Shared<BTreeSet<String>>,
+    /// Namespace generation the overlay was built at.
     generation: u64,
     /// `Namespace::visible_logical_used`, or `None` when it overflows.
     pub(super) used: Option<u64>,
 }
 
 impl Pending {
+    /// Overlay of `state.pending` on `projection`, with visible logical usage.
     fn build(drive: &VirtualDrive, state: &Namespace, projection: &Projection) -> Self {
         let mut last = BTreeMap::new();
         let mut spooled = vec![];
@@ -161,7 +172,9 @@ impl Pending {
 /// A consistent snapshot of the visible namespace for metadata queries:
 /// files with their revision id and size, explicit directories, generation.
 pub(crate) struct VisibleView {
+    /// Committed files of the snapshot.
     projection: Arc<Projection>,
+    /// Pending overlay of the snapshot.
     pending: Arc<Pending>,
     /// The full `view` when session pins are in effect (local-only fixture);
     /// it then replaces `projection` and `pending.last`.
@@ -241,6 +254,7 @@ impl VisibleView {
         }
         out
     }
+    /// Explicit (possibly empty) directories.
     pub(crate) fn directories(&self) -> &BTreeSet<String> {
         &self.pending.directories
     }
@@ -250,12 +264,14 @@ impl VisibleView {
     }
 }
 
+/// Entries of `map` whose key starts with `prefix`, in order.
 fn below<'m, 'p, V>(
     map: &'m BTreeMap<String, V>,
     prefix: &'p str,
 ) -> impl Iterator<Item = (&'m String, &'m V)> + use<'m, 'p, V> {
     below_from(map, prefix, prefix)
 }
+/// Entries of `map` from key `from` onward while they start with `prefix`.
 fn below_from<'m, 'p, V>(
     map: &'m BTreeMap<String, V>,
     prefix: &'p str,

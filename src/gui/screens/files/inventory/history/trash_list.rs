@@ -11,16 +11,23 @@ use crate::gui::theme;
 use crate::presentation::format_bytes;
 use eframe::egui;
 
+/// Height of the header and every trash row, in points.
 pub(crate) const ROW: f32 = 28.0;
 
 /// What a row's context menu asked for (it selected the row first).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RowAction {
+    /// Restore to the original place.
     Restore,
+    /// Restore into a folder picked in a dialog.
     RestoreTo,
+    /// Delete permanently (after confirmation).
     Purge,
 }
 
+/// Draws the trash list of `rows` (already filtered and sorted) in a scroll
+/// area of at most `height`, updating `selection` on clicks. Returns a row's
+/// context-menu action. Called by `trash_view::show`.
 pub(crate) fn show(
     ui: &mut egui::Ui,
     rows: &[TrashRow],
@@ -49,6 +56,7 @@ pub(crate) fn show(
     action
 }
 
+/// Header row with the select-all check box and column titles.
 fn header(ui: &mut egui::Ui, cols: &TrashColumns, selection: &mut Selection, order: &[&str]) {
     let (rect, _) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW), egui::Sense::hover());
@@ -97,6 +105,9 @@ fn marker(row: &TrashRow) -> Option<&'static str> {
     }
 }
 
+/// One trash row: check box, name with marker, folder, size, deletion time and
+/// expiry (warning colour when expired or soon). Click / Ctrl / Shift update the
+/// selection; right-click selects the row and opens its action menu.
 fn draw_row(
     ui: &mut egui::Ui,
     row: &TrashRow,
@@ -218,6 +229,8 @@ fn draw_row(
     action
 }
 
+/// Hover text of a row: name, original folder, who deleted it and when, expiry
+/// and the meaning of its markers.
 fn tooltip(ui: &mut egui::Ui, row: &TrashRow, folder: &str) {
     ui.strong(&row.name);
     ui.label(trf("Was in: {folder}", &[("folder", &folder)]));

@@ -44,6 +44,10 @@ impl RcloneContext {
         ok
     }
 
+    /// Checks one (account, hash type) group: one recursive `lsjson --hash` of their
+    /// deepest common folder, or per-object stat-with-hash when there is no shallow common
+    /// folder (see [`MAX_DEPTH`]), fewer than two members, or the listing fails.
+    /// Returns `(item index, size and hash match)`.
     fn check_group(
         &self,
         ctx: &OperationContext,

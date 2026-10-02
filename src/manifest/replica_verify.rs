@@ -1,3 +1,5 @@
+//! Verification of the manifest replicas stored on the remotes.
+
 use crate::manifest::{manifest_fingerprint, manifest_remotes, validate_manifest};
 use crate::models::Manifest;
 use crate::storage::reader::StorageReader;
@@ -5,14 +7,21 @@ use crate::utils::remote_join;
 use anyhow::Result;
 use serde::Serialize;
 
+/// Result of checking one remote's manifest replica.
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct ManifestReplicaReport {
+    /// Remote checked.
     pub(crate) remote: String,
+    /// Full object path of the replica.
     pub(crate) object: String,
+    /// The replica parsed, validated and matched the reference fingerprint.
     pub(crate) healthy: bool,
+    /// `ok` or the error found.
     pub(crate) message: String,
 }
 
+/// Checks the replica on each requested remote (default: every remote the
+/// manifest uses) against `reference`'s fingerprint.
 pub(crate) fn verify_manifest_replicas_with_storage(
     reader: &StorageReader,
     reference: &Manifest,

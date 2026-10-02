@@ -7,17 +7,25 @@ use std::process::Stdio;
 /// An owned, nonblocking observer. Dropping it stops observation, not rclone.
 #[derive(Debug)]
 pub(crate) struct ConnectionSetup {
+    /// How completion of the setup wizard is observed (platform specific).
     completion: Completion,
+    /// Set once completion has been reported, so [`ConnectionSetup::poll`] reports once.
     finished: bool,
 }
 
 #[derive(Debug)]
+/// Platform-specific completion signal of the launched `rclone config`.
 enum Completion {
     #[cfg(target_os = "windows")]
+    /// Windows: receives the exit status of the `rclone config` console process.
     Process(std::sync::mpsc::Receiver<std::io::Result<std::process::ExitStatus>>),
     #[cfg(unix)]
+    /// Unix: the wrapper script touches `started`/`complete` marker files in a
+    /// private temp directory.
     Marker {
+        /// Private temp directory holding the script and markers; removed on drop.
         directory: tempfile::TempDir,
+        /// Launch time; used to give up if the script never starts (60 s).
         launched_at: std::time::Instant,
     },
 }
@@ -61,6 +69,9 @@ impl ConnectionSetup {
     }
 }
 
+/// Opens `rclone config` in a new terminal window and returns an observer for
+/// its completion. Rejects an empty executable or one with control characters.
+/// Called from the GUI providers screen's Connect action.
 pub(crate) fn open_setup(executable: &str) -> Result<ConnectionSetup> {
     if executable.trim().is_empty() || executable.contains(['\n', '\r', '\0']) {
         return Err(anyhow!("Set a valid rclone executable in Settings first"));
@@ -69,6 +80,7 @@ pub(crate) fn open_setup(executable: &str) -> Result<ConnectionSetup> {
 }
 
 #[cfg(target_os = "windows")]
+/// Windows: runs `rclone config` in a new console and waits on it in a thread.
 fn launch(executable: &str) -> Result<ConnectionSetup> {
     use std::os::windows::process::CommandExt;
     let mut child = Command::new(executable)
@@ -87,6 +99,8 @@ fn launch(executable: &str) -> Result<ConnectionSetup> {
 }
 
 #[cfg(unix)]
+/// Unix: writes a private `setup.command` shell script that runs
+/// `rclone config` and touches marker files on start and exit.
 fn prepare_script(executable: &str) -> Result<ConnectionSetup> {
     use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
@@ -112,6 +126,7 @@ fn prepare_script(executable: &str) -> Result<ConnectionSetup> {
 
 #[cfg(unix)]
 impl ConnectionSetup {
+    /// Path of the generated setup script inside the private temp directory.
     fn script_path(&self) -> std::path::PathBuf {
         match &self.completion {
             Completion::Marker { directory, .. } => directory.path().join("setup.command"),
@@ -120,6 +135,7 @@ impl ConnectionSetup {
 }
 
 #[cfg(target_os = "macos")]
+/// macOS: opens the setup script in Terminal.app.
 fn launch(executable: &str) -> Result<ConnectionSetup> {
     let setup = prepare_script(executable)?;
     let result = Command::new("/usr/bin/open")
@@ -138,6 +154,7 @@ fn launch(executable: &str) -> Result<ConnectionSetup> {
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
+/// Other Unix: tries common terminal emulators in order until one launches.
 fn launch(executable: &str) -> Result<ConnectionSetup> {
     let setup = prepare_script(executable)?;
     for (terminal, flag) in [
@@ -168,6 +185,7 @@ fn launch(executable: &str) -> Result<ConnectionSetup> {
 }
 
 #[cfg(not(any(unix, target_os = "windows")))]
+/// Unsupported platforms: always asks the user to run `rclone config` manually.
 fn launch(_: &str) -> Result<ConnectionSetup> {
     Err(anyhow!(
         "Run rclone config in your terminal, then Refresh providers."

@@ -32,6 +32,9 @@ pub(crate) fn state_poll_interval() -> Duration {
     state::STATUS_EVERY
 }
 
+/// Draws the Monitoring page: polls `state.monitoring`, keeps repainting
+/// while traffic moves, and shows one card per running mount (or a hint with
+/// an Open Drive button when none). Called by the app for the Monitoring page.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let now = Instant::now();
     let now_unix = crate::utils::now_unix();
@@ -80,6 +83,9 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     }
 }
 
+/// One mount card: header badges, live summary, Live / History tabs, and the
+/// tab's content; stores the chosen tab and range and starts a history load
+/// when the History tab is shown.
 fn mount_card(
     ui: &mut egui::Ui,
     monitoring: &mut MonitoringState,

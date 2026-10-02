@@ -14,8 +14,11 @@ use crate::prelude::*;
 const CACHE_BYTES: u64 = 1 << 30;
 
 #[derive(Deserialize)]
+/// The fields of a workspace's `virtual.json` that [`open_workspace`] checks.
 struct Binding {
+    /// Workspace format version; must be `virtual_drive::FORMAT_VERSION` (pool-sync v6).
     version: u32,
+    /// Pool the workspace belongs to.
     pool: String,
 }
 
@@ -56,13 +59,16 @@ pub(crate) fn open_scratch(
     Ok(drive)
 }
 
+/// Saves the worker label in `pool-worker.json` so the workspace can be reopened later.
 fn durable_worker(root: &Path, worker: &str) -> Result<()> {
     super::namespace::durable_json(&root.join("pool-worker.json"), &worker)
 }
 
+/// Pool-sync metadata roots of the drive.
 pub(crate) fn roots(drive: &VirtualDrive) -> &[String] {
     &drive.pool_sync_roots
 }
+/// Worker label this workspace publishes events as.
 pub(crate) fn worker(drive: &VirtualDrive) -> String {
     drive.state.lock().unwrap().worker.clone()
 }

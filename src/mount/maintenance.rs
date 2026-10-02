@@ -24,10 +24,12 @@ const HISTORY_REQUESTS: Duration = Duration::from_secs(2);
 /// Automatic drive cleanup (`drive_history::cleanup`): daily, the first pass
 /// a while after the mount starts (not during the start-up sync).
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(24 * 3600);
+/// Delay before the first automatic cleanup after mount start.
 const CLEANUP_FIRST: Duration = Duration::from_secs(30 * 60);
 
 /// Uploader restarts tolerated within `RESTART_WINDOW` before the mount stops.
 const MAX_RESTARTS: usize = 5;
+/// Window over which uploader restarts are counted.
 const RESTART_WINDOW: Duration = Duration::from_secs(600);
 
 /// The message of a thread panic, for the log.
@@ -39,15 +41,21 @@ fn panic_text(panic: &(dyn std::any::Any + Send)) -> String {
         .unwrap_or_else(|| "unknown panic".into())
 }
 
+/// Schedule of one periodic background job (at most one run at a time).
 struct Periodic {
+    /// Time between runs.
     interval: Duration,
+    /// When the last run started; `None` before the first.
     last: Option<Instant>,
+    /// Running job thread, if any.
     job: Option<JoinHandle<()>>,
+    /// Creation time, base of the first-run delay.
     created: Instant,
     /// Wait before the first run (when `last` is `None`).
     first: Duration,
 }
 impl Periodic {
+    /// Due immediately, then every `interval`.
     fn new(interval: Duration) -> Self {
         Self {
             interval,
@@ -64,6 +72,7 @@ impl Periodic {
             ..Self::new(interval)
         }
     }
+    /// True when the next run may start.
     fn due(&self) -> bool {
         match self.last {
             Some(t) => t.elapsed() >= self.interval,
@@ -77,6 +86,7 @@ impl Periodic {
             ..Self::new(interval)
         }
     }
+    /// Reaps a finished job, then starts `start()` when due and nothing is running.
     fn poll(&mut self, start: impl FnOnce() -> JoinHandle<()>) -> Result<()> {
         if self.job.as_ref().is_some_and(|j| j.is_finished()) {
             self.join()?;
@@ -103,7 +113,10 @@ impl Periodic {
     }
 }
 
+/// Background workers of one mounted drive, driven by `poll` from the mount loop
+/// (`frontend::run`, `virtual_drive::run`).
 pub(super) struct Maintenance {
+    /// Mount sync interval; pull and upkeep cadence derive from it.
     interval: Duration,
     /// Long-lived uploader thread (`upload_worker`), started on the first poll.
     uploader: Option<JoinHandle<()>>,
@@ -115,9 +128,11 @@ pub(super) struct Maintenance {
     pull: Periodic,
     /// Last pull error, logged once per change.
     pull_error: Arc<Mutex<Option<String>>>,
+    /// Capacity refresh (at most every `CAPACITY_INTERVAL_MAX`).
     capacity: Periodic,
     /// Metadata checkpoint/compaction pass (`metadata_compaction`).
     compaction: Periodic,
+    /// Idle-account keep-alive check (`KEEPALIVE_CHECK`).
     keepalive: Periodic,
     /// Drive history requests of other processes (`drive_history::request`).
     history: Periodic,
@@ -125,6 +140,8 @@ pub(super) struct Maintenance {
     cleanup: Periodic,
 }
 impl Maintenance {
+    /// Schedules for a mount with sync `interval`; the compaction interval comes from the
+    /// saved `metadata_compaction::Config`.
     pub(super) fn new(interval: Duration) -> Self {
         let minutes = super::metadata_compaction::Config::load()
             .map(|c| c.interval_minutes)

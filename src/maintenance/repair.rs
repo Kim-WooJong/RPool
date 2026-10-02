@@ -1,9 +1,16 @@
+//! Repair of bad shards: download the healthy shards of each affected group,
+//! Reed-Solomon-reconstruct the bad ones, verify and upload them again.
+
 use crate::manifest::data_shards;
 use crate::prelude::*;
 use crate::progress;
 use crate::storage::writer::StorageWriter;
 use crate::utils::{hash_file_range, read_exact_at};
 
+/// Repairs missing, wrong-size and corrupt shards (optionally only in
+/// `selected_groups`); with `dry_run` it only reports per group. Refuses while
+/// any probe has a transport/provider error, and fails for archives without
+/// coding. Returns the number of shards repaired. Used by `rpool repair`.
 pub(crate) fn repair_manifest_with_storage(
     storage: &StorageWriter,
     manifest: &Manifest,
@@ -76,6 +83,8 @@ pub(crate) fn repair_manifest_with_storage(
     Ok(repaired)
 }
 
+/// Repairs one group: checks it is recoverable, downloads its healthy shards to
+/// a temp dir, reconstructs the bad ones and writes them back to storage.
 fn repair_group(
     storage: &StorageWriter,
     manifest: &Manifest,

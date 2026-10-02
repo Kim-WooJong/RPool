@@ -17,15 +17,21 @@ use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+/// A GUI display language; saved in the GUI settings.
 pub(crate) enum Language {
     #[default]
+    /// Source text; no table lookup.
     English,
+    /// `locales/ko`.
     Korean,
+    /// `locales/ja`.
     Japanese,
+    /// `locales/zh` (Simplified).
     Chinese,
 }
 
 impl Language {
+    /// Every language, in selector order; `CURRENT` stores an index into it.
     pub(crate) const ALL: [Language; 4] = [
         Language::English,
         Language::Korean,
@@ -41,6 +47,7 @@ impl Language {
             Language::Chinese => "中文（简体）",
         }
     }
+    /// Column in the translation table (`None` for English).
     fn index(self) -> Option<usize> {
         match self {
             Language::English => None,
@@ -51,8 +58,10 @@ impl Language {
     }
 }
 
+/// Index into `Language::ALL` of the active language (process-wide).
 static CURRENT: AtomicU8 = AtomicU8::new(0);
 
+/// Switch the active GUI language (startup and the settings screen).
 pub(crate) fn set_language(language: Language) {
     let value = Language::ALL
         .iter()
@@ -61,6 +70,7 @@ pub(crate) fn set_language(language: Language) {
     CURRENT.store(value as u8, Ordering::Relaxed);
 }
 
+/// The active GUI language.
 pub(crate) fn language() -> Language {
     Language::ALL
         .get(CURRENT.load(Ordering::Relaxed) as usize)
@@ -84,6 +94,7 @@ macro_rules! table {
         )
     };
 }
+/// Translation areas compiled into the binary (see `table!`).
 const TABLES: [(&str, [&str; 3]); 11] = [
     table!("core"),
     table!("drive"),
@@ -101,8 +112,10 @@ const TABLES: [(&str, [&str; 3]); 11] = [
 /// Language folders, in `Language::index` order.
 const LANGUAGES: [&str; 3] = ["ko", "ja", "zh"];
 
+/// English text -> translation per language column (ko, ja, zh).
 type Table = HashMap<String, [Option<&'static str>; 3]>;
 
+/// Parse every table once; panics if a bundled JSON file is invalid.
 fn table() -> &'static Table {
     static TABLE: OnceLock<Table> = OnceLock::new();
     TABLE.get_or_init(|| {
@@ -132,6 +145,7 @@ pub(crate) fn tr(english: &'static str) -> &'static str {
     tr_in(language(), english)
 }
 
+/// `english` in `language` (English when untranslated).
 pub(crate) fn tr_in(language: Language, english: &'static str) -> &'static str {
     match language.index() {
         None => english,

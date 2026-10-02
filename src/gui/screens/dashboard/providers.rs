@@ -1,3 +1,4 @@
+//! Providers pane of the overview page: capacity per provider.
 use crate::gui::i18n::tr;
 use crate::gui::state::{GuiState, Page, StorageSection};
 use crate::gui::theme;
@@ -6,6 +7,7 @@ use crate::models::QuotaReport;
 use crate::presentation::format_optional_bytes;
 use eframe::egui;
 
+/// Draw the provider capacity table with a link to Storage > Providers.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     section_title(
         ui,
@@ -38,6 +40,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
         });
 }
 
+/// One provider row: name, usage bar, used/free bytes and availability.
 fn provider_row(ui: &mut egui::Ui, report: &QuotaReport) {
     ui.label(&report.remote);
 
@@ -63,6 +66,7 @@ fn provider_row(ui: &mut egui::Ui, report: &QuotaReport) {
     ui.end_row();
 }
 
+/// Pane title with a right-aligned link that opens a Storage section.
 fn section_title(
     ui: &mut egui::Ui,
     state: &mut GuiState,

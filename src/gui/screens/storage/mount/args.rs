@@ -2,6 +2,9 @@
 use std::ffi::OsString;
 use std::path::Path;
 
+/// Base argv of `rpool mount`: pool, workspace, interval, stop file, then
+/// `--sync-only` or `--mountpoint`, and one `--manifest` per listed archive.
+/// Called by `MountForm::action_args`, which appends the remaining options.
 pub(super) fn build_args(
     pool: &str,
     workspace: &Path,

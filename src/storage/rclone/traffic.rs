@@ -14,9 +14,13 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
+/// Seconds kept by a [`Ring`] (one slot per second); rates look back at most `RING - 1` complete seconds.
 const RING: u64 = 16;
+/// Bits of a ring slot holding the byte count (~1 TiB per second before saturating).
 const BYTE_BITS: u32 = 40;
+/// Mask of the byte-count bits of a ring slot.
 const BYTE_MASK: u64 = (1 << BYTE_BITS) - 1;
+/// Mask of the 24-bit second tag stored above the byte count.
 const TAG_MASK: u64 = (1 << (64 - BYTE_BITS)) - 1;
 /// Longest kept last-error text.
 const ERROR_TEXT: usize = 200;
@@ -25,9 +29,12 @@ const ERROR_TEXT: usize = 200;
 /// 24-bit second tag and a 40-bit byte count into one atomic word.
 #[derive(Default)]
 pub(crate) struct Ring {
+    /// One packed (second tag, bytes) word per second, indexed by `second % RING`.
     slots: [AtomicU64; RING as usize],
 }
 impl Ring {
+    /// Adds `bytes` to the slot of unix `second`, restarting the slot if it still
+    /// holds an older second (lock-free CAS loop; saturates at [`BYTE_MASK`]).
     pub(crate) fn add(&self, second: u64, bytes: u64) {
         if bytes == 0 {
             return;
@@ -48,6 +55,7 @@ impl Ring {
             }
         }
     }
+    /// Bytes recorded for `second`, or 0 if its slot was reused by another second.
     fn bytes_in(&self, second: u64) -> u64 {
         let value = self.slots[(second % RING) as usize].load(Relaxed);
         if value >> BYTE_BITS == second & TAG_MASK {
@@ -71,23 +79,35 @@ impl Ring {
 /// Live counters of one remote name.
 #[derive(Default)]
 pub(crate) struct Counters {
+    /// Bytes fed to rclone for uploads.
     sent: AtomicU64,
+    /// Bytes of uploads rclone acknowledged.
     acked: AtomicU64,
+    /// Bytes read back and verified after uploads.
     verified: AtomicU64,
+    /// Bytes received from rclone (reads and listings).
     received: AtomicU64,
+    /// Uploads in progress now.
     active_uploads: AtomicU32,
+    /// Downloads in progress now.
     active_downloads: AtomicU32,
+    /// Operations that succeeded (including definite not-found/exists answers).
     ok_ops: AtomicU64,
+    /// Operations that failed (provider/transport errors).
     failed_ops: AtomicU64,
+    /// Provider-rejected writes retried.
     retries: AtomicU64,
     /// Unix seconds, 0 = never.
     last_ok: AtomicU64,
+    /// Unix seconds of the last failure, 0 = never.
     last_failed: AtomicU64,
     /// First failure since the last success, 0 = none.
     failing_since: AtomicU64,
     /// Only written on failures, which are rare.
     last_error: Mutex<Option<(String, u64)>>,
+    /// Upload bytes per second, for recent rates.
     upload: Ring,
+    /// Download bytes per second, for recent rates.
     download: Ring,
 }
 
@@ -102,29 +122,43 @@ pub(crate) struct Traffic {
     pub verified_bytes: u64,
     /// Bytes received from rclone: data reads and metadata listings.
     pub received_bytes: u64,
+    /// Uploads in progress.
     pub active_uploads: u32,
+    /// Downloads in progress.
     pub active_downloads: u32,
+    /// Operations finished successfully (including definite not-found/exists answers).
     pub ok_ops: u64,
+    /// Operations that failed with a provider/transport error.
     pub failed_ops: u64,
     /// Provider-rejected writes retried with backoff.
     pub retries: u64,
+    /// Unix seconds of the last success.
     pub last_ok_unix: Option<u64>,
+    /// Unix seconds of the last failure.
     pub last_failed_unix: Option<u64>,
     /// First failure after the last success (no success since).
     pub failing_since_unix: Option<u64>,
+    /// One-line text of the last failure (bounded, never raw rclone stderr).
     pub last_error: Option<String>,
+    /// Unix seconds of the last failure text.
     pub last_error_unix: Option<u64>,
+    /// Upload bytes/s over the last complete second.
     pub upload_rate_1s: f64,
+    /// Upload bytes/s averaged over the last 10 complete seconds.
     pub upload_rate_10s: f64,
+    /// Download bytes/s over the last complete second.
     pub download_rate_1s: f64,
+    /// Download bytes/s averaged over the last 10 complete seconds.
     pub download_rate_10s: f64,
 }
 
+/// Loads a unix-seconds counter, mapping the 0 sentinel to `None`.
 fn nonzero(value: &AtomicU64) -> Option<u64> {
     Some(value.load(Relaxed)).filter(|v| *v != 0)
 }
 
 impl Counters {
+    /// Copies the counters into a [`Traffic`] with rates as of unix second `now`.
     fn snapshot(&self, now: u64) -> Traffic {
         let error = self
             .last_error
@@ -152,11 +186,13 @@ impl Counters {
             download_rate_10s: self.download.rate(now, 10),
         }
     }
+    /// Records a successful operation at `now` and ends any failure streak.
     fn succeeded(&self, now: u64) {
         self.ok_ops.fetch_add(1, Relaxed);
         self.last_ok.fetch_max(now, Relaxed);
         self.failing_since.store(0, Relaxed);
     }
+    /// Records a failed operation at `now`: starts a failure streak if none and keeps its one-line error text.
     fn failed(&self, now: u64, error: &StorageError) {
         self.failed_ops.fetch_add(1, Relaxed);
         self.last_failed.fetch_max(now, Relaxed);
@@ -181,13 +217,17 @@ fn one_line(text: &str) -> String {
     }
 }
 
+/// Current unix time in seconds (0 if the clock is before 1970). Shared clock of
+/// traffic counters, pacing and the monitor.
 pub(crate) fn now_unix() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
 }
 
+/// Process-wide map from remote name to its counters.
 type Table = RwLock<HashMap<String, Arc<Counters>>>;
+/// The lazily created global counters table.
 fn table() -> &'static Table {
     static TABLE: OnceLock<Table> = OnceLock::new();
     TABLE.get_or_init(Default::default)
@@ -216,6 +256,8 @@ pub(crate) fn counters(remote: &str) -> Arc<Counters> {
 pub(crate) fn snapshot(remote: &str) -> Traffic {
     snapshot_at(remote, now_unix())
 }
+/// Traffic of `remote` (a remote name or an address) with rates as of unix second
+/// `now`; zero when unused. Used by `monitor::runtime` sampling.
 pub(crate) fn snapshot_at(remote: &str, now: u64) -> Traffic {
     let name = super::remote_name(remote).unwrap_or(remote);
     table()
@@ -245,16 +287,22 @@ fn counts_as_failure(error: &StorageError) -> Option<bool> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Which activity gauge an [`Op`] holds while alive.
 pub(crate) enum Direction {
+    /// Counts in `active_uploads`.
     Upload,
+    /// Counts in `active_downloads`.
     Download,
+    /// Not counted as active (admin/metadata calls).
     Other,
 }
 
 /// One metered rclone operation. Active while alive; counted as ok/failed
 /// only by [`Op::finish`] (dropping it unfinished counts nothing).
 pub(crate) struct Op {
+    /// Counters of the attributed remote; `None` = not metered.
     counters: Option<Arc<Counters>>,
+    /// Which active gauge `begin` incremented and `drop` decrements.
     direction: Direction,
     /// Attributed remote name, for activity records.
     name: Option<String>,
@@ -296,28 +344,34 @@ impl Op {
             bucket.take(ctx, bytes, super::pacer::current_rate(key));
         }
     }
+    /// Counts `bytes` fed to rclone as sent upload bytes (total and per-second ring).
     pub(crate) fn sent(&self, bytes: u64) {
         if let Some(counters) = &self.counters {
             counters.sent.fetch_add(bytes, Relaxed);
             counters.upload.add(now_unix(), bytes);
         }
     }
+    /// Counts `bytes` received from rclone (total and per-second ring).
     pub(crate) fn received(&self, bytes: u64) {
         if let Some(counters) = &self.counters {
             counters.received.fetch_add(bytes, Relaxed);
             counters.download.add(now_unix(), bytes);
         }
     }
+    /// Counts `bytes` of an upload rclone acknowledged.
     pub(crate) fn acked(&self, bytes: u64) {
         if let Some(counters) = &self.counters {
             counters.acked.fetch_add(bytes, Relaxed);
         }
     }
+    /// Counts one retry of a provider-rejected write.
     pub(crate) fn retry(&self) {
         if let Some(counters) = &self.counters {
             counters.retries.fetch_add(1, Relaxed);
         }
     }
+    /// Counts the finished operation once: success (also not-found/already-exists)
+    /// or failure; cancellation counts nothing. Successes also note account activity.
     pub(crate) fn finish<T>(self, result: &Result<T, StorageError>) {
         let Some(counters) = &self.counters else {
             return;
@@ -356,8 +410,11 @@ impl Drop for Op {
 
 /// A sink that counts what reached it as received bytes of `op`.
 pub(crate) struct Metered<'a> {
+    /// Destination the bytes are forwarded to.
     pub(crate) sink: &'a mut dyn std::io::Write,
+    /// Operation the bytes count for (and whose pacing applies).
     pub(crate) op: &'a Op,
+    /// Cancellation/deadline for pacing waits.
     pub(crate) ctx: &'a crate::storage::traits::OperationContext,
 }
 impl std::io::Write for Metered<'_> {

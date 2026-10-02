@@ -1,6 +1,10 @@
+//! Searching the local inventory.
+
 use crate::models::{InventoryEntry, InventoryStore};
 use crate::utils::wildcard_match;
 
+/// Entries whose name, archive id or manifest source match `pattern`; a
+/// pattern without `*`/`?` matches as a substring. Used by `inventory find`.
 pub(crate) fn find_entries<'a>(
     store: &'a InventoryStore,
     pattern: &str,

@@ -1,16 +1,29 @@
+//! State of Maintenance › Integrity (`IntegrityForm`), including the last
+//! integrity snapshot saved by a scrub (`crate::maintenance`).
+
 use crate::maintenance::load_integrity_snapshot;
 use crate::models::IntegritySnapshot;
 use std::collections::BTreeSet;
 
+/// Inputs and results of the Integrity tab, in `GuiState::integrity`.
+/// Starts from the saved snapshot and its manifest.
 #[derive(Debug)]
 pub(crate) struct IntegrityForm {
+    /// Manifest of the archive to check (local file or remote path).
     pub(crate) manifest: String,
+    /// Archive ID picked from the inventory (`""` = manual manifest path).
     pub(crate) library_archive_id: String,
+    /// Quick scrub (existence and size) instead of full BLAKE3; also passed to repair.
     pub(crate) quick: bool,
+    /// Repair without writing (`--dry-run`).
     pub(crate) repair_dry_run: bool,
+    /// Group numbers ticked for repair.
     pub(crate) selected_groups: BTreeSet<u32>,
+    /// Last saved integrity snapshot, if any.
     pub(crate) snapshot: Option<IntegritySnapshot>,
+    /// Load or start error.
     pub(crate) error: Option<String>,
+    /// Result message of the last scrub or repair (set on task completion).
     pub(crate) notice: Option<String>,
 }
 
@@ -35,6 +48,9 @@ impl Default for IntegrityForm {
 }
 
 impl IntegrityForm {
+    /// Reloads the saved snapshot after a scrub or repair and drops selected
+    /// groups that are no longer recoverable. Called by
+    /// `maintenance::handle_task_completion`.
     pub(crate) fn refresh_snapshot(&mut self) {
         match load_integrity_snapshot() {
             Ok(snapshot) => {

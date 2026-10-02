@@ -1,8 +1,12 @@
+//! Validation of pool names and pool definitions before they are saved or used.
 use crate::erasure::validate_rs_counts;
 use crate::models::PoolDefinition;
 use anyhow::{bail, Result};
 use std::collections::BTreeSet;
 
+/// Accepts non-empty names made of ASCII letters, digits, `.`, `-` and `_`, so
+/// the name is safe in file paths and remote paths. Used by pool management,
+/// migration journals, mounts and config import.
 pub(crate) fn validate_pool_name(name: &str) -> Result<()> {
     if name.is_empty() {
         bail!("pool name cannot be empty");
@@ -16,6 +20,10 @@ pub(crate) fn validate_pool_name(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Checks a pool definition for consistency: at least one unique non-empty
+/// remote, a valid shard size whose encrypted object fits `max_object_bytes`,
+/// non-zero workers, parity for resilient placement and valid RS counts.
+/// Called before a pool is used by uploads, mounts, migrations and doctor.
 pub(crate) fn validate_pool(pool: &PoolDefinition) -> Result<()> {
     if pool.remotes.is_empty() {
         bail!("pool requires at least one remote");

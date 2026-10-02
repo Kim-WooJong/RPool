@@ -1,7 +1,11 @@
+//! Arguments for portable configuration: `rpool export`, `rpool import` and the
+//! legacy `rpool config` group. Consumed by `commands::config_sync` and
+//! `application::dispatch`.
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Args, Debug)]
+/// Arguments of `rpool export`, consumed by `commands::config_sync::export::run_package`.
 pub(crate) struct ExportArgs {
     /// Portable artifact root. Writes config/portable-config.json and, when needed, secrets/rclone.age.
     pub(crate) artifact_root: PathBuf,
@@ -20,6 +24,7 @@ pub(crate) struct ExportArgs {
 }
 
 #[derive(Args, Debug)]
+/// Arguments of `rpool import`, consumed by `commands::config_sync::import::run_package`.
 pub(crate) struct ImportArgs {
     /// Portable artifact root previously produced by `rpool export`.
     pub(crate) artifact_root: PathBuf,
@@ -50,12 +55,15 @@ pub(crate) struct ImportArgs {
 }
 
 #[derive(Args, Debug)]
+/// Arguments of the `rpool config` group.
 pub(crate) struct ConfigArgs {
     #[command(subcommand)]
+    /// Selected `config` subcommand.
     pub(crate) command: ConfigCommands,
 }
 
 #[derive(Subcommand, Debug)]
+/// Subcommands of `rpool config`.
 pub(crate) enum ConfigCommands {
     /// Print resolved active settings paths and portable coverage as JSON (no file contents).
     Paths,

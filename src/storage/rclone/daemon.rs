@@ -38,52 +38,75 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
 
+/// How long a freshly started daemon may take to answer `rc/noop`.
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
+/// Cap on non-200 response bodies read for error classification.
 const ERROR_BODY_LIMIT: usize = 64 * 1024;
 
+/// Why a daemon read did not succeed; decides whether the caller retries via subprocess.
 pub(super) enum Failure {
     /// The daemon's answer stands; do not retry via subprocess.
     Definite(StorageError),
     /// No trustworthy answer; repeat the read via subprocess.
     Fallback,
 }
+/// Result of a daemon call.
 type Outcome<T> = Result<T, Failure>;
 
+/// Registry key: one daemon per distinct executable, config and environment.
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Key {
+    /// rclone binary.
     executable: PathBuf,
+    /// Explicit `--config` file; `None` = inherited selection.
     config: Option<PathBuf>,
+    /// Full (sorted) environment, since it can change rclone behavior.
     environment: Vec<(OsString, OsString)>,
 }
 
+/// Config file (size, mtime) at daemon start; `None` = unreadable. A change means the daemon is stale.
 type Fingerprint = Option<(u64, Option<SystemTime>)>;
 
+/// Registry entry for one `Key`.
 #[derive(Default)]
 struct Slot {
+    /// Current daemon, if one is running.
     daemon: Option<Arc<Daemon>>,
+    /// Restarts after a crash so far (only one is allowed).
     restarts: u32,
+    /// True once this key permanently falls back to subprocesses.
     disabled: bool,
     /// Resolved once: `Some(path)` of the effective rclone config file.
     config_file: Option<PathBuf>,
 }
 
+/// Process-wide map of daemon slots.
 fn registry() -> &'static Mutex<HashMap<Key, Arc<Mutex<Slot>>>> {
     static REGISTRY: OnceLock<Mutex<HashMap<Key, Arc<Mutex<Slot>>>>> = OnceLock::new();
     REGISTRY.get_or_init(Default::default)
 }
+/// Set by `shutdown`; afterwards no new daemon is started.
 static SHUT_DOWN: AtomicBool = AtomicBool::new(false);
 
+/// One running `rclone rcd` and how to reach it.
 pub(super) struct Daemon {
+    /// The rcd process (or a wrapper script around it).
     child: Mutex<Child>,
+    /// Unix socket or loopback TCP address with credentials.
     endpoint: Endpoint,
+    /// Set once the process is known to have exited or was terminated.
     dead: AtomicBool,
+    /// Config fingerprint this daemon was started with.
     fingerprint: Fingerprint,
     /// Rate last set with `core/bwlimit` (`None` = rclone's default, off).
     bwlimit: Mutex<Option<String>>,
+    /// 0700 temp dir holding the socket and owner file; removed on drop.
     #[cfg(unix)]
     dir: tempfile::TempDir,
 }
 impl Daemon {
+    /// Marks the daemon dead, asks it to quit via `core/quit`, then kills the
+    /// child (and on unix its children) and reaps it.
     fn terminate(&self) {
         self.dead.store(true, Ordering::Release);
         // Ask rclone itself to quit first: when the configured executable is
@@ -109,6 +132,7 @@ impl Daemon {
             let _ = child.wait();
         }
     }
+    /// Whether the process has exited (cached once true).
     fn is_dead(&self) -> bool {
         if self.dead.load(Ordering::Acquire) {
             return true;
@@ -187,6 +211,7 @@ pub(super) fn live() -> Vec<Arc<Daemon>> {
         .collect()
 }
 
+/// Terminates every daemon and blocks new ones; run by `ShutdownGuard` on exit.
 pub(crate) fn shutdown() {
     SHUT_DOWN.store(true, Ordering::Release);
     let slots: Vec<_> = registry()
@@ -202,6 +227,7 @@ pub(crate) fn shutdown() {
     }
 }
 
+/// True when `RPOOL_RCLONE_DAEMON` is set to `0`/`false`/`no`/`off`.
 fn opted_out(context: &RcloneContext) -> bool {
     context.environment.iter().any(|(key, value)| {
         key == "RPOOL_RCLONE_DAEMON"
@@ -212,6 +238,7 @@ fn opted_out(context: &RcloneContext) -> bool {
     })
 }
 
+/// Non-empty value of environment variable `name` in the context's environment.
 fn env_value<'a>(context: &'a RcloneContext, name: &str) -> Option<&'a OsString> {
     context
         .environment
@@ -237,6 +264,7 @@ fn config_file(context: &RcloneContext) -> Option<PathBuf> {
         .then(|| PathBuf::from(path))
 }
 
+/// (size, mtime) of `path`, or `None` if it cannot be read.
 fn fingerprint(path: &std::path::Path) -> Fingerprint {
     std::fs::metadata(path)
         .ok()
@@ -305,6 +333,8 @@ pub(super) fn get(context: &RcloneContext) -> Option<Arc<Daemon>> {
     }
 }
 
+/// `rcd` command with the context's global args/env, minus `RCLONE_RC_*`
+/// variables, with stdin/stdout discarded.
 fn daemon_command(context: &RcloneContext, args: &[&str]) -> Command {
     let mut command = context.base_command(&args.iter().map(OsString::from).collect::<Vec<_>>());
     for (key, _) in &context.environment {
@@ -320,6 +350,8 @@ fn daemon_command(context: &RcloneContext, args: &[&str]) -> Command {
     command
 }
 
+/// Starts `rclone rcd` on a unix socket in a fresh 0700 temp dir (sweeping
+/// stale daemons first) and waits until it is ready; `None` on any failure.
 #[cfg(unix)]
 fn start(context: &RcloneContext, fingerprint: Fingerprint) -> Option<Daemon> {
     use std::os::unix::fs::PermissionsExt;
@@ -354,6 +386,8 @@ fn start(context: &RcloneContext, fingerprint: Fingerprint) -> Option<Daemon> {
     ready(&daemon).then_some(daemon)
 }
 
+/// Starts `rclone rcd` on 127.0.0.1 with a random port and Basic-auth password
+/// passed via env, reads the port from stderr and waits until it is ready.
 #[cfg(windows)]
 fn start(context: &RcloneContext, fingerprint: Fingerprint) -> Option<Daemon> {
     use std::io::{BufRead, Read};
@@ -417,6 +451,7 @@ fn start(context: &RcloneContext, fingerprint: Fingerprint) -> Option<Daemon> {
     ready(&daemon).then_some(daemon)
 }
 
+/// Polls `rc/noop` until it answers 200 within `READY_TIMEOUT`; false if the daemon dies or times out.
 fn ready(daemon: &Daemon) -> bool {
     let until = Instant::now() + READY_TIMEOUT;
     while Instant::now() < until {
@@ -534,6 +569,8 @@ fn split(address: &str) -> Option<(String, String)> {
     Some((root, rest.to_owned()))
 }
 
+/// Classifies an rc error reply: denials, 404 and rate limits are definite;
+/// unparseable or other errors fall back to subprocess.
 fn error_failure(status: u16, body: &[u8]) -> Failure {
     let Some(message) = serde_json::from_slice::<Value>(body)
         .ok()
@@ -558,6 +595,8 @@ fn error_failure(status: u16, body: &[u8]) -> Failure {
 }
 
 impl Daemon {
+    /// Maps an HTTP failure: stop/sink errors are definite, transport errors fall
+    /// back (and mark a crashed daemon dead).
     fn transport(&self, error: HttpError) -> Failure {
         match error {
             HttpError::Stopped(error) => Failure::Definite(error),
@@ -569,6 +608,8 @@ impl Daemon {
         }
     }
 
+    /// POSTs `input` to rc `method` and parses the JSON reply, reading at most
+    /// `limit` bytes of a 200 body.
     fn call(
         &self,
         ctx: &OperationContext,
@@ -748,8 +789,11 @@ impl Daemon {
     }
 }
 
+/// Write adapter that forwards bytes to `sink` and counts them in `written`.
 struct Counting<'a, 'b> {
+    /// Caller's destination.
     sink: &'a mut dyn Write,
+    /// Running byte count, updated after each successful write.
     written: &'b mut u64,
 }
 impl Write for Counting<'_, '_> {

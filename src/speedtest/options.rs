@@ -3,6 +3,7 @@
 use crate::cli::pool::SpeedTestSizeArgs;
 use crate::prelude::*;
 
+/// Bytes per MiB.
 pub(crate) const MIB: u64 = 1024 * 1024;
 /// Largest total per remote (`--size-mib`).
 pub(crate) const MAX_SIZE_MIB: u64 = 4096;
@@ -16,10 +17,13 @@ pub(crate) const DEFAULT_FILE_BYTES: u64 = 4 * MIB;
 pub(crate) const DEFAULT_PARALLEL: usize = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// What one remote's test transfers, built from the CLI size arguments.
 pub(crate) struct TestPlan {
+    /// Total test bytes per remote (`--size-mib` × MiB).
     pub bytes_per_remote: u64,
     /// Size of every file; they add up to `bytes_per_remote`.
     pub file_sizes: Vec<u64>,
+    /// Simultaneous transfers per remote (pool workers or 4, at most the file count).
     pub parallel: usize,
     /// `--tune-uploads`: also find the best number of simultaneous uploads.
     pub tune_uploads: bool,
@@ -69,6 +73,7 @@ impl TestPlan {
         })
     }
 
+    /// Number of test files per remote.
     pub(crate) fn files(&self) -> usize {
         self.file_sizes.len()
     }

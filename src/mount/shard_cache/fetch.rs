@@ -9,15 +9,21 @@ use crate::prelude::*;
 use crate::storage::error::{StorageError, StorageErrorKind};
 use crate::storage::reader::{is_restore_unavailable, StorageReader};
 
+/// What one flight downloads and how; created by `Inner::begin`.
 pub(super) struct Job {
+    /// Shard to download.
     pub(super) shard: Shard,
     /// Recovery group of the shard; `None` for plain archives and readahead.
     pub(super) group: Option<Manifest>,
+    /// Download parallelism passed to a group restore (and readahead bound).
     pub(super) workers: usize,
+    /// Retry count for reads and restores.
     pub(super) retries: u32,
 }
 
 impl Job {
+    /// Job for shard `s` of `m`; demand reads of erasure-coded archives also
+    /// carry the shard's group manifest for reconstruction.
     pub(super) fn new(
         m: &Manifest,
         s: &Shard,
@@ -88,6 +94,9 @@ impl Inner {
         self.space.notify_all();
     }
 
+    /// Downloads the shard into a partial file (streamed to waiting readers)
+    /// and publishes it after verification; adopts an already valid entry. A
+    /// demand read falls back to `recover` when the shard is unavailable.
     fn fetch(&self, reader: &StorageReader, job: &Job, flight: &Flight) -> Result<()> {
         let s = &job.shard;
         if self.valid(s)? {
@@ -140,6 +149,9 @@ impl Inner {
         }
     }
 
+    /// Reconstructs the shard's whole recovery group with the normal restore
+    /// (`commands::get_with_storage`) in a staging dir, reserving its working
+    /// space first, and publishes every data shard of the group.
     fn recover(&self, reader: &StorageReader, mini: &Manifest, job: &Job) -> Result<()> {
         let manifest_bytes = serde_json::to_vec_pretty(mini)?.len() as u64;
         // Restore holds the group output, staged shard attempts (including
@@ -199,10 +211,15 @@ impl Inner {
     }
 }
 
+/// Drop guard that retires a flight even if the download panics.
 struct Retire<'a> {
+    /// Cache owning the flight table.
     inner: &'a Inner,
+    /// Shard of the flight.
     shard: &'a Shard,
+    /// Flight being retired.
     flight: &'a Arc<Flight>,
+    /// Outcome to publish; `None` (panic/early exit) retires as failed.
     outcome: Option<Outcome>,
 }
 impl Drop for Retire<'_> {
@@ -215,12 +232,15 @@ impl Drop for Retire<'_> {
     }
 }
 
+/// Whether the error is RPool's corrupt-data storage error (hash mismatch).
 fn is_corrupt(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<StorageError>()
         .is_some_and(|e| e.kind() == StorageErrorKind::CorruptData)
 }
 
+/// Mini manifest of one recovery group: its data and parity shards
+/// renumbered as a standalone erasure-coded archive, used for restore.
 pub(super) fn group_manifest(m: &Manifest, group: u32) -> Result<Manifest> {
     let coding = m
         .coding

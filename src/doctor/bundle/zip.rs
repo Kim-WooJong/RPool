@@ -7,12 +7,20 @@ use std::io::{self, Write};
 /// Archives above this need ZIP64, which this writer does not produce.
 const MAX_ARCHIVE_BYTES: u64 = u32::MAX as u64;
 
+/// Streaming writer for a stored-only ZIP; entries go straight to `out` and
+/// the central directory is written by `finish`. Used by `bundle::write_bundle`.
 pub(crate) struct ZipWriter<W: Write> {
+    /// Destination of the archive bytes.
     out: W,
+    /// Bytes written so far (offset of the next local header).
     offset: u64,
+    /// Central directory records accumulated for `finish`.
     central: Vec<u8>,
+    /// Number of entries added.
     entries: u16,
+    /// DOS time stamped on every entry.
     dos_time: u16,
+    /// DOS date stamped on every entry.
     dos_date: u16,
 }
 
@@ -30,6 +38,8 @@ impl<W: Write> ZipWriter<W> {
         }
     }
 
+    /// Append one stored file. Rejects empty, absolute or backslash names and
+    /// anything that would push the archive past the non-ZIP64 4 GiB limit.
     pub(crate) fn add(&mut self, name: &str, data: &[u8]) -> io::Result<()> {
         let name_bytes = name.as_bytes();
         let fits = name_bytes.len() <= u16::MAX as usize
@@ -91,6 +101,7 @@ impl<W: Write> ZipWriter<W> {
         out.extend_from_slice(&name_len.to_le_bytes());
     }
 
+    /// Write the central directory and end record, flush, and return the writer.
     pub(crate) fn finish(mut self) -> io::Result<W> {
         let central_offset = self.offset as u32;
         self.out.write_all(&self.central)?;

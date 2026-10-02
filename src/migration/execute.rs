@@ -36,8 +36,10 @@ pub(crate) const DEFAULT_PARALLEL: usize = 4;
 /// relocation workers, so N archives use up to N x workers rclone calls).
 pub(crate) const MAX_PARALLEL: usize = 16;
 
+/// Options of `pool migrate run`, shared by the archive and drive parts.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RunOptions {
+    /// Stop cleanly between entries when this file exists (`--stop-file`).
     pub stop_file: Option<PathBuf>,
     /// Treat other PCs' unexpired claims as abandoned (after a PC crashed).
     pub take_over: bool,
@@ -206,6 +208,7 @@ pub(crate) fn pc_id() -> String {
         .unwrap_or_else(|| "unknown-pc".into())
 }
 
+/// `bytes` random bytes as lowercase hex; used for attempt and archive ids.
 pub(crate) fn random_hex(bytes: usize) -> Result<String> {
     let mut buf = vec![0u8; bytes];
     getrandom::fill(&mut buf).map_err(|e| anyhow!("random identifier: {e}"))?;
@@ -220,8 +223,11 @@ pub(crate) fn random_hex(bytes: usize) -> Result<String> {
 pub(crate) enum Progress {
     /// Latest claim (may be stale or from another PC).
     Claimed(Record),
+    /// A replacement was built and verified but not yet switched.
     Verified(Record),
+    /// The replacement is in use (done).
     Switched(Record),
+    /// The entry cannot be recovered.
     Lost(Record),
     /// Last attempt ended with a provider error (no later claim).
     Unknown(Record),
@@ -324,6 +330,7 @@ pub(crate) fn order(entries: &[Entry]) -> Vec<&Entry> {
 /// A verified replacement.
 #[derive(Debug, Clone)]
 pub(crate) struct Replacement {
+    /// Archive id of the replacement.
     pub new_archive_id: String,
     /// `remote:path/manifest.json` of one replica.
     pub new_manifest: String,
@@ -343,14 +350,17 @@ pub(crate) trait Effects: Sync {
     fn reverify(&self, entry: &Entry, new_archive_id: &str, new_manifest: &str) -> Result<()>;
     /// Makes the replacement visible (inventory + replacement note).
     fn switch(&self, entry: &Entry, replacement: &Replacement) -> Result<()>;
+    /// Whether the stop file exists; checked between entries.
     fn stop_requested(&self) -> bool;
     /// Other PCs' unexpired claims may be taken over (the user asked for it).
     fn take_over(&self) -> bool {
         false
     }
+    /// Current time, Unix seconds (fixed in tests).
     fn now(&self) -> u64 {
         crate::utils::now_unix()
     }
+    /// A fresh random id (attempt ids, archive id suffixes).
     fn new_id(&self) -> Result<String> {
         random_hex(12)
     }
@@ -368,17 +378,25 @@ pub(crate) trait Effects: Sync {
 /// Outcome of one run.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct RunSummary {
+    /// Entries in the run.
     pub total: usize,
+    /// Entries switched during this run.
     pub switched_now: usize,
+    /// Entries already switched by an earlier run or another PC.
     pub already_switched: usize,
+    /// Entries found unrecoverable.
     pub lost: usize,
+    /// Original names of entries that ended unknown (retry later).
     pub unknown: Vec<String>,
     /// Entries left alone because another PC holds a fresh claim.
     pub claimed_elsewhere: usize,
+    /// The run stopped early because the stop file appeared.
     pub stopped: bool,
 }
 
 impl RunSummary {
+    /// Prints the `migration_summary` line and turns a stopped run, unknown
+    /// entries or entries claimed elsewhere into an error asking to run again.
     pub(crate) fn finish(self) -> Result<()> {
         println!(
             "migration_summary total={} switched_now={} already_switched={} lost={} unknown={} claimed_elsewhere={} stopped={}",
@@ -410,6 +428,8 @@ impl RunSummary {
     }
 }
 
+/// A journal record of `state` for `entry` with the current time and no
+/// replacement data; callers fill the optional fields.
 fn record(
     effects: &dyn Effects,
     entry: &str,
@@ -433,11 +453,15 @@ fn record(
 /// What happened to one work entry during this run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Outcome {
+    /// Switched by this run.
     SwitchedNow,
+    /// Was already switched.
     AlreadySwitched,
+    /// Unrecoverable.
     Lost,
     /// Original name, for the summary.
     Unknown(String),
+    /// Another PC holds a fresh claim.
     ClaimedElsewhere,
 }
 
@@ -703,6 +727,8 @@ fn process_entry(
     }
 }
 
+/// Makes `replacement` visible via [`Effects::switch`], then appends the
+/// `Switched` record and prints the switch line.
 fn switch(
     effects: &dyn Effects,
     entry: &Entry,
@@ -765,12 +791,19 @@ fn unknown(
 // ---------------------------------------------------------------------------
 // Real side effects.
 
+/// Production [`Effects`] for archives over rclone and the cloud journal.
 struct LiveEffects<'a> {
+    /// rclone executable.
     rclone: &'a str,
+    /// The migration's cloud journal.
     journal: &'a Journal,
+    /// The frozen migration plan (source and target policy).
     plan: &'a Plan,
+    /// Local work directory (`<config>/migrations/<id>`).
     work_root: PathBuf,
+    /// Stop cleanly between entries when this file exists.
     stop_file: Option<PathBuf>,
+    /// Take over other PCs' unexpired claims.
     take_over: bool,
     /// Serializes switches: the inventory read-modify-write and the local
     /// replacement log. Cheap next to a build, and it does not rely on the
@@ -779,6 +812,7 @@ struct LiveEffects<'a> {
 }
 
 impl LiveEffects<'_> {
+    /// Loads and validates the entry's current source manifest.
     fn load_source(&self, entry: &Entry) -> Result<Manifest> {
         let manifest = crate::manifest::load_manifest(self.rclone, &entry.source)?;
         crate::manifest::validate_manifest(&manifest)?;

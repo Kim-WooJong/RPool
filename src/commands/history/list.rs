@@ -1,6 +1,9 @@
+//! `rpool history list`: prints the newest operation-history records.
 use crate::history::load_history;
 use anyhow::Result;
 
+/// Prints the last `limit` history records, newest first as text or oldest
+/// first as JSON, with a shown/total footer. Called via `commands::history::list`.
 pub(crate) fn run(limit: usize, json: bool) -> Result<()> {
     let records = load_history()?;
     let start = records.len().saturating_sub(limit);

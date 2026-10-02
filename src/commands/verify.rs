@@ -1,12 +1,17 @@
+//! `rpool verify`: checks that every physical shard of an archive exists with
+//! the right size, or with `--full` streams it and checks BLAKE3.
 use crate::manifest::{data_shards, load_manifest_with_storage, validate_manifest};
 use crate::prelude::*;
 use crate::storage::reader::StorageReader;
 use crate::utils::ensure_positive;
 
+/// CLI entry for `rpool verify` through rclone. Called by `application::dispatch`.
 pub(crate) fn verify(rclone: &str, manifest_src: &str, full: bool, workers: usize) -> Result<()> {
     verify_with_storage(&StorageReader::rclone(rclone), manifest_src, full, workers)
 }
 
+/// Verify with a caller-supplied reader. Used by pool reprocessing and the
+/// migration retire step to check archives before relying on them.
 pub(crate) fn verify_with_storage(
     reader: &StorageReader,
     manifest_src: &str,
@@ -27,6 +32,8 @@ pub(crate) fn reverify_with_storage(
     verify_shards(reader, manifest_src, true, workers, true)
 }
 
+/// Verifies all shards in parallel (`workers` threads), logging each failure;
+/// `reuse` skips objects this process already read back in full. Fails if any shard is bad.
 fn verify_shards(
     reader: &StorageReader,
     manifest_src: &str,

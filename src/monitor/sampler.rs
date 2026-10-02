@@ -10,20 +10,28 @@ use std::path::PathBuf;
 /// One pending upload or deletion of the drive.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PendingItem {
+    /// Stable id of the pending item (tracks its first-seen time).
     pub id: String,
+    /// Bytes to upload (0 for deletions).
     pub size: u64,
     /// Spool file, whose modification time dates the item.
     pub spool: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
+/// Cumulative counters of one remote at one sample.
 struct Totals {
+    /// Bytes sent to rclone (uploads).
     upload: u64,
+    /// Bytes received (downloads).
     download: u64,
+    /// Successful operations.
     ok: u64,
+    /// Failed operations.
     failed: u64,
 }
 impl Totals {
+    /// Counters taken from one remote's traffic snapshot.
     fn of(t: &Traffic) -> Self {
         Self {
             upload: t.sent_bytes,
@@ -34,19 +42,30 @@ impl Totals {
     }
 }
 
+/// Per-mount sampling state, owned by the monitor thread (`runtime::run`).
 pub(crate) struct Sampler {
+    /// Pool name written into each status.
     pool: String,
+    /// Mount start, Unix seconds (for uptime).
     started_unix: u64,
+    /// Pool remote addresses, in status order.
     remotes: Vec<String>,
+    /// Backend type per remote; `None` until `set_backends`.
     backends: Vec<Option<String>>,
+    /// First time each pending item was seen, Unix seconds.
     first_seen: HashMap<String, u64>,
+    /// Alert rule state across samples.
     alerts: AlertState,
+    /// Start of the minute currently accumulating; `None` before the first sample.
     minute: Option<u64>,
+    /// Totals at the start of that minute, per remote.
     minute_base: Vec<Totals>,
+    /// Totals of the previous sample, per remote.
     last: Vec<Totals>,
 }
 
 impl Sampler {
+    /// Empty sampler for `pool`'s `remotes`; `started_unix` is the mount start.
     pub(crate) fn new(pool: &str, remotes: Vec<String>, started_unix: u64) -> Self {
         Self {
             pool: pool.to_owned(),
@@ -60,14 +79,17 @@ impl Sampler {
             last: Vec::new(),
         }
     }
+    /// Pool remotes, in the order `sample` expects traffic.
     pub(crate) fn remotes(&self) -> &[String] {
         &self.remotes
     }
+    /// Stores the backend types (ignored when the length does not match).
     pub(crate) fn set_backends(&mut self, backends: Vec<Option<String>>) {
         if backends.len() == self.remotes.len() {
             self.backends = backends;
         }
     }
+    /// True once any backend type is known (stops the lookup retries).
     pub(crate) fn has_backends(&self) -> bool {
         self.backends.iter().any(Option::is_some)
     }
@@ -160,6 +182,8 @@ impl Sampler {
         points
     }
 
+    /// Per-remote deltas since the minute start; remotes with no activity are
+    /// left out.
     fn points(&self, minute: u64, totals: &[Totals]) -> Vec<HistoryPoint> {
         self.remotes
             .iter()
@@ -181,6 +205,8 @@ impl Sampler {
             .collect()
     }
 
+    /// Queue summary; each item is dated by its first sighting (or its spool
+    /// file's mtime) to find the oldest pending change.
     fn queue(
         &mut self,
         now: u64,

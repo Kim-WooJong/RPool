@@ -16,15 +16,19 @@ const WORKER: &str = "pool-migration";
 /// One v6 event record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Record {
+    /// Event id: BLAKE3 hex of `bytes`.
     pub id: String,
+    /// Serialized event JSON as published.
     pub bytes: Vec<u8>,
 }
 
 /// Where adopted records go (every replica of the new epoch).
 pub(crate) trait Sink: Sync {
+    /// Writes one record to every replica; must be idempotent (records are write-once).
     fn publish(&self, record: &Record) -> Result<()>;
 }
 
+/// Deterministic pseudo device id for adopted events, derived from the migration id.
 fn device(seed: &str) -> Result<String> {
     Ok(
         blake3::hash(&serde_json::to_vec(&("rpool-migration-device", seed))?)
@@ -75,10 +79,13 @@ pub(crate) fn publish(sink: &dyn Sink, records: &[Record]) -> Result<()> {
 
 /// The replicas of the new epoch on the pool's (new) remotes.
 pub(crate) struct CloudSink {
+    /// One shared transport per metadata replica root of the new epoch.
     v6: Vec<SharedTransport>,
 }
 
 impl CloudSink {
+    /// Opens transports for every metadata root of `epoch` on the pool's remotes. Used by
+    /// `migration::drive_adopt_live`.
     pub(crate) fn new(
         rclone: &str,
         pool: &str,

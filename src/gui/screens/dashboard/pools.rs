@@ -1,3 +1,4 @@
+//! Pools pane of the overview page.
 use crate::gui::i18n::tr;
 use crate::gui::screens::dashboard::health::{pool_health, PoolHealth};
 use crate::gui::screens::dashboard::DashboardPool;
@@ -6,6 +7,8 @@ use crate::gui::theme;
 use crate::gui::widgets::{status_badge, StatusTone};
 use eframe::egui;
 
+/// Draw the pools table (name, coding, provider count, readiness) with a
+/// link to the Storage page.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     ui.horizontal(|ui| {
         ui.label(
@@ -44,6 +47,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
         });
 }
 
+/// One pool row with its readiness badge.
 fn pool_row(ui: &mut egui::Ui, pool: &DashboardPool, crypt_remotes: &[String]) {
     ui.label(&pool.name);
     ui.monospace(format!("{}+{}", pool.data_shards, pool.parity_shards));

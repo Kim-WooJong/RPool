@@ -44,6 +44,8 @@ impl RcloneContext {
         args.extend(["--", address]);
         self.capture(ctx, &args)
     }
+    /// Stats one raw rclone address (`lsjson --stat`): size (0 for directories),
+    /// directory flag and object `ModTime`. Used by `RcloneBackend::stat`, `copy` and the speed test.
     pub(crate) fn stat_raw(
         &self,
         ctx: &OperationContext,
@@ -76,6 +78,10 @@ impl RcloneContext {
             modified,
         })
     }
+    /// Streams `address` (optionally only `range`) into `sink`: tries the shared read
+    /// daemon first, then falls back to `rclone cat`, resuming after any bytes the daemon
+    /// already delivered. Metered as a download and bounded so rclone cannot overrun the range.
+    /// Used by `RcloneBackend` reads and the speed test.
     pub(crate) fn read_raw(
         &self,
         ctx: &OperationContext,
@@ -174,6 +180,8 @@ impl RcloneContext {
         op.finish(&result);
         result
     }
+    /// Reads a whole object into memory; `limit` caps both the requested range and
+    /// the buffer (overflow is an error). Used by `RcloneBackend::read_all`.
     pub(crate) fn read_all_raw(
         &self,
         ctx: &OperationContext,

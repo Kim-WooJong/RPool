@@ -8,16 +8,20 @@ use crate::prelude::*;
 pub(crate) struct RevContent {
     /// Whole-file hash (`Content.hash`).
     pub hash: String,
+    /// Plaintext size in bytes.
     pub size: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One revision (event) of a file in the drive history.
 pub(crate) struct Rev {
     /// File identity: the event path.
     pub lineage: String,
+    /// Revision ids this one was based on.
     pub parents: Vec<String>,
     /// `None`: this revision deletes the file.
     pub content: Option<RevContent>,
+    /// Worker (PC) that wrote the revision.
     pub author: String,
     /// When the record reached the cloud (object ModTime), or now for local
     /// unpublished records. `None`: unknown (compacted away).
@@ -28,18 +32,27 @@ pub(crate) struct Rev {
 /// referenced again (no bytes move).
 pub(crate) type Payload = crate::mount::history_bridge::Content;
 
+/// The revision graph of one drive, with precomputed effective times and
+/// causal depths. Built by `source_v6::build`; read by trash, versions,
+/// rollback and cleanup.
 pub(crate) struct History {
+    /// Every revision by id.
     pub revs: BTreeMap<String, Rev>,
+    /// Restorable content per revision id (missing when its data is unavailable).
     pub payloads: BTreeMap<String, Payload>,
     /// The drive's events; views are its own projection over them.
     pub events: BTreeMap<String, crate::mount::history_bridge::Event>,
     /// Deletion revisions purged from the trash (published history marks).
     pub purged: BTreeSet<String>,
+    /// Per revision: its time raised to its ancestors' maximum (monotone along ancestry).
     effective: BTreeMap<String, u64>,
+    /// Per revision: longest parent chain length, a causal tie-breaker.
     depth: BTreeMap<String, usize>,
 }
 
 impl History {
+    /// Build the graph and compute effective times and depths in topological
+    /// order; fails on an ancestry cycle.
     pub(crate) fn new(
         revs: BTreeMap<String, Rev>,
         payloads: BTreeMap<String, Payload>,
@@ -92,6 +105,7 @@ impl History {
         })
     }
 
+    /// Effective (ancestry-monotone) time of revision `id`; 0 if unknown.
     pub(crate) fn effective(&self, id: &str) -> u64 {
         self.effective.get(id).copied().unwrap_or(0)
     }
@@ -214,6 +228,7 @@ pub(crate) fn namespace_path(display: &str) -> Result<String> {
     }
     Ok(path)
 }
+/// `Docs/a.txt` -> `/Docs/a.txt` for messages and reports.
 pub(crate) fn display_path(path: &str) -> String {
     format!("/{path}")
 }

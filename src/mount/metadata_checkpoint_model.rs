@@ -4,6 +4,7 @@ use super::metadata_dir::{object_id, valid_id};
 use super::metadata_limits::RECORD_BYTES_MAX;
 use crate::prelude::*;
 
+/// Version of every checkpoint object (chunk, head, mark).
 pub(crate) const FORMAT: u32 = 1;
 /// Records per chunk stay below this many JSON bytes (chunk limit is 8 MiB).
 pub(crate) const CHUNK_TARGET: usize = 6 * 1024 * 1024;
@@ -13,6 +14,7 @@ pub(crate) const MARK_IDS_MAX: usize = 100_000;
 /// A record family sharing one metadata root.
 #[derive(Debug, Clone)]
 pub(crate) struct Family {
+    /// Family name stored in checkpoint objects (`"v6"`).
     pub name: &'static str,
     /// Record directories in replica order (v6: `events`).
     pub kinds: &'static [&'static str],
@@ -20,6 +22,7 @@ pub(crate) struct Family {
     pub gate: Vec<u8>,
 }
 impl Family {
+    /// Object id of the gate record.
     pub(crate) fn gate_id(&self) -> String {
         object_id(&self.gate)
     }
@@ -39,43 +42,62 @@ impl Family {
             gate: serde_json::to_vec(&gate).expect("gate serializes"),
         }
     }
+    /// True if `kind` is one of the family's record directories.
     fn has_kind(&self, kind: &str) -> bool {
         self.kinds.contains(&kind)
     }
 }
 
+/// kind → record id → exact record JSON.
 pub(crate) type Records = BTreeMap<String, BTreeMap<String, String>>;
+/// kind → record ids.
 pub(crate) type Ids = BTreeMap<String, BTreeSet<String>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
+/// Checkpoint chunk: exact bytes of a set of records. Object id = hash of its JSON.
 pub(crate) struct Chunk {
+    /// Must be [`FORMAT`].
     pub format: u32,
+    /// Must be the family's name.
     pub family: String,
     /// kind -> record id -> exact record JSON.
     pub records: Records,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
+/// Checkpoint head: the chunks that together form one checkpoint.
 pub(crate) struct Head {
+    /// Must be [`FORMAT`].
     pub format: u32,
+    /// Must be the family's name.
     pub family: String,
+    /// Unix time the head was written.
     pub created_unix: u64,
     /// Sorted, unique chunk ids; a superset of every head it replaced.
     pub chunks: Vec<String>,
+    /// Number of records the checkpoint covers.
     pub records: u64,
+    /// Total listed record bytes when the head was written.
     pub bytes: u64,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
+/// Deletion mark: records covered by `checkpoint` that may be deleted after the grace period.
 pub(crate) struct Mark {
+    /// Must be [`FORMAT`].
     pub format: u32,
+    /// Must be the family's name.
     pub family: String,
+    /// Head id that covers the marked records.
     pub checkpoint: String,
+    /// Unix time of marking; deletion is allowed after `grace_days`.
     pub marked_unix: u64,
+    /// Marked record ids per kind (at most `MARK_IDS_MAX`).
     pub records: Ids,
 }
 
+/// Checks format version and family name.
 fn header(format: u32, family: &str, expected: &Family) -> Result<()> {
     if format != FORMAT || family != expected.name {
         bail!("unsupported checkpoint format or family");
@@ -83,6 +105,8 @@ fn header(format: u32, family: &str, expected: &Family) -> Result<()> {
     Ok(())
 }
 impl Chunk {
+    /// Parses and validates a chunk: id matches its bytes, size within the record limit,
+    /// known kinds, every record id matches its text, and no gate record.
     pub(crate) fn parse(id: &str, bytes: &[u8], family: &Family) -> Result<Self> {
         if object_id(bytes) != id || bytes.len() > RECORD_BYTES_MAX {
             bail!("checkpoint chunk identity mismatch");
@@ -107,6 +131,7 @@ impl Chunk {
         }
         Ok(chunk)
     }
+    /// Record ids per kind in this chunk.
     pub(crate) fn ids(&self) -> Ids {
         self.records
             .iter()
@@ -115,6 +140,8 @@ impl Chunk {
     }
 }
 impl Head {
+    /// Parses and validates a head: id matches its bytes and the chunk list is non-empty,
+    /// sorted and unique.
     pub(crate) fn parse(id: &str, bytes: &[u8], family: &Family) -> Result<Self> {
         if object_id(bytes) != id {
             bail!("checkpoint head identity mismatch");
@@ -131,6 +158,7 @@ impl Head {
     }
 }
 impl Mark {
+    /// Parses and validates a mark: id matches its bytes, valid checkpoint and record ids.
     pub(crate) fn parse(id: &str, bytes: &[u8], family: &Family) -> Result<Self> {
         if object_id(bytes) != id {
             bail!("checkpoint mark identity mismatch");
@@ -153,11 +181,15 @@ impl Mark {
 /// is held in memory. Records too large for any chunk are refused by `push`
 /// (they stay individual objects and are never deleted).
 pub(crate) struct Packer<'a> {
+    /// Family the chunks belong to.
     family: &'a Family,
+    /// Records of the chunk being filled.
     current: Records,
+    /// Estimated JSON bytes of `current`.
     size: usize,
 }
 impl<'a> Packer<'a> {
+    /// Empty packer for `family`.
     pub(crate) fn new(family: &'a Family) -> Self {
         Self {
             family,
@@ -189,6 +221,7 @@ impl<'a> Packer<'a> {
         self.size += cost;
         Ok(true)
     }
+    /// Emits the current chunk as `(id, bytes)`, `None` if empty.
     pub(crate) fn flush(&mut self) -> Result<Option<(String, Vec<u8>)>> {
         if self.current.is_empty() {
             return Ok(None);
@@ -207,10 +240,12 @@ impl<'a> Packer<'a> {
     }
 }
 
+/// `(object id, JSON bytes)` of a head.
 pub(crate) fn head_bytes(head: &Head) -> Result<(String, Vec<u8>)> {
     let bytes = serde_json::to_vec(head)?;
     Ok((object_id(&bytes), bytes))
 }
+/// `(object id, JSON bytes)` of a mark; fails above the record object limit.
 pub(crate) fn mark_bytes(mark: &Mark) -> Result<(String, Vec<u8>)> {
     let bytes = serde_json::to_vec(mark)?;
     if bytes.len() > RECORD_BYTES_MAX {

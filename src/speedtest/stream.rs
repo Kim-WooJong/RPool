@@ -14,20 +14,27 @@ pub(crate) fn random_seed() -> Result<[u8; 32]> {
     Ok(seed)
 }
 
+/// I/O error returned by the stream and sink once the test is stopped.
 fn cancelled() -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::Interrupted, "speed test cancelled")
 }
 
 /// `Read` of `len` pseudo-random bytes of file `index`, hashed as it is read.
 pub(crate) struct TestSource<'a> {
+    /// BLAKE3 XOF stream that produces the file's bytes.
     xof: blake3::OutputReader,
+    /// Bytes still to hand out.
     remaining: u64,
+    /// Hash of the bytes handed out so far.
     hasher: Hasher,
+    /// Shared counter of moved bytes, for progress.
     moved: &'a AtomicU64,
+    /// Stop flag; reads fail with `Interrupted` once set.
     cancel: &'a AtomicBool,
 }
 
 impl<'a> TestSource<'a> {
+    /// Stream of `len` bytes for file `index` of the run keyed by `seed`.
     pub(crate) fn new(
         seed: &[u8; 32],
         index: u64,
@@ -50,6 +57,7 @@ impl<'a> TestSource<'a> {
     pub(crate) fn digest(&self) -> blake3::Hash {
         self.hasher.finalize()
     }
+    /// Bytes not yet handed out (non-zero means the writer stopped early).
     pub(crate) fn remaining(&self) -> u64 {
         self.remaining
     }
@@ -77,14 +85,20 @@ impl Read for TestSource<'_> {
 
 /// Hashes read-back bytes, refusing more than `limit`; stops on cancel.
 pub(crate) struct VerifySink<'a> {
+    /// Hash of the bytes received so far.
     hasher: Hasher,
+    /// Bytes received so far.
     count: u64,
+    /// Expected size; more bytes than this is an error.
     limit: u64,
+    /// Shared counter of moved bytes, for progress.
     moved: &'a AtomicU64,
+    /// Stop flag; writes fail with `Interrupted` once set.
     cancel: &'a AtomicBool,
 }
 
 impl<'a> VerifySink<'a> {
+    /// Sink expecting exactly `limit` bytes.
     pub(crate) fn new(limit: u64, moved: &'a AtomicU64, cancel: &'a AtomicBool) -> Self {
         Self {
             hasher: Hasher::new(),
@@ -98,6 +112,7 @@ impl<'a> VerifySink<'a> {
     pub(crate) fn matches(&self, expected: &blake3::Hash) -> bool {
         self.count == self.limit && self.hasher.finalize() == *expected
     }
+    /// Bytes received so far.
     pub(crate) fn count(&self) -> u64 {
         self.count
     }

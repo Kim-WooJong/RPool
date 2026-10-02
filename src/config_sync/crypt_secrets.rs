@@ -1,3 +1,6 @@
+//! Reads crypt remote settings and obscured passwords from rclone's
+//! `config dump` without keeping any other credential fields. Used by export
+//! (extract the secret bundle) and by `crypt_restore` (compare and verify).
 #[cfg(test)]
 use super::age_vault::AgeEncrypt;
 use super::secret_process::{execute, rclone_command, Output, MAX_SECRET_BYTES};
@@ -14,39 +17,51 @@ use std::path::Path;
 #[derive(Deserialize)]
 pub(super) struct DumpRemote {
     #[serde(rename = "type", default)]
+    /// Backend type (`crypt`, `drive`, ...).
     pub(super) kind: String,
     #[serde(default)]
+    /// Wrapped remote of a crypt remote (`provider:path`).
     pub(super) remote: String,
     #[serde(default = "standard")]
+    /// rclone crypt `filename_encryption`; rclone's default `standard` when absent.
     pub(super) filename_encryption: String,
     #[serde(default = "true_string")]
+    /// rclone crypt `directory_name_encryption` as text; default `true`.
     pub(super) directory_name_encryption: String,
     #[serde(default)]
+    /// rclone crypt `no_data_encryption` as text; empty means false.
     pub(super) no_data_encryption: String,
     /// Empty when rclone's default (`base32`) applies.
     #[serde(default)]
     pub(super) filename_encoding: String,
     #[serde(default)]
+    /// Obscured crypt password.
     pub(super) password: Option<SensitiveText>,
     #[serde(default)]
+    /// Obscured crypt salt; may be absent or empty.
     pub(super) password2: Option<SensitiveText>,
 }
+/// serde default for `filename_encryption`.
 fn standard() -> String {
     "standard".into()
 }
+/// serde default for `directory_name_encryption`.
 fn true_string() -> String {
     "true".into()
 }
 #[derive(Deserialize)]
 #[serde(transparent)]
+/// Whole `config dump` object; duplicate remote names are rejected.
 struct Dump(#[serde(deserialize_with = "unique_map")] BTreeMap<String, DumpRemote>);
 
+/// Parses `config dump` JSON; the error never echoes the input.
 pub(super) fn parse_dump(raw: &[u8]) -> Result<BTreeMap<String, DumpRemote>> {
     let dump: Dump =
         serde_json::from_slice(raw).map_err(|_| anyhow!("invalid rclone config response"))?;
     Ok(dump.0)
 }
 
+/// Runs `rclone config dump` against `config` and parses the result.
 pub(super) fn read_dump(executable: &Path, config: &Path) -> Result<BTreeMap<String, DumpRemote>> {
     let mut command = rclone_command(executable, config);
     command.args(["config", "dump"]);
@@ -63,6 +78,7 @@ pub(super) fn encoding_setting(value: &str) -> String {
     }
 }
 
+/// Parses an rclone boolean option (`true`/`1`, `false`/`0`, empty = `default`).
 pub(super) fn bool_setting(value: &str, default: bool) -> Result<bool> {
     match value {
         "" => Ok(default),
@@ -72,6 +88,9 @@ pub(super) fn bool_setting(value: &str, default: bool) -> Result<bool> {
     }
 }
 
+/// Collects every crypt remote of `config`: its portable structure and its
+/// obscured passwords. Refuses crypt remotes without data encryption or password.
+/// Called by `config_sync::export`.
 pub(crate) fn extract_crypt_secrets(
     executable: &Path,
     config: &Path,

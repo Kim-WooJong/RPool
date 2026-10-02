@@ -1,6 +1,8 @@
+//! `rpool pool list`: prints the saved pool definitions.
 use crate::pool::load_pool_store;
 use anyhow::Result;
 
+/// Prints the pool store as JSON, or one summary line per pool.
 pub(crate) fn run(json: bool) -> Result<()> {
     let store = load_pool_store()?;
     if json {

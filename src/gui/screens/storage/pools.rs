@@ -1,3 +1,6 @@
+//! Storage › Pools: load, edit, save (`rpool pool set` via the task runner)
+//! and remove pool definitions, with the capacity estimate, account
+//! identities and the speed test, metadata and retention cards below.
 use super::pool_picker::PoolPicker;
 use crate::gui::i18n::{tr, trf};
 use crate::gui::settings::GuiSettings;
@@ -9,34 +12,51 @@ use crate::pool::{load_pool_store, remove_pool};
 use eframe::egui;
 use std::ffi::OsString;
 
+/// Pool editor state, held in `GuiState::pools`; mirrors a `PoolDefinition`.
 #[derive(Debug)]
 pub(crate) struct PoolForm {
+    /// Pool chosen in the "Existing pool" combo box.
     pub(crate) selected: String,
+    /// Name the pool is saved under.
     pub(crate) name: String,
+    /// Destinations (crypt remotes) of the pool.
     pub(crate) remotes: Vec<String>,
+    /// Text box of the "Advanced: custom destination" entry.
     pub(crate) manual_remote: String,
+    /// Shard size in MiB.
     pub(crate) shard_mib: u64,
     /// Provider per-object limit in bytes; 0 means no limit.
     pub(crate) max_object_bytes: u64,
     /// Encrypt in RPool instead of through rclone crypt (put and reprocess).
     pub(crate) native_crypt: bool,
+    /// Shard transfers per pool operation (`--workers`).
     pub(crate) workers: usize,
+    /// Retry count for rclone transfers (`--retries`).
     pub(crate) retries: u32,
+    /// How shards are distributed over the destinations.
     pub(crate) placement: Placement,
+    /// Data shards per group (K).
     pub(crate) data_shards: usize,
+    /// Parity shards per group (M).
     pub(crate) parity_shards: usize,
+    /// Result of the last load/save/remove, shown under the policy card.
     pub(crate) notice: Option<String>,
+    /// The picker asked for a provider refresh; `gui::app` takes and handles it.
     pub(crate) refresh_requested: bool,
     /// Pool whose last save changed stored-data policy: offer a migration.
     pub(crate) migration_hint: Option<String>,
+    /// Provider picker window for `remotes`.
     picker: PoolPicker,
+    /// Background capacity estimate of the edited draft.
     capacity: crate::gui::widgets::pool_capacity::CapacityPreview,
+    /// Editable account identity rows of the draft's backing accounts.
     identity_rows: Vec<crate::gui::widgets::account_identities::IdentityRow>,
     /// Backings the rows were built from; rebuilt when a new report arrives.
     identity_source: String,
 }
 
 impl PoolForm {
+    /// A new-pool form prefilled from the GUI settings (new pools default to native crypt).
     pub(crate) fn from_settings(settings: &GuiSettings) -> Self {
         Self {
             selected: String::new(),
@@ -62,6 +82,7 @@ impl PoolForm {
         }
     }
 
+    /// Fills the form from a saved pool definition.
     fn load_definition(&mut self, name: String, pool: PoolDefinition) {
         self.picker = PoolPicker::default();
         self.name = name;
@@ -77,11 +98,13 @@ impl PoolForm {
         self.notice = Some(tr("Pool loaded.").to_string());
     }
 
+    /// `max_object_bytes` as an optional limit (0 = none).
     fn object_limit(&self) -> Option<u64> {
         (self.max_object_bytes > 0).then_some(self.max_object_bytes)
     }
 }
 
+/// Renders the Pools tab (`storage::show`) and the provider picker window.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     ui.add_enabled_ui(!state.pools.picker.is_open(), |ui| {
         theme::page_body(ui, "pools", |ui| {
@@ -188,6 +211,8 @@ fn migration_hint(ui: &mut egui::Ui, state: &mut GuiState) {
         });
 }
 
+/// "Encrypted providers" card: picker button, selected destinations and a
+/// custom destination entry.
 fn providers_card(ui: &mut egui::Ui, state: &mut GuiState) {
     theme::card_section(
         ui,
@@ -216,6 +241,8 @@ fn providers_card(ui: &mut egui::Ui, state: &mut GuiState) {
     );
 }
 
+/// "Pool policy" card: shard size, object limit, native crypt, retries,
+/// placement and coding, the capacity estimate and account identities.
 fn policy_card(ui: &mut egui::Ui, state: &mut GuiState, task: &TaskRunner) {
     theme::card_section(
         ui,
@@ -370,6 +397,7 @@ fn identities(ui: &mut egui::Ui, state: &mut GuiState, draft: &PoolDefinition, e
     }
 }
 
+/// Loads the selected saved pool into the form; also used by the Drive page's "Edit in Pools".
 pub(crate) fn load_selected(state: &mut GuiState) {
     let name = state.pools.selected.clone();
     if name.is_empty() {
@@ -395,6 +423,7 @@ pub(crate) fn load_selected(state: &mut GuiState) {
     }
 }
 
+/// Validates the shard size and starts `rpool pool set` for the form as a task.
 fn save_current(state: &mut GuiState, task: &mut TaskRunner) {
     let name = state.pools.name.trim().to_string();
     let shard_size = match crate::models::shard_size::ShardSize::from_mib(state.pools.shard_mib) {
@@ -424,6 +453,7 @@ fn save_current(state: &mut GuiState, task: &mut TaskRunner) {
         Err(error) => state.pools.notice = Some(error),
     }
 }
+/// Argv of `rpool pool set` for `pool` saved as `name` (name last, after `--`).
 fn pool_save_args(name: &str, pool: &PoolDefinition) -> Vec<OsString> {
     let mut args = vec!["pool".into(), "set".into()];
     for remote in &pool.remotes {
@@ -448,6 +478,8 @@ fn pool_save_args(name: &str, pool: &PoolDefinition) -> Vec<OsString> {
     args.extend(["--".into(), name.into()]);
     args
 }
+/// After a "Save pool" task: reloads the pool list and offers a migration when
+/// the saved change affects stored data. Called from `gui::app`.
 pub(crate) fn handle_task_completion(state: &mut GuiState, task: &TaskRunner, status: JobStatus) {
     let name = task
         .last_task()
@@ -486,6 +518,8 @@ pub(crate) fn handle_task_completion(state: &mut GuiState, task: &TaskRunner, st
     }
 }
 
+/// Removes the selected (or named) pool from the pool store and clears its
+/// use in Upload and Manifest forms. Cloud data is not touched.
 fn remove_selected(state: &mut GuiState) {
     let name = if state.pools.selected.is_empty() {
         state.pools.name.trim().to_string()
@@ -521,6 +555,8 @@ fn remove_selected(state: &mut GuiState) {
     }
 }
 
+/// Reloads pool names and definitions from the pool store; false (with a
+/// notice) when the store cannot be read.
 pub(crate) fn refresh_pool_names(state: &mut GuiState) -> bool {
     match load_pool_store() {
         Ok(store) => {

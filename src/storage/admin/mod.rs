@@ -1,7 +1,9 @@
 //! Provider administration and tool diagnostics, deliberately separate from data I/O.
+/// Quota-based free-space budgets per capacity domain.
 pub(crate) mod budget;
 pub(crate) mod catalog;
 pub(crate) mod domains;
+/// Parsing of `rclone about --json` output into [`QuotaReport`].
 mod quota;
 use super::error::StorageError;
 use super::rclone::RcloneContext;
@@ -9,27 +11,42 @@ use super::traits::OperationContext;
 use crate::prelude::*;
 pub(crate) use catalog::RemoteCatalog;
 
+/// Provider administration operations (listing, config, probing, quotas),
+/// separate from data I/O. Implemented by [`RcloneAdmin`]; tests use fakes.
 pub(crate) trait BackendAdmin: Send + Sync {
+    /// Configured remote names (`name:`), sorted and deduplicated.
     fn discover(&self) -> Result<Vec<String>>;
+    /// Sanitized config catalog including declared domain identities.
     fn catalog(&self) -> Result<RemoteCatalog>;
+    /// Checks that `remote` answers a shallow listing.
     fn probe(&self, remote: &str) -> Result<()>;
+    /// Quota of `remote`; failures are reported in [`QuotaReport::error`].
     fn quota(&self, remote: &str) -> QuotaReport;
+    /// Errors unless `remote` is an encrypting crypt remote.
     fn ensure_encrypted(&self, remote: &str) -> Result<()>;
 }
+/// Tool version checks used by `doctor`.
 pub(crate) trait ToolDiagnostics: Send + Sync {
+    /// First line of `rclone version` (truncated to 160 chars).
     fn version(&self) -> Result<String>;
 }
 
+/// [`BackendAdmin`] over the rclone CLI; each call has a 30 s deadline.
 pub(crate) struct RcloneAdmin {
+    /// rclone executable and environment used for every call.
     context: RcloneContext,
 }
 impl RcloneAdmin {
+    /// Admin using an existing rclone context (e.g. the speed test's engine).
     pub(crate) fn new(context: RcloneContext) -> Self {
         Self { context }
     }
+    /// Admin for `executable` with the inherited environment; used by doctor,
+    /// provider health and the CLI commands.
     pub(crate) fn inherited(executable: &str) -> Self {
         Self::new(RcloneContext::inherited(executable))
     }
+    /// Operation context with a 30 s deadline for one admin call.
     fn operation(&self) -> OperationContext {
         OperationContext::with_deadline(
             std::time::Instant::now() + std::time::Duration::from_secs(30),
@@ -90,6 +107,7 @@ impl ToolDiagnostics for RcloneAdmin {
         Ok(first.chars().take(160).collect())
     }
 }
+/// A [`QuotaReport`] with no values and `error` set.
 pub(crate) fn unavailable_quota(remote: &str, error: String) -> QuotaReport {
     QuotaReport {
         remote: remote.into(),
@@ -102,6 +120,8 @@ pub(crate) fn unavailable_quota(remote: &str, error: String) -> QuotaReport {
         error: Some(error),
     }
 }
+/// Quotas of `remotes` on up to `workers` threads, sorted by remote.
+/// Used by `provider::health` and the GUI usage refresh.
 pub(crate) fn collect_quota_reports(
     admin: &dyn BackendAdmin,
     remotes: &[String],

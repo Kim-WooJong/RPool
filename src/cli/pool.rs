@@ -1,20 +1,28 @@
+//! Arguments of `rpool pool`: pool definitions, capacity, reprocessing,
+//! migration, speed test and metadata compaction. Dispatched in
+//! `application::dispatch` to `commands::pool`, `pool::*` and `speedtest`.
 use crate::models::Placement;
 use clap::{Args, Subcommand};
 
 #[derive(Args, Debug)]
+/// Arguments of the `rpool pool` group.
 pub(crate) struct PoolArgs {
     #[command(subcommand)]
+    /// Selected `pool` subcommand.
     pub(crate) command: PoolCommands,
 }
 
 #[derive(Subcommand, Debug)]
+/// Subcommands of `rpool pool`.
 pub(crate) enum PoolCommands {
     /// Query capacity using saved or unsaved pool options; no workspace or mount.
     Capacity(PoolCapacityArgs),
     /// Calculate and save a source-preserving reprocessing plan. No remote writes.
     PlanReprocess {
+        /// Saved pool the archives are reprocessed into.
         name: String,
         #[arg(long = "manifest", required = true)]
+        /// Manifest of an archive to reprocess. Repeatable; at least one is required.
         manifests: Vec<String>,
         /// Assumed aggregate download throughput in MiB/s, not a measured rate.
         #[arg(long)]
@@ -26,53 +34,67 @@ pub(crate) enum PoolCommands {
     /// Execute a reviewed plan, retaining every original archive.
     Reprocess {
         #[arg(long)]
+        /// Plan file written by `pool plan-reprocess`.
         plan: std::path::PathBuf,
     },
 
     /// List configured storage pools.
     List {
         #[arg(long)]
+        /// Print JSON instead of text.
         json: bool,
     },
 
     /// List the pool's drive (folders, files, plaintext sizes) read-only from
     /// the pool-sync metadata in the cloud; no workspace or mount needed.
     Browse {
+        /// Saved pool name.
         name: String,
         #[arg(long)]
+        /// Print JSON instead of text.
         json: bool,
     },
 
     /// Show one storage pool.
     Show {
+        /// Saved pool name.
         name: String,
         #[arg(long)]
+        /// Print JSON instead of text.
         json: bool,
     },
 
     /// Create or replace a storage pool.
     Set {
+        /// Pool name; an existing pool with this name is replaced.
         name: String,
 
         #[arg(long = "remote", required = true)]
+        /// rclone destination base of one provider. Repeat for every provider.
         remotes: Vec<String>,
 
         #[arg(long, default_value_t = crate::config::constants::DEFAULT_SHARD_MIB, value_parser = clap::value_parser!(u64).range(1..=crate::config::constants::MAX_SHARD_MIB))]
+        /// Plaintext data-shard size in MiB.
         shard_mib: u64,
 
         #[arg(long, default_value_t = crate::config::constants::DEFAULT_WORKERS)]
+        /// Number of physical shard transfers performed concurrently.
         workers: usize,
 
         #[arg(long, default_value_t = crate::config::constants::DEFAULT_RETRIES)]
+        /// Whole-shard attempts.
         retries: u32,
 
         #[arg(long, value_enum, default_value_t = Placement::RoundRobin)]
+        /// Placement strategy across the pool's remotes.
         placement: Placement,
 
         #[arg(long, default_value_t = crate::config::constants::DEFAULT_DATA_SHARDS)]
+        /// Reed-Solomon data shards per coding group.
         data_shards: usize,
 
         #[arg(long, default_value_t = crate::config::constants::DEFAULT_PARITY_SHARDS)]
+        /// Reed-Solomon parity shards per coding group (0 = no parity).
         parity_shards: usize,
 
         /// Provider per-object limit in bytes; encrypted shard objects must fit.
@@ -86,7 +108,10 @@ pub(crate) enum PoolCommands {
     },
 
     /// Remove a storage pool definition. Stored shards are not touched.
-    Remove { name: String },
+    Remove {
+        /// Name of the saved pool to remove.
+        name: String,
+    },
 
     /// Move stored archives onto the pool's current (saved) policy after
     /// accounts or coding changed: plan, run/resume, status, lost files.
@@ -99,8 +124,10 @@ pub(crate) enum PoolCommands {
     /// that account alone; the pool estimate combines them with the pool's
     /// coding and placement.
     SpeedTest {
+        /// Saved pool name.
         name: String,
         #[command(flatten)]
+        /// Test volume, file count, tuning and output options.
         size: SpeedTestSizeArgs,
     },
 
@@ -109,6 +136,7 @@ pub(crate) enum PoolCommands {
     /// covered on every account for the grace period. Thresholds:
     /// `<config dir>/metadata-compaction.json`.
     Compact {
+        /// Saved pool name.
         name: String,
         /// Show what would be checkpointed, marked and deleted; write nothing.
         #[arg(long)]
@@ -119,6 +147,7 @@ pub(crate) enum PoolCommands {
         #[arg(long)]
         enable_deletion: bool,
         #[arg(long)]
+        /// Print JSON instead of text.
         json: bool,
     },
 }
@@ -151,12 +180,15 @@ pub(crate) struct SpeedTestSizeArgs {
 }
 
 #[derive(Args, Debug)]
+/// Arguments of `rpool pool migrate`, run by `commands::pool::migrate`.
 pub(crate) struct MigrateArgs {
     #[command(subcommand)]
+    /// Selected `migrate` subcommand.
     pub(crate) command: MigrateCommands,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+/// How `migrate plan` checks which shards still exist.
 pub(crate) enum ProbeMode {
     /// List each remote once and compare shard sizes.
     Quick,
@@ -165,13 +197,16 @@ pub(crate) enum ProbeMode {
 }
 
 #[derive(Subcommand, Debug)]
+/// Subcommands of `rpool pool migrate`.
 pub(crate) enum MigrateCommands {
     /// Plan a migration to the saved pool policy and publish it to the cloud
     /// journal. Reads only; no archive data is written. Includes the pool's
     /// drive (its visible files) when it has one.
     Plan {
+        /// Saved pool name.
         pool: String,
         #[arg(long, value_enum, default_value_t = ProbeMode::Quick)]
+        /// How existing shards are checked.
         probe: ProbeMode,
         /// Assumed aggregate download throughput in MiB/s.
         #[arg(long, conflicts_with = "measure_speed")]
@@ -193,14 +228,17 @@ pub(crate) enum MigrateCommands {
         #[arg(long)]
         rebalance: bool,
         #[arg(long)]
+        /// Print JSON instead of text.
         json: bool,
     },
     /// Run or resume a migration. Never deletes; originals stay readable.
     /// Drive files get their new archives last; the drive itself switches
     /// with `adopt`.
     Run {
+        /// Saved pool name.
         pool: String,
         #[arg(long)]
+        /// Migration id from `migrate plan`.
         id: String,
         /// Stop cleanly between archives when this file exists.
         #[arg(long)]
@@ -217,24 +255,32 @@ pub(crate) enum MigrateCommands {
     },
     /// Show migrations recorded in the cloud (all, or one).
     Status {
+        /// Saved pool name.
         pool: String,
         #[arg(long)]
+        /// Show only this migration.
         id: Option<String>,
         #[arg(long)]
+        /// Print JSON instead of text.
         json: bool,
     },
     /// List the files a migration found unrecoverable.
     Lost {
+        /// Saved pool name.
         pool: String,
         #[arg(long)]
+        /// Migration id.
         id: String,
         #[arg(long)]
+        /// Print JSON instead of text.
         json: bool,
     },
     /// Mark a migration abandoned. Nothing is deleted.
     Abandon {
+        /// Saved pool name.
         pool: String,
         #[arg(long)]
+        /// Migration id.
         id: String,
     },
     /// Clean up after a completed migration. Without --confirm (the
@@ -243,13 +289,16 @@ pub(crate) enum MigrateCommands {
     /// are deleted after a fresh reference check, then new candidates are
     /// quarantined (recorded only; their objects stay readable).
     Retire {
+        /// Saved pool name.
         pool: String,
         #[arg(long)]
+        /// Migration id of a completed migration.
         id: String,
         /// Only report (the default without --confirm).
         #[arg(long, conflicts_with = "confirm")]
         dry_run: bool,
         #[arg(long)]
+        /// Perform the deletion/quarantine; without it only a report is printed.
         confirm: bool,
         /// Which part of a confirmed run to perform.
         #[arg(long, value_enum, default_value_t = RetireStepArg::All)]
@@ -282,12 +331,15 @@ pub(crate) enum MigrateCommands {
         #[arg(long = "workspace", value_name = "DIR")]
         workspaces: Vec<std::path::PathBuf>,
         #[arg(long)]
+        /// Print JSON instead of text.
         json: bool,
     },
     /// Take items out of the cleanup quarantine during the grace period.
     Restore {
+        /// Saved pool name.
         pool: String,
         #[arg(long)]
+        /// Migration id.
         id: String,
         /// Archive id of a quarantined item (repeatable).
         #[arg(long = "item", required_unless_present = "all", conflicts_with = "all")]
@@ -300,8 +352,10 @@ pub(crate) enum MigrateCommands {
     /// every PC opens (also PCs without the old workspace). Catches up files
     /// changed since planning; never deletes the previous generation.
     Adopt {
+        /// Saved pool name.
         pool: String,
         #[arg(long)]
+        /// Migration id.
         id: String,
         /// Leave unrecoverable drive files out of the new generation.
         #[arg(long)]
@@ -324,6 +378,7 @@ pub(crate) enum MigrateCommands {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+/// Which part of `migrate retire --confirm` runs.
 pub(crate) enum RetireStepArg {
     /// Delete due items, then quarantine new candidates.
     All,
@@ -334,20 +389,27 @@ pub(crate) enum RetireStepArg {
 }
 
 #[derive(Args, Debug)]
+/// Arguments of `rpool pool capacity`, run by `pool::capacity::run`.
 pub(crate) struct PoolCapacityArgs {
     /// Saved pool name; omit when supplying --remote for an unsaved draft.
     pub name: Option<String>,
     #[arg(long = "remote")]
+    /// rclone destination base of one provider for an unsaved draft. Repeatable.
     pub remotes: Vec<String>,
     #[arg(long, value_parser = clap::value_parser!(u64).range(1..=crate::config::constants::MAX_SHARD_MIB))]
+    /// Plaintext data-shard size in MiB. Overrides the saved value.
     pub shard_mib: Option<u64>,
     #[arg(long)]
+    /// Reed-Solomon data shards per coding group. Overrides the saved value.
     pub data_shards: Option<usize>,
     #[arg(long)]
+    /// Reed-Solomon parity shards per coding group. Overrides the saved value.
     pub parity_shards: Option<usize>,
     #[arg(long, value_enum)]
+    /// Placement strategy. Overrides the saved value.
     pub placement: Option<Placement>,
     #[arg(long)]
+    /// Print JSON instead of text.
     pub json: bool,
 }
 

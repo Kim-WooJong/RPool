@@ -5,38 +5,62 @@ use crate::prelude::*;
 use crate::storage::writer::StorageWriter;
 
 #[derive(Serialize, Deserialize)]
+/// One stripe group of the base manifest in the incremental recipe.
 struct Group {
+    /// Group number (stripe group index in the base manifest).
     number: u32,
+    /// Byte offset of the group in the file.
     offset: u64,
+    /// Logical size of the group in bytes.
     size: u64,
+    /// BLAKE3 of the source bytes of this group.
     hash: String,
+    /// Base shards reused unchanged; `None` means the group is re-uploaded.
     retained: Option<Vec<Shard>>,
 }
 #[derive(Serialize, Deserialize)]
+/// Durable plan of one incremental upload (`recipe.json` in the staging directory);
+/// a resumed upload must match it exactly.
 struct Recipe {
+    /// Recipe format version (currently 1).
     version: u32,
+    /// Archive id of the new manifest.
     id: String,
+    /// BLAKE3 of the whole source file.
     source_hash: String,
+    /// Fingerprint of the base manifest.
     base_hash: String,
+    /// Pool policy fingerprint without `workers` (see `policy_fingerprint`).
     policy_hash: String,
+    /// Unix time the recipe was created; becomes the manifest's `created_unix`.
     created: u64,
+    /// Eligible remotes when planned; a change aborts the resume.
     remotes: Vec<String>,
+    /// Groups in file order.
     groups: Vec<Group>,
 }
 #[derive(Serialize, Deserialize)]
+/// Checkpoint (`ready.json`) of the assembled manifest before publication.
 struct Ready {
+    /// Fingerprint of the recipe it was built from.
     recipe_hash: String,
+    /// Composed manifest (retained plus re-uploaded shards).
     manifest: Manifest,
 }
 #[derive(Serialize, Deserialize)]
+/// JSON checkpoint wrapper carrying a fingerprint of its value.
 struct Checked<T> {
+    /// Fingerprint of `value`.
     hash: String,
+    /// Stored value.
     value: T,
 }
+/// Durably writes `value` with its fingerprint.
 fn save_checked<T: Serialize>(path: &Path, value: T) -> Result<()> {
     let hash = fingerprint(&value)?;
     super::namespace::durable_json(path, &Checked { hash, value })
 }
+/// Reads a checkpoint and fails if its fingerprint does not match.
 fn load_checked<T: serde::de::DeserializeOwned + Serialize>(path: &Path) -> Result<T> {
     let stored: Checked<T> = read_json(path)?;
     if fingerprint(&stored.value)? != stored.hash {
@@ -44,6 +68,7 @@ fn load_checked<T: serde::de::DeserializeOwned + Serialize>(path: &Path) -> Resu
     }
     Ok(stored.value)
 }
+/// BLAKE3 hex of the value's JSON serialization.
 fn fingerprint<T: Serialize>(value: &T) -> Result<String> {
     Ok(blake3::hash(&serde_json::to_vec(value)?)
         .to_hex()
@@ -56,6 +81,7 @@ fn policy_fingerprint(policy: &PoolDefinition) -> Result<String> {
     identity.workers = 0;
     fingerprint(&identity)
 }
+/// Creates a staging directory if missing; refuses symlinks and non-directories.
 fn directory(path: &Path) -> Result<()> {
     if !path.exists() {
         fs::create_dir(path)?;
@@ -66,6 +92,7 @@ fn directory(path: &Path) -> Result<()> {
     }
     Ok(())
 }
+/// Reads JSON from a regular, non-symlink checkpoint file.
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
     let m = fs::symlink_metadata(path)?;
     if !m.is_file() || m.file_type().is_symlink() {
@@ -73,6 +100,7 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
     }
     crate::utils::read_json(path)
 }
+/// Checks that each retained or uploaded shard object still exists unchanged.
 fn verify(storage: &StorageWriter, shards: &[Shard]) -> Result<()> {
     for shard in shards {
         storage.ensure_destination(&shard.object)?;
@@ -118,6 +146,9 @@ pub(crate) fn upload(
     )
 }
 #[allow(clippy::too_many_arguments)] // established internal API; a params struct would only add indirection
+/// Body of [`upload`] with injectable verify, group-upload and publish steps (for tests).
+/// Stages changed groups under `peer-incremental-<id>/`, uploads each as its own part, and
+/// composes a manifest that references unchanged base shards.
 fn upload_with(
     policy: &PoolDefinition,
     source: &Path,
@@ -363,6 +394,7 @@ fn upload_with(
     Ok(Some(manifest))
 }
 
+/// Renumbers a group part's shards into the base manifest's index/group layout at `offset`.
 fn rebase(part: &Manifest, base: &Manifest, group: u32, offset: u64) -> Result<Vec<Shard>> {
     crate::manifest::validate_manifest(part)?;
     if part.coding != base.coding || part.shard_size != base.shard_size {

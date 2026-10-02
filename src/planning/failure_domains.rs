@@ -1,9 +1,17 @@
 //! Configured remote names are not evidence of independent provider outages.
+//! Reports whether one provider outage could exceed a coding group's parity,
+//! judged from shard remote names only; used by `put` warnings, `status` and
+//! provider migration / relocation checks.
 use crate::prelude::*;
+/// Whether an archive survives the loss of any single provider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FailureSafety {
+    /// Proven safe. Never produced by the name-based check here, since names
+    /// cannot prove independence; callers such as provider migration require it.
     Safe,
+    /// Some configured remote holds more than `parity` shards of one group.
     Unsafe,
+    /// No configured remote exceeds parity, but independence is unproven.
     Unknown,
 }
 impl std::fmt::Display for FailureSafety {
@@ -15,6 +23,8 @@ impl std::fmt::Display for FailureSafety {
         })
     }
 }
+/// Highest shard count of one coding group on one configured remote name
+/// (the part before `:`) and the resulting safety for `parity`.
 fn configured_concentration<'a>(
     shards: impl Iterator<Item = (u32, &'a str)>,
     parity: usize,
@@ -47,6 +57,8 @@ fn configured_concentration<'a>(
         max,
     )
 }
+/// Prints the single-provider failure safety warning for a new upload plan
+/// (called by `put`).
 pub(crate) fn warn_plan_failure_domains(plan: &UploadPlan, coding: &Coding) {
     let (safety, max) = configured_concentration(
         plan.shards.iter().map(|s| (s.group, s.remote.as_str())),
@@ -54,6 +66,8 @@ pub(crate) fn warn_plan_failure_domains(plan: &UploadPlan, coding: &Coding) {
     );
     eprintln!("[warning] single-provider failure safety={safety}; max shards per configured remote={max}, parity={}. Distinct aliases/accounts are not proof of independent failure domains.",coding.parity_shards);
 }
+/// Single-provider failure safety and max shards per remote of a stored
+/// manifest (status, provider migration, relocation).
 pub(crate) fn manifest_single_provider_failure_safety(
     manifest: &Manifest,
     coding: &Coding,

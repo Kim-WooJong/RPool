@@ -35,12 +35,18 @@ const WRAPPING_TYPES: &[&str] = &[
 /// A backend and the plaintext key to write through it.
 pub(crate) type Route = (Arc<dyn StorageBackend>, ObjectKey);
 
+/// Router from `crypt-remote:path` addresses to cached `CryptBackend`s.
+/// Created by `storage::writer` and `speedtest::engine` when native crypt is enabled.
 pub(crate) struct NativeCrypt {
+    /// rclone context used for `config dump` and for the base backends.
     context: RcloneContext,
+    /// `rclone config dump` read once per router; only successes are stored.
     dump: OnceLock<Value>,
+    /// Built crypt backends keyed by crypt remote alias.
     backends: Mutex<BTreeMap<String, Arc<CryptBackend>>>,
 }
 
+/// Shorthand for `StorageError::invalid_input`.
 fn invalid(detail: &str) -> StorageError {
     StorageError::invalid_input(detail)
 }
@@ -63,6 +69,8 @@ fn section(entry: &Value) -> Result<BTreeMap<String, String>, StorageError> {
         .collect()
 }
 
+/// Rejects a crypt base that is on-the-fly (`:type:`), unconfigured, or a
+/// wrapping remote type that could hide another crypt.
 fn validate_base(dump: &Value, base: &str) -> Result<(), StorageError> {
     if base.starts_with(':') {
         return Err(invalid("native crypt base must be a configured remote"));
@@ -83,6 +91,7 @@ fn validate_base(dump: &Value, base: &str) -> Result<(), StorageError> {
 }
 
 impl NativeCrypt {
+    /// Router with no dump loaded and no backends built yet.
     pub(crate) fn new(context: RcloneContext) -> Self {
         Self {
             context,
@@ -98,6 +107,7 @@ impl NativeCrypt {
         router
     }
 
+    /// Config dump, loaded on first use after refusing rclone env overrides.
     fn dump(&self, ctx: &OperationContext) -> Result<&Value, StorageError> {
         self.context.check_policy_environment(true)?;
         if let Some(dump) = self.dump.get() {
@@ -107,6 +117,8 @@ impl NativeCrypt {
         Ok(self.dump.get_or_init(|| dump))
     }
 
+    /// Builds the `CryptBackend` for crypt remote `alias`: validates the crypt
+    /// options and base, derives the cipher and attributes base traffic to `alias`.
     fn build(&self, dump: &Value, alias: &str) -> Result<Arc<CryptBackend>, StorageError> {
         let entry = dump
             .get(alias)
@@ -141,6 +153,7 @@ impl NativeCrypt {
         )))
     }
 
+    /// Cached or newly built backend for the remote named in `raw`.
     fn backend(
         &self,
         ctx: &OperationContext,

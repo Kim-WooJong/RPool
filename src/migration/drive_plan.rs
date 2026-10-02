@@ -228,6 +228,7 @@ pub(super) fn classify(
         .collect()
 }
 
+/// Appends `note` to an existing entry detail (`"; "`-separated).
 fn join(detail: Option<String>, note: &str) -> String {
     match detail {
         Some(detail) => format!("{detail}; {note}"),

@@ -5,14 +5,19 @@ use super::metadata_checkpoint_model::Ids;
 use crate::prelude::*;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+/// Workspace cache of ingested checkpoint chunks, stored as `metadata-checkpoints-<family>.json`.
 pub(crate) struct Cache {
+    /// Record ids per chunk id already read (and passed on) from checkpoints.
     pub chunks: BTreeMap<String, Ids>,
+    /// The family's compaction gate record was seen; checkpoints must then be read on every pull.
     pub gate: bool,
 }
 impl Cache {
+    /// Cache file path of `family` in workspace `root`.
     pub(crate) fn path(root: &Path, family: &str) -> PathBuf {
         root.join(format!("metadata-checkpoints-{family}.json"))
     }
+    /// Loads the cache; a missing or unreadable file gives an empty cache.
     pub(crate) fn load(path: &Path) -> Self {
         if !path.exists() {
             return Self::default();
@@ -25,6 +30,7 @@ impl Cache {
             }
         }
     }
+    /// Durably saves the cache.
     pub(crate) fn save(&self, path: &Path) -> Result<()> {
         super::namespace::durable_json(path, self)
     }

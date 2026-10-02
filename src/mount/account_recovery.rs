@@ -4,32 +4,53 @@ use super::virtual_drive::{Revision, VirtualDrive};
 use crate::prelude::*;
 
 #[derive(Serialize, Deserialize)]
+/// Per-file progress record in the recovery journal (`account-recovery.json`), keyed by path.
 struct Entry {
+    /// Revision id of the source file this entry copies; a mismatch on resume aborts the file.
     source_revision: String,
+    /// Destination write intent begun for this file; `None` until the copy starts.
     intent: Option<Intent>,
+    /// Copy published and verified in the destination.
     complete: bool,
     #[serde(default)]
+    /// Last attempt failed; the file is retried on the next run.
     failed: bool,
     #[serde(default)]
+    /// Content came from a verified Reprocess replacement instead of a fresh copy.
     reused: bool,
     #[serde(default)]
+    /// Generic failure note for the last attempt (no source details); `None` on success.
     error: Option<String>,
 }
 #[derive(Serialize, Deserialize)]
+/// Durable recovery journal. Written next to the destination before initialization
+/// (bootstrap marker) and inside it afterwards; resume requires all identity fields to match.
 struct Journal {
+    /// Journal format version; `run` accepts only 2.
     version: u32,
+    /// Canonical source workspace path.
     source: PathBuf,
+    /// BLAKE3 of the source metadata files (see [`source_hashes`]) when recovery started.
     source_hashes: BTreeMap<String, String>,
+    /// Canonical destination workspace path.
     destination: PathBuf,
+    /// Destination metadata was checked empty (or already approved) once.
     approved: bool,
+    /// Source directories were merged into the destination namespace.
     directories_copied: bool,
+    /// BLAKE3 of the destination pool policy JSON; detects pool edits between runs.
     destination_policy_hash: String,
+    /// Optional completed Reprocess plan whose replacements may be reused.
     reprocess_plan: Option<PathBuf>,
+    /// Destination pool name; must differ from the source pool.
     destination_pool: String,
+    /// Account (remote) names excluded from source reads and from the destination pool.
     excluded: BTreeSet<String>,
+    /// Per-path progress, see [`Entry`].
     entries: BTreeMap<String, Entry>,
 }
 
+/// Fails if `path` or any of its ancestors is a symlink. Also used by `pool_transition`.
 pub(super) fn no_symlink_ancestors(path: &Path) -> Result<()> {
     for ancestor in path.ancestors().filter(|p| !p.as_os_str().is_empty()) {
         if fs::symlink_metadata(ancestor)?.file_type().is_symlink() {
@@ -38,6 +59,8 @@ pub(super) fn no_symlink_ancestors(path: &Path) -> Result<()> {
     }
     Ok(())
 }
+/// Fails if `path`, an ancestor, or anything inside it is a symlink or special file.
+/// Guards recovery and `pool_transition` workspace/journal paths.
 pub(super) fn no_symlinks(path: &Path) -> Result<()> {
     no_symlink_ancestors(path)?;
     fn visit(path: &Path) -> Result<()> {
@@ -56,15 +79,21 @@ pub(super) fn no_symlinks(path: &Path) -> Result<()> {
     }
     visit(path)
 }
+/// BLAKE3 hex digest of a whole file.
 fn digest(path: &Path) -> Result<String> {
     Ok(blake3::hash(&fs::read(path)?).to_hex().to_string())
 }
+/// Fails when the optional stop file exists, so a user can interrupt recovery between steps
+/// while keeping source and destination for resume.
 pub(super) fn check_stop(stop: Option<&Path>) -> Result<()> {
     if stop.is_some_and(Path::exists) {
         bail!("recovery stopped; source and destination retained for resume");
     }
     Ok(())
 }
+/// Copies one source revision (retained local write or cloud manifest) into the destination
+/// spool file `output` in 1 MiB steps, then checks length and full-file hash.
+/// Shared by `run` and `pool_transition`.
 pub(super) fn copy_revision(
     source: &VirtualDrive,
     destination: &VirtualDrive,
@@ -161,6 +190,8 @@ pub(super) fn copy_revision(
     Ok(())
 }
 
+/// Hashes of the source metadata files (`virtual.json`, `namespace.json`, and the
+/// journal if present); used to detect source changes across resumes.
 pub(super) fn source_hashes(source: &VirtualDrive) -> Result<BTreeMap<String, String>> {
     // Namespace saves normally append to the journal and leave the checkpoint
     // unchanged; it is listed only when present so earlier records still match.
@@ -172,6 +203,8 @@ pub(super) fn source_hashes(source: &VirtualDrive) -> Result<BTreeMap<String, St
         .map(|name| Ok((name.into(), digest(&source.root.join(name))?)))
         .collect()
 }
+/// Checks that the destination committed `intent`, published it, resolves `path` to it,
+/// and has no pending write for `path`.
 pub(super) fn completion_valid(drive: &VirtualDrive, path: &str, intent: &Intent) -> Result<()> {
     let state = drive.state.lock().unwrap();
     let event = state
@@ -189,6 +222,7 @@ pub(super) fn completion_valid(drive: &VirtualDrive, path: &str, intent: &Intent
     }
     Ok(())
 }
+/// Refuses a destination pool that already has metadata unless this journal approved it.
 fn approve_destination(drive: &VirtualDrive, approved: bool) -> Result<()> {
     if !approved {
         let state = drive.state.lock().unwrap();
@@ -198,6 +232,9 @@ fn approve_destination(drive: &VirtualDrive, approved: bool) -> Result<()> {
     }
     Ok(())
 }
+/// Finds a completed Reprocess replacement for a cloud revision (matched by manifest
+/// fingerprint, never by name) and checks it is owned by the `allowed` destination remotes.
+/// Returns `None` for local revisions or when no replacement matches.
 pub(super) fn matching_replacement(
     revision: &Revision,
     replacements: &[(Manifest, Manifest)],
@@ -235,6 +272,8 @@ pub(super) fn matching_replacement(
     }
     Ok(None)
 }
+/// Verifies all shards of a replacement manifest and reads it back to compute its BLAKE3;
+/// fails if it differs from the source revision's content hash.
 pub(super) fn verify_replacement(
     source: &VirtualDrive,
     revision: &Revision,
@@ -249,6 +288,7 @@ pub(super) fn verify_replacement(
         )
     })
 }
+/// Test seam of [`verify_replacement`] with an injectable storage reader factory.
 fn verify_replacement_with(
     source: &VirtualDrive,
     revision: &Revision,
@@ -289,6 +329,9 @@ fn verify_replacement_with(
     Ok(hash)
 }
 
+/// Entry point of `mount --account-recovery-from`: copies the source workspace's visible
+/// files into a fresh workspace on a different pool, resumably via the recovery journal.
+/// Called from `mount::run`.
 pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
     check_stop(args.stop_file.as_deref())?;
     let source_path = args

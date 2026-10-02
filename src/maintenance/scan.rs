@@ -1,3 +1,5 @@
+//! Shard integrity scan (scrub) of one archive.
+
 use crate::maintenance::{analyze_groups, group_recoverability};
 use crate::prelude::*;
 use crate::progress;
@@ -5,6 +7,10 @@ use crate::storage::reader::StorageReader;
 use crate::utils::ensure_positive;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+/// Probes every shard with `workers` threads (`full` = download and BLAKE3
+/// check, else size only), reporting item progress. Returns the counted
+/// [`ScrubReport`] with group health and the raw probes for a later repair.
+/// Used by `scrub`, `repair` and migrations.
 pub(crate) fn scan_manifest_with_storage(
     reader: &StorageReader,
     manifest: &Manifest,

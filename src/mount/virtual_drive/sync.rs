@@ -207,6 +207,9 @@ impl VirtualDrive {
                 _ => None,
             }))
     }
+    /// Commits an uploaded (or deletion) intent, saves the namespace, and
+    /// repoints an open pin of the local image to the new cloud revision.
+    /// Called by `upload_round` after each successful upload.
     pub(crate) fn commit_uploaded(&self, intent: &Intent, content: Option<Content>) -> Result<()> {
         let mut s = self.state.lock().unwrap();
         let mut next = s.clone();

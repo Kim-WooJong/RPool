@@ -7,6 +7,7 @@ use crate::gui::i18n::{tr, trf};
 use crate::gui::theme;
 use eframe::egui;
 
+/// Translated name of a range in the picker ("1 hour", "24 hours", …).
 pub(crate) fn range_label(range: Range) -> &'static str {
     match range {
         Range::Hour => tr("1 hour"),
@@ -16,6 +17,7 @@ pub(crate) fn range_label(range: Range) -> &'static str {
     }
 }
 
+/// Translated bar size of a range, shown with the chart.
 fn bucket_label(range: Range) -> &'static str {
     match range {
         Range::Hour => tr("one bar per minute"),

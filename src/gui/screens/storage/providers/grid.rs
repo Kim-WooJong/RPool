@@ -2,7 +2,9 @@
 
 /// Narrowest useful provider card.
 pub(crate) const CARD_MIN_WIDTH: f32 = 300.0;
+/// Upper bound of card columns, even on very wide windows.
 pub(crate) const MAX_COLUMNS: usize = 4;
+/// Space between cards, horizontally and vertically, in points.
 pub(crate) const GAP: f32 = 12.0;
 
 /// Columns for `width`: as many `CARD_MIN_WIDTH` cards (with gaps) as fit,

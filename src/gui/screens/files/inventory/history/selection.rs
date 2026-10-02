@@ -4,14 +4,17 @@
 
 use std::collections::BTreeSet;
 
+/// Selected trash entries (by trash entry id) of one pool, kept in `PoolHistory`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Selection {
+    /// Ids of the selected entries.
     ids: BTreeSet<String>,
     /// Last clicked entry, the start of a Shift+click range.
     anchor: Option<String>,
 }
 
 impl Selection {
+    /// Whether `id` is selected.
     pub(crate) fn contains(&self, id: &str) -> bool {
         self.ids.contains(id)
     }
@@ -75,6 +78,7 @@ impl Selection {
         }
     }
 
+    /// Deselects everything and forgets the range anchor.
     pub(crate) fn clear(&mut self) {
         self.ids.clear();
         self.anchor = None;

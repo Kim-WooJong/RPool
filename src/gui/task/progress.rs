@@ -1,19 +1,29 @@
+//! Applies child-process `ProgressEvent`s to a [`TaskProgress`] and derives
+//! the transfer rate and ETA. Owned by `super::runner::TaskRunner`.
+
 use super::TaskProgress;
 use crate::progress::ProgressEvent;
 use std::time::Instant;
 
+/// Rate/ETA state for the current task; reset when a new task starts.
 #[derive(Debug, Default)]
 pub(crate) struct ProgressTracker {
+    /// When byte progress started (set by `Start`); `None` disables rate/ETA.
     started_at: Option<Instant>,
+    /// Bytes transferred since `started_at`, used for the average rate.
     transferred_for_rate: u64,
 }
 
 impl ProgressTracker {
+    /// Clears timing state before a new task or when the log is cleared.
     pub(crate) fn reset(&mut self) {
         self.started_at = None;
         self.transferred_for_rate = 0;
     }
 
+    /// Updates `progress` from one event: `Start` sets byte totals, `Advance` adds
+    /// deltas (completed capped at total), `Items` switches to item counting and
+    /// `Finish` marks the totals as reached.
     pub(crate) fn apply(&mut self, progress: &mut TaskProgress, event: ProgressEvent) {
         match event {
             ProgressEvent::Start { total_bytes } => {
@@ -82,6 +92,7 @@ impl ProgressTracker {
         }
     }
 
+    /// Recomputes the average rate and ETA from elapsed time; no-op until bytes moved.
     fn update_rate_and_eta(&self, progress: &mut TaskProgress) {
         let Some(started_at) = self.started_at else {
             return;

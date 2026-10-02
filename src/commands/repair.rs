@@ -1,9 +1,12 @@
+//! `rpool repair`: reconstructs and re-uploads recoverable bad shards from
+//! Reed-Solomon parity, with a mandatory full BLAKE3 scan before and after.
 use crate::maintenance::{
     repair_manifest_with_storage, save_integrity_snapshot, scan_manifest_with_storage,
 };
 use crate::manifest::{load_manifest_with_storage, validate_manifest};
 use crate::prelude::*;
 
+/// CLI entry for `rpool repair` through rclone. Called by `application::dispatch`.
 pub(crate) fn repair(
     rclone: &str,
     manifest_src: &str,
@@ -24,6 +27,10 @@ pub(crate) fn repair(
     )
 }
 
+/// Repair with a caller-supplied [`StorageWriter`](crate::storage::writer::StorageWriter):
+/// optional quick preflight, full scan, repair of all (or the selected) groups,
+/// then a verifying rescan; integrity snapshots are saved unless `dry_run`.
+/// Fails if a needed group is unrecoverable or the rescan still finds bad shards.
 pub(crate) fn repair_with_storage(
     storage: &crate::storage::writer::StorageWriter,
     manifest_src: &str,
@@ -111,6 +118,8 @@ pub(crate) fn repair_with_storage(
     Ok(())
 }
 
+/// Accepts only selected groups that exist and are `recoverable`; any other
+/// status (healthy, unrecoverable, provider errors) is an error.
 fn validate_selected_groups(report: &ScrubReport, selected: &BTreeSet<u32>) -> Result<()> {
     for group in selected {
         let status = report

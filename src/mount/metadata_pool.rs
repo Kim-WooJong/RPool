@@ -11,12 +11,19 @@ use crate::prelude::*;
 
 /// Owned directories of one replica.
 pub(crate) struct ReplicaDirs {
+    /// Event (record) directories, one per family kind; v6 has a single
+    /// `<root>/events` directory.
     records: Vec<SharedTransport>,
+    /// `checkpoints/heads`: checkpoint head objects.
     heads: SharedTransport,
+    /// `checkpoints/chunks`: chunk objects holding checkpointed records.
     chunks: SharedTransport,
+    /// `checkpoints/marks`: mark objects of the checkpoint protocol.
     marks: SharedTransport,
 }
 impl ReplicaDirs {
+    /// Borrowed `Replica` view of these directories for the checkpoint and
+    /// compaction functions.
     pub(crate) fn replica(&self) -> Replica<'_> {
         Replica {
             records: self.records.iter().map(|t| t as _).collect(),
@@ -60,6 +67,8 @@ pub(crate) fn replica_dirs(
         .collect()
 }
 
+/// Current wall-clock time in Unix seconds (0 if the clock is before 1970);
+/// the `now` passed to compaction.
 fn now_unix() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -69,11 +78,18 @@ fn now_unix() -> u64 {
 
 /// The metadata a saved pool uses now: its newest generation.
 pub(crate) struct Target {
+    /// Metadata family of the pool (always v6 here).
     pub family: Family,
+    /// Replica family roots, already joined with `epochs/<epoch>` when the
+    /// newest generation is an epoch.
     pub roots: Vec<String>,
+    /// Whether the pool uses rclone native crypt for its metadata.
     pub native_crypt: bool,
+    /// Epoch of the newest generation; `None` for the original (pre-epoch) root.
     pub epoch: Option<String>,
 }
+/// Resolves the saved pool's newest metadata generation (`Ok(None)` when it
+/// has none yet). Used by `compact_pool` and `pool_stats`.
 pub(crate) fn pool_target(rclone: &str, pool: &str) -> Result<Option<Target>> {
     let policy = crate::pool::load_pool_store()?
         .pools
@@ -243,16 +259,26 @@ pub(crate) fn read_v6(
 /// heads only, no chunk reads.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Stats {
+    /// Metadata family name (e.g. "v6").
     pub family: String,
+    /// Epoch of the generation that was counted; `None` for the base root.
     pub epoch: Option<String>,
+    /// Event records listed across replicas and kinds, excluding the deletion gate.
     pub records: usize,
+    /// Total bytes of those records.
     pub record_bytes: u64,
+    /// Checkpoint heads that could be read and parsed.
     pub checkpoints: usize,
+    /// Creation time (Unix seconds) of the newest readable checkpoint.
     pub newest_checkpoint_unix: Option<u64>,
     /// Records the newest checkpoint covers (may include deleted ones).
     pub checkpointed: u64,
+    /// Whether the deletion gate object is present (checkpointed records may be
+    /// removed by compaction).
     pub deletion_enabled: bool,
 }
+/// Collects `Stats` for the newest generation of a saved pool (`Ok(None)`
+/// without one). Unreadable heads are skipped. Called by `doctor::metadata`.
 pub(crate) fn pool_stats(rclone: &str, pool: &str) -> Result<Option<Stats>> {
     use super::metadata_checkpoint::{list_all, read_any};
     let Some(target) = pool_target(rclone, pool)? else {

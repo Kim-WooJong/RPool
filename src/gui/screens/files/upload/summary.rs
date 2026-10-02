@@ -1,9 +1,14 @@
+//! The "Upload summary" card: readiness badge, files / target / policy /
+//! storage lines, and the preflight issues and warnings.
+
 use super::validation::UploadPreflight;
 use crate::gui::i18n::tr;
 use crate::gui::theme;
 use crate::gui::widgets::{status_badge, StatusTone};
 use eframe::egui;
 
+/// Draws the summary of `report` (from `validation::evaluate`). Called by
+/// `upload::show`.
 pub(crate) fn show(ui: &mut egui::Ui, report: &UploadPreflight) {
     egui::Frame::NONE
         .fill(ui.visuals().faint_bg_color)
@@ -53,6 +58,7 @@ pub(crate) fn show(ui: &mut egui::Ui, report: &UploadPreflight) {
         });
 }
 
+/// One label/value row of the summary grid.
 fn summary_row(ui: &mut egui::Ui, label: &str, value: &str) {
     ui.label(egui::RichText::new(label).weak());
     ui.label(value);

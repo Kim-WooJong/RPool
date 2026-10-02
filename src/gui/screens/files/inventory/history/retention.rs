@@ -4,17 +4,24 @@
 use crate::drive_history::model::Retention;
 use crate::gui::i18n::{tr, trf};
 
+/// Highest accepted day count (about ten years) for trash and version age limits.
 pub(crate) const MAX_DAYS: u32 = 3_650;
+/// Highest accepted number of versions to keep per file.
 pub(crate) const MAX_VERSIONS: u32 = 1_000;
 
+/// Which retention field is out of range, from `validate`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RetentionError {
+    /// `trash_days` above `MAX_DAYS`.
     TrashDays,
+    /// `keep_versions` above `MAX_VERSIONS`.
     KeepVersions,
+    /// `version_days` above `MAX_DAYS`.
     VersionDays,
 }
 
 impl RetentionError {
+    /// Translated message shown next to the invalid field.
     pub(crate) fn text(self) -> String {
         match self {
             RetentionError::TrashDays => trf(
@@ -33,6 +40,8 @@ impl RetentionError {
     }
 }
 
+/// Checks the limits before `retention set`; returns the values unchanged when
+/// valid. Used by the Storage › retention card.
 pub(crate) fn validate(r: Retention) -> Result<Retention, RetentionError> {
     if r.trash_days > MAX_DAYS {
         Err(RetentionError::TrashDays)

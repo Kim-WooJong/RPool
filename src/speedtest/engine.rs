@@ -7,11 +7,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+/// Shared runtime of one speed test, passed to every phase.
 pub(crate) struct Engine {
+    /// rclone runner used for all test operations.
     pub context: RcloneContext,
     /// Set for `--native-crypt` pools: writes are encrypted by RPool and go
     /// to the crypt remote's base, exactly like `put`.
     pub native: Option<NativeCrypt>,
+    /// Stop flag (Ctrl-C/SIGTERM or GUI Stop): no new work, in-flight work aborts.
     pub cancel: Arc<AtomicBool>,
     /// Set: start no further file, finish the ones in flight (a timed tuning
     /// level at its end, so every started upload also commits).
@@ -19,6 +22,8 @@ pub(crate) struct Engine {
 }
 
 impl Engine {
+    /// Creates the engine; `native_crypt` selects RPool's own encryption path
+    /// (as for `--native-crypt` pools) instead of rclone crypt writes.
     pub(crate) fn new(context: RcloneContext, native_crypt: bool, cancel: Arc<AtomicBool>) -> Self {
         let native = native_crypt.then(|| NativeCrypt::new(context.clone()));
         Self {
@@ -41,9 +46,11 @@ impl Engine {
             drain,
         }
     }
+    /// Whether the drain flag is set (start no further file).
     pub(crate) fn draining(&self) -> bool {
         self.drain.load(Ordering::Acquire)
     }
+    /// Whether the user stopped the test.
     pub(crate) fn cancelled(&self) -> bool {
         self.cancel.load(Ordering::Acquire)
     }

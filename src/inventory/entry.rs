@@ -1,7 +1,11 @@
+//! Building inventory entries from manifests.
+
 use crate::manifest::manifest_remotes;
 use crate::models::{InventoryEntry, Manifest};
 use crate::utils::now_unix;
 
+/// Inventory entry summarising `manifest` (name, size, coding, remotes),
+/// recording where the manifest was read from and when it was indexed.
 pub(crate) fn entry_from_manifest(
     manifest: &Manifest,
     source: impl Into<String>,

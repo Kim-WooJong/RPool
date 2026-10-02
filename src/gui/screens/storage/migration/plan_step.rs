@@ -6,6 +6,8 @@ use crate::gui::task::TaskRunner;
 use crate::gui::theme;
 use eframe::egui;
 
+/// Renders step 1: pool, probe depth, speed options and "Create plan", which
+/// starts planning in the background (inputs disabled while planning).
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, _task: &mut TaskRunner) {
     let planning = state.migration.planning();
     ui.add_enabled_ui(!planning, |ui| {

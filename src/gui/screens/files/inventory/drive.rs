@@ -182,6 +182,9 @@ const VERSIONS_WIDTH: f32 = 340.0;
 /// Below this width the versions panel replaces the explorer.
 const VERSIONS_BESIDE_MIN: f32 = 860.0;
 
+/// The drive explorer of a loaded pool: freshness line, history notices,
+/// listing notes, then the explorer, the versions panel or both side by side
+/// (by window width). Clicked history requests open the history views.
 #[allow(clippy::too_many_arguments)]
 fn drive_view(
     ui: &mut egui::Ui,

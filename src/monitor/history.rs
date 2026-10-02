@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
 use std::path::Path;
 
+/// Seconds per day.
 const DAY: u64 = 86_400;
 
 /// Proleptic Gregorian (year, month, day) of `days` since 1970-01-01.

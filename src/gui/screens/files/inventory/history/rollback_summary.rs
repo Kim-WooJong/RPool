@@ -4,30 +4,39 @@
 
 use crate::drive_history::model::{ChangeAction, RollbackChange, RollbackPlan};
 
+/// Changes of one kind in a rollback preview, with their total size.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Group {
     /// Sorted by path.
     pub(crate) changes: Vec<RollbackChange>,
+    /// Sum of the changes' sizes in bytes (saturating).
     pub(crate) bytes: u64,
 }
 
 impl Group {
+    /// Adds one change and its size.
     fn push(&mut self, change: &RollbackChange) {
         self.bytes = self.bytes.saturating_add(change.size);
         self.changes.push(change.clone());
     }
 }
 
+/// A `RollbackPlan` split into the preview groups; built by
+/// `RollbackSummary::of` in the rollback dialog.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct RollbackSummary {
+    /// Files that get an older version back (`ChangeAction::Revert`).
     pub(crate) reverted: Group,
+    /// Deleted files that come back (`ChangeAction::Undelete`).
     pub(crate) restored: Group,
+    /// Files created after the time, moving to the trash (`ChangeAction::Remove`).
     pub(crate) trashed: Group,
     /// `(path, reason)`, sorted by path.
     pub(crate) skipped: Vec<(String, String)>,
 }
 
 impl RollbackSummary {
+    /// Groups and sorts the plan's changes and copies its skipped paths.
     pub(crate) fn of(plan: &RollbackPlan) -> Self {
         let mut summary = Self::default();
         for change in &plan.changes {

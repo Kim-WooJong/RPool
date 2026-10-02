@@ -11,15 +11,24 @@ use super::model::{Alert, AlertKind, STALL_SECONDS};
 use crate::storage::rclone::traffic::Traffic;
 use std::collections::HashMap;
 
+/// Window (s) in which a new failure raises an `Errors` alert.
 pub(crate) const ERROR_WINDOW_SECONDS: u64 = 60;
+/// Seconds of failures only before an account counts as unreachable.
 pub(crate) const UNREACHABLE_SECONDS: u64 = 60;
 
 #[derive(Default)]
+/// State carried between samples by the mount's monitor thread
+/// (`monitor::sampler`), so alerts can measure durations.
 pub(crate) struct AlertState {
+    /// Total upload bytes at the last sample; a change counts as progress.
     sent_total: Option<u64>,
+    /// Unix time (s) of the last upload progress.
     upload_progress_unix: u64,
+    /// Since when the upload queue has been non-empty; `None` when empty.
     queue_since: Option<u64>,
+    /// Per account: start of its current `Errors` alert.
     errors_since: HashMap<String, u64>,
+    /// Per account: failed operation count at the previous sample.
     failed_seen: HashMap<String, u64>,
 }
 
@@ -103,6 +112,7 @@ impl AlertState {
     }
 }
 
+/// ` (last error: ...)` suffix for alert messages, or empty.
 fn last_error(traffic: &Traffic) -> String {
     traffic
         .last_error

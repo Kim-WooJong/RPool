@@ -23,4 +23,5 @@ pub(crate) fn release_own_console() {
 }
 
 #[cfg(not(windows))]
+/// No-op outside Windows.
 pub(crate) fn release_own_console() {}

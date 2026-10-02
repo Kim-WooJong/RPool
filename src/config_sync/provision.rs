@@ -17,8 +17,11 @@ use std::process::Command;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub(crate) struct EncryptionDefaults {
+    /// Random password entropy in bits (128, 256, 512 or 1024); not the cipher key size.
     pub(crate) entropy_bits: usize,
+    /// rclone crypt `filename_encryption`: `standard`, `obfuscate` or `off`.
     pub(crate) filename_encryption: String,
+    /// rclone crypt `directory_name_encryption`.
     pub(crate) directory_encryption: bool,
     /// How encrypted names are written (`filename_encoding`); see
     /// [`FILENAME_ENCODINGS`].
@@ -45,6 +48,8 @@ pub(crate) const DEFAULT_FILENAME_ENCODING: &str = "base32";
 /// - `base64`: shorter than base32, case-sensitive remotes only.
 pub(crate) const FILENAME_ENCODINGS: [&str; 3] = ["base32", "base32768", "base64"];
 
+/// Errors unless `encoding` is one of [`FILENAME_ENCODINGS`]. Also used when
+/// validating portable configs.
 pub(crate) fn validate_filename_encoding(encoding: &str) -> Result<()> {
     if !FILENAME_ENCODINGS.contains(&encoding) {
         bail!("unsupported filename encoding (base32, base32768 or base64)");
@@ -52,9 +57,12 @@ pub(crate) fn validate_filename_encoding(encoding: &str) -> Result<()> {
     Ok(())
 }
 impl EncryptionDefaults {
+    /// Validates the defaults as if creating a crypt remote with them.
     pub(crate) fn validate(&self) -> Result<()> {
         self.setup("new_crypt".into(), "provider".into()).validate()
     }
+    /// The defaults as `rpool provider ensure-encryption` arguments; used by the GUI
+    /// to launch that command.
     pub(crate) fn ensure_args(&self) -> Vec<std::ffi::OsString> {
         [
             format!("--entropy-bits={}", self.entropy_bits),
@@ -66,6 +74,7 @@ impl EncryptionDefaults {
         .map(Into::into)
         .collect()
     }
+    /// Crypt setup for `name` over `provider` with these defaults.
     fn setup(&self, name: String, provider: String) -> CryptSetup {
         CryptSetup {
             name,
@@ -78,15 +87,23 @@ impl EncryptionDefaults {
     }
 }
 
+/// Everything needed to create one crypt remote (`rpool provider encrypt`).
 pub(crate) struct CryptSetup {
+    /// New crypt remote name (without colon).
     pub(crate) name: String,
+    /// Existing non-crypt remote it wraps.
     pub(crate) provider: String,
+    /// Random password entropy in bits (128, 256, 512 or 1024).
     pub(crate) entropy_bits: usize,
+    /// rclone crypt `filename_encryption`: `standard`, `obfuscate` or `off`.
     pub(crate) filename_encryption: String,
+    /// rclone crypt `directory_name_encryption`.
     pub(crate) directory_encryption: bool,
+    /// rclone crypt `filename_encoding`; one of [`FILENAME_ENCODINGS`].
     pub(crate) filename_encoding: String,
 }
 impl CryptSetup {
+    /// Checks names (distinct, valid), entropy, encryption mode and encoding.
     fn validate(&self) -> Result<()> {
         validate_remote_name(&self.name)?;
         validate_remote_name(&self.provider)?;
@@ -106,6 +123,8 @@ impl CryptSetup {
         Ok(())
     }
 }
+/// rclone command with inherited `RCLONE_*` overrides removed (except the
+/// config path and password) and quiet, non-interactive logging.
 fn clean_command(executable: &Path) -> Command {
     let mut cmd = Command::new(executable);
     for (key, _) in std::env::vars_os() {
@@ -127,6 +146,8 @@ fn clean_command(executable: &Path) -> Command {
     ]);
     cmd
 }
+/// Absolute path of the existing rclone config (`rclone config file`); errors
+/// when no config file exists yet.
 fn config_path(executable: &Path) -> Result<PathBuf> {
     let mut cmd = clean_command(executable);
     cmd.args(["config", "file"]);
@@ -143,6 +164,7 @@ fn config_path(executable: &Path) -> Result<PathBuf> {
     }
     Ok(path)
 }
+/// `bits` of OS randomness as lowercase hex.
 fn random_hex(bits: usize) -> Result<SensitiveText> {
     let mut bytes = SensitiveBytes(vec![0; bits / 8]);
     getrandom::fill(&mut bytes.0).map_err(|_| anyhow!("OS random generator failed"))?;
@@ -150,6 +172,7 @@ fn random_hex(bits: usize) -> Result<SensitiveText> {
         bytes.0.iter().map(|b| format!("{b:02x}")).collect(),
     ))
 }
+/// Obscures `value` with `rclone obscure -`, passing it on stdin (never argv).
 fn obscure(executable: &Path, value: &SensitiveText) -> Result<SensitiveText> {
     let mut cmd = clean_command(executable);
     cmd.args(["obscure", "-"]);
@@ -168,6 +191,8 @@ fn obscure(executable: &Path, value: &SensitiveText) -> Result<SensitiveText> {
     validate_obscured(text)?;
     Ok(SensitiveText::new(text.to_owned()))
 }
+/// Original config bytes plus a new `[name]` crypt section with the given
+/// backing remote and obscured keys. Refuses encrypted configs and existing names.
 fn candidate(
     original: &[u8],
     setup: &CryptSetup,
@@ -202,6 +227,7 @@ fn candidate(
     result.0.extend_from_slice(b"\n");
     Ok(result)
 }
+/// Provisioning lock file, removed on drop.
 struct Lock(PathBuf);
 impl Drop for Lock {
     fn drop(&mut self) {
@@ -218,6 +244,8 @@ fn crypt_backing(setup: &CryptSetup, roots: &RemoteRootStore) -> Result<String> 
     Ok(backing)
 }
 
+/// Creates a new crypt remote with fresh random keys in the active rclone config
+/// and returns its backing location. Called for `rpool provider encrypt`.
 pub(crate) fn create_crypt(executable: &Path, setup: &CryptSetup) -> Result<String> {
     setup.validate()?;
     let config = config_path(executable)?;
@@ -225,6 +253,8 @@ pub(crate) fn create_crypt(executable: &Path, setup: &CryptSetup) -> Result<Stri
     create_crypt_at(executable, setup, &config, &roots)
 }
 
+/// [`create_crypt`] for an explicit config: takes the
+/// `<config>.rpool-provision.lock` lock and refuses symlinked configs.
 fn create_crypt_at(
     executable: &Path,
     setup: &CryptSetup,
@@ -243,6 +273,10 @@ fn create_crypt_at(
     create_crypt_locked(executable, setup, config, roots)
 }
 
+/// Adds the crypt remote under the lock: validates the provider, generates and
+/// obscures keys, stages the new config in the same directory, checks it with
+/// `rclone config dump`, refuses if the live config changed meanwhile, then
+/// atomically replaces it. Returns the backing location.
 fn create_crypt_locked(
     executable: &Path,
     setup: &CryptSetup,
@@ -307,20 +341,28 @@ fn create_crypt_locked(
 /// the provisioning boundary.
 #[derive(Debug, Default, serde::Serialize)]
 pub(crate) struct EncryptionReport {
+    /// Crypt remotes created now.
     pub(crate) created: Vec<String>,
+    /// Base providers that already had a crypt remote.
     pub(crate) existing: Vec<String>,
+    /// Base providers whose crypt remote could not be created.
     pub(crate) failed: Vec<String>,
 }
 
 /// What changing a crypt remote's name encoding found and did.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct NameEncodingChange {
+    /// Crypt remote name.
     pub(crate) remote: String,
+    /// Previous encoding (rclone's default when unset).
     pub(crate) from: String,
+    /// Requested encoding.
     pub(crate) to: String,
     /// Objects already stored under the crypt remote's backing location.
     pub(crate) existing_files: u64,
+    /// Total size of those objects in bytes.
     pub(crate) existing_bytes: u64,
+    /// Whether the config was updated (false when already using `to`).
     pub(crate) changed: bool,
 }
 
@@ -399,6 +441,9 @@ pub(crate) fn set_name_encoding(
     Ok(change)
 }
 
+/// Adds a crypt remote (`<provider>_crypt`, suffixed if taken) for every base
+/// provider that lacks one, using `defaults`; existing keys are never touched.
+/// Called for `rpool provider ensure-encryption` (also launched by the GUI).
 pub(crate) fn ensure_encryption(
     executable: &Path,
     defaults: &EncryptionDefaults,
@@ -409,6 +454,9 @@ pub(crate) fn ensure_encryption(
     ensure_encryption_at(executable, &config, defaults, &roots)
 }
 
+/// [`ensure_encryption`] for an explicit config, under the provisioning lock.
+/// Successful additions are kept when a later one fails; failures are reported
+/// by provider name only.
 fn ensure_encryption_at(
     executable: &Path,
     config: &Path,

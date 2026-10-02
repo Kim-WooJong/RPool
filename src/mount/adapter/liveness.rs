@@ -3,6 +3,8 @@
 use super::*;
 
 #[cfg(unix)]
+/// True if `pid` still exists (signal 0 probe, never delivers a signal). Used by the mount
+/// lease, `preflight_virtual` and `monitor::registry`.
 pub(crate) fn process_alive(pid: u32) -> Result<bool> {
     let pid = i32::try_from(pid).context("invalid recorded mount PID")?;
     if pid <= 0 {

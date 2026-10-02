@@ -1,8 +1,13 @@
+//! Policy fields of a manual one-off upload (shard size, retries, placement,
+//! K+M), edited directly in the saved settings.
+
 use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
 use crate::models::Placement;
 use eframe::egui;
 
+/// Draws the manual policy grid and the resulting parity overhead. Called by
+/// `advanced::show` in manual target mode.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     ui.add_space(8.0);
     ui.label(egui::RichText::new(tr("Manual upload policy")).strong());

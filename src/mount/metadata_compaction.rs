@@ -13,12 +13,17 @@ use crate::prelude::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
+/// User settings of metadata compaction (`metadata-compaction.json` in the app config dir).
 pub(crate) struct Config {
     /// Run compaction from the mount maintenance loop.
     pub auto: bool,
+    /// Checkpoint once this many records are uncovered.
     pub checkpoint_after_records: usize,
+    /// Or once uncovered records total this many MiB.
     pub checkpoint_after_mib: u64,
+    /// Days a mark waits before its records may be deleted.
     pub grace_days: u64,
+    /// Minutes between automatic passes in a mount.
     pub interval_minutes: u64,
 }
 impl Default for Config {
@@ -33,6 +38,7 @@ impl Default for Config {
     }
 }
 impl Config {
+    /// Path of the config file.
     pub(crate) fn path() -> Result<PathBuf> {
         Ok(crate::config::app_config_dir()?.join("metadata-compaction.json"))
     }
@@ -47,6 +53,7 @@ impl Config {
         config.validate()?;
         Ok(config)
     }
+    /// Fails if any threshold, `grace_days` or `interval_minutes` is 0.
     pub(crate) fn validate(&self) -> Result<()> {
         if self.checkpoint_after_records == 0
             || self.checkpoint_after_mib == 0
@@ -57,53 +64,79 @@ impl Config {
         }
         Ok(())
     }
+    /// `grace_days` in seconds.
     pub(crate) fn grace_seconds(&self) -> u64 {
         self.grace_days.saturating_mul(86_400)
     }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+/// Result of one [`compact`] pass (printed by the CLI, logged by the mount).
 pub(crate) struct Report {
+    /// Record family compacted.
     pub family: String,
+    /// Nothing was written or deleted.
     pub dry_run: bool,
     /// Records listed in the record directories (gate excluded).
     pub records: usize,
+    /// Bytes of the listed records.
     pub record_bytes: u64,
+    /// Usable checkpoint heads.
     pub checkpoints: usize,
+    /// Listed heads that are unusable.
     pub broken_checkpoints: usize,
+    /// Distinct chunks of usable heads.
     pub chunks: usize,
+    /// Listed deletion marks.
     pub marks: usize,
+    /// Listed records covered by a checkpoint.
     pub covered: usize,
+    /// Listed records no checkpoint covers.
     pub uncovered: usize,
+    /// Bytes of uncovered records.
     pub uncovered_bytes: u64,
     /// Deletion of covered records is enabled (gate on every replica).
     pub deletion_enabled: bool,
+    /// Creation time of the newest checkpoint.
     pub newest_checkpoint_unix: Option<u64>,
     /// New checkpoint head (written, or the count it would get on a dry run).
     pub checkpoint: Option<String>,
+    /// Records written into the new checkpoint.
     pub checkpointed_records: usize,
+    /// Records named in the new mark.
     pub marked: usize,
+    /// Records due for deletion in this pass.
     pub deletable: usize,
+    /// Records actually deleted.
     pub deleted: usize,
+    /// Superseded checkpoint heads removed.
     pub checkpoints_removed: usize,
+    /// Earliest time a pending mark becomes deletable.
     pub next_deletion_unix: Option<u64>,
+    /// Human-readable reasons something waits or was skipped.
     pub notes: Vec<String>,
 }
 
+/// Inputs of one [`compact`] pass.
 pub(crate) struct Options {
+    /// Current Unix time (explicit for tests).
     pub now: u64,
+    /// Report only; write and delete nothing.
     pub dry_run: bool,
     /// Manual run: checkpoint any uncovered record, ignoring thresholds.
     pub force: bool,
+    /// Thresholds and grace period.
     pub config: Config,
 }
 
+/// Publishes one object to every directory.
 fn publish_all(dirs: &[&dyn ObjectDir], id: &str, bytes: &[u8]) -> Result<()> {
     for dir in dirs {
         dir.publish(id, bytes)?;
     }
     Ok(())
 }
+/// Removes `id` from every directory listing it; `false` if not listed.
 fn remove_listed(dirs: &[&dyn ObjectDir], listing: &Listing, id: &str) -> Result<bool> {
     let Some((_, holders)) = listing.get(id) else {
         return Ok(false);
@@ -122,6 +155,9 @@ pub(crate) fn enable_gate(family: &Family, replicas: &[Replica<'_>]) -> Result<(
     Ok(())
 }
 
+/// One compaction pass: checkpoint uncovered records when thresholds are reached, mark
+/// covered records, and delete marked records past the grace period once the gate and the
+/// mark's checkpoint are on every replica. Called through `metadata_pool`.
 pub(crate) fn compact(
     family: &Family,
     replicas: &[Replica<'_>],

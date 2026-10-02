@@ -1,3 +1,5 @@
+//! Labelled path text fields with a native Browse… dialog (`rfd`).
+
 use crate::gui::i18n::tr;
 use eframe::egui;
 
@@ -6,6 +8,9 @@ fn field_width(ui: &egui::Ui) -> f32 {
     (ui.available_width() - 96.0).clamp(120.0, 640.0)
 }
 
+/// Text field plus a Browse… button that picks an existing file; `filter_name`
+/// and `extensions` add an optional file-type filter. Used by restore, status
+/// and provider screens.
 pub(crate) fn local_file_field(
     ui: &mut egui::Ui,
     label: &str,
@@ -28,6 +33,7 @@ pub(crate) fn local_file_field(
     });
 }
 
+/// Text field plus a Browse… button that picks a save location.
 pub(crate) fn output_file_field(ui: &mut egui::Ui, label: &str, value: &mut String) {
     ui.label(label);
     ui.horizontal(|ui| {

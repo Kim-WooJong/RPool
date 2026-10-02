@@ -6,6 +6,7 @@ use crate::mount::cache_recovery::{RecoveryReport, REPORT};
 use eframe::egui;
 use std::path::{Path, PathBuf};
 
+/// `<workspace>/.rpool/<REPORT>`; `None` unless the workspace path is absolute.
 fn report_path(workspace: &str) -> Option<PathBuf> {
     let workspace = Path::new(workspace.trim());
     workspace
@@ -13,6 +14,8 @@ fn report_path(workspace: &str) -> Option<PathBuf> {
         .then(|| workspace.join(".rpool").join(REPORT))
 }
 
+/// Reads the cache-recovery reports of `workspace`; empty when missing or
+/// unreadable. Called from `MountSession::poll`.
 pub(super) fn load(workspace: &str) -> Vec<RecoveryReport> {
     report_path(workspace)
         .and_then(|path| std::fs::read(path).ok())
@@ -28,6 +31,8 @@ fn dismiss(workspace: &str) -> std::io::Result<()> {
     }
 }
 
+/// Collapsible "Recovered unsaved files" block on the Drive overview, with a
+/// Dismiss button that removes the report file; hidden when there is none.
 pub(super) fn show(ui: &mut egui::Ui, form: &mut MountForm) {
     if form.session.cache_recovery.is_empty() {
         return;

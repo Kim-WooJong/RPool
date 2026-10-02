@@ -1,26 +1,48 @@
 //! Original-preserving projection for coordinator-free event namespaces.
+//!
+//! Concurrent heads of one path are not merged: each live head becomes a
+//! peer-named file and the common original stays at the path, reported as a
+//! [`Conflict`]. Entry point: [`project`], used by the v6 namespace, drive
+//! generations and drive history.
 use super::shared_model::{self, Event, Resolved};
 use crate::prelude::*;
 
+/// One concurrent head (branch) in a [`Conflict`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Branch {
+    /// Event id of the head revision.
     pub revision: String,
+    /// Worker (PC) that wrote it.
     pub worker: String,
+    /// Device id that wrote it.
     pub device: String,
+    /// Peer-named visible path the head was placed at; `None` for a deletion.
     pub file: Option<String>,
 }
+/// Concurrent heads at one path, shown in the GUI's conflict list.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Conflict {
+    /// Path that has more than one head.
     pub path: String,
+    /// Visible paths where the common original(s) were placed.
     pub originals: Vec<String>,
+    /// Every head of the path.
     pub branches: Vec<Branch>,
+    /// True when no common ancestor with content exists (nothing kept at the
+    /// original path).
     pub original_unavailable: bool,
+    /// True when several maximal common ancestors exist (each original gets a
+    /// peer-named path instead of the original path).
     pub ambiguous_original: bool,
 }
+/// Result of [`project`]: visible files plus the conflicts behind them.
 pub(crate) struct Projection {
+    /// Visible path -> resolved revision.
     pub files: BTreeMap<String, Resolved>,
+    /// One entry per path with concurrent heads.
     pub conflicts: Vec<Conflict>,
 }
+/// `id` and all its transitive parents (including `id`).
 fn ancestors(id: &str, events: &BTreeMap<String, Event>) -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     let mut queue = vec![id.to_owned()];
@@ -31,6 +53,8 @@ fn ancestors(id: &str, events: &BTreeMap<String, Event>) -> BTreeSet<String> {
     }
     found
 }
+/// First peer conflict path for `path`/`worker`/`id` (attempts `0..=limit`)
+/// that overlaps neither reserved slots nor already placed files.
 fn allocate(
     path: &str,
     worker: &str,
@@ -51,6 +75,9 @@ fn allocate(
     }
     bail!("cannot allocate peer conflict path")
 }
+/// Projects validated `events` into visible files: a single head stays at
+/// its path; multiple heads become a [`Conflict`] with originals and
+/// peer-named branches. Deleted-only paths are omitted.
 pub(crate) fn project(events: &BTreeMap<String, Event>) -> Result<Projection> {
     // Validate IDs, DAG, portable paths and case/directory collisions first.
     shared_model::reduce(events)?;

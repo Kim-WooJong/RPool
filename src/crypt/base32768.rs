@@ -96,16 +96,25 @@ const SAFE_ALPHABET: [u16; 1028] = [
     0xA640, 0xA6A0, 0xA6C0, 0xA700, 0xA720, 0xA740, 0xA780, 0xA840,
 ];
 
+/// Each alphabet entry starts a block of 2^5 = 32 consecutive code points;
+/// the low 5 bits of a character carry data within its block.
 const BLOCK_BIT: u32 = 5;
+/// Marker in `Tables::decode` for a UTF-16 unit outside every alphabet block.
 const INVALID: u16 = 0xFFFD;
 
+/// Lookup tables derived once from `SAFE_ALPHABET`.
 struct Tables {
+    /// Block starts for 15-bit chunks (indexed by the chunk's high 10 bits).
     encode_a: [u16; 1024],
+    /// Block starts for 7-bit tail characters (indexed by the tail's high 2 bits).
     encode_b: [u16; 4],
+    /// Maps `unit >> 5` to the chunk value of that block (shifted left by 5), or `INVALID`.
     decode: [u16; 2048],
+    /// Smallest 15-bit block start; units below it are 7-bit tail characters.
     splitter: u16,
 }
 
+/// Lazily builds and caches the encode/decode tables.
 fn tables() -> &'static Tables {
     static TABLES: std::sync::OnceLock<Tables> = std::sync::OnceLock::new();
     TABLES.get_or_init(|| {
@@ -129,6 +138,8 @@ fn tables() -> &'static Tables {
     })
 }
 
+/// Encode bytes as base32768 text: 15 bits per character plus an optional
+/// final 7-bit tail character. Called by `NameEncoding::encode`.
 pub(super) fn encode(src: &[u8]) -> String {
     let t = tables();
     let mut out: Vec<u16> = Vec::with_capacity((8 * src.len()).div_ceil(15));
@@ -162,6 +173,8 @@ pub(super) fn encode(src: &[u8]) -> String {
     String::from_utf16(&out).expect("the alphabet is BMP only")
 }
 
+/// Decode base32768 text back to bytes; `None` when a character is outside
+/// the alphabet. Called by `NameEncoding::decode`.
 pub(super) fn decode(text: &str) -> Option<Vec<u8>> {
     let t = tables();
     let mut out = Vec::with_capacity(text.len());

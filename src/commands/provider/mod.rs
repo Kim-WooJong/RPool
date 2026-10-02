@@ -1,4 +1,8 @@
+//! CLI handlers for `rpool provider`. Each child exposes `run`, re-exported
+//! under the subcommand name.
+/// `provider drain` handler.
 mod drain;
+/// `provider health` handler.
 mod health;
 mod keepalive;
 mod limits;

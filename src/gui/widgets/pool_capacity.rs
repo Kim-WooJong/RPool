@@ -1,3 +1,7 @@
+//! Capacity preview for unsaved pool options: a read-only provider quota query
+//! run off the UI thread, plus a summary of the resulting capacity. Used by the
+//! pool editor (`screens::storage::pools`) and the mount capacity panel.
+
 use crate::gui::i18n::{tr, trf};
 use crate::models::PoolDefinition;
 use crate::mount::capacity::CapacityStatus;
@@ -6,11 +10,17 @@ use crate::presentation::format_bytes;
 use eframe::egui;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
+/// Background capacity query tied to the options it was started for.
 #[derive(Debug, Default)]
 pub(crate) struct CapacityPreview {
+    /// Channel of the running query; `None` when idle.
     pending: Option<Receiver<Result<PoolCapacity, String>>>,
+    /// Serialized `(rclone, policy)` of the last query; results for other
+    /// options are discarded.
     signature: String,
+    /// Last completed report.
     report: Option<PoolCapacity>,
+    /// Error of the last query, if it failed.
     error: Option<String>,
 }
 impl CapacityPreview {
@@ -35,6 +45,9 @@ impl CapacityPreview {
         });
     }
 
+    /// Draws the capacity section: collects a finished query, offers a
+    /// Calculate/refresh button and shows totals, per-target quotas and
+    /// exclusions. Changing the options clears the shown result.
     pub(crate) fn show(&mut self, ui: &mut egui::Ui, rclone: &str, policy: &PoolDefinition) {
         let signature = serde_json::to_string(&(rclone, policy)).unwrap_or_default();
         if self.signature != signature {
@@ -128,6 +141,8 @@ impl CapacityPreview {
         }
     }
 }
+/// Shows the pool data capacity after parity (total and remaining), noting
+/// when quotas were partial. Also used by the mount capacity panel.
 pub(crate) fn summary(ui: &mut egui::Ui, c: &CapacityStatus) {
     if c.accounts.is_empty() {
         ui.colored_label(

@@ -4,16 +4,22 @@
 use super::clock::parse_local;
 use crate::gui::i18n::tr;
 
+/// Choice of time in the rollback dialog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum TimePreset {
+    /// One hour before now (the default).
     #[default]
     HourAgo,
+    /// 24 hours before now.
     DayAgo,
+    /// 7 days before now.
     WeekAgo,
+    /// A typed local date and time (`RollbackDialog::custom`).
     Custom,
 }
 
 impl TimePreset {
+    /// Every preset, in the order the dialog shows them.
     pub(crate) const ALL: [TimePreset; 4] = [
         TimePreset::HourAgo,
         TimePreset::DayAgo,
@@ -31,6 +37,7 @@ impl TimePreset {
         }
     }
 
+    /// Translated button label.
     pub(crate) fn label(self) -> &'static str {
         match self {
             TimePreset::HourAgo => tr("1 hour ago"),
@@ -41,6 +48,7 @@ impl TimePreset {
     }
 }
 
+/// Why the chosen rollback time cannot be used, from `resolve`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TimeError {
     /// Not `YYYY-MM-DD HH:MM` or not a real date.
@@ -50,6 +58,7 @@ pub(crate) enum TimeError {
 }
 
 impl TimeError {
+    /// Translated message shown under the time choice.
     pub(crate) fn text(self) -> &'static str {
         match self {
             TimeError::Format => tr("Type the time as YYYY-MM-DD HH:MM, e.g. 2026-09-30 14:00."),

@@ -1,3 +1,6 @@
+//! "Last integrity result" card: overall badge and shard / group counters of
+//! the saved snapshot.
+
 use super::state::IntegrityForm;
 use crate::gui::i18n::relative_age;
 use crate::gui::i18n::{tr, trf};
@@ -5,6 +8,7 @@ use crate::gui::theme;
 use crate::gui::widgets::{status_badge, StatusTone};
 use eframe::egui;
 
+/// Draws the snapshot summary (or "Not checked"). Called by `integrity::show`.
 pub(crate) fn show(ui: &mut egui::Ui, form: &IntegrityForm) {
     ui.label(egui::RichText::new(tr("Last integrity result")).strong());
     ui.add_space(theme::SUBSECTION_GAP);
@@ -70,6 +74,7 @@ pub(crate) fn show(ui: &mut egui::Ui, form: &IntegrityForm) {
     ));
 }
 
+/// One counter: small label above a bold number.
 fn item(ui: &mut egui::Ui, label: &str, value: usize) {
     ui.vertical(|ui| {
         ui.small(egui::RichText::new(label).weak());

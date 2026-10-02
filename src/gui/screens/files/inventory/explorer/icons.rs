@@ -8,6 +8,7 @@ use crate::gui::screens::files::inventory::drive_state::DriveTree;
 use crate::gui::theme;
 use eframe::egui;
 
+/// Size of one tile of the Icons grid, in points.
 const TILE: egui::Vec2 = egui::vec2(112.0, 96.0);
 
 /// Tiles per row at this width (at least one).
@@ -15,6 +16,10 @@ pub(crate) fn columns(width: f32) -> usize {
     ((width / TILE.x).floor() as usize).max(1)
 }
 
+/// Draws the Icons view of `rows` (node ids of `tree`) in a scroll area of at
+/// most `height`, scrolling to the selection when `state.reveal` is set and
+/// recording the scroll position. Returns the action of a clicked tile.
+/// Called by `explorer::show` when the view mode is Icons.
 pub(crate) fn show(
     ui: &mut egui::Ui,
     tree: &DriveTree,
@@ -59,6 +64,8 @@ pub(crate) fn show(
     action
 }
 
+/// One tile: highlight, icon, name wrapped to two lines and context menu.
+/// Double click opens a folder, single click selects.
 fn tile(ui: &mut egui::Ui, tree: &DriveTree, id: usize, selected: bool) -> Option<Action> {
     let node = &tree.nodes[id];
     let (rect, response) = ui.allocate_exact_size(TILE, egui::Sense::click());

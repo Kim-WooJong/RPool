@@ -58,6 +58,7 @@ impl Snapshot {
 
 /// The result of [`Source::refresh`].
 pub(crate) struct Outcome {
+    /// The refreshed snapshot.
     pub snapshot: Snapshot,
     /// The snapshot differs from the one passed in.
     pub changed: bool,
@@ -67,7 +68,9 @@ pub(crate) struct Outcome {
 
 /// Replicas of one generation of a saved pool.
 pub(crate) struct Source {
+    /// One shared transport per replica root.
     stores: Vec<SharedTransport>,
+    /// Checkpoint/record directories of each replica, in `stores` order.
     dirs: Vec<ReplicaDirs>,
 }
 
@@ -87,6 +90,8 @@ pub(crate) fn generation_roots(
 }
 
 impl Source {
+    /// Opens transports and replica directories for every root of the generation `epoch`
+    /// (`None`: the original generation).
     pub(crate) fn open(
         rclone: &str,
         pool: &str,
@@ -120,6 +125,7 @@ impl Source {
     }
 }
 
+/// Fetches listed records not satisfied by `skip`; injectable for tests.
 type Reader<'a> = dyn Fn(&Unseen, &dyn Fn(&str) -> bool) -> Result<BTreeMap<String, Event>> + 'a;
 
 /// [`Source::refresh`] over any replicas; `read` fetches listed records not

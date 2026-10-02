@@ -8,6 +8,8 @@ use crate::prelude::*;
 /// entries; it never refuses a write by itself.
 pub(crate) const DISK_FLOOR: u64 = 1024 * 1024 * 1024;
 
+/// Free bytes available to unprivileged users on the filesystem holding
+/// `path` (`statvfs`); `None` if unknown.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) fn available(path: &Path) -> Option<u64> {
     use std::os::unix::ffi::OsStrExt;
@@ -25,6 +27,8 @@ pub(crate) fn available(path: &Path) -> Option<u64> {
     blocks.checked_mul(size)
 }
 
+/// Free bytes available to the caller on the volume holding `path`
+/// (`GetDiskFreeSpaceExW`); `None` if unknown.
 #[cfg(windows)]
 pub(crate) fn available(path: &Path) -> Option<u64> {
     use std::os::windows::ffi::OsStrExt;

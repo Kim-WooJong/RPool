@@ -3,16 +3,20 @@
 use clap::{Args, Subcommand};
 
 #[derive(Args, Debug)]
+/// Arguments of the `rpool provider limits` group.
 pub(crate) struct LimitsArgs {
     #[command(subcommand)]
+    /// Selected `limits` subcommand.
     pub(crate) command: LimitsCommands,
 }
 
 #[derive(Subcommand, Debug)]
+/// Subcommands of `rpool provider limits`, run by `commands::provider::limits`.
 pub(crate) enum LimitsCommands {
     /// Show each account's upload budget, pause, last activity and limits.
     Show {
         #[arg(long)]
+        /// Print JSON instead of text.
         json: bool,
     },
     /// Override limits of one account (the backing remote, e.g. `gdrive_1`).
@@ -52,6 +56,7 @@ pub(crate) enum LimitsCommands {
     /// Remove every override of one account (backend defaults apply).
     Reset {
         #[arg(long)]
+        /// Account remote name whose overrides are removed.
         remote: String,
     },
     /// Show or set the global bandwidth timetable, e.g.
@@ -62,17 +67,22 @@ pub(crate) enum LimitsCommands {
     },
     /// Days without activity after which a mount keeps its accounts alive
     /// automatically (`0` = never).
-    KeepaliveDays { days: u32 },
+    KeepaliveDays {
+        /// Idle days before a mount keeps its accounts alive; `0` = never.
+        days: u32,
+    },
     /// Simultaneous shard uploads per account for accounts without their
     /// own value (`0` = built-in 16). Dropbox stays at 1 unless set itself.
     DefaultUploads {
         #[arg(value_parser = clap::value_parser!(u32).range(0..=256))]
+        /// Uploads per account (0..=256; `0` = built-in default).
         uploads: u32,
     },
     /// Simultaneous shard downloads per account for accounts without their
     /// own value (`0` = built-in 16).
     DefaultDownloads {
         #[arg(value_parser = clap::value_parser!(u32).range(0..=256))]
+        /// Downloads per account (0..=256; `0` = built-in default).
         downloads: u32,
     },
 }

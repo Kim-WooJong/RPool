@@ -1,3 +1,5 @@
+//! The Library › Uploaded archives table: one selectable row per archive.
+
 use super::data::InventoryRow;
 use super::state::{InventoryForm, InventorySort};
 use crate::gui::i18n::relative_age;
@@ -7,6 +9,9 @@ use crate::gui::widgets::{status_badge, StatusTone};
 use crate::presentation::format_bytes;
 use eframe::egui;
 
+/// Draws `rows` (already filtered and sorted by `InventoryForm::visible_rows`)
+/// as a grid with sortable headers; clicking a name selects that archive.
+/// Called by `inventory::archives`.
 pub(crate) fn show(ui: &mut egui::Ui, rows: &[InventoryRow], form: &mut InventoryForm) {
     if rows.is_empty() {
         ui.add_space(theme::SECTION_GAP);
@@ -50,6 +55,8 @@ pub(crate) fn show(ui: &mut egui::Ui, rows: &[InventoryRow], form: &mut Inventor
         });
 }
 
+/// A clickable column header showing the sort arrow; a click calls
+/// `InventoryForm::set_sort`.
 fn sort_header(ui: &mut egui::Ui, form: &mut InventoryForm, sort: InventorySort, label: &str) {
     let text = form.sort_label(sort, label);
     if ui.link(text).clicked() {

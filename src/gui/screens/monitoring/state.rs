@@ -12,27 +12,40 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+/// How often the list of running mounts is re-read.
 pub(crate) const MOUNTS_EVERY: Duration = Duration::from_secs(2);
+/// How often each mount's live status is re-read (also the app's wake-up
+/// interval while a pool is mounted).
 pub(crate) const STATUS_EVERY: Duration = Duration::from_secs(1);
 
+/// Tab shown on a mount card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum CardTab {
+    /// Live rates and sparklines (the default).
     #[default]
     Live,
+    /// History bar charts.
     History,
 }
 
+/// One running mount on the Monitoring page with its live data and card state.
 pub(crate) struct MountLive {
+    /// Registry entry of the mount.
     pub entry: MountEntry,
+    /// Last status read (`None` until one could be read).
     pub status: Option<NetStatus>,
     /// Live samples per remote address.
     pub rings: BTreeMap<String, Ring>,
+    /// Selected card tab.
     pub tab: CardTab,
+    /// Selected history range.
     pub range: Range,
+    /// History chart of `range` and its loading state.
     pub history: HistoryState,
 }
 
 impl MountLive {
+    /// A mount just found, with empty live data and default tab and range.
     fn new(entry: MountEntry) -> Self {
         Self {
             entry,
@@ -62,10 +75,16 @@ impl MountLive {
     }
 }
 
+/// State of the Monitoring page, in `GuiState::monitoring`; polled by
+/// `monitoring::show` and the app.
 pub(crate) struct MonitoringState {
+    /// Where mounts, statuses and history come from.
     pub source: Arc<dyn MonitorSource>,
+    /// Running mounts, in the order the source lists them.
     pub mounts: Vec<MountLive>,
+    /// When the mount list was last read.
     mounts_read: Option<Instant>,
+    /// When the statuses were last read.
     status_read: Option<Instant>,
 }
 
@@ -81,6 +100,7 @@ impl Default for MonitoringState {
 }
 
 impl MonitoringState {
+    /// State reading from `source`; nothing is read until the first `poll`.
     pub(crate) fn with_source(source: Arc<dyn MonitorSource>) -> Self {
         Self {
             source,

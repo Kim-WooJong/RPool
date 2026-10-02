@@ -10,8 +10,11 @@ use crate::models::secrets::SecretBundle;
 use crate::models::sensitive::SensitiveBytes;
 use anyhow::{anyhow, bail, Result};
 
+/// One config line; the body is zeroed on drop because it may hold secrets.
 struct Line {
+    /// Line content without the line ending.
     body: Vec<u8>,
+    /// Original ending (`\n`, `\r\n`, or empty for a last line without one).
     ending: Vec<u8>,
 }
 
@@ -21,6 +24,7 @@ impl Drop for Line {
     }
 }
 
+/// Splits UTF-8 config bytes (no BOM) into lines, keeping each line ending.
 fn split_lines(raw: &[u8]) -> Result<Vec<Line>> {
     if raw.starts_with(&[0xEF, 0xBB, 0xBF]) || std::str::from_utf8(raw).is_err() {
         bail!("unsupported plaintext rclone config encoding");
@@ -58,6 +62,7 @@ fn split_lines(raw: &[u8]) -> Result<Vec<Line>> {
     Ok(lines)
 }
 
+/// Trims ASCII whitespace on both ends.
 fn trim_ascii(mut bytes: &[u8]) -> &[u8] {
     while bytes.first().is_some_and(u8::is_ascii_whitespace) {
         bytes = &bytes[1..];
@@ -68,6 +73,7 @@ fn trim_ascii(mut bytes: &[u8]) -> &[u8] {
     bytes
 }
 
+/// Section name of a `[name]` line, if the line is one.
 fn section_name(body: &[u8]) -> Option<&[u8]> {
     let line = trim_ascii(body);
     if line.len() < 3 || line.first() != Some(&b'[') || line.last() != Some(&b']') {
@@ -77,6 +83,7 @@ fn section_name(body: &[u8]) -> Option<&[u8]> {
     (!name.is_empty()).then_some(name)
 }
 
+/// `key = value` pair of a setting line (comments and sections excluded).
 fn key_value(body: &[u8]) -> Option<(&[u8], &[u8])> {
     let line = trim_ascii(body);
     if line.is_empty() || matches!(line.first(), Some(b'#' | b';' | b'[')) {
@@ -90,10 +97,12 @@ fn key_value(body: &[u8]) -> Option<(&[u8], &[u8])> {
     Some((key, trim_ascii(&line[eq + 1..])))
 }
 
+/// Case-insensitive key comparison, as rclone's INI parser does.
 fn key_is(key: &[u8], expected: &[u8]) -> bool {
     key.eq_ignore_ascii_case(expected)
 }
 
+/// Line ending used for inserted lines: the first ending found, else `\n`.
 fn default_ending(lines: &[Line]) -> Vec<u8> {
     lines
         .iter()
@@ -102,6 +111,8 @@ fn default_ending(lines: &[Line]) -> Vec<u8> {
         .unwrap_or_else(|| b"\n".to_vec())
 }
 
+/// Line range `[start, end)` of the single section named `remote`; errors if
+/// missing or duplicated.
 fn find_section(lines: &[Line], remote: &str) -> Result<(usize, usize)> {
     let expected = remote.as_bytes();
     let mut found = None;
@@ -124,6 +135,7 @@ fn find_section(lines: &[Line], remote: &str) -> Result<(usize, usize)> {
     Ok((start, end))
 }
 
+/// Index of the only `key` line inside a section; errors on duplicates.
 fn find_key(lines: &[Line], start: usize, end: usize, key: &[u8]) -> Result<Option<usize>> {
     let mut found = None;
     for (index, line) in lines.iter().enumerate().take(end).skip(start + 1) {
@@ -141,6 +153,7 @@ fn find_key(lines: &[Line], start: usize, end: usize, key: &[u8]) -> Result<Opti
     Ok(found)
 }
 
+/// Builds a `key = value` line body.
 fn secret_line(key: &[u8], value: &[u8]) -> Vec<u8> {
     let mut output = Vec::with_capacity(key.len() + value.len() + 3);
     output.extend_from_slice(key);
@@ -149,6 +162,7 @@ fn secret_line(key: &[u8], value: &[u8]) -> Vec<u8> {
     output
 }
 
+/// Inserts a line at `index`, first adding an ending to a final line that lacks one.
 fn insert_line(lines: &mut Vec<Line>, index: usize, body: Vec<u8>, ending: &[u8]) {
     if index == lines.len() && index > 0 && lines[index - 1].ending.is_empty() {
         lines[index - 1].ending.extend_from_slice(ending);
@@ -167,6 +181,8 @@ fn insert_line(lines: &mut Vec<Line>, index: usize, body: Vec<u8>, ending: &[u8]
     }
 }
 
+/// Sets, inserts or (for `None`) removes `key` in the section of `remote`,
+/// zeroing the replaced value.
 fn set_secret(
     lines: &mut Vec<Line>,
     remote: &str,
@@ -193,6 +209,7 @@ fn set_secret(
     Ok(())
 }
 
+/// Joins the lines back into config bytes.
 fn encode(lines: Vec<Line>) -> SensitiveBytes {
     let capacity = lines
         .iter()
@@ -207,6 +224,9 @@ fn encode(lines: Vec<Line>) -> SensitiveBytes {
     SensitiveBytes(output)
 }
 
+/// Returns `original` with each bundle remote's `password`/`password2` set to the
+/// obscured values, then verifies the result. Refuses an encrypted config.
+/// Used by the crypt restore driver for plaintext rclone.conf files.
 pub(super) fn apply_crypt_secrets(
     original: &[u8],
     secrets: &SecretBundle,
@@ -238,6 +258,8 @@ pub(super) fn apply_crypt_secrets(
     Ok(output)
 }
 
+/// Checks that each bundle remote's `password` and `password2` in `raw` equal
+/// the expected obscured values (an empty `password2` counts as absent).
 pub(super) fn verify_crypt_secrets(raw: &[u8], secrets: &SecretBundle) -> Result<()> {
     let lines = split_lines(raw)?;
     for (remote, secret) in &secrets.rclone.crypt {

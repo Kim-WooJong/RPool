@@ -16,7 +16,9 @@ use crate::migration::drive_model::DriveAdoption;
 use crate::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Result of a successful [`switch`], reported by `pool migrate adopt --workspace`.
 pub(crate) struct Switched {
+    /// Sibling path the old workspace was renamed to (`.<name>.migration-backup-…`).
     pub backup: PathBuf,
     /// Human-readable changes that were only in the old workspace.
     pub local_only: Vec<String>,

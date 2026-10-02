@@ -1,3 +1,8 @@
+//! Mounted virtual drive and everything behind it: pool-sync metadata (v6
+//! events, checkpoints, compaction), the shard cache, local spool, upload
+//! workers, OS frontends (WinFsp / FUSE / macFUSE / WebDAV), pool transitions
+//! and account recovery. Entry point: `run` for `rpool mount`.
+
 mod account_recovery;
 pub(crate) mod adapter;
 pub(crate) mod adoption_fence;
@@ -44,6 +49,8 @@ mod publisher;
 mod shared_transport;
 mod upload;
 mod upload_worker;
+/// The mounted drive itself (`VirtualDrive`): open/read/write/rename,
+/// upload queue and rounds, pool sync, capacity and recovery.
 pub(crate) mod virtual_drive;
 
 use anyhow::Result;

@@ -6,6 +6,8 @@ use crate::gui::i18n::tr;
 use crate::gui::screens::files::inventory::drive_state::DriveNode;
 use eframe::egui;
 
+/// Attaches the right-click menu to an entry's `response`: a right click selects
+/// the entry, the menu items set `action`. Called by `list::row` and `icons::tile`.
 pub(crate) fn menu(response: &egui::Response, node: &DriveNode, action: &mut Option<Action>) {
     if response.secondary_clicked() {
         *action = Some(Action::Select(node.path.clone()));

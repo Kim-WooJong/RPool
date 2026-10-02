@@ -29,6 +29,7 @@ pub(crate) fn publish_plan(journal: &Journal, plan: &DrivePlan) -> Result<()> {
     Ok(())
 }
 
+/// Fails when a document names another migration than `journal`'s.
 fn check_owner(journal: &Journal, migration_id: &str) -> Result<()> {
     if journal.migration_id() != migration_id {
         bail!("drive document belongs to another migration");
@@ -77,6 +78,7 @@ fn earliest<T: serde::de::DeserializeOwned>(
     Ok(copies.into_iter().next())
 }
 
+/// The earliest valid freeze of this migration, if any.
 pub(crate) fn load_freeze(journal: &Journal) -> Result<Option<DriveFreeze>> {
     earliest(
         journal,
@@ -86,6 +88,7 @@ pub(crate) fn load_freeze(journal: &Journal) -> Result<Option<DriveFreeze>> {
     )
 }
 
+/// The earliest valid adoption marker of this migration, if any.
 pub(crate) fn load_adoption(journal: &Journal) -> Result<Option<DriveAdoption>> {
     earliest(
         journal,
@@ -126,6 +129,9 @@ pub(crate) fn known(rclone: &str, pool: &str) -> Result<Known> {
     known_in(pool, cloud, cache)
 }
 
+/// [`known`] over explicit stores (tests inject in-memory stores). Reads each
+/// migration in parallel; a freeze counts only while the migration is neither
+/// adopted nor abandoned.
 pub(crate) fn known_in(
     pool: &str,
     cloud: Vec<Arc<dyn JournalStore>>,

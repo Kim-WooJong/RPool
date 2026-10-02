@@ -1,3 +1,5 @@
+//! Rebuilding the inventory from manifest files under a directory.
+
 use crate::inventory::{entry_from_manifest, save_inventory};
 use crate::manifest::validate_manifest;
 use crate::models::{InventoryStore, Manifest};
@@ -5,6 +7,9 @@ use anyhow::{bail, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Replaces the inventory with every valid manifest found recursively under
+/// `root`; returns the new store and the number of unreadable candidates.
+/// Used by `inventory rebuild`.
 pub(crate) fn rebuild_from_directory(root: &Path) -> Result<(InventoryStore, usize)> {
     if !root.is_dir() {
         bail!(
@@ -38,6 +43,7 @@ pub(crate) fn rebuild_from_directory(root: &Path) -> Result<(InventoryStore, usi
     Ok((store, skipped))
 }
 
+/// Recursively collects manifest-looking files under `root`.
 fn collect_candidates(root: &Path, output: &mut Vec<PathBuf>) -> Result<()> {
     for entry in fs::read_dir(root)? {
         let entry = entry?;
@@ -52,6 +58,7 @@ fn collect_candidates(root: &Path, output: &mut Vec<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+/// File names treated as manifests: `*.rpool.json` and `manifest.json`.
 fn is_manifest_candidate(path: &Path) -> bool {
     let name = path
         .file_name()

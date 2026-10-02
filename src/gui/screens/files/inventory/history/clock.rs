@@ -3,6 +3,7 @@
 
 use crate::monitor::history::{civil_from_days, days_from_civil};
 
+/// Seconds per day.
 const DAY: i64 = 86_400;
 
 /// The local offset in seconds east of UTC (0 when unknown).

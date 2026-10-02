@@ -1,3 +1,5 @@
+//! Rows of the archive inventory table: each inventory entry with the saved
+//! pool it belongs to (matched by remotes and coding).
 use crate::gui::i18n::tr;
 use crate::inventory::load_inventory;
 use crate::models::{InventoryEntry, PoolDefinition};
@@ -10,12 +12,16 @@ use std::collections::{BTreeMap, BTreeSet};
 const MULTIPLE_POOLS: &str = "Multiple";
 
 #[derive(Debug, Clone)]
+/// One inventory entry plus its matched pool.
 pub(crate) struct InventoryRow {
+    /// The inventory record.
     pub(crate) entry: InventoryEntry,
+    /// Matching pool name, `MULTIPLE_POOLS` when several match, `None` when none.
     pub(crate) pool: Option<String>,
 }
 
 impl InventoryRow {
+    /// Pool column text: name, "Multiple" or a dash.
     pub(crate) fn pool_label(&self) -> &str {
         match self.pool.as_deref() {
             None => "—",
@@ -24,6 +30,7 @@ impl InventoryRow {
         }
     }
 
+    /// Coding column text (`data+parity`, or "No EC").
     pub(crate) fn coding_label(&self) -> String {
         self.entry
             .coding
@@ -33,6 +40,8 @@ impl InventoryRow {
     }
 }
 
+/// Load the inventory and match each entry to a saved pool; a missing pool
+/// store just leaves pools unmatched. Called by the inventory state loader.
 pub(crate) fn load_rows() -> Result<Vec<InventoryRow>> {
     let inventory = load_inventory()?;
     let pools = load_pool_store()
@@ -49,6 +58,7 @@ pub(crate) fn load_rows() -> Result<Vec<InventoryRow>> {
         .collect())
 }
 
+/// The pool whose resolved remotes and coding equal the entry's.
 fn match_pool(entry: &InventoryEntry, pools: &BTreeMap<String, PoolDefinition>) -> Option<String> {
     let entry_remotes = normalized_set(entry.remotes.iter().cloned());
     let mut matches = Vec::new();
@@ -71,6 +81,7 @@ fn match_pool(entry: &InventoryEntry, pools: &BTreeMap<String, PoolDefinition>) 
     }
 }
 
+/// Same data/parity counts; an entry without coding matches a pool without parity.
 fn coding_matches(entry: &InventoryEntry, pool: &PoolDefinition) -> bool {
     match &entry.coding {
         Some(coding) => {
@@ -80,6 +91,7 @@ fn coding_matches(entry: &InventoryEntry, pool: &PoolDefinition) -> bool {
     }
 }
 
+/// Trimmed remote strings without trailing `/`, as a set.
 fn normalized_set(values: impl IntoIterator<Item = String>) -> BTreeSet<String> {
     values
         .into_iter()

@@ -12,6 +12,8 @@ fn inputs(state: &GuiState) -> impl PartialEq {
     (f.pool.clone(), f.workspace.clone(), f.manifests.clone())
 }
 
+/// Drive page: tab strip and the selected tab; clears capacity and status
+/// when pool inputs were edited (not when switching pools).
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let before = inputs(state);
     let before_pool = state.mount.pool.clone();
@@ -39,6 +41,8 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     }
 }
 
+/// Drive tab: sessions strip, status bar, layout notice, connection and
+/// capacity cards, cache recovery, conflicts and log.
 fn overview(ui: &mut egui::Ui, state: &mut GuiState) {
     super::sessions_strip::show(ui, state);
     super::status_bar::show(ui, state);

@@ -1,6 +1,15 @@
+//! Shard-to-remote assignment for every placement policy: round robin,
+//! free-ratio / proportional / capacity-first (quota-driven, see
+//! `free_ratio`) and Resilient (quota plus outage-group parity bound), and the
+//! minimal-move slot assignment used when archives are relocated. Used by
+//! upload planning, capacity estimates, speed-test estimates and migration.
+
 use crate::placement::plan_free_ratio;
 use crate::prelude::*;
 
+/// Target remote index (into `remotes`) for each shard of `specs` under
+/// `placement`; quota-based policies query live account budgets first.
+/// Called by `planning::build_upload_plan` and speed-test estimates.
 pub(crate) fn assign_remotes(
     rclone: &str,
     remotes: &[String],
@@ -43,6 +52,8 @@ pub(crate) fn assign_remotes(
     }
 }
 
+/// Declared outage group of the backing account of `remote` (required by
+/// Resilient placement).
 fn declared_failure(
     catalog: &crate::storage::admin::RemoteCatalog,
     remote: &str,
@@ -54,6 +65,9 @@ fn declared_failure(
         .context("Resilient placement requires a declared outage group for every backing remote")
 }
 
+/// Assigns `specs` to the targets of a budget snapshot under `placement`
+/// and checks that no capacity domain's free budget is exceeded. Used by
+/// upload planning, capacity reporting and migration estimates.
 pub(crate) fn assign_with_budget(
     snapshot: &crate::storage::admin::budget::BudgetSnapshot,
     specs: &[PhysicalSpec],
@@ -101,13 +115,20 @@ fn resilient_allocate(
         .or_else(|_| resilient_allocate_inner(snapshot, specs, parity, ResilientChoice::Balanced))
 }
 
+/// Which candidate strategy one Resilient attempt uses (tried in order).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ResilientChoice {
+    /// Two random quota domains, the less utilized after placement wins.
     Sampled,
+    /// The least utilized eligible target overall.
     Weighted,
+    /// Fewest shards of the group in the outage group, then most free budget.
     Balanced,
 }
 
+/// Orders two targets by projected utilization after adding `spec`
+/// (`used / total`), then by shards of the group in the outage group, free
+/// budget and index.
 #[allow(clippy::too_many_arguments)] // sort comparator over borrowed placement state; a context struct would only add indirection
 fn projected_utilization_cmp(
     a: usize,
@@ -145,6 +166,7 @@ fn projected_utilization_cmp(
         .then_with(|| a.cmp(&b))
 }
 
+/// SplitMix64 step: advances `state` and returns the next pseudo-random value.
 fn next_choice(state: &mut u64) -> u64 {
     *state = state.wrapping_add(0x9e3779b97f4a7c15);
     let mut value = *state;
@@ -153,6 +175,8 @@ fn next_choice(state: &mut u64) -> u64 {
     value ^ (value >> 31)
 }
 
+/// FNV-1a seed over the targets' remotes, domains and budgets, so the same
+/// snapshot always yields the same candidate stream.
 fn choice_seed(snapshot: &crate::storage::admin::budget::BudgetSnapshot) -> u64 {
     // Stable across processes and file sizes: capacity binary search must see
     // the same candidate stream for the common prefix of shard groups.
@@ -178,6 +202,9 @@ fn choice_seed(snapshot: &crate::storage::admin::budget::BudgetSnapshot) -> u64 
     seed
 }
 
+/// One Resilient placement pass with `choice`: shards in group order,
+/// largest first, each to an eligible target (fits the budget and keeps at
+/// most `parity` shards of its group per outage group).
 fn resilient_allocate_inner(
     snapshot: &crate::storage::admin::budget::BudgetSnapshot,
     specs: &[PhysicalSpec],
@@ -288,6 +315,8 @@ fn resilient_allocate_inner(
     Ok(result)
 }
 
+/// Round robin that spreads each coding group evenly over `targets`
+/// (fewest shards of the group first). Errors with no targets.
 pub(crate) fn balanced_assign(targets: &[String], specs: &[PhysicalSpec]) -> Result<Vec<usize>> {
     if targets.is_empty() {
         bail!("placement requires a target");
@@ -308,6 +337,9 @@ pub(crate) fn balanced_assign(targets: &[String], specs: &[PhysicalSpec]) -> Res
     Ok(result)
 }
 
+/// Checks a Resilient upload plan against the declared outage groups of
+/// its shard remotes (no-op for other placements). Called by `put` and
+/// mount uploads before writing.
 pub(crate) fn validate_resilient_plan(rclone: &str, plan: &UploadPlan) -> Result<()> {
     use crate::storage::admin::{BackendAdmin, RcloneAdmin};
     if plan.placement != Placement::Resilient {
@@ -317,6 +349,8 @@ pub(crate) fn validate_resilient_plan(rclone: &str, plan: &UploadPlan) -> Result
     validate_resilient_catalog(&catalog, plan)
 }
 
+/// [`ensure_parity_bound`] over the plan's shards and their declared
+/// outage groups.
 fn validate_resilient_catalog(
     catalog: &crate::storage::admin::RemoteCatalog,
     plan: &UploadPlan,
@@ -346,8 +380,11 @@ fn validate_resilient_catalog(
 /// size, and the target index it already sits on (`None` when it must move).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ReplacementSlot {
+    /// Coding group of the shard.
     pub(crate) group: u32,
+    /// Shard size in bytes.
     pub(crate) size: u64,
+    /// Target index it is on now; `None` when its target is gone.
     pub(crate) current: Option<usize>,
 }
 
@@ -456,6 +493,8 @@ pub(crate) fn assign_replacement_slots(
         .collect())
 }
 
+/// Fails if any coding group has more than `parity` shards on one target
+/// outage group (empty files with no parity are exempt).
 fn ensure_parity_bound(
     targets: &[String],
     specs: &[PhysicalSpec],

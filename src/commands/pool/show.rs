@@ -1,6 +1,8 @@
+//! `rpool pool show`: prints one saved pool definition.
 use crate::pool::load_pool_store;
 use anyhow::Result;
 
+/// Prints pool `name` as JSON or as `key=value` lines; errors if it does not exist.
 pub(crate) fn run(name: &str, json: bool) -> Result<()> {
     let store = load_pool_store()?;
     let pool = store

@@ -4,15 +4,20 @@ use crate::gui::state::GuiState;
 use crate::gui::widgets::StatusTone;
 use crate::models::QuotaReport;
 
+/// Data of one provider card; built by `cards`, drawn by `card::show`.
 #[derive(Debug, Clone)]
 pub(crate) struct ProviderCard<'a> {
+    /// Backing remote name.
     pub(crate) name: &'a str,
     /// Backend type, e.g. `drive` or `dropbox`.
     pub(crate) kind: Option<&'a str>,
     /// Crypt remotes that store their data in this provider.
     pub(crate) crypts: &'a [String],
+    /// Last usage report of the account, if any.
     pub(crate) report: Option<&'a QuotaReport>,
+    /// Encryption status text (`encryption_status`).
     pub(crate) status: &'static str,
+    /// Tone of the status badge.
     pub(crate) tone: StatusTone,
     /// Encryption is missing: offer manual setup for this provider.
     pub(crate) missing: bool,

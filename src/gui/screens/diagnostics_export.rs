@@ -7,8 +7,12 @@ use eframe::egui;
 use std::ffi::OsString;
 use std::path::Path;
 
+/// Task name of the export job in the task console.
 pub(crate) const TASK: &str = "Export diagnostics";
 
+/// Draw the diagnostics card: a save dialog, then `rpool doctor --bundle`
+/// as a background task; the last notice is kept in egui temp data.
+/// Called by `screens::settings` (General section).
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     let notice_id = egui::Id::new("diagnostics-export-notice");
     let mut notice: Option<String> = ui.ctx().data_mut(|data| data.get_temp(notice_id));

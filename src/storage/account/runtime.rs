@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+/// How long cached settings are reused before `account_limits.json` is re-read.
 const SETTINGS_REFRESH: Duration = Duration::from_secs(30);
 /// Seconds between two persisted activity records of one remote.
 const ACTIVITY_PERSIST: u64 = 600;
@@ -22,13 +23,19 @@ const ACTIVITY_PERSIST: u64 = 600;
 /// next upload attempt to that account.
 pub(crate) const PROVIDER_HOLD_SECONDS: u64 = 3600;
 
+/// Parsed account limits of this process, cached by [`settings`] and used by
+/// the rclone pacer, bandwidth schedule, keep-alive and speed-test tuning.
 pub(crate) struct Settings {
+    /// The raw limits store these settings were built from.
     pub store: LimitsStore,
+    /// Parsed global timetable; `None` = no global limit (or unparsable text).
     global: Option<Timetable>,
+    /// Parsed per-account timetables keyed by account name.
     accounts: HashMap<String, Timetable>,
 }
 
 impl Settings {
+    /// Parses the timetables of `store`; invalid ones are skipped (treated as unlimited).
     pub(crate) fn from_store(store: LimitsStore) -> Self {
         let global = store
             .bandwidth
@@ -55,11 +62,14 @@ impl Settings {
             .values()
             .any(|limits| limits.bwlimit.is_some() || limits.tpslimit.is_some())
     }
+    /// Global rate at unix time `now` (local offset `offset` seconds) and the
+    /// time of the next change. Used by `rclone::pacer` and `rclone::bwlimit_schedule`.
     pub(crate) fn global_rate(&self, now: u64, offset: i64) -> (Rate, Option<u64>) {
         self.global
             .as_ref()
             .map_or((Rate::OFF, None), |table| table.at_unix(now, offset))
     }
+    /// This account's own rate at `now`; unlimited without an own timetable.
     pub(crate) fn account_rate(&self, account: &str, now: u64, offset: i64) -> Rate {
         self.accounts
             .get(account)
@@ -99,6 +109,7 @@ impl Settings {
                 .map(|n| n as usize)
         })
     }
+    /// This account's own rclone `--tpslimit`, if set.
     pub(crate) fn tpslimit(&self, account: &str) -> Option<f64> {
         self.store
             .account(account)
@@ -145,6 +156,7 @@ pub(crate) fn ledger() -> Option<Ledger> {
         .clone()
 }
 
+/// Prints the first ledger error of this process to stderr; later ones are silent.
 fn report_once(error: &anyhow::Error) {
     static REPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if !REPORTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
@@ -157,13 +169,17 @@ fn report_once(error: &anyhow::Error) {
 /// One paused remote, for monitoring.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Pause {
+    /// Account (bottom remote) whose budget is paused.
     pub account: String,
     /// When this process first saw the pause.
     pub since: u64,
+    /// Unix time when uploads may resume.
     pub until: u64,
+    /// Local budget or provider-reported limit.
     pub reason: PauseReason,
 }
 
+/// Process-wide table of paused remotes, keyed by rclone remote name.
 fn paused() -> &'static Mutex<HashMap<String, Pause>> {
     static PAUSED: OnceLock<Mutex<HashMap<String, Pause>>> = OnceLock::new();
     PAUSED.get_or_init(Default::default)
@@ -178,6 +194,8 @@ pub(crate) fn paused_remotes(now: u64) -> Vec<(String, Pause)> {
     out
 }
 
+/// Stores (`Some`) or clears (`None`) the pause of `remote`, keeping the
+/// earliest `since` while an earlier pause is still active.
 fn note_pause(remote: &str, pause: Option<Pause>) {
     let mut table = paused().lock().unwrap_or_else(|p| p.into_inner());
     match pause {
@@ -287,6 +305,8 @@ pub(crate) fn record_provider_limit_with(
     Ok(until)
 }
 
+/// Records a provider-reported upload limit for `account` in the shared
+/// ledger (or only in-process if the ledger fails) and marks `remote` paused.
 pub(crate) fn record_provider_limit(remote: &str, account: &str) {
     let now = crate::utils::now_unix();
     let until = match ledger() {

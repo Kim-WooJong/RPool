@@ -6,11 +6,14 @@
 //! folder without a window and exits. Arguments are passed on before `gui`
 //! (e.g. `--rclone PATH`). Elsewhere it simply starts `rpool gui`.
 #![cfg_attr(windows, windows_subsystem = "windows")]
+#![warn(clippy::missing_docs_in_private_items)]
 
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 
+/// Path of the `rpool` executable in this program's folder; errors when it is
+/// missing.
 fn rpool_next_to_me() -> Result<PathBuf, String> {
     let me = std::env::current_exe().map_err(|e| format!("cannot find this program: {e}"))?;
     let dir = me
@@ -27,6 +30,7 @@ fn rpool_next_to_me() -> Result<PathBuf, String> {
     }
 }
 
+/// Spawns `rpool <args…> gui` without a console window and returns at once.
 fn start() -> Result<(), String> {
     let mut command = Command::new(rpool_next_to_me()?);
     command
@@ -43,6 +47,7 @@ fn start() -> Result<(), String> {
         .map_err(|e| format!("cannot start RPool: {e}"))
 }
 
+/// Shows a launch error in a Windows message box (there is no console).
 #[cfg(windows)]
 fn show_error(text: &str) {
     #[link(name = "user32")]
@@ -57,6 +62,7 @@ fn show_error(text: &str) {
     }
 }
 
+/// Prints a launch error to stderr.
 #[cfg(not(windows))]
 fn show_error(text: &str) {
     eprintln!("{text}");

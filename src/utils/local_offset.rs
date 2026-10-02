@@ -5,6 +5,7 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+/// How long a queried offset is reused before asking the OS again (catches DST changes).
 const REFRESH: Duration = Duration::from_secs(3600);
 
 /// Seconds east of UTC (`+0900` = 32400). `None` when unknown.
@@ -22,6 +23,7 @@ pub(crate) fn local_offset_seconds() -> Option<i64> {
 }
 
 #[cfg(unix)]
+/// Asks `date +%z` for the current offset.
 fn query() -> Option<i64> {
     let output = std::process::Command::new("date")
         .arg("+%z")
@@ -33,6 +35,7 @@ fn query() -> Option<i64> {
 }
 
 #[cfg(windows)]
+/// Asks PowerShell for the current offset in minutes (accepted within ±18 h).
 fn query() -> Option<i64> {
     use std::os::windows::process::CommandExt;
     let output = std::process::Command::new("powershell")
@@ -56,6 +59,7 @@ fn query() -> Option<i64> {
 }
 
 #[cfg(not(any(unix, windows)))]
+/// No OS query on other platforms: offset unknown.
 fn query() -> Option<i64> {
     None
 }

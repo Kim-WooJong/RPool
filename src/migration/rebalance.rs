@@ -14,18 +14,27 @@ use crate::storage::admin::budget::TargetBudget;
 pub(crate) const MIN_GAP: f64 = 0.05;
 
 #[derive(Debug)]
+/// One target remote as the rebalancer sees it.
 struct Account {
+    /// Target remote (`name:path`) shards may move to.
     remote: String,
     /// Shard-count key: outage group (Resilient) or backing account.
     key: String,
+    /// Quota domain whose free bytes are shared by remotes on one account.
     capacity_domain: String,
+    /// Account size in bytes (at least 1), the free-ratio denominator.
     total: u64,
 }
 
 #[derive(Debug)]
+/// Shared rebalance state for one plan: built once by the planner when
+/// `PlanOptions::rebalance` is on, then asked per archive via `plan`.
 pub(crate) struct Rebalancer {
+    /// Target pool placement; decides the per-key shard cap.
     placement: Placement,
+    /// Target remotes in pool order.
     accounts: Vec<Account>,
+    /// Free bytes left per capacity domain, debited as moves are chosen.
     budgets: Mutex<BTreeMap<String, u64>>,
 }
 

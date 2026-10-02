@@ -1,3 +1,7 @@
+//! `rpool get`: restores a file from its manifest. Plain (no parity) archives
+//! download data shards directly; erasure-coded archives use the hedged
+//! reader in `get_hedged.rs`. Progress is kept in a `<output>.rpool.resume.json`
+//! state file so an interrupted restore resumes.
 use crate::journal::{persist_restore_state, validate_restore_state};
 use crate::manifest::{
     data_shards, load_manifest_with_storage, manifest_fingerprint, validate_manifest,
@@ -13,6 +17,8 @@ use crate::utils::{append_suffix, ensure_positive, now_unix, read_json};
 #[path = "get_tests.rs"]
 mod tests;
 
+/// Restores `manifest_src` (local path or rclone path) to `output` through rclone.
+/// Called by `application::dispatch` for `rpool get`.
 pub(crate) fn get(
     rclone: &str,
     manifest_src: &str,
@@ -29,6 +35,9 @@ pub(crate) fn get(
     )
 }
 
+/// Same as [`get`] with a caller-supplied [`StorageReader`]; validates the manifest
+/// and picks the plain or erasure path. Also used by the mount shard cache and
+/// `storage::reader` to fetch metadata archives.
 pub(crate) fn get_with_storage(
     reader: &StorageReader,
     manifest_src: &str,
@@ -48,6 +57,8 @@ pub(crate) fn get_with_storage(
     }
 }
 
+/// Downloads every data shard not yet recorded in the resume state straight
+/// into `output`, then deletes the state file. Used for archives without parity.
 pub(crate) fn get_plain(
     reader: &StorageReader,
     manifest: &Manifest,
@@ -94,6 +105,8 @@ pub(crate) fn get_plain(
     Ok(())
 }
 
+/// Restores an archive with parity through the hedged reader, which
+/// reconstructs groups from parity when data shards are missing or slow.
 pub(crate) fn get_erasure(
     reader: &StorageReader,
     manifest: &Manifest,
@@ -116,6 +129,10 @@ pub(crate) fn get_erasure(
 #[path = "get_hedged.rs"]
 mod hedged;
 
+/// Creates `output` (pre-sized to the original length) and its resume state,
+/// or reuses an existing state whose manifest fingerprint and output length
+/// match after re-validating its completed shards. Returns the state file path.
+/// Shared by [`get_plain`] and the hedged restore.
 pub(crate) fn prepare_output_and_state(manifest: &Manifest, output: &Path) -> Result<PathBuf> {
     if let Some(parent) = output.parent() {
         if !parent.as_os_str().is_empty() {

@@ -16,6 +16,7 @@ use crate::storage::traits::OperationContext;
 /// Replacement id, its manifest, and the optional full readback.
 type Check = (String, Result<Manifest, String>, Option<Result<(), String>>);
 
+/// rclone remote name of a root (`name:path` -> `name`).
 fn remote_name(root: &str) -> &str {
     root.split_once(':').map_or(root, |(name, _)| name)
 }
@@ -98,6 +99,10 @@ fn current_original(
     }
 }
 
+/// Builds the fresh [`World`] for one cleanup run: lists the pool's roots
+/// (plus removed ones with `include_removed`), reads switched originals and
+/// replacements (optionally full readback) and collects references. Called
+/// via `LiveIo::observe`.
 pub(crate) fn observe(
     rclone: &str,
     pool: &str,

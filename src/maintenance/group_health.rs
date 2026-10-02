@@ -1,6 +1,12 @@
+//! Per-coding-group health from shard probes.
+
 use crate::manifest::{coding_group_count, data_shards};
 use crate::prelude::*;
 
+/// Classifies each coding group as `healthy`, `recoverable`, `unrecoverable`
+/// or `provider-error` (a probe failed, so the state is unknown). A group is
+/// recoverable while healthy shards plus virtual zero data shards (short last
+/// group) still reach `data_shards`. Archives without coding form one group.
 pub(crate) fn analyze_groups(manifest: &Manifest, probes: &[(Shard, Probe)]) -> Vec<GroupHealth> {
     let Some(coding) = &manifest.coding else {
         let bad_shards = probes

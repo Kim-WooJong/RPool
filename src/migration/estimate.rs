@@ -7,7 +7,9 @@ use crate::storage::admin::budget::BudgetSnapshot;
 /// Planned transfer of one archive.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Transfer {
+    /// Bytes to download.
     pub download: u64,
+    /// Bytes to upload.
     pub upload: u64,
     /// Extra cloud space of the new shards (originals are kept).
     pub new_storage: u64,
@@ -15,6 +17,7 @@ pub(crate) struct Transfer {
     pub specs: Vec<PhysicalSpec>,
     /// Shards expected to be copied by the provider (server-side).
     pub server_side_shards: usize,
+    /// Bytes of the server-side copied shards.
     pub server_side_bytes: u64,
     /// Of those, shards read back because the base reports no hash.
     pub server_side_readback_shards: usize,
@@ -47,6 +50,9 @@ pub(crate) fn relocate_transfer(
     copy_transfer(manifest, states, moving, features)
 }
 
+/// Per coding group: streamed copy plus readback when no shard is lost,
+/// otherwise download of the readable shards needed for reconstruction and
+/// upload/readback of every shard not copied server-side.
 fn copy_transfer(
     manifest: &Manifest,
     states: &[ShardState],

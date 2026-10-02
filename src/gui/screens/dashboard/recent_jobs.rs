@@ -1,3 +1,4 @@
+//! Recent jobs pane of the overview page (newest task history records).
 use crate::gui::i18n::relative_age;
 use crate::gui::i18n::tr;
 use crate::gui::screens::dashboard::DashboardData;
@@ -7,6 +8,7 @@ use crate::gui::widgets::{status_badge, StatusTone};
 use crate::models::TaskRecord;
 use eframe::egui;
 
+/// Draw the recent jobs pane with a link to the Activity page.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     ui.horizontal(|ui| {
         ui.label(
@@ -25,6 +27,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     show_rows(ui, &state.dashboard);
 }
 
+/// The jobs table, or a hint when nothing is recorded.
 fn show_rows(ui: &mut egui::Ui, data: &DashboardData) {
     if data.recent_jobs.is_empty() {
         ui.label(tr("No recorded jobs yet."));
@@ -48,6 +51,7 @@ fn show_rows(ui: &mut egui::Ui, data: &DashboardData) {
         });
 }
 
+/// One job row: operation, target, result badge and relative finish time.
 fn job_row(ui: &mut egui::Ui, record: &TaskRecord) {
     ui.label(display_operation(&record.operation));
     ui.label(truncate_target(record.target.as_deref().unwrap_or("-"), 48));
@@ -61,6 +65,7 @@ fn job_row(ui: &mut egui::Ui, record: &TaskRecord) {
     ui.end_row();
 }
 
+/// `drive-trash-list` -> `Drive Trash List`.
 fn display_operation(value: &str) -> String {
     value
         .split('-')
@@ -75,6 +80,7 @@ fn display_operation(value: &str) -> String {
         .join(" ")
 }
 
+/// Shorten to `max_chars` characters, ending with `…` when cut.
 fn truncate_target(value: &str, max_chars: usize) -> String {
     let count = value.chars().count();
     if count <= max_chars {

@@ -57,6 +57,8 @@ fn alert_banner(ui: &mut egui::Ui, kind: AlertKind, text: &str) {
     ui.add_space(4.0);
 }
 
+/// Summary lines of a mount card: uptime, last sync, upload queue and alert
+/// banners. Called by the Monitoring page's `mount_card`.
 pub(crate) fn summary(ui: &mut egui::Ui, live: &LiveView) {
     ui.horizontal_wrapped(|ui| {
         ui.label(&live.uptime);
@@ -79,6 +81,8 @@ pub(crate) fn summary(ui: &mut egui::Ui, live: &LiveView) {
     }
 }
 
+/// One block per account (two per row when wide enough) with its live
+/// rates, sparkline from `rings` and totals. Called for the Live tab.
 pub(crate) fn remotes(
     ui: &mut egui::Ui,
     live: &LiveView,
@@ -106,6 +110,8 @@ pub(crate) fn remotes(
     }
 }
 
+/// One account block: name, backend and activity badges, upload-limit badge,
+/// 10 s rates, sparkline, byte totals, transfer/op counts and the last error.
 fn remote_block(ui: &mut egui::Ui, remote: &RemoteView, ring: Option<&Ring>, now: u64) {
     let p = theme::pal(ui);
     let (up_color, down_color) = chart::colors(ui);

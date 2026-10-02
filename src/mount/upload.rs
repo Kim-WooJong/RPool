@@ -4,6 +4,7 @@
 use crate::prelude::*;
 use crate::utils::{append_suffix, read_json};
 
+/// Fails unless `path` is a real directory (no symlink or reparse point).
 fn require_directory(path: &Path) -> Result<()> {
     let meta = fs::symlink_metadata(path)?;
     if !meta.is_dir() || meta.file_type().is_symlink() || is_reparse(&meta) {
@@ -12,6 +13,8 @@ fn require_directory(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Fails unless `path` is a regular file (no symlink, reparse point or
+/// special file).
 fn require_regular(path: &Path) -> Result<()> {
     let meta = fs::symlink_metadata(path)?;
     if !meta.is_file() || meta.file_type().is_symlink() || is_reparse(&meta) {
@@ -20,11 +23,13 @@ fn require_regular(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Whether the metadata has the Windows reparse-point attribute.
 #[cfg(windows)]
 fn is_reparse(meta: &fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
     meta.file_attributes() & 0x400 != 0
 }
+/// Reparse points exist only on Windows.
 #[cfg(not(windows))]
 fn is_reparse(_: &fs::Metadata) -> bool {
     false
@@ -181,6 +186,9 @@ pub(super) fn upload_eligible_tracked(
     Ok((manifest, publication))
 }
 
+/// Resume path for an upload whose local manifest already exists:
+/// re-verifies the stored shards, then replicates the manifest to `remotes`
+/// (the local manifest does not prove publication finished).
 fn finalize_completed_upload(
     storage: &crate::storage::writer::StorageWriter,
     path: &Path,

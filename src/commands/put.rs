@@ -1,3 +1,8 @@
+//! `rpool put`: splits one local file into shards, optionally adds
+//! Reed-Solomon parity, uploads everything in parallel and publishes the
+//! manifest. Uploads resume from `<file>.rpool.upload.json` (plan) and
+//! `<file>.rpool.upload.state.json` (journal); the local manifest is written
+//! to `<file>.rpool.json`. The mount's uploader uses [`put_sealed_with_storage`].
 use crate::erasure::{generate_parity_group, validate_rs_counts};
 use crate::journal::{load_or_create_upload_journal, record_upload_shard, validate_upload_journal};
 use crate::manifest::{content_root_v2, replicate_manifest_with_storage, validate_manifest};
@@ -11,6 +16,9 @@ use crate::utils::{
 };
 
 #[allow(clippy::too_many_arguments)]
+/// CLI entry for `rpool put`: uploads `source` through rclone (or RPool-native
+/// crypt when `native_crypt`), then indexes the new manifest in the local
+/// inventory (best effort). Called by `application::dispatch`.
 pub(crate) fn put(
     rclone: &str,
     source: &Path,
@@ -50,6 +58,9 @@ pub(crate) fn put(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Uploads `source` with a caller-supplied [`StorageWriter`], snapshotting the
+/// file first so concurrent edits cannot mix into the archive. Used by [`put`],
+/// pool reprocessing and storage tests.
 pub(crate) fn put_with_storage(
     storage: &StorageWriter,
     rclone: &str,
@@ -116,6 +127,11 @@ pub(crate) fn put_sealed_with_storage(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Shared upload implementation: validates options, captures (or, when
+/// `sealed`, reads in place) the source, creates or resumes the upload plan and
+/// journal, uploads data shards and parity groups (at most two groups staged at
+/// once), rejects shards the provider hashes could not prove, then writes,
+/// validates and replicates the manifest and removes the plan/journal files.
 fn put_source(
     storage: &StorageWriter,
     rclone: &str,
@@ -431,15 +447,24 @@ fn put_source(
 }
 
 // TempDir ownership follows queued/in-flight parity jobs, including error paths.
+/// Unit of work for the upload scheduler.
 enum UploadJob {
+    /// Upload one planned data shard from the source snapshot.
     Data(PlanShard),
+    /// Generate the parity shards of this coding group into a temp directory.
     Encode(u32),
+    /// Upload one generated parity shard.
     Parity {
+        /// Generated parity shard (staged file, plan entry and hash).
         item: GeneratedParity,
+        /// Keeps the group's staging directory alive until this upload finishes.
         _owner: Arc<tempfile::TempDir>,
     },
 }
+/// Outcome of an [`UploadJob`].
 enum UploadResult {
+    /// A shard was uploaded; it is recorded in the journal.
     Stored(Shard),
+    /// A group was encoded: its staging directory and the parity shards to upload.
     Encoded(Arc<tempfile::TempDir>, Vec<GeneratedParity>),
 }

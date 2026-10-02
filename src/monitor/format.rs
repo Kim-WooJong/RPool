@@ -3,6 +3,7 @@
 use super::model::{Alert, AlertKind, MountEntry, NetStatus};
 use crate::presentation::format_bytes;
 
+/// Compact duration: `45s`, `3m05s`, `2h07m`, `1d03h`; also used by the GUI.
 pub(crate) fn duration(seconds: u64) -> String {
     let (d, h, m, s) = (
         seconds / 86_400,
@@ -21,6 +22,7 @@ pub(crate) fn duration(seconds: u64) -> String {
     }
 }
 
+/// `<duration> ago`, or `never` for `None`.
 fn ago(at: Option<u64>, now: u64) -> String {
     match at {
         Some(at) => format!("{} ago", duration(now.saturating_sub(at))),
@@ -28,6 +30,7 @@ fn ago(at: Option<u64>, now: u64) -> String {
     }
 }
 
+/// Bytes per second as `<size>/s` (negative clamps to 0).
 pub(crate) fn rate(bytes_per_second: f64) -> String {
     format!(
         "{}/s",
@@ -35,6 +38,7 @@ pub(crate) fn rate(bytes_per_second: f64) -> String {
     )
 }
 
+/// Upper-case tag of an alert kind.
 fn alert_label(kind: AlertKind) -> &'static str {
     match kind {
         AlertKind::Stalled => "STALLED",
@@ -45,6 +49,7 @@ fn alert_label(kind: AlertKind) -> &'static str {
     }
 }
 
+/// One indented alert line with its age.
 fn alert_line(alert: &Alert, now: u64) -> String {
     format!(
         "  [{}] {} (since {})",

@@ -4,21 +4,37 @@
 use eframe::egui;
 use egui::Color32;
 
+/// Width of the left navigation panel with labels, in points.
 pub(crate) const NAVIGATION_WIDTH: f32 = 196.0;
+/// Width of the icon-only navigation (below [`NAV_COMPACT_BELOW`]).
 pub(crate) const NAVIGATION_COMPACT_WIDTH: f32 = 60.0;
+/// Height of the expanded operation console at the bottom.
 pub(crate) const TASK_CONSOLE_HEIGHT: f32 = 180.0;
+/// Height of the collapsed (one-line) operation console.
 pub(crate) const TASK_CONSOLE_MINI_HEIGHT: f32 = 40.0;
+/// Minimum height of interactive controls (buttons, text fields).
 pub(crate) const CONTROL_HEIGHT: f32 = 30.0;
+/// Minimum height of a toolbar or table row.
 pub(crate) const ROW_HEIGHT: f32 = 32.0;
+/// Vertical gap between sections of a page.
 pub(crate) const SECTION_GAP: f32 = 16.0;
+/// Vertical gap between parts of a section.
 pub(crate) const SUBSECTION_GAP: f32 = 8.0;
+/// Window/content margin, in points.
 pub(crate) const CONTENT_MARGIN: i8 = 16;
+/// Corner radius of controls and small frames.
 pub(crate) const CORNER_RADIUS: u8 = 8;
+/// Corner radius of cards and windows.
 pub(crate) const CARD_RADIUS: u8 = 12;
+/// Height of capacity bars.
 pub(crate) const CAPACITY_BAR_HEIGHT: f32 = 18.0;
+/// Font size of page titles.
 pub(crate) const SECTION_TITLE_SIZE: f32 = 22.0;
+/// Font size of card titles.
 pub(crate) const CARD_TITLE_SIZE: f32 = 16.0;
+/// Font size of status badge text.
 pub(crate) const STATUS_TEXT_SIZE: f32 = 11.0;
+/// Height of the task progress bar.
 pub(crate) const PROGRESS_BAR_HEIGHT: f32 = 22.0;
 
 /// Window narrower than this: the navigation shows icons only.
@@ -28,26 +44,41 @@ pub(crate) const TWO_COLUMN_MIN: f32 = 1060.0;
 /// Window lower than this: the operation console starts collapsed.
 pub(crate) const CONSOLE_MINI_BELOW: f32 = 860.0;
 
+/// Colors of one theme (light or dark), from [`palette`].
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Palette {
+    /// Window/panel background.
     pub bg: Color32,
+    /// Navigation panel background.
     pub nav: Color32,
+    /// Card and window fill.
     pub surface: Color32,
+    /// Secondary fill: inputs, inactive widgets, striped rows.
     pub surface_alt: Color32,
+    /// Outlines of cards and widgets.
     pub border: Color32,
+    /// Normal text.
     pub text: Color32,
+    /// Secondary, de-emphasized text.
     pub muted: Color32,
+    /// Primary/selection color (links, active widgets, primary buttons).
     pub accent: Color32,
+    /// Light accent fill for hover and selection backgrounds.
     pub accent_soft: Color32,
+    /// Text on an `accent` fill.
     pub accent_fg: Color32,
+    /// Destructive actions and errors.
     pub danger: Color32,
+    /// Card and window shadow color.
     pub shadow: Color32,
 }
 
+/// Shorthand for an opaque color.
 const fn rgb(r: u8, g: u8, b: u8) -> Color32 {
     Color32::from_rgb(r, g, b)
 }
 
+/// The fixed light or dark palette.
 pub(crate) fn palette(dark: bool) -> Palette {
     if dark {
         Palette {
@@ -82,10 +113,13 @@ pub(crate) fn palette(dark: bool) -> Palette {
     }
 }
 
+/// The palette for the current visuals of `ui` (dark or light).
 pub(crate) fn pal(ui: &egui::Ui) -> Palette {
     palette(ui.visuals().dark_mode)
 }
 
+/// Installs the RPool style (fonts, spacing, colors, radii, shadows) into both
+/// the light and dark egui styles. Called at app start by `gui::app`.
 pub(crate) fn apply(ctx: &egui::Context) {
     ctx.all_styles_mut(|style| {
         let dark = style.visuals.dark_mode;
@@ -147,6 +181,7 @@ pub(crate) fn apply(ctx: &egui::Context) {
     });
 }
 
+/// `(fill, text)` colors for success badges and messages.
 pub(crate) fn success_colors(dark: bool) -> (Color32, Color32) {
     if dark {
         (rgb(30, 60, 42), rgb(134, 214, 156))
@@ -154,6 +189,7 @@ pub(crate) fn success_colors(dark: bool) -> (Color32, Color32) {
         (rgb(222, 244, 229), rgb(28, 110, 56))
     }
 }
+/// `(fill, text)` colors for warnings (badges, banners).
 pub(crate) fn warning_colors(dark: bool) -> (Color32, Color32) {
     if dark {
         (rgb(66, 52, 26), rgb(236, 190, 100))
@@ -161,6 +197,7 @@ pub(crate) fn warning_colors(dark: bool) -> (Color32, Color32) {
         (rgb(252, 240, 214), rgb(140, 90, 10))
     }
 }
+/// `(fill, text)` colors for errors (badges, banners).
 pub(crate) fn error_colors(dark: bool) -> (Color32, Color32) {
     if dark {
         (rgb(72, 34, 38), rgb(240, 150, 150))
@@ -168,6 +205,7 @@ pub(crate) fn error_colors(dark: bool) -> (Color32, Color32) {
         (rgb(252, 228, 228), rgb(160, 40, 40))
     }
 }
+/// `(fill, text)` colors for neutral badges.
 pub(crate) fn neutral_colors(dark: bool) -> (Color32, Color32) {
     if dark {
         (rgb(40, 47, 62), rgb(186, 194, 210))
@@ -175,6 +213,7 @@ pub(crate) fn neutral_colors(dark: bool) -> (Color32, Color32) {
         (rgb(232, 236, 243), rgb(78, 88, 106))
     }
 }
+/// `(fill, text)` colors for informational badges, derived from the accent.
 pub(crate) fn info_colors(dark: bool) -> (Color32, Color32) {
     let p = palette(dark);
     (
@@ -400,6 +439,9 @@ pub(crate) fn fixed_pane_wide(
     fixed_pane_with(ui, id, size, true, content);
 }
 
+/// Shared body of [`fixed_pane`] and [`fixed_pane_wide`]: paints the card and
+/// runs `content` in a clipped child with scrolling (also horizontal when
+/// `horizontal`).
 fn fixed_pane_with(
     ui: &mut egui::Ui,
     id: &str,

@@ -1,3 +1,6 @@
+//! Process entry point after `main`: parses the command line and dispatches each
+//! `rpool` subcommand to its implementation in `commands`, `pool`, `mount`, etc.
+//! Running without a subcommand opens the GUI. `main.rs` calls `run`.
 use crate::cli::{
     Cli, Commands, ConfigCommands, HistoryCommands, InventoryCommands, ManifestCommands,
     PoolCommands, ProviderCommands, RemoteRootCommands,
@@ -6,6 +9,10 @@ use crate::{commands, gui, history, pool};
 use anyhow::Result;
 use clap::Parser;
 
+/// Parses `argv` (the `mount monitor` form first, then the regular [`Cli`]),
+/// launches the GUI when no subcommand is given, otherwise runs [`dispatch`] and
+/// appends a history record for commands that `history::describe_command` tracks.
+/// Called once from `main`.
 pub(crate) fn run() -> Result<()> {
     let argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
     if let Some(parsed) = crate::cli::parse_monitor(&argv) {
@@ -30,6 +37,9 @@ pub(crate) fn run() -> Result<()> {
     result
 }
 
+/// Routes a parsed subcommand to its handler, resolving pool defaults for `put`
+/// and printing small JSON/text reports inline for the provider/config commands.
+/// Panics only if called without a command (the GUI case is handled by [`run`]).
 fn dispatch(cli: Cli) -> Result<()> {
     match cli
         .command

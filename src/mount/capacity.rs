@@ -3,19 +3,28 @@ use crate::prelude::*;
 use crate::storage::admin::{BackendAdmin, RemoteCatalog};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// A pool remote left out of upload placement, with the budget query's reason.
 pub(crate) struct Excluded {
+    /// Remote name as listed in the pool.
     pub remote: String,
+    /// Human-readable reason it is not eligible.
     pub reason: String,
+    /// Likely transient (e.g. quota query failed) rather than a permanent rejection.
     pub temporary: bool,
 }
 
 /// One account budget, counted once even when several remotes alias it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct AccountCapacity {
+    /// Capacity domain (shared-quota identity) of the account.
     pub domain: String,
+    /// Total quota in bytes (minimum over aliasing remotes).
     pub total: u64,
+    /// Free bytes (minimum over aliasing remotes).
     pub free: u64,
+    /// `total - free` in bytes.
     pub occupied: u64,
+    /// Every remote of this account has a declared capacity group.
     pub declared: bool,
 }
 
@@ -23,10 +32,15 @@ pub(crate) struct AccountCapacity {
 /// It must never be used for upload admission or OS free-space reporting.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct IndependentQuotaScenario {
+    /// Sum of totals with each unverified backing section counted separately (bytes).
     pub physical_total: u64,
+    /// Sum of free bytes under the same assumption.
     pub physical_free: u64,
+    /// `physical_total - physical_free`.
     pub physical_occupied: u64,
+    /// `physical_total` scaled by the data/(data+parity) coding ratio.
     pub nominal_logical_upper: u64,
+    /// `physical_free` scaled by the coding ratio.
     pub remaining_logical_upper: u64,
 }
 
@@ -35,6 +49,7 @@ pub(crate) struct IndependentQuotaScenario {
 /// range the former 65,536 × 220 MiB limit covered; worst case ~2 s in release.
 const MAX_SIMULATED_SHARDS: u64 = 262_144;
 
+/// Scales raw bytes by `data / (data + parity)`; unchanged without parity.
 fn coding_ratio(bytes: u64, policy: &PoolDefinition) -> u64 {
     if policy.parity_shards == 0 {
         bytes
@@ -45,6 +60,7 @@ fn coding_ratio(bytes: u64, policy: &PoolDefinition) -> u64 {
 }
 
 impl IndependentQuotaScenario {
+    /// Builds the what-if scenario; `None` when every target is declared (nothing to show).
     fn from_targets(
         targets: &[crate::storage::admin::budget::TargetBudget],
         policy: &PoolDefinition,
@@ -93,76 +109,114 @@ impl IndependentQuotaScenario {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+/// Pool capacity snapshot for the mount status and GUI: per-account quotas, eligibility,
+/// logical bounds, and a planner-verified estimate of how much more data fits.
+/// Built by [`CapacityStatus::inspect`]; `virtual_drive::capacity` adds drive usage and reservations.
 pub(crate) struct CapacityStatus {
+    /// Remotes accepted for upload placement.
     pub eligible: Vec<String>,
     #[serde(default)]
+    /// Per-account quotas, aliases counted once.
     pub accounts: Vec<AccountCapacity>,
     #[serde(default)]
+    /// Sum of account totals in bytes.
     pub physical_total: u64,
     #[serde(default)]
+    /// Sum of account free bytes.
     pub physical_free: u64,
     #[serde(default)]
+    /// Sum of account occupied bytes.
     pub physical_occupied: u64,
     #[serde(default)]
+    /// Display-only scenario for unverified accounts; `None` when all are declared.
     pub independent_quota_scenario: Option<IndependentQuotaScenario>,
     #[serde(default)]
+    /// No excluded remotes and every account has a declared quota group.
     pub quota_complete: bool,
     #[serde(default)]
+    /// `physical_total` scaled by the coding ratio (upper bound of logical size).
     pub nominal_logical_upper: u64,
     #[serde(default)]
+    /// `physical_free` scaled by the coding ratio (upper bound of remaining logical space).
     pub remaining_logical_upper: u64,
     /// A tighter upper bound after accounting for a whole outage group's loss.
     /// None means the failure identities are not fully declared.
     #[serde(default)]
     pub resilient_remaining_upper: Option<u64>,
     #[serde(default)]
+    /// Distinct outage/failure groups among eligible targets (resilient placement only).
     pub eligible_failure_groups: usize,
     #[serde(default)]
+    /// Failure groups resilient placement needs: `ceil((data + parity) / parity)`; 0 otherwise.
     pub required_failure_groups: usize,
     #[serde(default)]
+    /// Physical bytes reserved for pending and in-progress uploads.
     pub pending_physical_reservation: u64,
 
     #[serde(default)]
+    /// Pool-sync roots of the drive; empty for a non-pool-sync drive.
     pub pool_sync_roots: Vec<String>,
     #[serde(default)]
+    /// Concurrent-edit conflicts from the shared namespace (pool-sync only).
     pub conflicts: Vec<super::peer_projection::Conflict>,
+    /// Remotes rejected from placement and why.
     pub excluded: Vec<Excluded>,
+    /// Visible logical bytes of the drive (shared namespace plus local pending writes).
     pub logical_used: u64,
     #[serde(default)]
+    /// Logical bytes of the committed shared namespace; `None` outside virtual mode.
     pub committed_logical_used: Option<u64>,
     #[serde(default)]
+    /// Which usage `logical_used` counts, e.g. `"shared-namespace"` or `"not-queried"`.
     pub usage_scope: String,
+    /// Verified additional logical bytes a single new file could use.
     pub additional_estimate: u64,
     #[serde(default)]
+    /// The search hit `MAX_SIMULATED_SHARDS`; `additional_estimate` is only a lower bound.
     pub estimate_limited: bool,
+    /// `logical_used + additional_estimate`.
     pub logical_ceiling_estimate: u64,
+    /// Not populated by current code (stays 0).
     pub affected_active: usize,
+    /// Not populated by current code (stays 0).
     pub retained_archives: usize,
+    /// Unix time (seconds) when observation started.
     pub observed_unix: u64,
+    /// User-facing explanation and caveats of the estimate.
     pub note: String,
     #[serde(default)]
+    /// Bytes currently in the local spool.
     pub spool_bytes: u64,
     #[serde(default)]
+    /// Local spool limit in bytes.
     pub spool_limit_bytes: u64,
     #[serde(default)]
+    /// Number of pending (unpublished) writes.
     pub pending_writes: usize,
     #[serde(skip)]
+    /// Ids of pending writes (not serialized).
     pub pending_ids: Vec<String>,
     #[serde(skip)]
+    /// Ids of known namespace events (not serialized).
     pub namespace_event_ids: Vec<String>,
     #[serde(default)]
+    /// Eligible placement targets with their budgets; reservations reduce their `free`.
     pub targets: Vec<crate::storage::admin::budget::TargetBudget>,
     #[serde(skip)]
+    /// Total free placement budget in bytes after reservations (not serialized).
     pub(super) budget: u64,
 }
 
 impl CapacityStatus {
+    /// Validates the pool and queries every remote's quota through `admin`. Used by
+    /// `virtual_drive::capacity`, `mount::upload` and `mount::incremental`.
     pub(crate) fn inspect(admin: &dyn BackendAdmin, policy: &PoolDefinition) -> Result<Self> {
         crate::pool::validate_pool(policy)?;
         let catalog = admin.catalog()?;
         Self::with_catalog(admin, &catalog, policy)
     }
 
+    /// Builds the status from an existing remote catalog and composes the user note.
     fn with_catalog(
         admin: &dyn BackendAdmin,
         catalog: &RemoteCatalog,
@@ -224,6 +278,7 @@ impl CapacityStatus {
         Ok(status)
     }
 
+    /// Aggregates targets into per-account totals and the physical/logical sums.
     fn update_account_totals(&mut self, policy: &PoolDefinition) -> Result<()> {
         let mut accounts = BTreeMap::<String, AccountCapacity>::new();
         for target in &self.targets {
@@ -262,6 +317,7 @@ impl CapacityStatus {
         Ok(())
     }
 
+    /// Computes the outage-group bound for resilient placement (`resilient_remaining_upper`).
     fn update_outage_bound(&mut self, policy: &PoolDefinition) -> Result<()> {
         self.resilient_remaining_upper = None;
         self.eligible_failure_groups = 0;
@@ -318,6 +374,8 @@ impl CapacityStatus {
         Ok(())
     }
 
+    /// Recomputes `additional_estimate` by binary search over whole stripe groups (capped at
+    /// `MAX_SIMULATED_SHARDS`), then over a partial final group, using [`check_upload`](Self::check_upload).
     pub(crate) fn recalculate(&mut self, policy: &PoolDefinition) -> Result<()> {
         self.update_outage_bound(policy)?;
         let shard = policy.shard_bytes()?.get();
@@ -412,6 +470,8 @@ impl CapacityStatus {
         Ok(())
     }
 
+    /// Reserves full placements for pending writes without a resumable plan, then recomputes the
+    /// budget and estimate. Placement failure reports zero additional space instead of an error.
     pub(crate) fn reserve_pending(&mut self, policy: &PoolDefinition, sizes: &[u64]) -> Result<()> {
         if sizes.is_empty() && self.pending_physical_reservation == 0 {
             self.logical_ceiling_estimate =
@@ -468,6 +528,8 @@ impl CapacityStatus {
         self.recalculate(policy)
     }
 
+    /// Fails unless a file of `size` logical bytes fits the current budget with full parity and
+    /// can be placed by the pool's placement rule. Used before every upload.
     pub(crate) fn check_upload(&self, policy: &PoolDefinition, size: u64) -> Result<()> {
         if self.eligible.is_empty() {
             bail!("No quota-known upload targets; local changes are retained");
@@ -498,6 +560,8 @@ impl CapacityStatus {
     }
 }
 
+/// Physical bytes a file of `size` occupies: data plus full parity shards for every stripe
+/// group (partial last shard counted as a full parity shard).
 pub(crate) fn physical_bytes(policy: &PoolDefinition, size: u64) -> Result<u64> {
     if size == 0 || policy.parity_shards == 0 {
         return Ok(size);

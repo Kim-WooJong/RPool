@@ -1,9 +1,18 @@
+//! The Files page: Library (drive explorer and uploaded archives), Upload and
+//! Restore tabs. Verify and Status forms live here too but are shown from
+//! Maintenance › Archive. Entry point `show`, called by the app for `Page::Files`.
+
+/// Files › Library: drive explorer, trash/versions/rollback and archive list.
 #[path = "inventory/mod.rs"]
 pub(crate) mod inventory;
+/// Files › Restore: `rpool get` from a manifest.
 pub(crate) mod restore;
+/// Archive status form (`rpool status`), shown under Maintenance.
 pub(crate) mod status;
+/// Files › Upload: file queue, target pool, options and `rpool put`.
 #[path = "upload/mod.rs"]
 pub(crate) mod upload;
+/// Archive verify form (`rpool verify`), shown under Maintenance.
 pub(crate) mod verify;
 
 pub(crate) use inventory::InventoryForm;
@@ -17,6 +26,7 @@ use crate::gui::state::{FilesSection, GuiState};
 use crate::gui::task::TaskRunner;
 use eframe::egui;
 
+/// Draws the Files tabs and the selected section (`state.files_section`).
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     crate::gui::theme::tabs(
         ui,

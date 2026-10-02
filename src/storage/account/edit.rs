@@ -4,19 +4,24 @@ use super::bandwidth::Timetable;
 use super::limits::{DailyUpload, LimitsStore};
 use crate::prelude::*;
 
+/// Bytes per GiB, for converting GiB budgets from the editors.
 const GIB: f64 = (1u64 << 30) as f64;
 
 /// Daily budget edit.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum DailyEdit {
+    /// Set the daily budget to this many GiB (must be positive).
     Gib(f64),
+    /// No daily budget for this account, even if the backend has a default.
     Unlimited,
+    /// Remove the account's own budget so the backend default applies.
     BackendDefault,
 }
 
 /// Changes for one account; `None` fields stay as they are.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct LimitEdit {
+    /// Daily upload budget change.
     pub daily: Option<DailyEdit>,
     /// `--bwlimit` syntax; `off` (or empty) removes the account's own limit.
     pub bwlimit: Option<String>,
@@ -30,6 +35,10 @@ pub(crate) struct LimitEdit {
     pub inactivity_warn_days: Option<u32>,
 }
 
+/// Applies `edit` to `account` (a trailing `:` is stripped) in `store`,
+/// validating each value; an account left with no own limits is removed.
+/// Errors on invalid names or values and re-validates the whole store.
+/// Called by `commands::provider::limits`, the GUI limits dialog and the speed test screen.
 pub(crate) fn apply(store: &mut LimitsStore, account: &str, edit: &LimitEdit) -> Result<()> {
     let account = account.trim().trim_end_matches(':');
     if account.is_empty() || account.contains(['/', '\\', ':']) {

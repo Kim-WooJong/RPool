@@ -1,6 +1,10 @@
+//! Summary counts of group health.
+
 use crate::maintenance::analyze_groups;
 use crate::prelude::*;
 
+/// Returns `(degraded, unrecoverable)` group counts; degraded means any status
+/// other than `healthy`.
 pub(crate) fn group_recoverability(
     manifest: &Manifest,
     probes: &[(Shard, Probe)],

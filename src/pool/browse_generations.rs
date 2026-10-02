@@ -5,19 +5,25 @@
 //! (read-only) and the generation with the most recent record wins.
 use crate::storage::traits::OperationContext;
 
+/// One metadata generation found in the cloud; `discover` returns them
+/// newest first (used by `metadata_pool::pool_target` and browsing).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Generation {
     /// `None`: the original (pre-transition) location.
     pub epoch: Option<String>,
     /// Newest record time, nanoseconds since the Unix epoch.
     pub newest: i128,
+    /// Objects listed under this generation (all replicas).
     pub records: usize,
 }
 
+/// One `rclone lsjson --recursive` entry of a replica root.
 #[derive(serde::Deserialize)]
 struct Listed {
+    /// Path relative to the replica root (`epochs/<epoch>/…` for an epoch).
     #[serde(rename = "Path")]
     path: String,
+    /// RFC 3339 modification time (empty when unknown).
     #[serde(rename = "ModTime", default)]
     mod_time: String,
 }

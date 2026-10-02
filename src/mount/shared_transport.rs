@@ -1,4 +1,9 @@
 //! Content-addressed shared events. No mutable remote catalog is published.
+//!
+//! [`SharedTransport`] reads, lists and writes immutable `<id>.json` metadata
+//! objects (pool-sync events and checkpoints) in one remote directory via
+//! rclone. Used by `pool_sync` (as an `EventStore`) and `metadata_pool` (as an
+//! `ObjectDir`).
 use crate::storage::{
     error::{StorageError, StorageErrorKind},
     rclone::RcloneContext,
@@ -15,8 +20,11 @@ use super::metadata_limits::{
     RECORD_BYTES_MAX as EVENT_LIMIT,
 };
 
+/// One remote metadata object directory (`<root>/<dir>/<id>.json`).
 pub(crate) struct SharedTransport {
+    /// rclone binary.
     rclone: String,
+    /// `remote:path` root (no trailing `/`).
     root: String,
     /// Pool destinations with `native_crypt`: RPool encrypts metadata itself.
     native_crypt: bool,
@@ -24,28 +32,35 @@ pub(crate) struct SharedTransport {
     dir: &'static str,
 }
 
+/// One `rclone lsjson` entry of the object directory.
 #[derive(Deserialize)]
 struct Listed {
+    /// Object name (`<id>.json`).
     #[serde(rename = "Path")]
     path: String,
+    /// Listed size in bytes (negative is rejected).
     #[serde(rename = "Size")]
     size: i64,
+    /// Directory entries are skipped.
     #[serde(rename = "IsDir")]
     is_dir: bool,
 }
 
+/// Whether `id` is 64 lowercase hex digits.
 fn valid_id(id: &str) -> bool {
     id.len() == 64
         && id
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
+/// Checks an object's id, size bound (`RECORD_BYTES_MAX`) and BLAKE3 hash.
 fn validate_event(id: &str, bytes: &[u8]) -> Result<()> {
     if !valid_id(id) || bytes.len() > EVENT_LIMIT || blake3::hash(bytes).to_hex().as_str() != id {
         bail!("invalid shared event identity, hash, or size");
     }
     Ok(())
 }
+/// Whether the error is a storage "not found".
 fn missing(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<StorageError>()
@@ -54,6 +69,8 @@ fn missing(error: &anyhow::Error) -> bool {
 
 impl SharedTransport {
     // Syntax only: runtime operations separately enforce the encrypted remote policy.
+    /// Transport for `root` (`remote:path`, syntax-checked only) writing to
+    /// the `events` directory, without native crypt.
     pub(crate) fn new(rclone: &str, root: &str) -> Result<Self> {
         let Some((remote, path)) = root.split_once(':') else {
             bail!("shared root must be remote:path");
@@ -91,6 +108,8 @@ impl SharedTransport {
         self
     }
 
+    /// Lists and reads every unseen object within the legacy bootstrap budget
+    /// (10,000 objects / 64 MiB); a larger unseen set is an error.
     pub(crate) fn list_missing(
         &self,
         known: &std::collections::BTreeSet<String>,
@@ -198,6 +217,8 @@ impl SharedTransport {
         }
     }
 
+    /// Writes `bytes` as `<id>.json` after validating them; an existing object
+    /// with identical bytes is a no-op, different bytes are refused.
     pub(crate) fn publish(&self, id: &str, bytes: &[u8]) -> Result<()> {
         validate_event(id, bytes)?;
         let storage = StorageWriter::for_pool(&self.rclone, self.native_crypt);
@@ -241,6 +262,7 @@ fn group_listing(entries: Vec<Listed>) -> [Vec<Listed>; 16] {
     buckets
 }
 
+/// [`missing_entries_with`] under the legacy bootstrap budget.
 fn missing_entries(
     entries: Vec<Listed>,
     known: &std::collections::BTreeSet<String>,
@@ -259,6 +281,9 @@ fn missing_entries(
     )
 }
 
+/// Validates one hash-prefix bucket of a listing (ids, prefix, sizes,
+/// duplicates) and returns the entries not in `known`, adding them to
+/// `count`/`total` and failing above the limits.
 fn missing_entries_with(
     entries: Vec<Listed>,
     known: &std::collections::BTreeSet<String>,

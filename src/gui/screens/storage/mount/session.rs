@@ -8,7 +8,9 @@ use crate::gui::task::{JobStatus, TaskRunner};
 /// the session keeps running, so conflicts and the session list use this.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SessionSpec {
+    /// Pool the session runs.
     pub(crate) pool: String,
+    /// Workspace of the session.
     pub(crate) workspace: String,
     /// Empty unless the session mounts a drive.
     pub(crate) mountpoint: String,
@@ -18,21 +20,35 @@ pub(crate) struct SessionSpec {
     pub(crate) reads: Vec<String>,
 }
 
+/// One pool's running (or last finished) `rpool mount` process and the status
+/// it reports. The selected pool's lives in `MountForm::session`, others in
+/// `MountForm::background`.
 pub(crate) struct MountSession {
+    /// What the process was started with; `None` before the first start.
     pub(super) spec: Option<SessionSpec>,
+    /// Runs the child process and collects its log.
     pub(super) runner: TaskRunner,
+    /// Temporary control directory (stop file and status JSON files); dropped when the process ends.
     pub(super) control: Option<tempfile::TempDir>,
+    /// A graceful unmount was requested.
     pub(super) stopping: bool,
+    /// Message shown on the Drive page (start, finish or error).
     pub(super) notice: Option<String>,
+    /// Last capacity snapshot (`capacity.json`).
     pub(super) capacity: Option<crate::mount::capacity::CapacityStatus>,
+    /// When the status files were last read; they are re-read every second.
     pub(super) capacity_read: std::time::Instant,
+    /// Last pool-sync status (`pool-sync-status.json`), source of the conflicts list.
     pub(super) pool_status: Option<crate::mount::pool_sync::Status>,
     /// A pool layout change the running mount deferred (pending old-layout uploads).
     pub(super) layout_status: Option<crate::mount::layout_refresh::Deferral>,
     /// Unsaved WebDAV writes the last mount recovered from rclone's cache.
     pub(super) cache_recovery: Vec<crate::mount::cache_recovery::RecoveryReport>,
+    /// Progress of an rclone import (`import-status.json`).
     pub(super) import_status: Option<crate::mount::rclone_import::Status>,
+    /// The process is an account recovery, not a mount action.
     pub(super) recovering_accounts: bool,
+    /// Mount action the process was started with (0 mount, 1 sync, 2+ maintenance; see `MountForm::action_args`).
     pub(super) last_action: u8,
 }
 
@@ -57,6 +73,7 @@ impl Default for MountSession {
 }
 
 impl MountSession {
+    /// Whether the session's process is running.
     pub(crate) fn is_running(&self) -> bool {
         self.runner.is_running()
     }
@@ -103,6 +120,7 @@ impl MountSession {
         }
     }
 
+    /// Sets the finish notice for the ended process and drops the control directory.
     fn finish(&mut self, status: JobStatus) {
         self.notice = Some(if self.recovering_accounts {
             match status {

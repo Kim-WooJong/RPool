@@ -65,12 +65,14 @@ fn is_valid_remote_name(name: &str) -> bool {
 pub(crate) struct BackendId(String);
 
 impl BackendId {
+    /// Validates `raw` with [`validate_identifier`] (non-empty, ASCII, ≤ 256 bytes, no NUL or separator).
     pub(crate) fn new(raw: impl Into<String>) -> Result<Self, StorageError> {
         let raw = raw.into();
         validate_identifier(&raw, "backend id")?;
         Ok(Self(raw))
     }
 
+    /// The identifier text.
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
@@ -83,6 +85,7 @@ impl BackendId {
 pub(crate) struct ObjectKey(String);
 
 impl ObjectKey {
+    /// A new native logical key: must be ASCII, then the [`ObjectKey::stored`] rules.
     pub(crate) fn new(raw: impl Into<String>) -> Result<Self, StorageError> {
         let raw = raw.into();
         if !raw.is_ascii() {
@@ -133,6 +136,7 @@ impl ObjectKey {
         Ok(Self(raw))
     }
 
+    /// The key text exactly as given.
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
@@ -142,19 +146,24 @@ impl ObjectKey {
 /// (composition root), not the caller's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ObjectRef {
+    /// Registered backend that holds the object.
     backend: BackendId,
+    /// Key of the object inside that backend.
     key: ObjectKey,
 }
 
 impl ObjectRef {
+    /// Pairs a backend identity with a key (no validation beyond the two types).
     pub(crate) fn new(backend: BackendId, key: ObjectKey) -> Self {
         Self { backend, key }
     }
 
+    /// Backend the reference resolves through (see `BackendRegistry::resolve`).
     pub(crate) fn backend(&self) -> &BackendId {
         &self.backend
     }
 
+    /// Key inside the backend.
     pub(crate) fn key(&self) -> &ObjectKey {
         &self.key
     }
@@ -164,16 +173,24 @@ impl ObjectRef {
 /// preserved; no normalization is applied.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LegacyAddress {
+    /// Remote name before the first colon (`[A-Za-z0-9_-]+`).
     remote: String,
+    /// Everything after the first colon, unchanged.
     path: String,
+    /// The exact string that was parsed.
     original: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Why [`LegacyAddress::parse`] rejected a string.
 pub(crate) enum LegacyAddressError {
+    /// No `:` separator.
     MissingColon,
+    /// Nothing before the first colon.
     EmptyRemote,
+    /// A Windows drive path (`X:\` / `X:/`) rather than an rclone address.
     LooksLikeWindowsDrive,
+    /// The remote part contains characters outside `[A-Za-z0-9_-]`.
     InvalidRemoteName,
 }
 
@@ -202,6 +219,7 @@ impl LegacyAddress {
         })
     }
 
+    /// The remote name part.
     pub(crate) fn remote(&self) -> &str {
         &self.remote
     }

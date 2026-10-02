@@ -1,12 +1,15 @@
 //! JSON contract of `rpool … speed-test --json` (shared by CLI and GUI).
 use serde::{Deserialize, Serialize};
 
+/// Version of the [`SpeedTestReport`] JSON layout.
 pub(crate) const REPORT_VERSION: u32 = 1;
 /// Folder under each remote that holds a run's test files (removed after).
 pub(crate) const TEST_DIR: &str = ".rpool-speedtest";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Full report of one speed test run (`--json` output, parsed by the GUI).
 pub(crate) struct SpeedTestReport {
+    /// [`REPORT_VERSION`] of this report.
     pub version: u32,
     /// Set for `pool speed-test`.
     pub pool: Option<String>,
@@ -16,18 +19,21 @@ pub(crate) struct SpeedTestReport {
     pub files_per_remote: usize,
     /// Parallel transfers per remote (the pool's workers, capped).
     pub parallel: usize,
+    /// One row per tested remote, in test order.
     pub remotes: Vec<RemoteSpeed>,
     /// Only for a pool whose remotes all succeeded.
     pub estimate: Option<PoolEstimate>,
     /// Slowest remote for writing / reading (by its effect on the pool when
     /// a pool is given, else by raw throughput). `None` if no remote succeeded.
     pub bottleneck_upload: Option<String>,
+    /// Slowest remote for reading; see `bottleneck_upload`.
     pub bottleneck_download: Option<String>,
     /// Test folders that could not be deleted (the user may remove them).
     pub leftovers: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Measurements of one remote.
 pub(crate) struct RemoteSpeed {
     /// Remote address as configured in the pool (e.g. `dropbox_1_crypt:rpool`).
     pub remote: String,
@@ -43,9 +49,13 @@ pub(crate) struct RemoteSpeed {
     pub first_op_ms: Option<u64>,
     /// Median of later small operations, milliseconds.
     pub latency_ms: Option<u64>,
+    /// Upload throughput in bytes per second; `None` if the upload failed.
     pub upload_bytes_per_s: Option<f64>,
+    /// Read-back throughput in bytes per second; `None` if the read failed.
     pub download_bytes_per_s: Option<f64>,
+    /// Wall time of the upload phase, seconds.
     pub upload_seconds: Option<f64>,
+    /// Wall time of the read-back phase, seconds.
     pub download_seconds: Option<f64>,
     /// Read-back bytes matched what was written.
     pub verified: bool,
@@ -79,6 +89,7 @@ pub(crate) struct ConcurrencyTuning {
 }
 
 impl ConcurrencyTuning {
+    /// Empty tuning for `account` with shards of `file_bytes`; filled level by level.
     pub(crate) fn new(account: Option<String>, file_bytes: u64) -> Self {
         Self {
             account,
@@ -92,16 +103,24 @@ impl ConcurrencyTuning {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// One tuning level.
 pub(crate) struct TuningStep {
+    /// Simultaneous transfers at this level.
     pub parallel: usize,
+    /// Shards queued for this level.
     pub files: usize,
+    /// Measured rate in bytes per second; `None` when the level failed.
     pub bytes_per_s: Option<f64>,
+    /// One-line error of the level, if it failed.
     pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Expected pool throughput from the measured per-remote rates and placement.
 pub(crate) struct PoolEstimate {
+    /// Data shards (K) per RS group of the pool.
     pub data_shards: usize,
+    /// Parity shards (M) per RS group of the pool.
     pub parity_shards: usize,
     /// Expected plaintext upload rate of the pool: shards go to every remote
     /// in parallel, so the remote with the largest (share / speed) decides.

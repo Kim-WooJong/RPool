@@ -5,15 +5,20 @@ pub(crate) const RECORD_BYTES_MAX: usize = 8 * 1024 * 1024;
 /// The pre-checkpoint bootstrap budget. v6 uses it as
 /// the page size of a streamed read, and older RPool versions fail beyond it.
 pub(crate) const LEGACY_BOOTSTRAP_RECORDS: usize = 10_000;
+/// Byte half of the legacy bootstrap budget (64 MiB of unseen records).
 pub(crate) const LEGACY_BOOTSTRAP_BYTES: usize = 64 * 1024 * 1024;
 /// Streamed (paged) reads: one page at most holds this many raw bytes.
 pub(crate) const PAGE_RECORDS: usize = LEGACY_BOOTSTRAP_RECORDS;
+/// Byte bound of one streamed page (same as the legacy bootstrap budget).
 pub(crate) const PAGE_BYTES: usize = LEGACY_BOOTSTRAP_BYTES;
 /// Safety ceiling for one pull of unseen records (individual objects).
 pub(crate) const STREAM_RECORDS_MAX: usize = 1_000_000;
+/// Byte half of the per-pull safety ceiling (16 GiB); see `ceiling_message`.
 pub(crate) const STREAM_BYTES_MAX: u64 = 16 * 1024 * 1024 * 1024;
 /// Warn when a pool reaches this share of the legacy budget (80 %).
 pub(crate) const WARN_RECORDS: usize = LEGACY_BOOTSTRAP_RECORDS / 10 * 8;
+/// Byte half of the growth warning (80 % of `LEGACY_BOOTSTRAP_BYTES`), used
+/// by `rpool doctor` and the mounted drive's compaction alert.
 pub(crate) const WARN_BYTES: u64 = LEGACY_BOOTSTRAP_BYTES as u64 / 10 * 8;
 
 /// Error for a pull above the streaming ceiling, with what to do about it.

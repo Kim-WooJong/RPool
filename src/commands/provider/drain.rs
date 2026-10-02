@@ -1,3 +1,4 @@
+//! `rpool provider drain`: moves an archive's shards off one provider.
 use crate::manifest::{load_manifest, validate_manifest};
 use crate::prelude::*;
 use crate::provider::drain_manifest;
@@ -5,6 +6,10 @@ use crate::remote_root::apply_remote_root;
 use crate::utils::append_suffix;
 
 #[allow(clippy::too_many_arguments)]
+/// Copies every shard of the manifest stored on `from` to `to` via
+/// `provider::drain_manifest` and writes the updated manifest to `output`
+/// (default: the local input manifest; required for a remote one), then
+/// re-indexes it. With `dry_run` only the plan is printed.
 pub(crate) fn run(
     rclone: &str,
     manifest_src: &str,

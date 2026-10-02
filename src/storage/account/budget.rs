@@ -3,6 +3,7 @@
 use super::ledger::AccountUsage;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Why an account is paused for uploads.
 pub(crate) enum PauseReason {
     /// RPool's own count reached the configured budget.
     Budget,
@@ -11,18 +12,29 @@ pub(crate) enum PauseReason {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Whether an account may start new uploads right now.
 pub(crate) enum Admission {
+    /// Uploads may start.
     Open,
-    Paused { until: u64, reason: PauseReason },
+    /// Uploads wait until unix time `until` for the given `reason`.
+    Paused {
+        /// Unix time (seconds) when uploads may start again.
+        until: u64,
+        /// Why: RPool's own upload budget or the provider's upload limit.
+        reason: PauseReason,
+    },
 }
 
 /// Point-in-time budget of one account.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct BudgetView {
+    /// Bytes counted in the rolling 24 h window at the evaluation time.
     pub used: u64,
+    /// Configured daily budget in bytes (`None` = unlimited).
     pub limit: Option<u64>,
     /// When the oldest counted bytes leave the window (`None` = nothing counted).
     pub next_release: Option<u64>,
+    /// Open or paused (with resume time); consumed by `limits_view` and the runtime limiter.
     pub admission: Admission,
 }
 

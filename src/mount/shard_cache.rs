@@ -24,6 +24,10 @@
 //! partial file is dropped, and later reads reconstruct the shard. A range that
 //! reaches the end of its shard always waits for verification, and the
 //! inline `read` (used by migration/recovery copies) never serves a prefix.
+//!
+//! Entry points: [`ShardCache::new`], `read` / `read_shared`, `cleanup` and
+//! `relieve_disk`; owned by `VirtualDrive` (and temporary caches in recovery,
+//! transition and adoption).
 use crate::prelude::*;
 use crate::storage::reader::StorageReader;
 use std::collections::HashMap;
@@ -52,33 +56,47 @@ const SPACE_WAIT: Duration = Duration::from_secs(120);
 /// Share of the cache limit readahead may plan to fill at once.
 const PREFETCH_SHARE: u64 = 4;
 
+/// Cache file name of a shard: `<blake3>-<size>`.
 fn entry_name(s: &Shard) -> String {
     format!("{}-{}", s.blake3, s.size)
 }
 
+/// Mutable cache state guarded by `Inner::state`.
 struct State {
+    /// LRU index of clean entries, pins and reservations.
     index: Index,
+    /// In-flight downloads by entry name (one per missing shard).
     flights: HashMap<String, Arc<Flight>>,
+    /// Recent read streams, for sequential readahead.
     sequential: prefetch::Sequential,
+    /// Readahead (prefetch) flights currently running; bounded by `workers`.
     prefetching: usize,
 }
 
+/// Shared cache internals, referenced by background download threads.
 struct Inner {
+    /// Cache directory.
     root: PathBuf,
+    /// Byte limit for clean entries plus reservations (0 disables admission).
     limit: u64,
     /// Free disk space relief tries to keep (see `disk::DISK_FLOOR`).
     disk_floor: u64,
     /// Serve verified-later prefixes of background downloads (module docs).
     serve_prefix: bool,
+    /// Index, flights and readahead state.
     state: Mutex<State>,
     /// Signalled whenever reserved, pinned or published bytes change.
     space: Condvar,
+    /// Shard files already hashed, by path -> (size, mtime), so unchanged
+    /// entries are not rehashed on every hit.
     verified: Mutex<BTreeMap<PathBuf, (u64, SystemTime)>>,
 }
 
 /// Bytes held for an in-flight download or restore; released on drop.
 struct Reservation<'a> {
+    /// Cache whose reservation is released.
     inner: &'a Inner,
+    /// Reserved bytes.
     bytes: u64,
 }
 impl Drop for Reservation<'_> {
@@ -97,12 +115,18 @@ enum Fetch<'a> {
     Background(&'a Arc<StorageReader>),
 }
 
+/// Verified clean shard cache of one drive workspace (see module docs).
 pub(crate) struct ShardCache {
+    /// Bytes removed when opening (over-limit entries and crash leftovers),
+    /// for the startup report.
     pub(crate) startup_removed_bytes: u64,
+    /// Shared state, also held by background downloads.
     inner: Arc<Inner>,
 }
 
 impl ShardCache {
+    /// Opens the cache at `root` with byte `limit`: removes partial downloads,
+    /// indexes existing entries and trims to the limit.
     pub(crate) fn new(root: PathBuf, limit: u64) -> Result<Self> {
         fs::create_dir_all(&root)?;
         let partial_bytes = remove_partials(&root)?;
@@ -164,6 +188,9 @@ impl ShardCache {
             retries,
         )
     }
+    /// Shared body of `read` and `read_shared`: collects the data shards of
+    /// the range, keeps background downloads ahead (`Background` only) and
+    /// copies each shard's part into the result.
     fn read_with(
         &self,
         fetch: Fetch<'_>,
@@ -257,9 +284,11 @@ fn remove_partials(root: &Path) -> Result<u64> {
 }
 
 impl Inner {
+    /// Path of a shard's cache entry.
     fn path(&self, s: &Shard) -> PathBuf {
         self.root.join(entry_name(s))
     }
+    /// Locks the state; a poisoned mutex is an error.
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, State>> {
         self.state
             .lock()
@@ -270,9 +299,12 @@ impl Inner {
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
+    /// Locks the verified-fingerprint map, recovering from poisoning.
     fn verified(&self) -> std::sync::MutexGuard<'_, BTreeMap<PathBuf, (u64, SystemTime)>> {
         self.verified.lock().unwrap_or_else(|e| e.into_inner())
     }
+    /// Whether the shard's entry exists with the right size and hash (cached
+    /// fingerprint or a full rehash). A non-regular file is an error.
     fn valid(&self, s: &Shard) -> Result<bool> {
         let path = self.path(s);
         if !path.exists() {
@@ -295,6 +327,7 @@ impl Inner {
         }
         Ok(valid)
     }
+    /// Records the current fingerprint of a just-verified entry.
     fn remember_verified(&self, shard: &Shard) -> Result<()> {
         let path = self.path(shard);
         let metadata = fs::metadata(&path)?;
@@ -312,6 +345,8 @@ impl Inner {
         self.space.notify_all();
         Ok(())
     }
+    /// Evicts one entry allowed by `mode` and forgets its fingerprint; returns
+    /// the bytes freed (`None`: nothing evictable).
     fn evict_one(&self, st: &mut State, mode: Admission) -> Result<Option<u64>> {
         let evicted = st.index.evict_one(&self.root, mode, SystemTime::now())?;
         Ok(evicted.map(|(path, size)| {
@@ -319,6 +354,8 @@ impl Inner {
             size
         }))
     }
+    /// Evicts least recently used entries until usage is within `limit`;
+    /// returns the bytes removed.
     fn trim(&self) -> Result<u64> {
         let mut st = self.lock()?;
         let mut removed = 0u64;

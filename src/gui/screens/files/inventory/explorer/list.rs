@@ -14,8 +14,14 @@ use crate::gui::theme;
 use crate::presentation::format_bytes;
 use eframe::egui;
 
+/// Height of the header and of every list row, in points; also used by
+/// `explorer::show` to reserve room for the footer.
 pub(crate) const ROW: f32 = 26.0;
 
+/// Draws the List view of `rows` (node ids of `tree`): sortable header and
+/// virtualized rows in a scroll area of at most `height`. `global` adds the
+/// Folder column for drive-wide search. Returns the action of a clicked row or
+/// header. Called by `explorer::show` when the view mode is List.
 pub(crate) fn show(
     ui: &mut egui::Ui,
     tree: &DriveTree,
@@ -56,6 +62,8 @@ pub(crate) fn show(
     action
 }
 
+/// Header row: Name, Size and Type are clickable sort keys (with the current
+/// direction arrow); the Folder column is a plain label.
 fn header(ui: &mut egui::Ui, cols: &Columns, state: &ExplorerState, action: &mut Option<Action>) {
     let (rect, _) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), ROW), egui::Sense::hover());

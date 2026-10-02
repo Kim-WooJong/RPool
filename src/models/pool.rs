@@ -1,18 +1,28 @@
+//! Pool configuration: one [`PoolDefinition`] per named pool, saved together
+//! in the [`PoolStore`] file (`pool::load_pool_store`).
 use super::shard_size::ShardSize;
 use super::Placement;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
+/// Settings of one pool: remotes, shard size, coding and placement. Used by
+/// `put`, the drive, migration targets and portable export.
 pub(crate) struct PoolDefinition {
+    /// Pool remotes (`name:` or `name:path`), resolved with remote roots on use.
     pub(crate) remotes: Vec<String>,
     /// Serialized as the historical integer `shard_mib` field for MiB-aligned sizes.
     #[serde(rename = "shard_mib", alias = "shard_size")]
     pub(crate) shard_size: ShardSize,
+    /// Parallel transfers.
     pub(crate) workers: usize,
+    /// Retries per shard transfer.
     pub(crate) retries: u32,
+    /// How shards are spread over the remotes.
     pub(crate) placement: Placement,
+    /// Data shards per group (K).
     pub(crate) data_shards: usize,
+    /// Parity shards per group (M); 0 stores uncoded archives.
     pub(crate) parity_shards: usize,
     /// Optional provider per-object limit in bytes, checked against the encrypted
     /// (rclone crypt) shard size. Omitted from JSON when unset.
@@ -53,9 +63,13 @@ impl Default for PoolDefinition {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// The pool configuration file: pool name -> definition, plus per-pool drive
+/// retention and cleanup settings.
 pub(crate) struct PoolStore {
+    /// File format version (1).
     pub(crate) version: u32,
     #[serde(default)]
+    /// Pool definitions by pool name.
     pub(crate) pools: std::collections::BTreeMap<String, PoolDefinition>,
     /// Drive trash/version retention per pool name (`rpool drive retention`).
     /// Kept beside the definitions so it travels with portable export/import;

@@ -1,3 +1,7 @@
+//! Building blocks of the rclone.conf restore transaction: the recovery
+//! directory `<config>.rpool-restore/` (encrypted snapshot, encrypted staging
+//! file, journal), the `<config>.rpool-lock` lock, config format detection and
+//! the atomic commit. Used by `transaction::run` and `transaction::recovery`.
 use super::super::age_vault::sync_directory;
 use super::super::secret_process::MAX_SECRET_BYTES;
 use crate::models::sensitive::SensitiveBytes;
@@ -7,17 +11,24 @@ use std::fs::{self, File, OpenOptions, Permissions, TryLockError};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+/// age-encrypted copy of the original config inside the recovery directory.
 pub(super) const SNAPSHOT: &str = "rclone-config.snapshot.age";
+/// Encrypted staging config inside the recovery directory (encrypted configs only).
 pub(super) const STAGE: &str = "candidate.conf";
+/// Journal file name inside the recovery directory.
 const JOURNAL: &str = "transaction.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// Representation of an rclone config file.
 pub(super) enum ConfigFormat {
+    /// rclone-encrypted (`RCLONE_ENCRYPT_V0:` header).
     Encrypted,
+    /// Plain UTF-8 INI text.
     Plaintext,
 }
 
+/// Metadata of a regular, non-symlink file with a single hard link (Unix).
 pub(super) fn regular_file(path: &Path) -> Result<fs::Metadata> {
     let meta =
         fs::symlink_metadata(path).map_err(|_| anyhow!("configuration file is inaccessible"))?;
@@ -34,6 +45,7 @@ pub(super) fn regular_file(path: &Path) -> Result<fs::Metadata> {
     Ok(meta)
 }
 
+/// Canonical path of the config to update, which must be a regular file.
 pub(super) fn target_path(input: &Path) -> Result<PathBuf> {
     regular_file(input)?;
     input
@@ -41,6 +53,7 @@ pub(super) fn target_path(input: &Path) -> Result<PathBuf> {
         .map_err(|_| anyhow!("cannot resolve configuration path"))
 }
 
+/// `<target><suffix>` in the same directory.
 pub(super) fn sibling(target: &Path, suffix: &str) -> Result<PathBuf> {
     let parent = target
         .parent()
@@ -53,10 +66,12 @@ pub(super) fn sibling(target: &Path, suffix: &str) -> Result<PathBuf> {
     Ok(parent.join(name))
 }
 
+/// Recovery directory path: `<config>.rpool-restore`.
 pub(super) fn recovery_path(target: &Path) -> Result<PathBuf> {
     sibling(target, ".rpool-restore")
 }
 
+/// Whether anything exists at `path` (symlinks included).
 pub(super) fn exists(path: &Path) -> Result<bool> {
     match fs::symlink_metadata(path) {
         Ok(_) => Ok(true),
@@ -65,10 +80,15 @@ pub(super) fn exists(path: &Path) -> Result<bool> {
     }
 }
 
+/// Exclusive OS lock on `<config>.rpool-lock`, held for the whole transaction
+/// or recovery; released when dropped. The lock file itself is kept.
 pub(super) struct ConfigLock {
+    /// Open lock file; the OS lock is released when it is closed.
     _file: File,
 }
 impl ConfigLock {
+    /// Takes the lock without waiting; errors if another restore holds it or the
+    /// filesystem has no locking.
     pub(super) fn acquire(target: &Path) -> Result<Self> {
         let path = sibling(target, ".rpool-lock")?;
         if exists(&path)? {
@@ -99,6 +119,8 @@ impl ConfigLock {
     }
 }
 
+/// Whether the first non-comment line is rclone's `RCLONE_ENCRYPT_V0:` header.
+/// Also used by the plaintext editor to refuse encrypted configs.
 pub(in crate::config_sync) fn encrypted_header(bytes: &[u8]) -> bool {
     bytes
         .split(|b| *b == b'\n')
@@ -116,6 +138,7 @@ pub(in crate::config_sync) fn encrypted_header(bytes: &[u8]) -> bool {
         .unwrap_or(false)
 }
 
+/// Whether the first non-comment line is some other `RCLONE_ENCRYPT_*` header.
 fn unsupported_encryption_header(bytes: &[u8]) -> bool {
     bytes
         .split(|b| *b == b'\n')
@@ -133,6 +156,7 @@ fn unsupported_encryption_header(bytes: &[u8]) -> bool {
         .unwrap_or(false)
 }
 
+/// Detects the config format; errors on unknown encryption headers or non-UTF-8 plaintext.
 pub(super) fn format(bytes: &[u8]) -> Result<ConfigFormat> {
     if encrypted_header(bytes) {
         return Ok(ConfigFormat::Encrypted);
@@ -145,6 +169,7 @@ pub(super) fn format(bytes: &[u8]) -> Result<ConfigFormat> {
     Ok(ConfigFormat::Plaintext)
 }
 
+/// Reads a regular config file (1 byte..`MAX_SECRET_BYTES`) of a supported format.
 pub(super) fn read_config(path: &Path) -> Result<SensitiveBytes> {
     let meta = regular_file(path)?;
     if meta.len() == 0 || meta.len() > MAX_SECRET_BYTES as u64 {
@@ -163,10 +188,13 @@ pub(super) fn read_config(path: &Path) -> Result<SensitiveBytes> {
     Ok(bytes)
 }
 
+/// BLAKE3 hex digest, used to identify original and candidate configs in the journal.
 pub(super) fn digest(bytes: &[u8]) -> String {
     blake3::hash(bytes).to_hex().to_string()
 }
 
+/// Creates the recovery directory exclusively (0700 on Unix); fails if a pending
+/// recovery already exists.
 pub(super) fn create_recovery(path: &Path) -> Result<()> {
     #[cfg(unix)]
     let builder = {
@@ -187,6 +215,7 @@ pub(super) fn create_recovery(path: &Path) -> Result<()> {
     )
 }
 
+/// Writes encrypted staging bytes to a new file (0600 on Unix); refuses plaintext.
 pub(super) fn stage_ciphertext(path: &Path, bytes: &[u8]) -> Result<()> {
     if format(bytes)? != ConfigFormat::Encrypted {
         bail!("refusing unencrypted staging data");
@@ -206,7 +235,9 @@ pub(super) fn stage_ciphertext(path: &Path, bytes: &[u8]) -> Result<()> {
         .map_err(|_| anyhow!("cannot write encrypted staging config"))
 }
 
+/// Replaces the live config; a trait so tests can inject failing commits.
 pub(super) trait Committer {
+    /// Replaces `target` with `bytes` of `format`, keeping `permissions`.
     fn replace(
         &self,
         target: &Path,
@@ -216,6 +247,9 @@ pub(super) trait Committer {
     ) -> Result<()>;
 }
 
+/// Real [`Committer`]: encrypted configs are replaced atomically via a sibling
+/// temp file; plaintext configs are rewritten in place under a file lock, so no
+/// second plaintext copy is created.
 pub(super) struct ConfigCommit;
 impl Committer for ConfigCommit {
     fn replace(
@@ -284,23 +318,35 @@ impl Committer for ConfigCommit {
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+/// Progress recorded in the journal.
 pub(super) enum Phase {
+    /// Recovery directory and snapshot are being created; the live config is untouched.
     Preparing,
+    /// Candidate config is built and its digest recorded.
     Ready,
+    /// The live config is being replaced.
     Committing,
+    /// The new config was committed and verified; recovery keeps it.
     Verified,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Transaction journal stored as `transaction.json` in the recovery directory.
 pub(super) struct Journal {
+    /// Journal format version (currently 2).
     pub(super) schema_version: u32,
+    /// Last reached phase.
     pub(super) phase: Phase,
+    /// Format of the original config.
     pub(super) format: ConfigFormat,
+    /// BLAKE3 of the original config.
     pub(super) original_digest: String,
+    /// BLAKE3 of the candidate config; set from `Ready` on.
     pub(super) candidate_digest: Option<String>,
 }
 impl Journal {
+    /// New journal in phase `Preparing` for `original`.
     pub(super) fn new(original: &[u8], format: ConfigFormat) -> Self {
         Self {
             schema_version: 2,
@@ -310,6 +356,7 @@ impl Journal {
             candidate_digest: None,
         }
     }
+    /// Atomically writes the journal into `dir` and fsyncs the directory.
     pub(super) fn write(&self, dir: &Path) -> Result<()> {
         let mut file = tempfile::Builder::new()
             .prefix(".journal-")
@@ -325,6 +372,8 @@ impl Journal {
             .map_err(|_| anyhow!("cannot commit transaction journal"))?;
         sync_directory(dir)
     }
+    /// Reads and validates the journal of a recovery directory (size, schema,
+    /// digests, candidate digest present after `Preparing`).
     pub(super) fn read(dir: &Path) -> Result<Self> {
         let meta =
             fs::symlink_metadata(dir).map_err(|_| anyhow!("recovery directory unavailable"))?;
@@ -354,6 +403,8 @@ impl Journal {
     }
 }
 
+/// Removes the recovery directory if it is a real directory; returns `false`
+/// when it could not be removed or synced (cleanup then stays pending).
 pub(super) fn cleanup_recovery(path: &Path) -> bool {
     // Only the exclusively-created transaction directory is eligible. Never
     // sweep *.age or recovery data from update-cleanup.nu.

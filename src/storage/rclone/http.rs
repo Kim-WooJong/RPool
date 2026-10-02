@@ -13,23 +13,32 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// Maximum size of a response head (status line plus headers).
 const HEAD_LIMIT: usize = 64 * 1024;
+/// Read timeout slice; reads wake this often to check cancel/deadline.
 const WAIT: Duration = Duration::from_millis(100);
+/// TCP connect timeout.
 const CONNECT: Duration = Duration::from_secs(2);
+/// Write timeout for sending a request.
 const SEND: Duration = Duration::from_secs(10);
 
+/// Where the rclone rc daemon listens.
 #[derive(Clone)]
 pub(super) enum Endpoint {
+    /// Unix socket path (unix only).
     #[cfg(unix)]
     Unix(PathBuf),
+    /// Loopback TCP address (Windows), optionally with Basic auth.
     #[cfg_attr(unix, allow(dead_code))]
     Tcp {
+        /// Socket address, normally 127.0.0.1 with the daemon's port.
         address: SocketAddr,
         /// Full `Authorization` header value, or empty for none.
         authorization: String,
     },
 }
 
+/// Why a request produced no usable response; mapped to `daemon::Failure` by the daemon.
 #[derive(Debug)]
 pub(super) enum HttpError {
     /// No usable answer (connect/I/O/protocol failure). Retrying a read
@@ -41,9 +50,12 @@ pub(super) enum HttpError {
     Stopped(StorageError),
 }
 
+/// Connected socket of either endpoint kind.
 enum Stream {
+    /// Unix socket connection.
     #[cfg(unix)]
     Unix(UnixStream),
+    /// TCP connection.
     Tcp(TcpStream),
 }
 impl Read for Stream {
@@ -72,6 +84,7 @@ impl Write for Stream {
     }
 }
 
+/// Opens a connection to `endpoint` with the read/write timeouts set.
 fn connect(endpoint: &Endpoint) -> io::Result<Stream> {
     match endpoint {
         #[cfg(unix)]
@@ -91,14 +104,20 @@ fn connect(endpoint: &Endpoint) -> io::Result<Stream> {
     }
 }
 
+/// `Stopped` if the operation was cancelled or passed its deadline.
 fn stopped(ctx: &OperationContext) -> Result<(), HttpError> {
     process::check(ctx).map_err(HttpError::Stopped)
 }
 
+/// Socket plus read buffer; `buffer[start..end]` holds unconsumed bytes.
 struct Connection {
+    /// Underlying socket.
     stream: Stream,
+    /// Read buffer (`process::CHUNK` bytes).
     buffer: Box<[u8]>,
+    /// Offset of the first unconsumed byte.
     start: usize,
+    /// Offset just past the last buffered byte.
     end: usize,
 }
 impl Connection {
@@ -133,6 +152,7 @@ impl Connection {
             }
         }
     }
+    /// Buffered bytes not yet consumed.
     fn available(&self) -> &[u8] {
         &self.buffer[self.start..self.end]
     }
@@ -154,16 +174,30 @@ impl Connection {
     }
 }
 
+/// How the response body is delimited.
 enum Framing {
+    /// Exactly this many bytes remain.
     Length(u64),
-    Chunked { remaining: u64, done: bool },
+    /// Chunked encoding: `remaining` bytes left in the current chunk; `done` after the last chunk.
+    Chunked {
+        /// Bytes left in the current chunk.
+        remaining: u64,
+        /// The terminating zero-size chunk was read.
+        done: bool,
+    },
+    /// Body runs until the connection closes.
     Eof,
 }
 
+/// Parsed response head plus the connection to stream the body from.
 pub(super) struct Response {
+    /// HTTP status code.
     pub(super) status: u16,
+    /// Header (lowercased name, trimmed value) pairs.
     headers: Vec<(String, String)>,
+    /// Connection the body is read from.
     connection: Connection,
+    /// Body framing derived from the head.
     framing: Framing,
 }
 
@@ -220,6 +254,7 @@ pub(super) fn send(
     }
 }
 
+/// Reads the status line and headers (bounded by `HEAD_LIMIT`); malformed heads are `Transport` errors.
 fn read_head(
     connection: &mut Connection,
     ctx: &OperationContext,
@@ -253,6 +288,8 @@ fn read_head(
     }
 }
 
+/// Body framing from method, status and headers; conflicting Content-Length
+/// or a non-chunked Transfer-Encoding is rejected.
 fn framing(method: &str, status: u16, headers: &[(String, String)]) -> Result<Framing, HttpError> {
     if method == "HEAD" || status == 204 || status == 304 {
         return Ok(Framing::Length(0));
@@ -292,6 +329,7 @@ fn framing(method: &str, status: u16, headers: &[(String, String)]) -> Result<Fr
 }
 
 impl Response {
+    /// First header value named `name` (case-insensitive).
     pub(super) fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
@@ -340,6 +378,7 @@ impl Response {
         }
     }
 
+    /// Parses the next chunk-size line, consuming trailers after the last chunk.
     fn next_chunk(&mut self, ctx: &OperationContext) -> Result<(), HttpError> {
         let mut line = self.connection.line(ctx)?;
         if line.is_empty() {

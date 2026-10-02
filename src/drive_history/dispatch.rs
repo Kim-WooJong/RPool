@@ -17,12 +17,17 @@ use crate::mount::history_bridge::{self as bridge, VirtualDrive};
 use crate::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Where `dispatch::run` sends a request (see the module docs).
 pub(crate) enum Route {
+    /// A running pool-sync mount owns this workspace: submit a request file to it.
     Mount(PathBuf),
+    /// An unmounted workspace: open it directly.
     Workspace(PathBuf),
+    /// No workspace: read the cloud, or use a scratch workspace for writes.
     Cloud,
 }
 
+/// Same directory, comparing canonical paths when both resolve.
 fn same_dir(a: &Path, b: &Path) -> bool {
     match (a.canonicalize(), b.canonicalize()) {
         (Ok(a), Ok(b)) => a == b,
@@ -55,6 +60,7 @@ pub(crate) fn route(
     }
 }
 
+/// Whether `path` holds a pool-sync drive binding (`virtual.json` version 6 or 7).
 fn is_pool_sync_workspace(path: &Path) -> bool {
     #[derive(Deserialize)]
     struct Binding {
@@ -120,6 +126,8 @@ pub(crate) fn serve_mount(drive: &VirtualDrive) -> Result<usize> {
     })
 }
 
+/// Workspace-less path: cleanup, scratch-workspace writes, cloud purge marks
+/// or read-only listing/preview of the cloud metadata.
 fn cloud(rclone: &str, pool: &str, op: &Op) -> Result<Answer> {
     if let Op::Cleanup(request) = op {
         let report = super::cleanup::run(rclone, pool, None, request)?;
@@ -170,6 +178,7 @@ pub(crate) fn cloud_worker() -> String {
     }
 }
 
+/// Whether the drive still has local writes or events not yet published.
 fn unpublished(drive: &VirtualDrive) -> Result<bool> {
     if !bridge::pending_paths(drive).is_empty() {
         return Ok(true);
@@ -177,6 +186,9 @@ fn unpublished(drive: &VirtualDrive) -> Result<bool> {
     Ok(!bridge::v6_events(drive).1.is_empty())
 }
 
+/// Run a writing op in a fresh scratch workspace under
+/// `<config>/drive-history/scratch/<id>`; the scratch is deleted once all is
+/// published, else kept and named in a note/error so it can be finished.
 fn scratch(rclone: &str, pool: &str, op: &Op) -> Result<Answer> {
     let generation = super::load::generation(rclone, pool)?
         .with_context(|| format!("pool {pool} has no online drive (pool-sync metadata) yet"))?;

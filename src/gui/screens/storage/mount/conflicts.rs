@@ -3,6 +3,8 @@ use super::form::MountForm;
 use crate::gui::i18n::{tr, trf};
 use eframe::egui;
 
+/// Collapsible list of pool-sync conflicts from the session's last
+/// `pool-sync-status.json`; hidden when no status was read.
 pub(super) fn show(ui: &mut egui::Ui, form: &MountForm) {
     let Some(status) = &form.session.pool_status else {
         return;

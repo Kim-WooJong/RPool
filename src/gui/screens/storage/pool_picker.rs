@@ -1,28 +1,40 @@
+//! Modal "Choose encrypted providers" window: edits a draft copy of a pool's
+//! destinations and applies it only on "Apply selection". Used by the Pools
+//! tab and the Reprocess form.
 use crate::gui::i18n::{tr, trf};
 use eframe::egui;
 
+/// Picker window state; one per form that offers it.
 #[derive(Debug, Default)]
 pub(super) struct PoolPicker {
+    /// Whether the window is shown.
     open: bool,
+    /// Working selection; copied into the caller's list on Apply.
     draft: Vec<String>,
 }
 
+/// Requests from the picker that the caller handles after `show`.
 #[derive(Default)]
 pub(super) struct PickerAction {
+    /// "Refresh providers" was pressed: rediscover crypt remotes.
     pub(super) refresh: bool,
+    /// "Set up provider…" was pressed: switch to the Providers section (closes the picker).
     pub(super) setup: bool,
 }
 
 impl PoolPicker {
+    /// Whether the window is open (callers disable the page behind it).
     pub(super) fn is_open(&self) -> bool {
         self.open
     }
 
+    /// Opens the window with a draft copy of `selected`.
     pub(super) fn open(&mut self, selected: &[String]) {
         self.draft = selected.to_vec();
         self.open = true;
     }
 
+    /// Adds or removes `target` in the draft.
     fn set_selected(&mut self, target: &str, selected: bool) {
         if selected {
             if !self.draft.iter().any(|item| item == target) {
@@ -33,6 +45,9 @@ impl PoolPicker {
         }
     }
 
+    /// Draws the window (when open): a checkbox per discovered provider and the
+    /// draft list with Remove buttons; Apply copies the draft into `selected`, Cancel or
+    /// closing discards it.
     pub(super) fn show(
         &mut self,
         ctx: &egui::Context,
@@ -103,7 +118,8 @@ impl PoolPicker {
     }
 }
 
-// Pool destinations use the discovered crypt root, not a configured upload folder.
+/// Deduplicated picker choices. Pool destinations use the discovered crypt
+/// root, not a configured upload folder.
 fn choices(discovered: &[String]) -> Vec<String> {
     let mut targets = Vec::new();
     for remote in discovered {

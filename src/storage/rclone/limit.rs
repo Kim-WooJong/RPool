@@ -16,15 +16,23 @@ pub(super) const DEFAULT_PER_REMOTE: usize = 16;
 const DROPBOX_WRITES: usize = 1;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+/// Which cap a semaphore belongs to; the same remote has independent slots per lane.
 enum Lane {
+    /// The general per-remote cap taken by every rclone call ([`acquire`]).
     Any,
+    /// The per-namespace write cap ([`acquire_write`]).
     Write,
+    /// The per-namespace read cap ([`acquire_read`]).
     Read,
 }
 
+/// Counting semaphore for one (lane, key) pair, shared via the process-wide table in [`acquire_lane`].
 struct Semaphore {
+    /// Maximum concurrent holders; fixed when the semaphore is first created.
     limit: usize,
+    /// Slots currently held.
     used: Mutex<usize>,
+    /// Signalled when a [`Permit`] is dropped and a slot frees up.
     freed: Condvar,
 }
 
@@ -48,10 +56,14 @@ impl Drop for Permit {
 fn env_limit(name: &str) -> Option<usize> {
     std::env::var(name).ok()?.trim().parse().ok()
 }
+/// The general per-remote cap: `RPOOL_RCLONE_PER_REMOTE` (read once per
+/// process) or [`DEFAULT_PER_REMOTE`]; `0` = uncapped.
 fn general_limit() -> usize {
     static LIMIT: OnceLock<usize> = OnceLock::new();
     *LIMIT.get_or_init(|| env_limit("RPOOL_RCLONE_PER_REMOTE").unwrap_or(DEFAULT_PER_REMOTE))
 }
+/// The write cap: `RPOOL_RCLONE_WRITES_PER_REMOTE` (read once per process) if
+/// set, else [`DROPBOX_WRITES`] for Dropbox and the general cap otherwise.
 fn write_limit(dropbox: bool) -> usize {
     static LIMIT: OnceLock<Option<usize>> = OnceLock::new();
     LIMIT
@@ -72,6 +84,9 @@ pub(super) fn default_write_cap(dropbox: bool) -> usize {
     write_limit(dropbox)
 }
 
+/// Waits (polling cancellation/deadline via `process::check`) for a slot of
+/// the `(lane, key)` semaphore, creating it with `limit` on first use. `limit == 0`
+/// returns an uncapped permit. Shared by [`acquire`], [`acquire_write`] and [`acquire_read`].
 fn acquire_lane(
     lane: Lane,
     key: &str,
@@ -135,6 +150,7 @@ pub(crate) fn uncap_for_speed_test(calls: usize) -> Uncapped {
     UNCAPPED.store(true, Ordering::Release);
     Uncapped(())
 }
+/// True while an [`Uncapped`] guard from [`uncap_for_speed_test`] is alive.
 fn uncapped() -> bool {
     UNCAPPED.load(Ordering::Acquire)
 }

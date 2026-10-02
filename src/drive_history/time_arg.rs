@@ -4,6 +4,8 @@
 //! `3 days ago`).
 use crate::prelude::*;
 
+/// Parse a `--at` value (see the module docs) into unix seconds; a value
+/// without offset is local time. Used by `command::op` for `rpool drive rollback`.
 pub(crate) fn parse(text: &str, now: u64) -> Result<u64> {
     let text = text.trim();
     if let Ok(unix) = text.parse::<u64>() {
@@ -30,6 +32,7 @@ pub(crate) fn parse(text: &str, now: u64) -> Result<u64> {
     u64::try_from(seconds).context("time before 1970")
 }
 
+/// `"<n> <unit>"` before `ago` -> `now - n * unit` (s, m, h, d, w).
 fn relative_ago(text: &str, now: u64) -> Result<u64> {
     let split = text
         .find(|c: char| !c.is_ascii_digit())

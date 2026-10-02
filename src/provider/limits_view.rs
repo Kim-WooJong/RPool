@@ -12,44 +12,63 @@ use crate::storage::admin::RemoteCatalog;
 /// One account and the crypt remotes stored in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AccountRef {
+    /// Backing remote (account) name from the rclone config.
     pub name: String,
+    /// rclone backend type, e.g. `drive` or `onedrive`; empty if unknown.
     pub kind: String,
     /// Crypt remote names (with or without colon).
     pub crypts: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+/// Status row for one account, built by [`build`] and serialized for
+/// `provider limits show --json` and the GUI provider cards.
 pub(crate) struct AccountStatus {
+    /// Account (backing remote) name.
     pub account: String,
+    /// rclone backend type of the account.
     pub kind: String,
+    /// Crypt remotes stored in this account.
     pub crypts: Vec<String>,
     /// Effective daily upload budget in bytes; `None` = unlimited.
     pub daily_upload_limit: Option<u64>,
+    /// Whether the budget comes from the provider default rather than an override.
     pub daily_upload_is_default: bool,
     /// Bytes this computer uploaded in the rolling 24 h window.
     pub uploaded_24h: u64,
     /// When the oldest counted bytes leave the window.
     pub next_release_unix: Option<u64>,
+    /// Unix time until uploads are paused; `None` when admission is open.
     pub paused_until_unix: Option<u64>,
     /// `budget` or `provider`.
     pub pause_reason: Option<&'static str>,
     /// Last successful operation from this computer (account or its crypts).
     pub last_activity_unix: Option<u64>,
+    /// Whole days since `last_activity_unix`; `None` when unknown.
     pub inactive_days: Option<u64>,
+    /// Inactivity warning threshold in days; `None` when not tracked.
     pub inactivity_warn_days: Option<u32>,
+    /// Whether the warning threshold is the provider default.
     pub inactivity_is_default: bool,
     /// `untracked`, `unknown`, `fine`, `near` or `exceeded`.
     pub inactivity: &'static str,
+    /// Unix time of the last successful keep-alive call.
     pub last_keepalive_unix: Option<u64>,
+    /// Configured rclone `--bwlimit` override for this account, if any.
     pub bwlimit: Option<String>,
+    /// Configured rclone `--tpslimit` (transactions per second), if any.
     pub tpslimit: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Configured cap on concurrent uploads to this account, if any.
     pub max_uploads: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Configured cap on concurrent downloads from this account, if any.
     pub max_downloads: Option<u32>,
 }
 
 impl AccountStatus {
+    /// Parses the stored `inactivity` string back into a [`Level`];
+    /// unrecognized values map to `Untracked`.
     pub(crate) fn inactivity_level(&self) -> Level {
         match self.inactivity {
             "unknown" => Level::Unknown,
@@ -66,6 +85,7 @@ impl AccountStatus {
     }
 }
 
+/// String form of an inactivity level stored in [`AccountStatus::inactivity`].
 fn level_name(level: Level) -> &'static str {
     match level {
         Level::Untracked => "untracked",
@@ -76,6 +96,9 @@ fn level_name(level: Level) -> &'static str {
     }
 }
 
+/// Builds one status row per account at time `now` (Unix seconds): effective
+/// limits from `store`, rolling 24 h budget and pause state from `ledger`, and
+/// the inactivity level from the latest activity of the account or its crypts.
 pub(crate) fn build(
     accounts: &[AccountRef],
     ledger: &LedgerData,

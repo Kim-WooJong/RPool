@@ -4,10 +4,9 @@ use crate::config::constants::MAX_SHARD_MIB;
 use anyhow::{bail, Result};
 use std::num::NonZeroU64;
 
+/// Bytes per MiB.
 pub(crate) const MIB: u64 = 1024 * 1024;
 
-/// Converts a MiB shard size to bytes, rejecting 0, overflow and values above
-/// [`MAX_SHARD_MIB`]. This is the only place MiB→bytes shard conversion happens.
 /// Granularity of a per-file shard size: one rclone crypt data block.
 pub(crate) const SHARD_GRANULE: u64 = 64 * 1024;
 
@@ -48,6 +47,8 @@ pub(crate) fn shard_size_matches(
         || archive_shard == shard_size_for(file_size, max, data_shards, parity_shards)
 }
 
+/// Converts a MiB shard size to bytes, rejecting 0, overflow and values above
+/// [`MAX_SHARD_MIB`]. This is the only place MiB→bytes shard conversion happens.
 pub(crate) fn shard_bytes(mib: u64) -> Result<NonZeroU64> {
     validate_shard_mib(mib)?;
     let bytes = mib
@@ -140,12 +141,14 @@ impl ShardSize {
             })
     }
 
+    /// Any non-zero byte size (no MiB alignment or upper bound; see `validate`).
     pub(crate) fn from_bytes(bytes: u64) -> Result<Self> {
         NonZeroU64::new(bytes)
             .map(Self)
             .ok_or_else(|| anyhow::anyhow!("shard size must be greater than zero"))
     }
 
+    /// Size in bytes.
     pub(crate) fn bytes(self) -> u64 {
         self.0.get()
     }
@@ -171,6 +174,8 @@ impl ShardSize {
         }
     }
 
+    /// Parses `64`, `64MiB`, `64M` (MiB) or `65536B` (bytes); used when
+    /// deserializing a string `shard_mib` value.
     fn parse(text: &str) -> Result<Self> {
         let t = text.trim();
         let split = t.find(|c: char| !c.is_ascii_digit()).unwrap_or(t.len());

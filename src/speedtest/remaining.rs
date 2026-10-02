@@ -25,10 +25,12 @@ const NORMAL_DEFAULT: Duration = Duration::from_secs(60);
 /// Normal-test durations seen in this run.
 #[derive(Default)]
 pub(crate) struct Budget {
+    /// Slowest normal test seen so far (zero before the first).
     normal: Mutex<Duration>,
 }
 
 impl Budget {
+    /// Records the duration of a finished normal test of one remote.
     pub(crate) fn record_normal(&self, took: Duration) {
         if let Ok(mut slowest) = self.normal.lock() {
             *slowest = (*slowest).max(took);
@@ -72,6 +74,7 @@ pub(crate) fn bound(
     current + (budget.normal() + tuning(plan)).saturating_mul(after)
 }
 
+/// Formats the `Remaining at most N s` line.
 pub(crate) fn line(bound: Duration) -> String {
     format!("{LINE_PREFIX}{} s", bound.as_secs())
 }
@@ -86,7 +89,7 @@ pub(crate) fn say(at: &Position<'_>, plan: &TestPlan, budget: &Budget, current: 
     );
 }
 
-/// The seconds of a [`line`].
+/// The seconds of a [`line()`].
 pub(crate) fn parse(text: &str) -> Option<u64> {
     text.trim()
         .strip_prefix(LINE_PREFIX)?

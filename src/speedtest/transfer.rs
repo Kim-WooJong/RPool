@@ -15,12 +15,15 @@ use std::time::{Duration, Instant};
 
 /// One file of the test.
 pub(crate) struct TestFile {
+    /// Remote path of the file (inside the run's test folder).
     pub address: String,
+    /// Plaintext size in bytes.
     pub size: u64,
 }
 
 /// Outcome of one phase over all files.
 pub(crate) struct Phase<T> {
+    /// Wall time of the whole phase.
     pub wall: Duration,
     /// Per file: None = not started (an earlier file failed or a stop).
     pub results: Vec<Option<Result<T, String>>>,
@@ -34,6 +37,7 @@ impl<T> Phase<T> {
             _ => None,
         })
     }
+    /// Whether every file finished successfully.
     pub(crate) fn complete(&self) -> bool {
         self.results.iter().all(|r| matches!(r, Some(Ok(_))))
     }
@@ -96,6 +100,7 @@ fn run<T: Send>(
     }
 }
 
+/// One-line error `what: error`, or `cancelled` after a stop.
 fn failure(engine: &Engine, what: &str, error: impl std::fmt::Display) -> String {
     if engine.cancelled() {
         return "cancelled".into();

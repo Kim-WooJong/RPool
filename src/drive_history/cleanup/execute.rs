@@ -1,4 +1,4 @@
-//! One cleanup run over a [`CleanupIo`] (faked in tests).
+//! One cleanup run over a `CleanupIo` (faked in tests).
 //!
 //! 1. Read the journal and observe everything fresh; any unreadable
 //!    reference source postpones the whole run (nothing written).
@@ -24,18 +24,24 @@ pub(crate) const MAX_OBJECTS: u64 = 10_000;
 /// Archives per `Deleted` progress record.
 const PROGRESS_BATCH: usize = 100;
 
+/// Everything a cleanup run reads and writes. `live::LiveIo` is the cloud
+/// implementation; `cleanup::tests` uses an in-memory fake.
 pub(crate) trait CleanupIo {
     /// Cleanup records of every PC (fresh).
     fn records(&self) -> Result<Vec<Record>>;
+    /// Publish one journal record to every metadata replica.
     fn publish(&self, record: &Record) -> Result<()>;
     /// Fresh histories, references and listings (read-only).
     fn observe(&self) -> Result<World>;
     /// Deletes one object; one already gone is not an error.
     fn delete(&self, address: &str) -> Result<()>;
+    /// Current unix time (seconds).
     fn now(&self) -> u64;
+    /// A fresh random id for a new mark/deletion record.
     fn new_id(&self) -> Result<String> {
         crate::migration::execute::random_hex(12)
     }
+    /// Name of this PC/worker, stored in published records.
     fn worker(&self) -> String;
     /// The mount is shutting down: stop between archives (resumed later).
     fn stopped(&self) -> bool {
@@ -44,16 +50,26 @@ pub(crate) trait CleanupIo {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Settings of one cleanup run; built with `new` and adjusted from the
+/// `Request` by `cleanup::run_with`.
 pub(crate) struct Options {
+    /// Mark and delete; `false` only previews.
     pub confirm: bool,
+    /// Delete due data even when it exceeds the mass-delete guard.
     pub force: bool,
+    /// Drop every pending mark instead of cleaning up.
     pub cancel: bool,
+    /// Retention settings that decide what is still referenced.
     pub retention: Retention,
+    /// Cleanup settings of the pool (grace days, automatic mode).
     pub settings: CleanupSettings,
+    /// Guard: maximum share (percent) of stored bytes/objects to delete.
     pub max_percent: u32,
+    /// Guard: maximum objects to delete in one run.
     pub max_objects: u64,
 }
 impl Options {
+    /// Preview-only options with the default guard limits.
     pub(crate) fn new(retention: Retention, settings: CleanupSettings) -> Self {
         Self {
             confirm: false,
@@ -67,6 +83,7 @@ impl Options {
     }
 }
 
+/// An empty report for `pool` in `mode`.
 fn report(pool: &str, mode: CleanupMode, settings: CleanupSettings) -> CleanupReport {
     CleanupReport {
         version: HISTORY_VERSION,
@@ -86,6 +103,7 @@ fn report(pool: &str, mode: CleanupMode, settings: CleanupSettings) -> CleanupRe
     }
 }
 
+/// Add one archive (files, objects, bytes) to `totals`.
 fn add(totals: &mut CleanupTotals, archive: &Archive) {
     totals.archives += 1;
     totals.files += u64::from(archive.version);
@@ -93,12 +111,14 @@ fn add(totals: &mut CleanupTotals, archive: &Archive) {
     totals.bytes += archive.bytes();
 }
 
+/// Add a journaled archive's recorded size to `totals`.
 fn add_info(totals: &mut CleanupTotals, info: &Info) {
     totals.archives += 1;
     totals.objects += info.objects;
     totals.bytes += info.bytes;
 }
 
+/// Object count and bytes of an archive, as stored in journal records.
 fn info(archive: &Archive) -> Info {
     Info {
         objects: archive.objects.len() as u64,
@@ -106,6 +126,7 @@ fn info(archive: &Archive) -> Info {
     }
 }
 
+/// The earlier of two optional times.
 fn earliest(a: Option<u64>, b: Option<u64>) -> Option<u64> {
     match (a, b) {
         (Some(a), Some(b)) => Some(a.min(b)),
@@ -113,6 +134,7 @@ fn earliest(a: Option<u64>, b: Option<u64>) -> Option<u64> {
     }
 }
 
+/// Account (rclone remote name) of a root like `remote:path`.
 fn account(root: &str) -> String {
     root.split_once(':')
         .map_or(root, |(name, _)| name)
@@ -122,7 +144,9 @@ fn account(root: &str) -> String {
 /// Classification of the fresh selection against the journal.
 #[derive(Default)]
 struct Plan {
+    /// Candidates not marked yet: marked by a confirmed run.
     new: BTreeMap<String, Archive>,
+    /// Marked candidates whose grace period has not ended.
     waiting: BTreeMap<String, Archive>,
     /// Due marks and interrupted deletions: deleted by a confirmed run.
     due: BTreeMap<String, Archive>,
@@ -132,9 +156,11 @@ struct Plan {
     finish: BTreeSet<String>,
     /// Deletion started earlier but referenced again: kept, reported.
     blocked: BTreeSet<String>,
+    /// Earliest time a deletion becomes due, if any.
     next: Option<u64>,
 }
 
+/// Classify the fresh `selection` against the folded `journal` at `now`.
 fn plan(selection: &Selection, journal: &BTreeMap<String, State>, now: u64) -> Plan {
     let mut out = Plan::default();
     for (name, archive) in &selection.candidates {
@@ -175,6 +201,9 @@ fn plan(selection: &Selection, journal: &BTreeMap<String, State>, now: u64) -> P
     out
 }
 
+/// One cleanup run: fold the journal, observe, select, and either preview,
+/// cancel, or (with `confirm`) mark, release, finish and delete due data
+/// subject to the mass-delete guard. Called by `cleanup::run_with`.
 pub(crate) fn run(io: &dyn CleanupIo, pool: &str, options: &Options) -> Result<CleanupReport> {
     let now = io.now();
     let journal = records::fold(&io.records()?);
@@ -249,6 +278,7 @@ pub(crate) fn run(io: &dyn CleanupIo, pool: &str, options: &Options) -> Result<C
     Ok(out)
 }
 
+/// Fill the report totals and the per-account breakdown from `plan`.
 fn summarize(out: &mut CleanupReport, plan: &Plan) {
     let mut accounts: BTreeMap<String, CleanupAccount> = BTreeMap::new();
     for (set, totals) in [
@@ -274,6 +304,7 @@ fn summarize(out: &mut CleanupReport, plan: &Plan) {
     out.next_deletion_unix = plan.next;
 }
 
+/// Why deleting `due` would exceed the mass-delete guard, if it would.
 fn guard_reason(
     due: &BTreeMap<String, Archive>,
     totals: guard::Totals,
@@ -311,6 +342,9 @@ fn release(
     Ok(())
 }
 
+/// Delete due archives: journal `Deleting`, re-observe, release anything
+/// referenced again, delete each remaining archive's objects, and journal
+/// `Deleted` in batches. Stops between archives when the mount shuts down.
 fn delete(
     io: &dyn CleanupIo,
     due: &BTreeMap<String, Archive>,
@@ -396,6 +430,7 @@ fn delete(
     flush(io, &mut done, worker)
 }
 
+/// Publish a `Deleted` record for the archives in `done`, then clear it.
 fn flush(io: &dyn CleanupIo, done: &mut BTreeMap<String, Info>, worker: &str) -> Result<()> {
     if done.is_empty() {
         return Ok(());

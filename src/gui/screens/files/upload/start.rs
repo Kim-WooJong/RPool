@@ -1,3 +1,5 @@
+//! Builds and starts the `rpool put` task for one queued file.
+
 use super::state::UploadTargetMode;
 use crate::gui::i18n::tr;
 use crate::gui::state::GuiState;
@@ -5,6 +7,9 @@ use crate::gui::task::TaskRunner;
 use std::ffi::OsString;
 use std::path::Path;
 
+/// Starts `rpool put <source>` with the pool or manual target flags, plus
+/// `--id` when a single file has a typed archive ID. Called by
+/// `batch::start_next`.
 pub(crate) fn start_upload_path(
     state: &GuiState,
     task: &mut TaskRunner,
@@ -32,6 +37,8 @@ pub(crate) fn start_upload_path(
     )
 }
 
+/// Pool target: `--pool <name> --workers N` and, when set, the one-off policy
+/// override flags. Errors when no pool is selected.
 fn append_pool_target(state: &GuiState, args: &mut Vec<OsString>) -> Result<(), String> {
     let pool = state.upload.pool_name.trim();
     if pool.is_empty() {
@@ -48,6 +55,8 @@ fn append_pool_target(state: &GuiState, args: &mut Vec<OsString>) -> Result<(), 
     Ok(())
 }
 
+/// Manual target: one `--remote` per configured remote plus the shard, worker,
+/// placement, retry and K+M flags from the settings. Errors without a remote.
 fn append_manual_target(state: &GuiState, args: &mut Vec<OsString>) -> Result<(), String> {
     if !state
         .settings

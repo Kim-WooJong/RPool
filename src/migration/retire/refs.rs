@@ -44,6 +44,7 @@ impl References {
         self.add_token_owned(owner, owner, source);
     }
 
+    /// Records that `owner` (read from `source`) names `token`.
     fn add_token_owned(&mut self, token: &str, owner: &str, source: &str) {
         self.tokens
             .entry(token.into())
@@ -79,6 +80,7 @@ impl References {
         }
     }
 
+    /// Records a reference source that could not be read (keeps everything).
     pub(crate) fn uncertain(&mut self, what: String) {
         self.uncertain.push(what);
     }

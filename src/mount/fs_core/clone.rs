@@ -39,6 +39,7 @@ pub(super) fn clone_image(
 }
 
 #[cfg(target_os = "macos")]
+/// macOS: APFS `clonefile` of `source` to the new `target`, then opens it read-write.
 fn platform_clone(source: &Path, target: &Path) -> std::io::Result<File> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
@@ -54,6 +55,8 @@ fn platform_clone(source: &Path, target: &Path) -> std::io::Result<File> {
 }
 
 #[cfg(target_os = "linux")]
+/// Linux: creates `target` and shares `source`'s extents with the `FICLONE` ioctl
+/// (removes `target` again on failure).
 fn platform_clone(source: &Path, target: &Path) -> std::io::Result<File> {
     use std::os::fd::AsRawFd;
     let input = File::open(source)?;
@@ -73,6 +76,7 @@ fn platform_clone(source: &Path, target: &Path) -> std::io::Result<File> {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+/// Other platforms: cloning is unsupported, so callers fall back to copying.
 fn platform_clone(_: &Path, _: &Path) -> std::io::Result<File> {
     Err(std::io::ErrorKind::Unsupported.into())
 }

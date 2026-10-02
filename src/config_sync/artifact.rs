@@ -1,17 +1,27 @@
+//! Layout and safety checks of the portable artifact tree written by
+//! `rpool export` and read by `rpool import`: `config/portable-config.json` plus
+//! the optional encrypted vault `secrets/rclone.age`, bound together by its BLAKE3.
 use crate::models::{PortableConfig, PortableSecretVault, SECRET_VAULT_PATH};
 use anyhow::{anyhow, bail, Result};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+/// Portable config location relative to the artifact root.
 pub(crate) const PORTABLE_CONFIG_PATH: &str = "config/portable-config.json";
 
+/// Resolved paths of one artifact tree.
 pub(crate) struct ArtifactPaths {
+    /// Canonical artifact root directory.
     pub(crate) root: PathBuf,
+    /// `<root>/config/portable-config.json`.
     pub(crate) portable: PathBuf,
+    /// `<root>/secrets/rclone.age` (encrypted crypt secrets).
     pub(crate) vault: PathBuf,
 }
 
+/// Requires `path` to be a real (non-symlink) directory; with `create`, makes
+/// a missing one (mode 0700 on Unix).
 fn ensure_directory(path: &Path, create: bool) -> Result<()> {
     match fs::symlink_metadata(path) {
         Ok(meta) => {
@@ -39,6 +49,7 @@ fn ensure_directory(path: &Path, create: bool) -> Result<()> {
     Ok(())
 }
 
+/// Metadata of `path`, which must be a regular non-symlink file.
 fn regular_file(path: &Path) -> Result<fs::Metadata> {
     let meta =
         fs::symlink_metadata(path).map_err(|_| anyhow!("portable artifact file is missing"))?;
@@ -49,6 +60,7 @@ fn regular_file(path: &Path) -> Result<fs::Metadata> {
 }
 
 impl ArtifactPaths {
+    /// Paths for export: creates the root, `config/` and `secrets/` as needed.
     pub(crate) fn for_export(root: &Path) -> Result<Self> {
         ensure_directory(root, true)?;
         let root = root
@@ -65,6 +77,7 @@ impl ArtifactPaths {
         })
     }
 
+    /// Paths for import: the directories and the portable config file must exist.
     pub(crate) fn for_import(root: &Path) -> Result<Self> {
         ensure_directory(root, false)?;
         let root = root
@@ -83,6 +96,7 @@ impl ArtifactPaths {
         Ok(paths)
     }
 
+    /// BLAKE3 hex digest of the vault file (must be 1 byte..64 MiB).
     pub(crate) fn vault_digest(&self) -> Result<String> {
         let meta = regular_file(&self.vault)?;
         if meta.len() == 0 || meta.len() > 64 * 1024 * 1024 {
@@ -104,6 +118,8 @@ impl ArtifactPaths {
         Ok(hasher.finalize().to_hex().to_string())
     }
 
+    /// Checks that the vault matches the portable config: present with a matching
+    /// digest exactly when the config lists crypt remotes, absent otherwise.
     pub(crate) fn validate_binding(&self, bundle: &PortableConfig) -> Result<()> {
         match (&bundle.secret_vault, bundle.crypt_remotes.is_empty()) {
             (None, true) => match fs::symlink_metadata(&self.vault) {
@@ -129,6 +145,8 @@ impl ArtifactPaths {
         Ok(())
     }
 
+    /// Deletes a leftover vault file (refusing non-regular paths); used by export
+    /// when no crypt remotes need one.
     pub(crate) fn remove_stale_vault(&self) -> Result<()> {
         match fs::symlink_metadata(&self.vault) {
             Ok(meta) => {
@@ -144,6 +162,7 @@ impl ArtifactPaths {
         Ok(())
     }
 
+    /// Vault binding (its digest) to record in the portable config.
     pub(crate) fn binding(&self) -> Result<PortableSecretVault> {
         PortableSecretVault::new(self.vault_digest()?)
     }

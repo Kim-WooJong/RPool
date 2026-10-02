@@ -3,6 +3,9 @@ use crate::prelude::*;
 use crate::provider::keepalive::keepalive;
 use crate::storage::admin::{BackendAdmin, RcloneAdmin};
 
+/// Makes one cheap authenticated call per backing account (the given remotes
+/// resolved to their accounts, or every account) and records it as activity;
+/// fails if any account did not answer.
 pub(crate) fn run(rclone: &str, remotes: Vec<String>, json: bool) -> Result<()> {
     let accounts = if remotes.is_empty() {
         RcloneAdmin::inherited(rclone).catalog()?.backing_remotes()

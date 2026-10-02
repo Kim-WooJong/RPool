@@ -6,6 +6,8 @@ use std::collections::VecDeque;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+/// Scheduling domain of a remote address: the remote name before `:` (whole string if none).
+/// Used by `put` and the hedged `get` as the `key` of [`run`].
 pub(crate) fn remote_key(remote: &str) -> String {
     remote
         .split_once(':')
@@ -13,6 +15,8 @@ pub(crate) fn remote_key(remote: &str) -> String {
         .to_owned()
 }
 
+/// Retry policy for safe read jobs: retriable storage errors wait for the provider's
+/// `retry_after` or an exponential backoff (100 ms doubling, capped at 6.4 s); anything else is final.
 pub(crate) fn read_retry(error: &anyhow::Error, attempt: u32) -> Option<Duration> {
     let error = error.downcast_ref::<StorageError>()?;
     error.is_retriable().then(|| {
@@ -25,10 +29,16 @@ pub(crate) fn read_retry(error: &anyhow::Error, attempt: u32) -> Option<Duration
     })
 }
 
+/// A queued job with its retry state.
 struct Pending<T> {
+    /// The caller's job.
     job: T,
+    /// 1-based attempt number of the next execution.
     attempt: u32,
+    /// Earliest time the job may run (retry backoff).
     ready: Instant,
+    /// Produced by `complete` rather than the initial list; per domain the scheduler
+    /// alternates between follow-up and initial jobs.
     followup: bool,
 }
 

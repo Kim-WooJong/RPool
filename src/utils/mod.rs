@@ -1,11 +1,21 @@
+//! Small shared helpers used across the crate: durable file writes, positional
+//! file I/O, hashing, JSON files, local time offset, remote paths, wildcard
+//! matching, time and argument validation. Callers use the re-exports below.
 mod durable;
+/// Positional read/write that leaves the file cursor alone.
 mod file_io;
+/// BLAKE3 of file ranges.
 mod hash;
+/// JSON read/atomic save/pruning helpers.
 mod json;
 mod local_offset;
+/// Archive ids and remote path joining/splitting.
 mod path;
+/// Case-insensitive `*`/`?` wildcard matching.
 mod pattern;
+/// Current unix time.
 mod time;
+/// Argument checks for CLI options.
 mod validation;
 
 #[allow(unused_imports, reason = "some helpers serve only one OS")]

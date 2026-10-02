@@ -3,6 +3,8 @@
 use crate::mount::metadata_compaction::Report;
 use anyhow::Result;
 
+/// Compacts the pool's drive metadata via `mount::metadata_pool::compact_pool`
+/// and prints the report as JSON or text. Called via `commands::pool::compact`.
 pub(crate) fn run(
     rclone: &str,
     name: &str,
@@ -22,6 +24,7 @@ pub(crate) fn run(
     Ok(())
 }
 
+/// Human-readable summary of a compaction report; verbs switch to "would …" on a dry run.
 fn text(r: &Report) -> String {
     let verb = |done: &str, would: &str| {
         if r.dry_run {

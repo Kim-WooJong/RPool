@@ -17,6 +17,9 @@ impl std::fmt::Display for SpoolBudgetExceeded {
 }
 impl std::error::Error for SpoolBudgetExceeded {}
 
+/// Fails if `path` or anything below it is a symlink, reparse point
+/// (Windows) or special file; checked before recursive removal by
+/// `cache_recovery`.
 pub(super) fn real_tree(path: &Path) -> Result<()> {
     let meta = fs::symlink_metadata(path)?;
     #[cfg(windows)]
@@ -149,6 +152,9 @@ impl VirtualDrive {
         }
         Ok(sum)
     }
+    /// Copies `source` into a new spool image `target` through
+    /// `write_spool_bytes` (budgeted) and flushes it. Used by rename when a
+    /// file must be materialized into the spool.
     pub(crate) fn copy_to_spool(&self, source: &Path, target: &Path) -> Result<()> {
         let mut input = File::open(source)?;
         let mut output = OpenOptions::new()
@@ -180,6 +186,9 @@ impl VirtualDrive {
         }
         Ok(())
     }
+    /// Writes `bytes` at the file's current position after admitting the
+    /// growth under the spool budget (`SpoolBudgetExceeded` when it does not fit).
+    /// Every spool write (DAV, native, import, recovery) goes through here.
     pub(crate) fn write_spool_bytes(&self, file: &mut File, bytes: &[u8]) -> Result<()> {
         let mut meter = self.spool_writes.lock().unwrap();
         let end = file

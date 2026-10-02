@@ -14,6 +14,9 @@ use crate::gui::theme;
 use crate::presentation::format_bytes;
 use eframe::egui;
 
+/// Renders the "Reclaimable space" block for `pool`; called by
+/// `retention_card` inside the Trash & versions card. Re-runs the preview
+/// when it is stale and handles the confirm / force-confirm flow.
 pub(crate) fn show(
     ui: &mut egui::Ui,
     history: &mut HistoryForm,
@@ -123,12 +126,15 @@ pub(crate) fn show(
     }
 }
 
+/// Sums `(bytes, files)` over the given totals.
 fn sum(parts: &[&CleanupTotals]) -> (u64, u64) {
     parts.iter().fold((0, 0), |(bytes, files), t| {
         (bytes + t.bytes, files + t.files)
     })
 }
 
+/// Report lines: reclaimable total, waiting and due amounts, per-account
+/// sizes and the automatic-cleanup setting; or why cleanup is postponed.
 fn summary(ui: &mut egui::Ui, report: &CleanupReport) {
     if report.mode == CleanupMode::Postponed {
         ui.colored_label(

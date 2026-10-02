@@ -8,20 +8,26 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, TryRecvError};
 
+/// Task name of `pool migrate retire` that moves items into quarantine.
 pub(crate) const QUARANTINE_TASK: &str = "Pool migration cleanup quarantine";
+/// Task name of the permanent delete after the grace period.
 pub(crate) const DELETE_TASK: &str = "Pool migration cleanup delete";
+/// Task name of `pool migrate restore` (out of quarantine).
 pub(crate) const RESTORE_TASK: &str = "Pool migration cleanup restore";
 
 /// What a cleanup button asks for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CleanupAction {
+    /// Move cleanup candidates into the cleanup quarantine (recorded only, still readable).
     Quarantine,
+    /// Permanently delete quarantined items whose grace period ended.
     Delete,
     /// Archive ids; empty = all.
     Restore(Vec<String>),
 }
 
 impl CleanupAction {
+    /// Task name used to start the action and to recognise its finished task.
     pub(crate) fn task_name(&self) -> &'static str {
         match self {
             Self::Quarantine => QUARANTINE_TASK,
@@ -31,28 +37,38 @@ impl CleanupAction {
     }
 }
 
+/// Result of a background dry-run cleanup check, sent from the worker thread.
 #[derive(Debug)]
 pub(crate) struct ReportOutcome {
+    /// Migration id the report belongs to.
     pub(crate) id: String,
+    /// Report, or the formatted error.
     pub(crate) result: Result<RetireReport, String>,
 }
 
+/// GUI state of the migration "Clean up" step, held in `MigrationForm::cleanup`.
 #[derive(Debug)]
 pub(crate) struct CleanupForm {
+    /// Grace period before quarantined items may be deleted, in days (capped at `MAX_GRACE_DAYS`).
     pub(crate) grace_days: u64,
+    /// Also clean up items of accounts removed from the pool.
     pub(crate) include_removed: bool,
+    /// Re-verify replacements fully instead of the quick check.
     pub(crate) full_verify: bool,
     /// Extra drive workspace folder whose metadata counts as references.
     pub(crate) workspace: String,
     /// Latest dry-run report and the migration it belongs to.
     pub(crate) report: Option<RetireReport>,
+    /// Migration id of `report` (also set when the check failed), so the check is not repeated.
     pub(crate) report_id: Option<String>,
+    /// Error of the last check, shown in the step.
     pub(crate) error: Option<String>,
     /// The guard refused this action: waiting for the explicit second
     /// confirmation (then `--force` is passed).
     pub(crate) confirm_force: Option<CleanupAction>,
     /// Our running task (to refresh the report when it ends).
     pub(crate) watched: Option<CleanupAction>,
+    /// Channel of a dry run in progress; `None` when idle.
     loading: Option<Receiver<ReportOutcome>>,
 }
 
@@ -74,6 +90,7 @@ impl Default for CleanupForm {
 }
 
 impl CleanupForm {
+    /// True while a dry-run check is in progress.
     pub(crate) fn loading(&self) -> bool {
         self.loading.is_some()
     }
@@ -89,6 +106,7 @@ impl CleanupForm {
         out
     }
 
+    /// Library options for retire from the form (grace days converted to seconds).
     pub(crate) fn options(&self, workspaces: Vec<PathBuf>) -> RetireOptions {
         RetireOptions {
             grace_seconds: self
@@ -144,6 +162,7 @@ impl CleanupForm {
         self.loading.is_some()
     }
 
+    /// Stores a finished check: the report, or clears it and sets the error.
     pub(crate) fn apply_report(&mut self, outcome: ReportOutcome) {
         match outcome.result {
             Ok(report) => {

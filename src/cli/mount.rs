@@ -1,3 +1,6 @@
+//! Arguments of `rpool mount` ([`MountArgs`]) and the filesystem frontend choice
+//! ([`Frontend`]) with its runtime availability probes (WinFsp, macFUSE).
+//! Used by `mount::run` and the GUI mount form.
 use clap::Args;
 use std::path::PathBuf;
 
@@ -27,6 +30,8 @@ pub(crate) enum Frontend {
 }
 
 impl Frontend {
+    /// Value accepted by `--frontend` for this variant; used when the GUI builds a
+    /// `rpool mount` command line.
     pub(crate) fn cli_value(self) -> &'static str {
         match self {
             Self::Auto => "auto",
@@ -103,7 +108,7 @@ pub(crate) fn unavailable_reason(
     unavailable_reason_on(frontend, built, installed, false)
 }
 
-/// [`unavailable_reason`] with the OS made explicit (`macos`: macFUSE hints).
+/// `unavailable_reason` with the OS made explicit (`macos`: macFUSE hints).
 pub(crate) fn unavailable_reason_on(
     frontend: Frontend,
     built: Option<Frontend>,
@@ -137,6 +142,7 @@ fn winfsp_installed() -> bool {
     *LOADED.get_or_init(|| winfsp_wrs::init().is_ok())
 }
 #[cfg(not(all(windows, feature = "winfsp")))]
+/// WinFsp is never available in builds without the Windows `winfsp` feature.
 fn winfsp_installed() -> bool {
     false
 }

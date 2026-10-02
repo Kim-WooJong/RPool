@@ -24,6 +24,7 @@ use crate::prelude::*;
 /// What the fresh check says about a due fossil.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Verdict {
+    /// Still a valid candidate with the approved objects: delete it.
     Delete,
     /// Definitely keep: record `Cancelled` (released from quarantine).
     Cancel(String),
@@ -33,6 +34,8 @@ pub(crate) enum Verdict {
     Gone,
 }
 
+/// Keep reasons that may clear later (uncertain references, unreachable
+/// account, unreadable original, unverified replacement): postpone, not cancel.
 fn postpones(reason: KeepReason) -> bool {
     matches!(
         reason,
@@ -76,6 +79,8 @@ pub(crate) fn verdict(fossil: &ItemFossil, selection: &Selection) -> Verdict {
     Verdict::Gone
 }
 
+/// Short human label of a keep reason; used in verdict texts and by the
+/// `pool migrate retire` command output.
 pub(crate) fn keep_label(reason: KeepReason) -> &'static str {
     match reason {
         KeepReason::DriveArchive => "drive revision",
@@ -112,6 +117,8 @@ pub(crate) fn ensure_complete(plan: &Plan, records: &[Record]) -> Result<()> {
     Ok(())
 }
 
+/// Object/byte totals over the listed roots (pool roots only unless
+/// `include_removed`), the base of the mass-delete guard.
 fn pool_totals(world: &World, include_removed: bool) -> guard::Totals {
     let roots: Vec<&String> = world
         .listings
@@ -280,6 +287,8 @@ fn ordered(mut objects: Vec<RetireObject>) -> Vec<RetireObject> {
     objects
 }
 
+/// New journal record of `kind` for the fossil's item, stamped with this
+/// PC and the current time, without objects or grace.
 fn record(io: &dyn RetireIo, fossil: &RetireRecord, kind: RetireKind) -> Result<RetireRecord> {
     Ok(RetireRecord {
         version: RECORD_VERSION,
@@ -297,6 +306,8 @@ fn record(io: &dyn RetireIo, fossil: &RetireRecord, kind: RetireKind) -> Result<
     })
 }
 
+/// Step 1 of `--confirm`: resumes `Deleting` fossils and deletes `Due` ones
+/// after a fresh verdict, appending one action line each.
 fn delete_step(
     io: &dyn RetireIo,
     fossils: &BTreeMap<String, ItemFossil>,

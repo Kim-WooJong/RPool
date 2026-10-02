@@ -1,9 +1,13 @@
+//! Writing manifest replicas to remotes.
+
 use crate::manifest::{manifest_remotes, validate_manifest};
 use crate::models::Manifest;
 use crate::storage::writer::StorageWriter;
 use crate::utils::remote_join;
 use anyhow::Result;
 
+/// Serializes `manifest` and replicates it; see
+/// [`replicate_manifest_bytes_with_storage`].
 pub(crate) fn replicate_manifest_with_storage(
     storage: &StorageWriter,
     manifest: &Manifest,

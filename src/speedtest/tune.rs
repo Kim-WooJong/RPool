@@ -32,6 +32,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+/// Simultaneous transfer counts tried, in order (doubling up to 32).
 pub(crate) const LEVELS: [usize; 6] = [1, 2, 4, 8, 16, 32];
 /// Size of one tuning request (when the pool's shards are not smaller).
 pub(crate) const TUNE_SHARD_BYTES: u64 = 1024 * 1024;
@@ -42,6 +43,7 @@ const FILES_PER_SLOT: usize = 64;
 /// Local test remotes are fast: keep the bytes a window writes small.
 #[cfg(test)]
 const FILES_PER_SLOT: usize = 3;
+/// Fewest shards queued for a level, even at level 1.
 const MIN_FILES: usize = 2;
 /// Discarded start of every level: process start, TLS, the provider's
 /// first answer.
@@ -63,6 +65,7 @@ const FLAT_LEVELS: usize = 2;
 /// throttles small files.
 const ENOUGH: f64 = 0.95;
 
+/// Shards queued for a level: `FILES_PER_SLOT` per slot, at least `MIN_FILES`.
 fn files_at(level: usize) -> usize {
     (level * FILES_PER_SLOT).max(MIN_FILES)
 }
@@ -128,8 +131,11 @@ pub(crate) fn recommend(steps: &[TuningStep]) -> Option<usize> {
         .min()
 }
 
+/// Result of one remote's tuning, merged into its [`super::model::RemoteSpeed`].
 pub(crate) struct TuneOutcome {
+    /// Upload tuning, when `--tune-uploads` was given.
     pub uploads: Option<ConcurrencyTuning>,
+    /// Download tuning, when `--tune-downloads` was given.
     pub downloads: Option<ConcurrencyTuning>,
     /// Bytes reported to the progress bar.
     pub reported: u64,
@@ -178,6 +184,7 @@ pub(crate) fn run(
 struct Measured {
     /// None when the level failed.
     rate: Option<f64>,
+    /// One-line error of a failed level.
     error: Option<String>,
 }
 
@@ -332,6 +339,7 @@ fn shard_files(run: &Run<'_>, dir: &str, count: usize) -> Vec<TestFile> {
         .collect()
 }
 
+/// `cancelled` after a stop, else the given error.
 fn cancelled_or(engine: &super::engine::Engine, error: Option<&str>) -> Option<String> {
     if engine.cancelled() {
         Some("cancelled".to_owned())
@@ -340,10 +348,13 @@ fn cancelled_or(engine: &super::engine::Engine, error: Option<&str>) -> Option<S
     }
 }
 
+/// Bytes per second over `wall` (at least 1 ms to avoid division by zero).
 fn rate(bytes: u64, wall: std::time::Duration) -> f64 {
     bytes as f64 / wall.as_secs_f64().max(1e-3)
 }
 
+/// Runs upload levels 1, 2, 4, … in their own folders until climbing stops,
+/// recording each step and the recommendation in `tuning`.
 fn upload_levels(
     run: &Run<'_>,
     at: &Position<'_>,
@@ -473,6 +484,8 @@ fn download_levels(
     }
 }
 
+/// Per-level data key derived from the run seed and `label`, so levels never
+/// reuse the same stream.
 fn level_seed(seed: &[u8; 32], label: &str) -> [u8; 32] {
     *blake3::keyed_hash(seed, label.as_bytes()).as_bytes()
 }

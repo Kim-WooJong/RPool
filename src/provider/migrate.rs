@@ -1,3 +1,6 @@
+//! Provider drain: moves the shards an archive keeps on one provider to
+//! another, verifies them, and writes and replicates the updated manifest.
+//! Used by `rpool provider drain` (`commands::provider::drain`).
 use crate::manifest::{
     content_root_v2, manifest_remotes, replicate_manifest_with_storage, validate_manifest,
 };
@@ -7,6 +10,8 @@ use crate::storage::writer::StorageWriter;
 use crate::utils::{relative_remote_object, remote_join, save_json_atomic};
 
 #[allow(clippy::too_many_arguments)]
+/// Drains `manifest` from provider `from` to `to` using the rclone storage
+/// writer; see [`drain_manifest_with_storage`].
 pub(crate) fn drain_manifest(
     rclone: &str,
     manifest: &Manifest,
@@ -34,6 +39,13 @@ pub(crate) fn drain_manifest(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Copies every shard stored on `from` to the same relative path on `to`,
+/// verifies each copy, saves the updated manifest to `output` and replicates
+/// it (keeping a replica on `from` unless `delete_source`). Requires a v2
+/// manifest, refuses drains that break single-provider failure safety unless
+/// `allow_risky`, and refuses deleting virtual-drive sources. With `dry_run`
+/// it only prints the planned moves and returns the preview manifest.
+/// With `delete_source` the old shards and manifest replica are removed last.
 pub(crate) fn drain_manifest_with_storage(
     storage: &StorageWriter,
     manifest: &Manifest,

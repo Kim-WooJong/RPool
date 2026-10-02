@@ -8,10 +8,16 @@ use crate::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
+/// A drive-history operation; serialized (tag `op`) into mount request files
+/// and built by `command::op` or the GUI `api`.
 pub(crate) enum Op {
+    /// List the trash.
     TrashList,
+    /// Restore trash entries.
     TrashRestore {
+        /// Trash entry ids to restore.
         ids: Vec<String>,
+        /// New path for a single restored entry.
         to: Option<String>,
         /// Destination folder for every entry (names kept).
         into: Option<String>,
@@ -19,22 +25,36 @@ pub(crate) enum Op {
     /// `ids`, or every expired entry (`expired`), or the whole trash (`all`).
     /// Without `confirm` only previews.
     TrashPurge {
+        /// Explicit trash entry ids.
         ids: Vec<String>,
+        /// Every expired entry.
         expired: bool,
+        /// Empty the whole trash.
         all: bool,
+        /// Publish the mark; `false` previews.
         confirm: bool,
     },
+    /// List the versions of one file.
     VersionsList {
+        /// Drive path of the file.
         path: String,
     },
+    /// Restore one version of a file.
     VersionsRestore {
+        /// Drive path of the file.
         path: String,
+        /// Revision id to restore.
         id: String,
+        /// Restore beside the file instead of replacing it.
         as_copy: bool,
     },
+    /// Return `path` (`/` = whole drive) to its state at `at`.
     Rollback {
+        /// Drive folder or file to roll back.
         path: String,
+        /// Target time (unix seconds).
         at: u64,
+        /// Apply; `false` previews.
         confirm: bool,
     },
     /// Physical cleanup of unreferenced drive data (`cleanup`).
@@ -63,23 +83,33 @@ impl Op {
 /// `trash restore` / `versions restore` result.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct RestoreReport {
+    /// Always `HISTORY_VERSION`.
     pub version: u32,
+    /// Pool name.
     pub pool: String,
+    /// Actions carried out (new revisions or deletions).
     pub changes: Vec<Action>,
+    /// Every change reached the cloud.
     pub published: bool,
+    /// Extra explanations (e.g. publish deferred).
     pub notes: Vec<String>,
 }
 
 /// `trash purge|empty` result (preview unless `applied`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct PurgeReport {
+    /// Always `HISTORY_VERSION`.
     pub version: u32,
+    /// Pool name.
     pub pool: String,
+    /// Trash entry ids selected for purging.
     pub ids: Vec<String>,
+    /// Whether the purge mark was published.
     pub applied: bool,
     /// Bytes no kept revision references any more after this purge (what
     /// a physical cleanup could reclaim; nothing is deleted by the purge).
     pub eligible_bytes: u64,
+    /// Explanations for the user.
     pub notes: Vec<String>,
 }
 
@@ -115,6 +145,8 @@ pub(crate) fn read(
     })
 }
 
+/// Select the trash entries to purge and compute the bytes no kept revision
+/// references afterwards. Used for previews (`read`) and by `purge`.
 pub(crate) fn purge_report(
     history: &History,
     pool: &str,

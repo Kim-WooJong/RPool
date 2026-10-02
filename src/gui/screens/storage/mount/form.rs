@@ -6,38 +6,57 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::Path;
 
+/// Drive page state, held in `GuiState::mount`: the edited per-pool mount
+/// settings plus the running sessions; builds and starts `rpool mount` actions.
 pub(crate) struct MountForm {
     /// The selected pool's session (idle when that pool does not run).
     pub(super) session: MountSession,
     /// Sessions of other pools that ran when another pool was selected.
     pub(super) background: BTreeMap<String, MountSession>,
+    /// Selected pool; switching saves the old pool's profile (`select_pool`).
     pub(super) pool: String,
+    /// Persistent local workspace folder (`--workspace`); must be absolute.
     pub(super) workspace: String,
+    /// Windows drive letter or empty Unix folder (`--mountpoint`); default `R:` on Windows.
     pub(super) mountpoint: String,
     /// Display name in pool-sync conflicts (`--pool-worker`); generated if empty.
     pub(super) pc_name: String,
+    /// Archive manifests to add to the drive at the next start (`--manifest`).
     pub(super) manifests: Vec<String>,
+    /// Text box of the manifest to add on the Import tab.
     pub(super) manifest_input: String,
+    /// Background sync interval in seconds (`--interval-seconds`).
     pub(super) interval_seconds: u64,
     /// Shard transfers of this PC (`--workers`), copied from Settings before
     /// each start; 0 = the pool's saved value.
     pub(super) workers: u64,
+    /// Clean shard cache budget, GiB (`--cache-gib`).
     pub(super) cache_gib: u64,
+    /// OS / native mount cache target, GiB (`--vfs-cache-gib`).
     pub(super) vfs_cache_gib: u64,
+    /// Disk space the OS cache tries to leave free, GiB (`--cache-min-free-gib`).
     pub(super) cache_min_free_gib: u64,
+    /// Pending-write (spool) limit, GiB (`--spool-gib`).
     pub(super) spool_gib: u64,
+    /// Original workspace to recover from (`--account-recovery-from`).
     pub(super) recovery_source: String,
     /// Plain rclone `remote:path` to import into the drive.
     pub(super) import_source: String,
     /// Drive folder the import lands in; empty for the root.
     pub(super) import_destination: String,
+    /// Upload after this many GiB were copied during an rclone import (min 1).
     pub(super) import_batch_gib: u64,
+    /// Import name clashes as renamed copies (`--import-conflict=rename`) instead of skipping.
     pub(super) import_rename: bool,
     /// Selected Drive page tab.
     pub(crate) tab: crate::gui::state::DriveTab,
+    /// Remotes to skip during recovery, one per line (`--recovery-skip-remote`).
     pub(super) recovery_skip_remotes: String,
+    /// Completed reprocess `plan.json` to reuse (`--recovery-reprocess-plan`).
     pub(super) recovery_reprocess_plan: String,
+    /// Filesystem frontend chosen on the Options tab.
     pub(super) frontend: crate::cli::Frontend,
+    /// Mount read-only (`--native-read-only`, native frontends only).
     pub(super) native_read_only: bool,
 }
 
@@ -86,10 +105,12 @@ impl MountForm {
         let workspace = self.workspace.trim();
         (self.pool == pool && !workspace.is_empty()).then(|| workspace.to_string())
     }
+    /// Selects a completed reprocess plan for recovery; called from `reprocess`.
     pub(crate) fn use_reprocess_plan(&mut self, path: &Path) {
         self.recovery_reprocess_plan = path.display().to_string();
         self.session.notice = Some(tr("Reprocess plan selected. Open Recover after account removal, choose the original workspace and a new destination pool/workspace. Only validated completed replacements will be reused.").into());
     }
+    /// Default form with the cache budgets from the GUI settings; used at startup.
     pub(crate) fn from_settings(settings: &crate::gui::settings::GuiSettings) -> Self {
         let cache = &settings.mount_cache;
         Self {
@@ -101,6 +122,7 @@ impl MountForm {
         }
     }
 
+    /// Current cache budgets as the saved settings type.
     pub(super) fn cache_settings(&self) -> crate::gui::settings::MountCacheSettings {
         crate::gui::settings::MountCacheSettings {
             shard_gib: self.cache_gib,
@@ -110,6 +132,8 @@ impl MountForm {
         }
     }
 
+    /// Saves the form into the GUI settings (per-pool profile, or the global
+    /// cache budgets when no pool is selected) and writes them to disk.
     pub(super) fn save_mount_settings(
         &self,
         settings: &mut crate::gui::settings::GuiSettings,
@@ -126,6 +150,7 @@ impl MountForm {
         Ok(())
     }
 
+    /// The per-pool profile saved in `GuiSettings::mount_profiles`.
     pub(super) fn profile(&self) -> crate::gui::settings::MountProfile {
         crate::gui::settings::MountProfile {
             workspace: self.workspace.clone(),
@@ -139,6 +164,9 @@ impl MountForm {
         }
     }
 
+    /// Switches the Drive page to `pool`: saves the old profile, keeps a
+    /// running session in `background`, and loads the new pool's profile and
+    /// session (avoiding a taken drive letter for a first-time pool).
     pub(crate) fn select_pool(
         &mut self,
         pool: String,
@@ -213,6 +241,7 @@ impl MountForm {
         args
     }
 
+    /// Appends cache budgets and `--workers` (when set) to `args`.
     pub(super) fn append_cache_args(&self, args: &mut Vec<OsString>) {
         args.push(format!("--vfs-cache-gib={}", self.vfs_cache_gib).into());
         args.push(format!("--cache-min-free-gib={}", self.cache_min_free_gib).into());
@@ -249,6 +278,7 @@ impl MountForm {
         }
     }
 
+    /// Requests a graceful unmount of the selected pool's session.
     pub(super) fn request_stop(&mut self) -> Result<(), String> {
         self.session.request_stop()
     }
@@ -279,6 +309,7 @@ impl MountForm {
         }
     }
 
+    /// Errors with the conflict message when `action` would clash with a running session.
     fn check_conflict(&self, action: u8) -> Result<(), String> {
         match self.conflict(action) {
             Some(conflict) => Err(conflict.message()),
@@ -286,10 +317,13 @@ impl MountForm {
         }
     }
 
+    /// Starts a mount (`sync_only` = false) or a workspace sync.
     pub(super) fn start(&mut self, rclone: &str, sync_only: bool) -> Result<(), String> {
         self.start_action(rclone, if sync_only { 1 } else { 0 })
     }
 
+    /// Validated argv of account recovery into the selected (new) pool from
+    /// `recovery_source`.
     pub(super) fn recovery_args(&self, stop: &Path) -> Result<Vec<OsString>, String> {
         if self.pool.trim().is_empty()
             || !Path::new(self.workspace.trim()).is_absolute()
@@ -324,6 +358,8 @@ impl MountForm {
         Ok(args)
     }
 
+    /// Starts account recovery in the selected session with a fresh control
+    /// directory; does not mount a drive.
     pub(super) fn start_account_recovery(&mut self, rclone: &str) -> Result<(), String> {
         let control = tempfile::Builder::new()
             .prefix("rpool-recovery-control-")
@@ -434,6 +470,8 @@ impl MountForm {
         Ok(args)
     }
 
+    /// Starts mount `action` (see `action_args`) in the selected session with a
+    /// fresh control directory, after the conflict check; sets the notice.
     pub(super) fn start_action(&mut self, rclone: &str, action: u8) -> Result<(), String> {
         let sync_only = action != 0;
         let control = tempfile::Builder::new()

@@ -7,12 +7,17 @@ use crate::presentation::format_bytes;
 /// Direct contents of one folder; `bytes` counts every file below it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct FolderSummary {
+    /// Number of direct subfolders.
     pub(crate) folders: usize,
+    /// Number of direct files.
     pub(crate) files: usize,
+    /// Total bytes of all files below the folder.
     pub(crate) bytes: u64,
 }
 
 impl FolderSummary {
+    /// Summary of `folder` (`None` = drive root) of `tree`. Used by `explorer::show`
+    /// for the footer line.
     pub(crate) fn of(tree: &DriveTree, folder: Option<usize>) -> Self {
         let children = tree.children(folder);
         let folders = children.iter().filter(|&&id| tree.nodes[id].is_dir).count();
@@ -57,6 +62,7 @@ pub(crate) fn type_label(name: &str, is_dir: bool) -> String {
     }
 }
 
+/// Folder or file glyph shown before names in the list, grid and details line.
 pub(crate) fn icon(is_dir: bool) -> &'static str {
     if is_dir {
         "📁"
@@ -65,6 +71,7 @@ pub(crate) fn icon(is_dir: bool) -> &'static str {
     }
 }
 
+/// "{n} folder(s)", translated and pluralized.
 pub(crate) fn folders_label(n: usize) -> String {
     if n == 1 {
         trf("{n} folder", &[("n", &n)])
@@ -73,6 +80,7 @@ pub(crate) fn folders_label(n: usize) -> String {
     }
 }
 
+/// "{n} file(s)", translated and pluralized.
 pub(crate) fn files_label(n: usize) -> String {
     if n == 1 {
         trf("{n} file", &[("n", &n)])
@@ -81,6 +89,7 @@ pub(crate) fn files_label(n: usize) -> String {
     }
 }
 
+/// "{n} item(s)": a folder's direct entry count in the Size column and details.
 pub(crate) fn items_label(n: usize) -> String {
     if n == 1 {
         trf("{n} item", &[("n", &n)])

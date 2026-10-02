@@ -6,8 +6,11 @@ use crate::mount::metadata_pool::Stats;
 
 /// Records without a checkpoint for which a recent checkpoint is expected.
 const CHECKPOINT_EXPECTED: usize = 2_000;
+/// Age in days after which the newest checkpoint counts as stale.
 const STALE_DAYS: u64 = 30;
 
+/// One `metadata-<pool>` row per saved pool, from `mount::metadata_pool::pool_stats`.
+/// Called by `commands::doctor` after `run_checks`.
 pub(crate) fn check_metadata(rclone: &str) -> Vec<Diagnostic> {
     let pools = match crate::pool::load_pool_store() {
         Ok(store) => store.pools.into_keys().collect::<Vec<_>>(),
@@ -26,6 +29,7 @@ pub(crate) fn check_metadata(rclone: &str) -> Vec<Diagnostic> {
         .collect()
 }
 
+/// Build a `metadata-<pool>` row.
 fn diagnostic(pool: &str, status: &str, message: String) -> Diagnostic {
     Diagnostic {
         check: format!("metadata-{pool}"),
@@ -34,6 +38,9 @@ fn diagnostic(pool: &str, status: &str, message: String) -> Diagnostic {
     }
 }
 
+/// Classify one pool's metadata stats: warn when many records are outside a
+/// checkpoint, when deletion is not enabled past the legacy record limit, or
+/// when checkpoints are missing/stale; otherwise `ok`.
 pub(crate) fn assess(pool: &str, stats: &Stats, now: u64) -> Diagnostic {
     let uncovered = stats.records.saturating_sub(stats.checkpointed as usize);
     let age_days = stats

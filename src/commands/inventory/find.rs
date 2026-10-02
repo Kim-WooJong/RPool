@@ -1,7 +1,10 @@
+//! `rpool inventory find`: searches the local inventory.
 use crate::inventory::{find_entries, load_inventory};
 use crate::presentation::format_bytes;
 use anyhow::Result;
 
+/// Prints inventory entries matching `pattern` (see `inventory::find_entries`)
+/// as text or JSON, followed by the match count.
 pub(crate) fn run(pattern: &str, json: bool) -> Result<()> {
     let store = load_inventory()?;
     let entries = find_entries(&store, pattern);

@@ -37,6 +37,8 @@ impl VirtualDrive {
         }
         Ok(intent)
     }
+    /// Copies a revision's bytes into a new spool image `target` (local images
+    /// by file copy, cloud ones through the shard cache), under the spool budget.
     pub(super) fn copy_revision_to_spool(&self, revision: &Revision, target: &Path) -> Result<()> {
         #[cfg(test)]
         super::move_image::hooks::copied();
@@ -59,6 +61,7 @@ impl VirtualDrive {
         output.sync_all()?;
         Ok(())
     }
+    /// [`Self::rename_file_staged`] without pre-staged images.
     pub(crate) fn rename_file(&self, from: &str, to: &str) -> Result<()> {
         self.rename_file_staged(from, to, &mut StagedMoves::default())
     }
@@ -149,6 +152,7 @@ impl VirtualDrive {
         self.upload.notify();
         Ok(())
     }
+    /// [`Self::rename_directory_staged`] without pre-staged images.
     pub(crate) fn rename_directory(&self, from: &str, to: &str) -> Result<()> {
         self.rename_directory_staged(from, to, &mut StagedMoves::default())
     }

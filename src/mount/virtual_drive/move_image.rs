@@ -22,12 +22,18 @@ use super::*;
 /// removed on drop.
 #[derive(Default)]
 pub(crate) struct StagedMoves {
+    /// Staged image per source revision id.
     images: BTreeMap<String, Staged>,
 }
 
+/// One image staged for a MOVE (`<source spool dir>/moving/<random>`);
+/// removed on drop unless the MOVE renamed it into place.
 struct Staged {
+    /// Staging directory holding `content`.
     dir: PathBuf,
+    /// Image size in bytes, from the seal record.
     size: u64,
+    /// Hex BLAKE3 of the image, from the seal record.
     hash: String,
     /// Keeps the source spool directory, which holds `dir`, from cleanup.
     source: Revision,
@@ -54,6 +60,7 @@ pub(crate) mod hooks {
     }
 }
 
+/// Hard-links `source` to `target` and checks the link has `size` bytes.
 fn link_image(source: &Path, target: &Path, size: u64) -> Result<()> {
     #[cfg(test)]
     if hooks::NO_LINK.with(|n| n.get()) {
@@ -165,6 +172,8 @@ impl VirtualDrive {
         }
         moves
     }
+    /// Stages a sealed local `revision` under its spool directory's `moving/`
+    /// (link or verified copy); `None` for a cloud or unsealed revision.
     fn stage_image(&self, revision: Revision) -> Result<Option<Staged>> {
         let Revision::Local { path, .. } = &revision else {
             return Ok(None);

@@ -1,13 +1,21 @@
+//! The Activity page (`Page::Jobs`): the running or last operation of the task
+//! runner, and buttons to list or prune the recorded task history
+//! (`rpool history list|prune`).
+
 use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 use eframe::egui;
 use std::ffi::OsString;
 
+/// Inputs of the history controls, in `GuiState::jobs`.
 #[derive(Debug)]
 pub(crate) struct JobsForm {
+    /// How many recent history entries "Show history" lists (`--limit`, default 50).
     pub(crate) history_limit: usize,
+    /// How many newest entries "Prune history" keeps (`--keep`, default 500).
     pub(crate) history_keep: usize,
+    /// Error from starting a history command.
     pub(crate) error: Option<String>,
 }
 
@@ -21,6 +29,7 @@ impl Default for JobsForm {
     }
 }
 
+/// Draws the Activity page. Called by the app for `Page::Jobs`.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     crate::gui::theme::page_header(
         ui,

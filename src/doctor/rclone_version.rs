@@ -1,6 +1,6 @@
 //! The rclone versions RPool supports, and the check of a detected version.
 //!
-//! Minimum v1.64.0 (https://rclone.org/changelog/): every mount passes
+//! Minimum v1.64.0 (<https://rclone.org/changelog/>): every mount passes
 //! `--vfs-cache-min-free-space` (added in v1.64.0) and the diagnostics bundle
 //! uses `rclone config redacted` (added in v1.64.0). Older features RPool also
 //! needs: `obscure -` from stdin (v1.53.0), `lsjson --stat` and the rc
@@ -14,14 +14,21 @@
 //! (v1.68.0), which RPool uses to flush the write-back queue before unmount.
 use super::Diagnostic;
 
+/// Oldest rclone release RPool runs with (see the module docs).
 pub(crate) const MINIMUM: (u32, u32, u32) = (1, 64, 0);
+/// Release RPool recommends (security fix for `--rc-serve`).
 pub(crate) const RECOMMENDED: (u32, u32, u32) = (1, 74, 3);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Classification of a detected rclone version.
 pub(crate) enum Support {
+    /// At or above `RECOMMENDED`.
     Ok,
+    /// Usable but older than `RECOMMENDED`.
     BelowRecommended,
+    /// Older than `MINIMUM`; mounts/diagnostics need newer features.
     BelowMinimum,
+    /// The version line could not be parsed.
     Unknown,
 }
 
@@ -40,6 +47,7 @@ pub(crate) fn parse(first_line: &str) -> Option<(u32, u32, u32)> {
     Some((major, minor, digits.parse().unwrap_or(0)))
 }
 
+/// Classify a parsed version; also used by the GUI rclone banner.
 pub(crate) fn support(version: Option<(u32, u32, u32)>) -> Support {
     match version {
         None => Support::Unknown,
@@ -49,6 +57,7 @@ pub(crate) fn support(version: Option<(u32, u32, u32)>) -> Support {
     }
 }
 
+/// Format a version as `vX.Y.Z`.
 pub(crate) fn display((major, minor, patch): (u32, u32, u32)) -> String {
     format!("v{major}.{minor}.{patch}")
 }

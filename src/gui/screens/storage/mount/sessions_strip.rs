@@ -6,11 +6,16 @@ use crate::gui::theme;
 use crate::gui::widgets::{status_badge, StatusTone};
 use eframe::egui;
 
+/// Button pressed in the strip, applied after the strip is drawn.
 enum Action {
+    /// Select that pool on the Drive page.
     Show(String),
+    /// Request a graceful unmount of that pool.
     Stop(String),
 }
 
+/// "Mounted pools" strip above the status bar; hidden when only the selected
+/// pool runs and no background result is unread.
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let sessions = state.mount.mounted_sessions();
     let finished: Vec<String> = state

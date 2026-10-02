@@ -17,31 +17,47 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+/// Minimum time without stdin progress (and minimum drain allowance) before an upload counts as stalled.
 pub(super) const STALL_FLOOR: Duration = Duration::from_secs(60);
 /// Slowest upload rate an rclone exit after stdin closed is allowed to take.
 pub(super) const STALL_RATE: u64 = 256 * 1024;
 
+/// Where a supervised upload is: still feeding stdin or waiting for rclone to exit.
 enum Phase {
+    /// stdin is still being written.
     Feeding {
+        /// When the upload started; the feeding time sizes the later drain allowance.
         started: Instant,
+        /// Last stdin progress; a stall is no progress for `floor`.
         progress: Instant,
     },
+    /// stdin closed; rclone is finishing what it buffered.
     Draining {
+        /// When stdin closed.
         closed: Instant,
+        /// How long rclone may take to exit after `closed`.
         allowance: Duration,
     },
 }
 
+/// Stall deadline of one streamed upload, shared between the writer and the
+/// supervisor thread in `process::run_upload`/`run_supervised`.
 pub(super) struct Stall {
+    /// Feeding-phase stall time and minimum drain allowance.
     floor: Duration,
+    /// Assumed slowest drain rate (bytes/s, at least 1) for the drain allowance.
     rate: u64,
+    /// Current phase and its timestamps.
     phase: Mutex<Phase>,
+    /// Latched once the deadline expired.
     fired: AtomicBool,
 }
 impl Stall {
+    /// The production stall detector ([`STALL_FLOOR`], [`STALL_RATE`]); used by `process::run_upload`.
     pub(super) fn upload() -> Self {
         Self::new(STALL_FLOOR, STALL_RATE)
     }
+    /// A detector with an explicit floor and drain rate (tests use short values).
     pub(super) fn new(floor: Duration, rate: u64) -> Self {
         let now = Instant::now();
         Self {
@@ -54,6 +70,7 @@ impl Stall {
             fired: AtomicBool::new(false),
         }
     }
+    /// Locks the phase, recovering from a poisoned mutex.
     fn phase(&self) -> std::sync::MutexGuard<'_, Phase> {
         self.phase.lock().unwrap_or_else(|p| p.into_inner())
     }

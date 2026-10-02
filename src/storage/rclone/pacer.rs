@@ -17,19 +17,26 @@ use std::time::{Duration, Instant};
 const BURST: Duration = Duration::from_millis(500);
 
 #[derive(Debug)]
+/// Mutable token-bucket state behind [`Bucket`]'s mutex.
 struct State {
     /// Allowance in bytes; negative = debt.
     tokens: f64,
+    /// When `tokens` was last refilled.
     last: Instant,
+    /// Rate (bytes/s) the state was built for; a different rate resets it.
     rate: u64,
 }
 
 #[derive(Debug)]
+/// One token bucket pacing a direction globally or per account; obtained via [`bucket`]
+/// and used by the traffic counters that wrap rclone stdin/stdout and daemon reads.
 pub(crate) struct Bucket {
+    /// Allowance and refill time, shared by all threads using this bucket.
     state: Mutex<State>,
 }
 
 impl Bucket {
+    /// An empty bucket at rate 0; the first [`Bucket::take`] sets the real rate.
     fn new() -> Self {
         Self {
             state: Mutex::new(State {
@@ -81,8 +88,18 @@ impl Bucket {
 /// What a bucket paces.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum Key {
-    Global { upload: bool },
-    Account { name: String, upload: bool },
+    /// The process-wide limit for one direction (`upload` = true for uploads).
+    Global {
+        /// `true` paces uploads, `false` downloads.
+        upload: bool,
+    },
+    /// The limit of the account `name` for one direction (`upload` = true for uploads).
+    Account {
+        /// Account (bottom remote) name.
+        name: String,
+        /// `true` paces uploads, `false` downloads.
+        upload: bool,
+    },
 }
 
 /// The bucket of `key`, created on first use.

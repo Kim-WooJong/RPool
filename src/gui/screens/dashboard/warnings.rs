@@ -1,3 +1,5 @@
+//! Attention pane of the overview page: capacity refresh errors, load
+//! warnings, pools without usable remotes and provider errors.
 use crate::gui::i18n::{tr, trf};
 use crate::gui::screens::dashboard::health::{pool_health, PoolHealth};
 use crate::gui::screens::dashboard::DashboardData;
@@ -5,6 +7,7 @@ use crate::gui::theme;
 use crate::models::QuotaReport;
 use eframe::egui;
 
+/// Draw the attention list; nothing when there is nothing to report.
 pub(crate) fn show(
     ui: &mut egui::Ui,
     data: &DashboardData,
@@ -73,6 +76,7 @@ pub(crate) fn show(
     ui.separator();
 }
 
+/// One warning line in the theme's warning color.
 fn warning_line(ui: &mut egui::Ui, text: &str) {
     let (_, foreground) = theme::warning_colors(ui.visuals().dark_mode);
     ui.colored_label(foreground, text);

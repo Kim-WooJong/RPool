@@ -1,11 +1,16 @@
+//! JSON file helpers for config, state and manifest files: read, atomic save,
+//! pruning of obsolete keys, and small value accessors.
 use crate::prelude::*;
 use crate::utils::append_suffix;
 
+/// Reads and deserializes the JSON file at `path`.
 pub(crate) fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T> {
     let bytes = fs::read(path)?;
     Ok(serde_json::from_slice(&bytes)?)
 }
 
+/// Writes `value` as pretty JSON via a per-process temp file renamed into place,
+/// creating the parent folder if needed (any existing file is removed first).
 pub(crate) fn save_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(value)?;
     if let Some(parent) = path.parent() {
@@ -74,6 +79,7 @@ fn unknown_keys(raw: &Value, clean: &Value, at: &str, out: &mut Vec<String>) {
     }
 }
 
+/// `value[key]` as a `u64`, if present and numeric. Used by `storage::admin::quota`.
 pub(crate) fn json_u64(value: &Value, key: &str) -> Option<u64> {
     value.get(key).and_then(Value::as_u64)
 }

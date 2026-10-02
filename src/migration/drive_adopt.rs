@@ -38,18 +38,23 @@ pub(crate) const SETTLE_SECONDS: u64 = 5 * 60;
 
 /// Side effects of an adoption, faked in tests.
 pub(crate) trait AdoptIo: Sync {
+    /// The source drive generation(s) to read the visible files from.
     fn source(&self) -> &dyn DriveSource;
+    /// Where the new epoch's generation records are published.
     fn sink(&self, epoch: &str) -> Result<Box<dyn Sink + '_>>;
+    /// Reads the manifest at `location` (to check a kept archive).
     fn load_manifest(&self, location: &str) -> Result<Manifest>;
     /// Classifies `files` and runs those needing a new archive through the
     /// run state machine. Returns the run summary and the keys of files that
     /// are kept as they are.
     fn catch_up(&self, files: &[DriveFile]) -> Result<(RunSummary, BTreeSet<String>)>;
+    /// Current time, Unix seconds (fixed in tests).
     fn now(&self) -> u64 {
         crate::utils::now_unix()
     }
     /// Waits `seconds` (the freeze settling). Err when stopped.
     fn wait(&self, seconds: u64) -> Result<()>;
+    /// Prints one progress/status line.
     fn say(&self, line: &str) {
         println!("{line}");
     }
@@ -58,7 +63,9 @@ pub(crate) trait AdoptIo: Sync {
 /// A drive file that cannot be adopted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Unresolved {
+    /// Drive path of the file.
     pub path: String,
+    /// Why it could not be adopted.
     pub reason: String,
 }
 
@@ -254,12 +261,20 @@ fn settle(journal: &Journal, drive: &DrivePlan, io: &dyn AdoptIo, pc: &str) -> R
 /// Per visible file: resolved (Some(new archive) or None = keep), lost, or
 /// still pending.
 struct Resolution {
+    /// Visible file key -> new `(archive id, manifest location)`, or `None` to
+    /// keep its current archive.
     resolved: BTreeMap<String, Option<(String, String)>>,
+    /// Drive path -> group losses of files recorded as lost.
     lost: BTreeMap<String, Vec<GroupLoss>>,
+    /// Keys still needing the catch-up run.
     pending: BTreeSet<String>,
+    /// Files not resolved yet, with the reason (reported if catch-up fails).
     unresolved: Vec<Unresolved>,
 }
 
+/// Sorts every visible file by its journal progress: switched (new archive),
+/// lost, unaffected (kept) or pending with a reason (verified, claimed,
+/// provider error, or changed since planning).
 fn resolve(
     journal: &Journal,
     files: &[DriveFile],

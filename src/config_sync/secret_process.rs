@@ -7,13 +7,19 @@ use std::io::Read;
 use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
+/// Deadline for one secret-bearing child process.
 const CHILD_TIMEOUT: Duration = Duration::from_secs(120);
+/// Upper bound on secret output read into memory (32 MiB); vault inputs may be twice this.
 pub(super) const MAX_SECRET_BYTES: usize = 32 * 1024 * 1024;
 
+/// Where a secret child's stdout goes.
 pub(super) enum Output {
+    /// Read into memory, at most this many bytes.
     Memory(usize),
+    /// Stream straight into this file (age ciphertext).
     Ciphertext(File),
 }
+/// Kills and reaps the child when dropped, so no secret process outlives an error.
 struct ChildGuard(Child);
 impl Drop for ChildGuard {
     fn drop(&mut self) {
@@ -22,6 +28,7 @@ impl Drop for ChildGuard {
     }
 }
 
+/// Waits for the child, killing it after [`CHILD_TIMEOUT`].
 fn wait(child: &mut Child) -> Result<ExitStatus> {
     let started = Instant::now();
     loop {
@@ -39,6 +46,10 @@ fn wait(child: &mut Child) -> Result<ExitStatus> {
     }
 }
 
+/// Runs `command` with stderr closed, feeding stdin through `writer` on one
+/// thread while another collects stdout per `output`; fails on timeout, a
+/// non-zero exit or output above the limit. Output bytes are returned only after
+/// the child succeeded. Used for every rclone/age call that handles secrets.
 pub(super) fn execute<W>(command: &mut Command, writer: W, output: Output) -> Result<SensitiveBytes>
 where
     W: FnOnce(&mut ChildStdin) -> Result<()> + Send,
@@ -94,6 +105,8 @@ where
     })
 }
 
+/// `rclone --config <config>` command with inherited `RCLONE_*` overrides removed
+/// (except `RCLONE_CONFIG_PASS`) and quiet, non-interactive logging.
 pub(super) fn rclone_command(executable: &std::path::Path, config: &std::path::Path) -> Command {
     let mut command = Command::new(executable);
     // Do not allow inherited debugging, logging, backend overrides, daemon key

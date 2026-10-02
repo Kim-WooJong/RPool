@@ -1,9 +1,13 @@
+//! Arguments of `rpool drive`: trash, file versions, rollback, retention and
+//! cleanup of a pool's online drive. Executed by `drive_history::command::run`.
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Args, Debug)]
+/// Arguments of the `rpool drive` group.
 pub(crate) struct DriveArgs {
     #[command(subcommand)]
+    /// Selected `drive` subcommand.
     pub(crate) command: DriveCommands,
 }
 
@@ -23,6 +27,7 @@ pub(crate) struct DriveTarget {
 }
 
 #[derive(Subcommand, Debug)]
+/// Subcommands of `rpool drive`.
 pub(crate) enum DriveCommands {
     /// Deleted files: list, restore, purge.
     Trash(TrashArgs),
@@ -31,6 +36,7 @@ pub(crate) enum DriveCommands {
     /// Roll a folder or the whole drive back to a time (preview unless --confirm).
     Rollback {
         #[command(flatten)]
+        /// Pool, optional workspace and output format.
         target: DriveTarget,
         /// Folder to roll back (default: the whole drive).
         #[arg(long, default_value = "/")]
@@ -49,6 +55,7 @@ pub(crate) enum DriveCommands {
     /// by a later run once the grace period has passed.
     Cleanup {
         #[command(flatten)]
+        /// Pool, optional workspace and output format.
         target: DriveTarget,
         /// Mark new candidates and delete marked data past its grace period.
         #[arg(long, conflicts_with = "cancel")]
@@ -64,20 +71,26 @@ pub(crate) enum DriveCommands {
 }
 
 #[derive(Args, Debug)]
+/// Arguments of `rpool drive trash`.
 pub(crate) struct TrashArgs {
     #[command(subcommand)]
+    /// Selected `trash` subcommand.
     pub(crate) command: TrashCommands,
 }
 
 #[derive(Subcommand, Debug)]
+/// Subcommands of `rpool drive trash`.
 pub(crate) enum TrashCommands {
+    /// List the entries in the trash.
     List {
         #[command(flatten)]
+        /// Pool, optional workspace and output format.
         target: DriveTarget,
     },
     /// Restore entries to their original path (or `name (restored).ext`).
     Restore {
         #[command(flatten)]
+        /// Pool, optional workspace and output format.
         target: DriveTarget,
         /// Trash entry id (`dir:/path` for a folder). Repeatable.
         #[arg(long = "id", required = true)]
@@ -92,39 +105,48 @@ pub(crate) enum TrashCommands {
     /// Remove entries from the trash on every PC (preview unless --confirm).
     Purge {
         #[command(flatten)]
+        /// Pool, optional workspace and output format.
         target: DriveTarget,
         #[arg(
             long = "id",
             required_unless_present = "expired",
             conflicts_with = "expired"
         )]
+        /// Trash entry id (`dir:/path` for a folder). Repeatable.
         ids: Vec<String>,
         /// Every entry whose trash period has ended.
         #[arg(long)]
         expired: bool,
         #[arg(long)]
+        /// Apply the purge; without it only a preview is printed.
         confirm: bool,
     },
     /// Purge everything in the trash.
     Empty {
         #[command(flatten)]
+        /// Pool, optional workspace and output format.
         target: DriveTarget,
         #[arg(long, required = true)]
+        /// Required confirmation; nothing is purged without it.
         confirm: bool,
     },
 }
 
 #[derive(Args, Debug)]
+/// Arguments of `rpool drive versions`.
 pub(crate) struct VersionsArgs {
     #[command(subcommand)]
+    /// Selected `versions` subcommand.
     pub(crate) command: VersionsCommands,
 }
 
 #[derive(Subcommand, Debug)]
+/// Subcommands of `rpool drive versions`.
 pub(crate) enum VersionsCommands {
     /// Versions of a file, newest first (including deletions).
     List {
         #[command(flatten)]
+        /// Pool, optional workspace and output format.
         target: DriveTarget,
         /// Drive path, e.g. `/Docs/report.docx`.
         #[arg(long)]
@@ -133,8 +155,10 @@ pub(crate) enum VersionsCommands {
     /// Make an old version current again (a new version) or restore it as a copy.
     Restore {
         #[command(flatten)]
+        /// Pool, optional workspace and output format.
         target: DriveTarget,
         #[arg(long)]
+        /// Drive path of the file, e.g. `/Docs/report.docx`.
         path: String,
         /// Version id from `versions list`.
         #[arg(long)]
@@ -146,22 +170,29 @@ pub(crate) enum VersionsCommands {
 }
 
 #[derive(Args, Debug)]
+/// Arguments of `rpool drive retention`.
 pub(crate) struct RetentionArgs {
     #[command(subcommand)]
+    /// Selected `retention` subcommand.
     pub(crate) command: RetentionCommands,
 }
 
 #[derive(Subcommand, Debug)]
+/// Subcommands of `rpool drive retention`.
 pub(crate) enum RetentionCommands {
+    /// Show the trash and version retention of a pool.
     Show {
         #[arg(long)]
+        /// Storage pool name.
         pool: String,
         #[arg(long)]
+        /// Print JSON instead of text.
         json: bool,
     },
     /// Change retention (0 = unlimited). Saved with the pool settings.
     Set {
         #[arg(long)]
+        /// Storage pool name.
         pool: String,
         /// Days a deleted file stays in the trash.
         #[arg(long)]
@@ -179,6 +210,7 @@ pub(crate) enum RetentionCommands {
         #[arg(long)]
         cleanup_grace_days: Option<u32>,
         #[arg(long)]
+        /// Print JSON instead of text.
         json: bool,
     },
 }

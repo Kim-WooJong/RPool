@@ -4,6 +4,8 @@
 //! loading to report.
 use crate::utils::prune_unknown_keys;
 
+/// Prune unknown keys from `gui.json` and `pools.json`, reporting removals on
+/// stderr. Called first by `app::launch`.
 pub(crate) fn run() {
     if let Ok(path) = crate::config::gui_settings_path() {
         report(
@@ -19,6 +21,7 @@ pub(crate) fn run() {
     }
 }
 
+/// Print what was removed (or why tidying failed) for one file.
 fn report(what: &str, outcome: anyhow::Result<Vec<String>>) {
     match outcome {
         Ok(removed) if removed.is_empty() => {}

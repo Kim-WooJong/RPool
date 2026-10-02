@@ -3,6 +3,7 @@ use super::files::write_json_atomic;
 use super::model::{MountEntry, REGISTRY_DIR};
 use std::path::{Path, PathBuf};
 
+/// `<app config dir>/mounts`, where running mounts register.
 pub(crate) fn registry_dir() -> anyhow::Result<PathBuf> {
     Ok(crate::config::app_config_dir()?.join(REGISTRY_DIR))
 }
@@ -18,6 +19,7 @@ pub(crate) fn new_id() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// Registry ids are 1-64 hex characters (they become file names).
 fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_hexdigit())
 }

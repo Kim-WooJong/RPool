@@ -10,9 +10,13 @@ use crate::drive_history::model::{
     HISTORY_VERSION,
 };
 
+/// Seconds per hour.
 const HOUR: u64 = 3_600;
+/// Seconds per day.
 const DAY: u64 = 86_400;
 
+/// Sample trash entries deleted at various times before `now` (30-day expiry,
+/// one with unknown time), for tests and snapshots.
 pub(crate) fn trash(now: u64) -> Vec<TrashEntry> {
     let entry =
         |id: &str, path: &str, is_dir, size, ago: Option<u64>, by: Option<&str>| TrashEntry {
@@ -77,6 +81,8 @@ pub(crate) fn rollback_trashed() -> Vec<String> {
     vec!["/Docs/new-draft.txt".into()]
 }
 
+/// Sample version timeline of `path` relative to `now`: current, older,
+/// restored and non-restorable versions.
 pub(crate) fn versions(path: &str, now: u64) -> Vec<VersionEntry> {
     let version =
         |id: &str, kind, size, ago: u64, author: &str, current, restorable| VersionEntry {
@@ -147,6 +153,8 @@ pub(crate) fn versions(path: &str, now: u64) -> Vec<VersionEntry> {
     ]
 }
 
+/// Sample rollback plan for `scope` at time `at` with reverted, undeleted,
+/// removed and skipped paths (used by the rollback summary test).
 pub(crate) fn rollback_plan(scope: &str, at: u64) -> RollbackPlan {
     let base = scope.trim_end_matches('/');
     let change = |name: &str, action, size| RollbackChange {
@@ -181,6 +189,7 @@ pub(crate) fn rollback_plan(scope: &str, at: u64) -> RollbackPlan {
     }
 }
 
+/// Sample retention limits: 30 days in the trash, 20 versions, no age limit.
 pub(crate) fn retention() -> Retention {
     Retention {
         trash_days: 30,

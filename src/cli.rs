@@ -1,16 +1,32 @@
+//! Command-line definition of `rpool` (clap derive). `Cli` is the top-level
+//! parser and `Commands` lists every subcommand; argument structs for larger
+//! subcommands live in the child modules and are re-exported here.
+//! `application::run` parses it and dispatches; `history` describes it.
+/// `export` / `import` / `config` arguments (portable configuration).
 mod config_sync;
+/// `doctor` diagnostics arguments.
 mod doctor;
+/// `drive` arguments: trash, versions, rollback, retention and cleanup.
 mod drive;
+/// `history` arguments.
 mod history;
+/// `inventory` arguments (local archive inventory).
 mod inventory;
+/// `manifest` arguments (replicate, verify, recover manifest replicas).
 mod manifest;
+/// `mount` arguments and the mount frontend choice.
 mod mount;
 mod mount_monitor;
+/// `pool` arguments (create, inspect, migrate, compact pools).
 pub(crate) mod pool;
+/// `provider` arguments (health, encryption, drain, speed test).
 mod provider;
 mod provider_limits;
+/// `remote-root` arguments (per-remote default storage paths).
 mod remote_root;
+/// `repair` arguments.
 mod repair;
+/// `scrub` arguments.
 mod scrub;
 
 use crate::config::constants::*;
@@ -41,17 +57,20 @@ use std::path::PathBuf;
     version,
     about = "Parallel sharded storage with optional Reed-Solomon erasure coding over rclone remotes"
 )]
+/// Top-level `rpool` command line. Without a subcommand the GUI starts.
 pub(crate) struct Cli {
     /// rclone executable name or path.
     #[arg(long, global = true, default_value = "rclone")]
     pub(crate) rclone: String,
 
     #[command(subcommand)]
+    /// Subcommand to run; `None` launches the GUI.
     pub(crate) command: Option<Commands>,
 }
 
 #[derive(Subcommand, Debug)]
 #[allow(clippy::large_enum_variant)] // clap subcommand parsed once per process; boxing adds noise only
+/// Every `rpool` subcommand. Matched in `application::dispatch`.
 pub(crate) enum Commands {
     /// Launch the native rpool storage console.
     Gui,
@@ -64,6 +83,7 @@ pub(crate) enum Commands {
 
     /// Split a local file into logical shards and upload them in parallel.
     Put {
+        /// Local file to split into shards and upload.
         source: PathBuf,
 
         /// Explicit rclone destination base. Repeat for every provider.
@@ -108,6 +128,7 @@ pub(crate) enum Commands {
     Get {
         /// Local manifest path or an rclone path to manifest.json.
         manifest: String,
+        /// Local path the restored file is written to.
         output: PathBuf,
 
         /// Number of shard transfers performed concurrently.
@@ -115,6 +136,7 @@ pub(crate) enum Commands {
         workers: usize,
 
         #[arg(long, default_value_t = DEFAULT_RETRIES)]
+        /// Whole-shard download attempts.
         retries: u32,
     },
 
@@ -128,6 +150,7 @@ pub(crate) enum Commands {
         full: bool,
 
         #[arg(long, default_value_t = DEFAULT_WORKERS)]
+        /// Number of shard checks performed concurrently.
         workers: usize,
     },
 
@@ -137,6 +160,7 @@ pub(crate) enum Commands {
         manifest: String,
 
         #[arg(long, default_value_t = DEFAULT_WORKERS)]
+        /// Number of shard checks performed concurrently.
         workers: usize,
 
         /// Also show provider quota/usage information via `rclone about --json`.
@@ -163,6 +187,7 @@ pub(crate) enum Commands {
         json: bool,
 
         #[arg(long, default_value_t = DEFAULT_WORKERS)]
+        /// Number of providers queried concurrently.
         workers: usize,
     },
 

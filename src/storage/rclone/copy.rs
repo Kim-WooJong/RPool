@@ -3,6 +3,10 @@
 use super::*;
 
 impl RcloneContext {
+    /// Copies `source` to `destination` with `rclone copyto --retries 1` after the
+    /// crypt write gate, creating the parent dir first; retries go through
+    /// `retry_rejected`. Unlike `copy_object`, it does not refuse an existing
+    /// destination.
     #[cfg_attr(
         not(test),
         expect(

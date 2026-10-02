@@ -17,22 +17,28 @@
 use super::Intent;
 use std::collections::HashSet;
 
+/// What the earlier pending intents of one scan occupy.
 #[derive(Default)]
 struct Earlier {
+    /// Their intent ids (for `depends_on`).
     ids: HashSet<String>,
     /// Folded paths of earlier pending intents.
     exact: HashSet<String>,
     /// Folded proper ancestors of those paths.
     ancestors: HashSet<String>,
+    /// Whether any earlier intent exists (blocks every deletion).
     any: bool,
 }
 impl Earlier {
+    /// Case-folded `path` and `event_path` of an intent.
     fn keys(intent: &Intent) -> [String; 2] {
         [intent.path.to_lowercase(), intent.event_path.to_lowercase()]
     }
+    /// Every proper ancestor (`a`, `a/b` for `a/b/c`) of `path`.
     fn proper_ancestors(path: &str) -> impl Iterator<Item = &str> {
         path.match_indices('/').map(move |(at, _)| &path[..at])
     }
+    /// Whether `intent` must wait for an earlier pending intent.
     fn blocks(&self, intent: &Intent) -> bool {
         if !self.any {
             return false;
@@ -53,6 +59,7 @@ impl Earlier {
                 || Self::proper_ancestors(key).any(|a| self.exact.contains(a))
         })
     }
+    /// Records `intent` as earlier for the intents after it.
     fn add(&mut self, intent: &Intent) {
         self.any = true;
         self.ids.insert(intent.id.clone());

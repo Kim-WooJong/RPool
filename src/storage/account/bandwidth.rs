@@ -7,18 +7,24 @@
 //! week the last one is still in force (wrap past midnight / Sunday).
 use crate::prelude::*;
 
+/// Minutes in one day.
 const DAY_MINUTES: u32 = 24 * 60;
+/// Minutes in one week; week minutes wrap at this value.
 const WEEK_MINUTES: u32 = 7 * DAY_MINUTES;
+/// Day prefixes accepted in `Day-HH:MM` entries; index 0 = Monday.
 const DAYS: [&str; 7] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
 /// Bytes per second; `None` = unlimited.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct Rate {
+    /// Upload limit in bytes per second (`None` = unlimited).
     pub up: Option<u64>,
+    /// Download limit in bytes per second (`None` = unlimited).
     pub down: Option<u64>,
 }
 
 impl Rate {
+    /// No limit in either direction; used when a timetable has no entries.
     pub(crate) const OFF: Rate = Rate {
         up: None,
         down: None,
@@ -53,11 +59,16 @@ impl Rate {
 struct Entry {
     /// Day 0 = Monday; `None` = every day.
     day: Option<u8>,
+    /// Minute of the day (0–1439) at which the entry starts.
     minute: u32,
+    /// Rate in force from this entry until the next one.
     rate: Rate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A parsed `--bwlimit` setting: either one constant rate or a weekly schedule.
+/// Built by `Timetable::parse` and evaluated by `storage::account::runtime`
+/// and `storage::rclone::bwlimit_schedule` to pick the current rate.
 pub(crate) struct Timetable {
     /// `None`: a single constant rate.
     constant: Option<Rate>,
@@ -65,6 +76,8 @@ pub(crate) struct Timetable {
     week: Vec<(u32, Rate)>,
 }
 
+/// Parses one size such as `512k`, `10M` or `off` into bytes per second
+/// (bare numbers are KiB/s); `off` or `0` yields `None` (unlimited).
 fn parse_size(text: &str) -> Result<Option<u64>> {
     let text = text.trim();
     if text.eq_ignore_ascii_case("off") {
@@ -93,6 +106,7 @@ fn parse_size(text: &str) -> Result<Option<u64>> {
     Ok((bytes > 0).then_some(bytes))
 }
 
+/// Parses `RATE` or `UP:DOWN` into a [`Rate`]; a single value applies to both directions.
 fn parse_rate(text: &str) -> Result<Rate> {
     match text.split_once(':') {
         Some((up, down)) => Ok(Rate {
@@ -109,6 +123,8 @@ fn parse_rate(text: &str) -> Result<Rate> {
     }
 }
 
+/// Parses `HH:MM` or `Day-HH:MM` into an optional weekday (0 = Monday) and
+/// the minute of the day.
 fn parse_time(text: &str) -> Result<(Option<u8>, u32)> {
     let (day, clock) = match text.split_once('-') {
         Some((day, clock)) => {
@@ -136,6 +152,11 @@ fn parse_time(text: &str) -> Result<(Option<u8>, u32)> {
 }
 
 impl Timetable {
+    /// Parses a full `--bwlimit` setting. A single token without `,` is a
+    /// constant rate; otherwise each `TIME,RATE` entry is expanded to week
+    /// minutes and sorted. Errors on empty input, bad syntax or two entries
+    /// starting at the same week minute. Used by the limits store validation,
+    /// the runtime limiter and the GUI network settings.
     pub(crate) fn parse(text: &str) -> Result<Self> {
         let text = text.trim();
         if text.is_empty() {

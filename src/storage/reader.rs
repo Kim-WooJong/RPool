@@ -12,12 +12,18 @@ use crate::utils::write_all_at;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+/// Live byte progress of one staged shard download, shared with the hedged
+/// restore in `commands::get_hedged` to decide when to start a backup read.
 pub(crate) struct ReadProgress {
+    /// When the download started; times below are relative to it.
     started: Instant,
+    /// Bytes delivered so far.
     bytes: AtomicU64,
+    /// Milliseconds after `started` of the last delivered bytes (0 = none yet).
     updated_ms: AtomicU64,
 }
 impl ReadProgress {
+    /// Progress of a download starting now.
     pub(crate) fn new() -> Self {
         Self {
             started: Instant::now(),
@@ -25,14 +31,18 @@ impl ReadProgress {
             updated_ms: AtomicU64::new(0),
         }
     }
+    /// Time since the download started.
     pub(crate) fn elapsed(&self) -> Duration {
         self.started.elapsed()
     }
+    /// True when no bytes arrived for at least `delay`.
     pub(crate) fn stalled(&self, delay: Duration) -> bool {
         self.elapsed().saturating_sub(Duration::from_millis(
             self.updated_ms.load(Ordering::Acquire),
         )) >= delay
     }
+    /// True when idle for `delay`, or when the observed rate projects the remaining
+    /// bytes of a `size`-byte shard to need more than `delay`.
     pub(crate) fn slow(&self, size: u64, delay: Duration) -> bool {
         let elapsed = self.elapsed();
         let idle = elapsed.saturating_sub(Duration::from_millis(
@@ -46,6 +56,7 @@ impl ReadProgress {
                 && elapsed.as_secs_f64() * (size - bytes) as f64 / bytes as f64
                     > delay.as_secs_f64())
     }
+    /// Records `bytes` delivered (ignored when 0).
     fn update(&self, bytes: usize) {
         if bytes != 0 {
             self.bytes.fetch_add(bytes as u64, Ordering::Release);
@@ -57,19 +68,32 @@ impl ReadProgress {
     }
 }
 
+/// Largest metadata object (manifest, replica) [`StorageReader::read_metadata`] accepts: 64 MiB.
 const METADATA_LIMIT: usize = 64 * 1024 * 1024;
+/// Raw address -> backend bindings, created lazily for legacy rclone addresses.
 struct Routes {
+    /// Backends that serve the bound objects.
     registry: BackendRegistry,
+    /// Raw address (as stored in manifests) -> backend and key.
     bindings: BTreeMap<String, ObjectRef>,
 }
 
+/// Verified, read-only access to shards and metadata objects by their raw
+/// manifest address. Used by restore (`commands::get`), scan/repair, manifest
+/// loading and, inside `StorageWriter`, for post-upload verification.
 pub(crate) struct StorageReader {
+    /// Bindings; locked only while resolving an address.
     routes: Mutex<Routes>,
+    /// rclone context that resolves unbound addresses (`None` = registry-only, tests).
     legacy: Option<RcloneContext>,
+    /// Cancellation/deadline applied to every read of this reader.
     context: OperationContext,
+    /// Remote aliases that must never be read (recovery around a failed account).
     excluded_remotes: BTreeSet<String>,
 }
 
+/// True for errors that prove the object is gone or damaged (not found, corrupt),
+/// as opposed to outages. Used by the upload journal and `StorageWriter`.
 pub(crate) fn is_recoverable_loss(error: &anyhow::Error) -> bool {
     matches!(
         error.downcast_ref::<StorageError>().map(StorageError::kind),
@@ -92,6 +116,7 @@ pub(crate) fn is_restore_unavailable(error: &anyhow::Error) -> bool {
         )
 }
 
+/// Stat-based identity of an object, used by `storage::verified` to tell whether it changed.
 fn fingerprint(metadata: &ObjectMetadata) -> Fingerprint {
     Fingerprint {
         size: metadata.size,
@@ -100,6 +125,7 @@ fn fingerprint(metadata: &ObjectMetadata) -> Fingerprint {
     }
 }
 
+/// A [`StorageError::CorruptData`] with the found and expected descriptions.
 fn corrupt(found: impl Into<String>, expected: impl Into<String>) -> StorageError {
     StorageError::CorruptData {
         found: found.into(),
@@ -108,6 +134,7 @@ fn corrupt(found: impl Into<String>, expected: impl Into<String>) -> StorageErro
 }
 
 impl StorageReader {
+    /// Reader that resolves every address through rclone with the inherited config, no deadline.
     pub(crate) fn rclone(executable: &str) -> Self {
         Self::with_rclone_context(RcloneContext::inherited(executable))
     }
@@ -124,6 +151,7 @@ impl StorageReader {
         reader.context = OperationContext::with_deadline(Instant::now() + Duration::from_secs(120));
         Ok(reader)
     }
+    /// Reader over an explicit rclone context (used by `StorageWriter` and tests).
     pub(crate) fn with_rclone_context(context: RcloneContext) -> Self {
         Self {
             routes: Mutex::new(Routes {
@@ -148,6 +176,9 @@ impl StorageReader {
             excluded_remotes: BTreeSet::new(),
         }
     }
+    /// Maps a raw address to its backend and key, binding unknown addresses to a
+    /// legacy rclone backend on first use. Excluded remotes fail with `ReadExcluded`
+    /// before any lookup or I/O.
     pub(super) fn resolve(&self, raw: &str) -> Result<(Arc<dyn StorageBackend>, ObjectKey)> {
         // Check before route lookup, backend construction, or any remote I/O.
         // Match the complete alias, not a path prefix or a similar alias.
@@ -189,12 +220,15 @@ impl StorageReader {
             reference.key().clone(),
         ))
     }
+    /// Cancellation/deadline of this reader.
     pub(crate) fn operation_context(&self) -> &OperationContext {
         &self.context
     }
+    /// The rclone context behind legacy addresses, if any (used by `StorageWriter`/`upload_session`).
     pub(super) fn legacy_context(&self) -> Option<&RcloneContext> {
         self.legacy.as_ref()
     }
+    /// Stats an object; a directory is an error.
     pub(crate) fn stat(&self, raw: &str) -> Result<ObjectMetadata> {
         let (backend, key) = self.resolve(raw)?;
         let metadata = backend.stat(&self.context, &key)?;
@@ -203,6 +237,8 @@ impl StorageReader {
         }
         Ok(metadata)
     }
+    /// Reads a whole metadata object (at most [`METADATA_LIMIT`]) and checks its
+    /// length against the stat size. Used by manifest load/recover/replica checks.
     pub(crate) fn read_metadata(&self, raw: &str) -> Result<Vec<u8>> {
         let (backend, key) = self.resolve(raw)?;
         let metadata = backend.stat(&self.context, &key)?;
@@ -271,6 +307,7 @@ impl StorageReader {
             super::verified::forget(&route, object);
         }
     }
+    /// Full verified read; records the proof on success and forgets it on failure.
     fn full_read_recorded(&self, route: &str, shard: &Shard, seen: Fingerprint) -> Result<()> {
         match self.verified_read(shard, &mut std::io::sink()) {
             Ok(()) => {
@@ -306,6 +343,8 @@ impl StorageReader {
     fn verified_route(&self) -> Option<String> {
         self.legacy.as_ref().map(RcloneContext::route_identity)
     }
+    /// Checks one shard without failing: size mismatch, missing, corrupt or other
+    /// error as a [`Probe`]; `full` adds a verified read. Used by scan and status.
     pub(crate) fn probe(&self, shard: &Shard, full: bool) -> Probe {
         match self.stat(&shard.object) {
             Ok(metadata) if metadata.size != shard.size => Probe::BadSize {
@@ -320,9 +359,12 @@ impl StorageReader {
             Err(error) => probe_error(error),
         }
     }
+    /// Reads the whole shard into `sink`, checking exact size and BLAKE3 against the manifest.
     pub(crate) fn verified_read(&self, shard: &Shard, sink: &mut dyn Write) -> Result<()> {
         self.verified_read_context(shard, sink, &self.context, None)
     }
+    /// Verified read of a shard into a new file at `path` with its own context and
+    /// progress (deleted on failure). Used by the hedged restore.
     pub(crate) fn download_staged(
         &self,
         shard: &Shard,
@@ -338,6 +380,9 @@ impl StorageReader {
         }
         result
     }
+    /// Core verified read: reads one byte past the expected size to detect oversized
+    /// objects, hashes while writing to `sink`, and maps size/hash mismatch to
+    /// corrupt data and local sink failures to a distinct error.
     fn verified_read_context(
         &self,
         shard: &Shard,
@@ -402,6 +447,9 @@ impl StorageReader {
         verified.flush()?;
         Ok(())
     }
+    /// Verified read of a shard into `path`, retrying retriable errors up to `retries`
+    /// times. `at_offset` writes into an existing file at the shard's offset (restore);
+    /// otherwise a new file is created and removed on failure (repair, writer).
     pub(crate) fn download(
         &self,
         shard: &Shard,
@@ -444,6 +492,7 @@ impl StorageReader {
     }
 }
 
+/// Accepts only plain remote aliases (letters, digits, `_-. `, no leading hyphen or surrounding spaces).
 fn validate_excluded_remotes(excluded: &BTreeSet<String>) -> Result<()> {
     for remote in excluded {
         if remote.is_empty()
@@ -463,6 +512,7 @@ fn validate_excluded_remotes(excluded: &BTreeSet<String>) -> Result<()> {
     Ok(())
 }
 
+/// Maps a read error to a [`Probe`] (not found -> missing, corrupt -> corrupt, else error text).
 fn probe_error(error: anyhow::Error) -> Probe {
     match error.downcast_ref::<StorageError>() {
         Some(StorageError::NotFound { .. }) => Probe::Missing,
@@ -473,15 +523,25 @@ fn probe_error(error: anyhow::Error) -> Probe {
         _ => Probe::Error(format!("{error:#}")),
     }
 }
+/// Sink of a verified read: forwards bytes, hashes them, and records why a write failed.
 struct VerifiedSink<'a> {
+    /// Caller's destination.
     sink: &'a mut dyn Write,
+    /// BLAKE3 of the bytes forwarded.
     hash: Hasher,
+    /// Bytes forwarded so far.
     count: u64,
+    /// Expected shard size; more bytes is an overflow.
     size: u64,
+    /// The object turned out larger than the shard.
     overflow: bool,
+    /// Writing to the caller's sink failed (local problem, not remote).
     local_error: bool,
+    /// The write was refused because the context was cancelled or timed out.
     sink_cancelled: bool,
+    /// Progress to update, for staged downloads.
     progress: Option<&'a ReadProgress>,
+    /// Context checked on every write.
     context: &'a OperationContext,
 }
 impl Write for VerifiedSink<'_> {
@@ -512,8 +572,11 @@ impl Write for VerifiedSink<'_> {
         self.sink.flush()
     }
 }
+/// Sink writing at absolute positions of an existing file (restoring a shard in place).
 struct OffsetSink {
+    /// Output file opened read/write.
     file: File,
+    /// Next write position (bytes from the file start).
     position: u64,
 }
 impl Write for OffsetSink {
@@ -534,6 +597,7 @@ impl Write for OffsetSink {
     }
 }
 
+/// Fails with `Cancelled` or `Timeout` when `context` was cancelled or its deadline passed.
 pub(crate) fn check_read_context(context: &OperationContext) -> Result<()> {
     if context.is_cancelled() {
         return Err(StorageError::Cancelled {

@@ -1,3 +1,5 @@
+//! Details side panel of the archive inventory: metadata of the selected
+//! entry and its action buttons.
 use super::data::InventoryRow;
 use crate::gui::i18n::relative_age;
 use crate::gui::i18n::tr;
@@ -7,12 +9,18 @@ use crate::presentation::format_bytes;
 use eframe::egui;
 
 #[derive(Debug, Clone, Copy)]
+/// Button clicked in the details panel; handled by `inventory::mod`.
 pub(crate) enum InventoryAction {
+    /// Restore the archive to a local file.
     Restore,
+    /// Verify the archive's shards.
     Verify,
+    /// Check the archive's remote status.
     Status,
 }
 
+/// Draw the details of `row` (or a hint when nothing is selected) and
+/// return the clicked action, if any.
 pub(crate) fn show(ui: &mut egui::Ui, row: Option<&InventoryRow>) -> Option<InventoryAction> {
     ui.label(egui::RichText::new(tr("Details")).strong());
     ui.add_space(theme::SUBSECTION_GAP);
@@ -79,6 +87,7 @@ pub(crate) fn show(ui: &mut egui::Ui, row: Option<&InventoryRow>) -> Option<Inve
     None
 }
 
+/// A label/value line with the value right-aligned.
 fn detail_row(ui: &mut egui::Ui, label: &str, value: &str) {
     ui.horizontal_wrapped(|ui| {
         ui.label(label);

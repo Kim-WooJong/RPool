@@ -17,13 +17,22 @@ use eframe::egui;
 /// Paths listed per group at most (the rest is counted).
 const MAX_LISTED: usize = 200;
 
+/// What the dialog body asked for this frame.
 enum Step {
+    /// Nothing to do; stay open.
     Keep,
+    /// Close the dialog (ignored while the rollback is applying).
     Close,
+    /// Start a preview query for this unix time.
     Preview(u64),
+    /// Apply the rollback to this unix time, confirmed for this previewed summary.
     Apply(u64, RollbackSummary),
 }
 
+/// Draws the open "Roll back…" modal of `history.rollback`, if any: starts
+/// previews as read-only queries and the confirmed rollback through
+/// `changes::start`. Shows a failed apply's notice inside the dialog.
+/// Called by `history::dialogs` every frame.
 pub(crate) fn show(
     ctx: &egui::Context,
     history: &mut HistoryForm,
@@ -82,6 +91,8 @@ pub(crate) fn show(
     }
 }
 
+/// Dialog body: time presets or custom time, Preview, the grouped preview and
+/// the two-step Apply. Changing the time discards the old preview.
 fn body(ui: &mut egui::Ui, open: &mut RollbackDialog, idle: bool, applying: bool) -> Step {
     let now = crate::utils::now_unix();
     let offset = clock::offset();
@@ -265,6 +276,8 @@ fn preview(ui: &mut egui::Ui, plan: &RollbackPlan, summary: &RollbackSummary, of
         });
 }
 
+/// One collapsible preview group (at most `MAX_LISTED` paths); `title` holds
+/// a `{n}` placeholder for the count. Empty groups are a plain weak line.
 fn group(ui: &mut egui::Ui, id: &str, group: &Group, title: &'static str) {
     let n = group.changes.len();
     let heading = format!(
@@ -288,6 +301,7 @@ fn group(ui: &mut egui::Ui, id: &str, group: &Group, title: &'static str) {
         });
 }
 
+/// "…and N more" when a list was cut at `MAX_LISTED`.
 fn more(ui: &mut egui::Ui, n: usize) {
     if n > MAX_LISTED {
         ui.weak(trf("…and {n} more", &[("n", &(n - MAX_LISTED))]));

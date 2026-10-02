@@ -4,6 +4,7 @@ use crate::gui::state::GuiState;
 use crate::gui::theme;
 use eframe::egui;
 
+/// Text field with a "Choose…" folder picker; also used by `transitions`.
 pub(super) fn directory_field(ui: &mut egui::Ui, value: &mut String, hint: &str) {
     ui.horizontal(|ui| {
         ui.add(
@@ -19,6 +20,8 @@ pub(super) fn directory_field(ui: &mut egui::Ui, value: &mut String, hint: &str)
     });
 }
 
+/// Connection card of the Drive overview: pool, workspace, mountpoint and PC
+/// name; the running pool's settings are locked.
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let form = &mut state.mount;
     let pool_names = &state.pool_names;

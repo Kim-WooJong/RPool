@@ -1,3 +1,4 @@
+//! `rpool provider health`: accessibility, latency and quota of each provider root.
 use crate::pool::resolve_target_remotes;
 use crate::prelude::*;
 use crate::provider::check_providers;
@@ -15,6 +16,8 @@ fn provider_roots(remotes: Vec<String>) -> Result<Vec<String>> {
         .map(|roots| roots.into_iter().collect())
 }
 
+/// Checks the remote roots of the given remotes or pool (default: every crypt
+/// remote), prints a table or JSON and fails if any root is inaccessible.
 pub(crate) fn run(
     rclone: &str,
     remotes: Vec<String>,

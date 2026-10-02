@@ -6,6 +6,7 @@ use crate::gui::state::GuiState;
 use crate::gui::theme;
 use eframe::egui;
 
+/// One grid row with a GiB `DragValue` (`min`..=1 PiB) and a hover hint.
 pub(super) fn gib(ui: &mut egui::Ui, label: &str, value: &mut u64, min: u64, hint: &str) {
     ui.label(label).on_hover_text(hint);
     ui.add(
@@ -16,6 +17,7 @@ pub(super) fn gib(ui: &mut egui::Ui, label: &str, value: &mut u64, min: u64, hin
     ui.end_row();
 }
 
+/// "Cache & pending writes" card: cache budgets and the background interval.
 fn cache(ui: &mut egui::Ui, form: &mut MountForm) {
     theme::card_section(
         ui,
@@ -49,6 +51,7 @@ fn cache(ui: &mut egui::Ui, form: &mut MountForm) {
     );
 }
 
+/// Filesystem frontend card: the frontend choice and native-only options.
 fn frontend(ui: &mut egui::Ui, form: &mut MountForm) {
     use crate::cli::Frontend;
     let name = |f: Frontend| match f {
@@ -104,6 +107,7 @@ fn frontend(ui: &mut egui::Ui, form: &mut MountForm) {
     );
 }
 
+/// Options tab of the Drive page with "Save settings" for this pool on this PC.
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let (form, settings) = (&mut state.mount, &mut state.settings);
     ui.add_enabled_ui(!form.session.runner.is_running(), |ui| {

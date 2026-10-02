@@ -1,8 +1,12 @@
+//! The collapsible shard issue list of the last integrity snapshot.
+
 use super::state::IntegrityForm;
 use crate::gui::i18n::{tr, trf};
 use crate::gui::widgets::{status_badge, StatusTone};
 use eframe::egui;
 
+/// Lists each problem shard (index, group, remote, status, detail); nothing
+/// when there is no snapshot or no issue. Called by `integrity::show`.
 pub(crate) fn show(ui: &mut egui::Ui, form: &IntegrityForm) {
     let Some(snapshot) = &form.snapshot else {
         return;

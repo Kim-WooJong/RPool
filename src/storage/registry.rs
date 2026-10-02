@@ -14,16 +14,20 @@ use crate::storage::traits::StorageBackend;
 
 /// Composition root: maps `BackendId` to a backend instance.
 pub(crate) struct BackendRegistry {
+    /// Backends keyed by their `BackendId` text.
     backends: BTreeMap<String, Arc<dyn StorageBackend>>,
 }
 
 impl BackendRegistry {
+    /// An empty registry.
     pub(crate) fn new() -> Self {
         Self {
             backends: BTreeMap::new(),
         }
     }
 
+    /// Adds a backend under its own id; a duplicate id is `AlreadyExists`.
+    /// Used by `StorageReader` when it binds a new address.
     pub(crate) fn register(
         &mut self,
         backend: Arc<dyn StorageBackend>,
@@ -38,10 +42,12 @@ impl BackendRegistry {
         Ok(())
     }
 
+    /// The backend registered under `id`, if any.
     pub(crate) fn get(&self, id: &BackendId) -> Option<&Arc<dyn StorageBackend>> {
         self.backends.get(id.as_str())
     }
 
+    /// The backend of `reference`; an unregistered backend is `NotFound`.
     pub(crate) fn resolve(
         &self,
         reference: &ObjectRef,

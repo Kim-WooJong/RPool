@@ -1,29 +1,50 @@
 //! Immutable, causally linked namespace events; no wall-clock conflict ordering.
+//!
+//! Defines the namespace [`Event`] (one revision or deletion of a path), its
+//! validation and content id, the version-3 `reduce` projection and the
+//! conflict/peer file naming shared with `peer_projection`.
 use crate::prelude::*;
 
+/// File content of a revision: what was uploaded and how to read it back.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Content {
+    /// Hex BLAKE3 of the file bytes.
     pub hash: String,
+    /// File size in bytes (must equal `manifest.original_size`).
     pub size: u64,
+    /// Shard manifest of the uploaded archive.
     pub manifest: Manifest,
 }
 
+/// One immutable namespace event; its id is the BLAKE3 of its JSON
+/// ([`Event::id`]). Published to the pool by pool sync and stored in
+/// `Namespace::events`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Event {
+    /// Event format version (only 1 is valid).
     pub version: u32,
+    /// Worker (PC) name that wrote the event.
     pub worker: String,
+    /// Device id of the writing workspace.
     pub device: String,
+    /// Namespace path (`/`-separated, portable components).
     pub path: String,
+    /// Ids of the previous revisions of the same path (empty for a new file).
     pub parents: Vec<String>,
+    /// New content; `None` records a deletion.
     pub content: Option<Content>,
 }
 
+/// A visible file: the event that currently provides it.
 #[derive(Debug, Clone)]
 pub(crate) struct Resolved {
+    /// Content id of the event.
     pub event_id: String,
+    /// The event itself.
     pub event: Event,
 }
 
+/// Whether `value` is 64 lowercase hex digits (an event or content hash).
 fn hash_valid(value: &str) -> bool {
     value.len() == 64
         && value
@@ -31,6 +52,8 @@ fn hash_valid(value: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// Checks one path component (or worker/device name) is portable: no
+/// reserved Windows names or characters, no trailing dot/space, ≤ 255 bytes.
 fn component(value: &str) -> Result<()> {
     let stem = value
         .split('.')
@@ -60,12 +83,15 @@ fn component(value: &str) -> Result<()> {
 }
 
 impl Event {
+    /// Content id: hex BLAKE3 of the event's JSON serialization.
     pub(crate) fn id(&self) -> Result<String> {
         Ok(blake3::hash(&serde_json::to_vec(self)?)
             .to_hex()
             .to_string())
     }
 
+    /// Checks version, portable worker/device/path, unique well-formed parents,
+    /// and a valid content manifest whose size matches.
     pub(crate) fn validate(&self) -> Result<()> {
         if self.version != 1 {
             bail!("unsupported namespace event version");
@@ -92,6 +118,8 @@ impl Event {
 }
 
 // Equality and ancestor relationships are both collisions for materialized files.
+/// Whether two paths collide case-insensitively: equal, or one is an
+/// ancestor directory of the other.
 pub(crate) fn overlaps(a: &str, b: &str) -> bool {
     let a = a.to_lowercase();
     let b = b.to_lowercase();
@@ -100,12 +128,17 @@ pub(crate) fn overlaps(a: &str, b: &str) -> bool {
         || b.strip_prefix(&a).is_some_and(|s| s.starts_with('/'))
 }
 
+/// Version-3 conflict name: `stem (conflict-<worker>-<id>[-n]).ext`.
 pub(crate) fn conflict_path(path: &str, worker: &str, id: &str, attempt: usize) -> Result<String> {
     labelled_path(path, worker, id, attempt, false)
 }
+/// v6 peer conflict name: `stem_<worker>+a-<id>[-n].ext`, used by
+/// `peer_projection`.
 pub(crate) fn peer_path(path: &str, worker: &str, id: &str, attempt: usize) -> Result<String> {
     labelled_path(path, worker, id, attempt, true)
 }
+/// Builds a conflict (`peer` false) or peer (`peer` true) name for `path`,
+/// shortening parts so the final component stays portable.
 fn labelled_path(path: &str, worker: &str, id: &str, attempt: usize, peer: bool) -> Result<String> {
     let (directory, name) = path.rsplit_once('/').map_or(("", path), |(d, n)| (d, n));
     let (stem, extension) = name
@@ -141,6 +174,9 @@ fn labelled_path(path: &str, worker: &str, id: &str, attempt: usize, peer: bool)
     })
 }
 
+/// Version-3 projection: validates the event DAG and paths, then places
+/// each live head at its path; extra heads (or all heads when a deletion is
+/// concurrent) get conflict names.
 pub(crate) fn reduce(events: &BTreeMap<String, Event>) -> Result<BTreeMap<String, Resolved>> {
     let mut heads: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for (id, event) in events {

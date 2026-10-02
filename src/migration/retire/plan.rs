@@ -37,12 +37,16 @@ pub(crate) struct World {
     pub replacements: BTreeMap<String, Result<Manifest, String>>,
     /// Full readback of replacements (only with `--full-verify`).
     pub full_checks: BTreeMap<String, Result<(), String>>,
+    /// References from manifests, the drive and other migrations.
     pub refs: References,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Result of [`select`]: what may be quarantined now and what is kept.
 pub(crate) struct Selection {
+    /// Items that pass every check (originals and orphans).
     pub candidates: Vec<Item>,
+    /// Items that stay, each with its reason.
     pub kept: Vec<Kept>,
     /// Originals' objects on accounts that left the pool, not deleted.
     pub left_on_removed: Vec<RetireObject>,
@@ -91,6 +95,7 @@ fn folder_objects<'a>(
     Ok(out)
 }
 
+/// Builds a [`Kept`] entry.
 fn kept(entry_id: &str, kind: ItemKind, name: &str, reason: KeepReason, detail: String) -> Kept {
     Kept {
         archive_id: entry_id.into(),
@@ -150,6 +155,9 @@ fn replacement_ok(world: &World, entry: &Entry, record: &Record) -> Result<Strin
     Ok(id)
 }
 
+/// Checks one switched original (drive archive, replacement, unchanged
+/// manifest, objects inside its folder, references) and pushes it to
+/// `out.candidates`, `out.kept` or `out.left_on_removed`.
 fn original(
     world: &World,
     entry: &Entry,
@@ -288,6 +296,8 @@ pub(crate) fn orphan_ids(records: &[Record]) -> BTreeMap<String, String> {
     seen
 }
 
+/// Checks one orphan copy id (generated id, listable, not referenced) and
+/// pushes it to `out.candidates` or `out.kept`; empty folders are skipped.
 fn orphan(world: &World, id: &str, entry_name: &str, out: &mut Selection) {
     let name = format!("{entry_name} (partial copy)");
     let keep = |reason, detail: String| kept(id, ItemKind::Orphan, &name, reason, detail);

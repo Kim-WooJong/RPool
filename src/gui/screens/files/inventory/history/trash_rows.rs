@@ -6,27 +6,42 @@ use super::paths::split;
 use crate::drive_history::model::TrashEntry;
 use std::collections::BTreeSet;
 
+/// One trash entry prepared for display by `rows`; drawn by `trash_list`.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TrashRow {
+    /// Trash entry id, passed to `--id`.
     pub(crate) id: String,
+    /// Original drive path of the entry.
     pub(crate) path: String,
+    /// Last path component.
     pub(crate) name: String,
     /// Original folder (drive path, `/` for the root).
     pub(crate) folder: String,
+    /// Whether the entry is a folder.
     pub(crate) is_dir: bool,
+    /// Size in bytes.
     pub(crate) size: u64,
     /// "3h ago" and the local time for the tooltip.
     pub(crate) deleted: (String, String),
+    /// PC (worker name) that deleted it, if known.
     pub(crate) deleted_by: Option<String>,
+    /// Expiry text ("Expires in 3 days", "Kept until deleted", …).
     pub(crate) expiry: String,
+    /// Past its expiry (removed at the next cleanup).
     pub(crate) expired: bool,
+    /// Fewer than 3 days left.
     pub(crate) expires_soon: bool,
+    /// Another file now exists at the old path (restore keeps both).
     pub(crate) path_taken: bool,
     /// Moved here by a rollback applied in this session.
     pub(crate) from_rollback: bool,
+    /// Deletion time, for sorting (`None` sorts last).
     deleted_unix: Option<u64>,
 }
 
+/// Rows of the trash entries whose path contains `query` (case-insensitive),
+/// newest deletion first, then by path. `from_rollback` marks paths a rollback
+/// moved there. Called by `trash_view::show`.
 pub(crate) fn rows(
     entries: &[TrashEntry],
     query: &str,

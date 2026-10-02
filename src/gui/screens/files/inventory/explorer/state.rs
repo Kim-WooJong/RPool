@@ -5,29 +5,40 @@ use super::nav::{parent, Nav};
 use super::sort::Sort;
 use crate::gui::screens::files::inventory::drive_state::DriveTree;
 
+/// How the explorer shows a folder's entries; chosen by the List / Icons toggle in `drive.rs`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum ViewMode {
+    /// Rows with Name / Size / Type columns (`list::show`).
     #[default]
     List,
+    /// Grid of large tiles (`icons::show`).
     Icons,
 }
 
 /// Last scroll position of the list, to keep a moved selection in view.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(crate) struct ScrollMemo {
+    /// Vertical scroll offset of the list, in points.
     pub(crate) offset: f32,
+    /// Visible height of the scroll viewport, in points.
     pub(crate) view: f32,
 }
 
+/// Per-pool explorer state, kept in the drive form across frames and reloads.
+/// Updated by `ExplorerState::apply`; read by the list/icons views.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ExplorerState {
+    /// Current folder and Back / Forward history.
     pub(crate) nav: Nav,
+    /// Column sort order of the entries.
     pub(crate) sort: Sort,
+    /// List or Icons view.
     pub(crate) view: ViewMode,
     /// Path of the selected entry.
     pub(crate) selected: Option<String>,
     /// Search the whole drive instead of the current folder.
     pub(crate) search_all: bool,
+    /// Scroll position recorded by the last drawn list or grid.
     pub(crate) scroll: ScrollMemo,
     /// Scroll the selection into view on the next frame.
     pub(crate) reveal: bool,
@@ -94,6 +105,7 @@ impl ExplorerState {
         }
     }
 
+    /// Opens `path` if it is a folder of `tree` (files are ignored).
     fn open(&mut self, tree: &DriveTree, path: &str, query: &mut String) {
         if tree.folder(path).is_some_and(|folder| folder.is_some()) {
             self.nav.open(path);
@@ -108,6 +120,8 @@ impl ExplorerState {
         self.selected = selected;
     }
 
+    /// Moves the selection by `step` rows in display order, clamped to the list;
+    /// with nothing selected, Up selects the last row and Down the first.
     fn step(&mut self, tree: &DriveTree, rows: &[usize], step: isize) {
         if rows.is_empty() {
             return;

@@ -12,21 +12,28 @@ use std::time::{Duration, Instant};
 
 /// Task names; completion is recognised by them.
 pub(crate) const RUN_TASK: &str = "Pool migration run";
+/// Task name of `pool migrate abandon` (discard a migration).
 pub(crate) const ABANDON_TASK: &str = "Pool migration discard";
+/// Task name of `pool migrate adopt` (drive switch).
 pub(crate) const ADOPT_TASK: &str = "Pool migration drive adoption";
 /// Sample written per remote when measuring speed.
 pub(crate) const SPEED_SAMPLE_BYTES: u64 = 8 * 1024 * 1024;
 /// Status refresh period while the run step is visible.
 pub(crate) const STATUS_REFRESH: Duration = Duration::from_secs(5);
 
+/// Wizard step shown by `migration::card`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Step {
+    /// Pick the pool and options, create the plan.
     #[default]
     Plan,
+    /// Inspect the freshly created plan before starting it.
     Review,
+    /// Run, pause or resume the active migration.
     Run,
     /// Switch the drive to the migrated generation.
     Adopt,
+    /// List of files that cannot be recovered (`pool migrate lost`).
     Lost,
     /// After completion: quarantine and delete what the migration left behind.
     Cleanup,
@@ -35,6 +42,7 @@ pub(crate) enum Step {
 /// Result of the planning thread.
 #[derive(Debug)]
 pub(crate) struct PlanOutcome {
+    /// The plan, or the formatted planning error.
     pub(crate) plan: Result<Plan, String>,
     /// The drive part published with the plan, if any.
     pub(crate) drive: Option<DrivePlan>,
@@ -42,9 +50,12 @@ pub(crate) struct PlanOutcome {
     pub(crate) speed_note: Option<String>,
 }
 
+/// Result of the background status listing (`pool migrate status`).
 #[derive(Debug)]
 pub(crate) struct StatusOutcome {
+    /// Pool the listing was made for; stale results for another pool are dropped.
     pub(crate) pool: String,
+    /// Recorded migrations of the pool, or the listing error.
     pub(crate) result: Result<Vec<MigrationStatus>, String>,
     /// Drive part per migration id (migrations with a drive part only).
     pub(crate) drive: std::collections::BTreeMap<String, DriveStatus>,
@@ -73,20 +84,28 @@ impl Default for IncludeDrive {
 /// Which of our own tasks the console is running.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Watched {
+    /// `pool migrate run` of this migration id.
     Run(String),
+    /// `pool migrate abandon` of this migration id.
     Abandon(String),
+    /// `pool migrate adopt` of this migration id.
     Adopt(String),
 }
 
+/// All state of the migration wizard, held in `GuiState::migration`.
 #[derive(Debug, Default)]
 pub(crate) struct MigrationForm {
+    /// Pool being migrated.
     pub(crate) pool: String,
     /// Take over entries another PC claimed but did not finish.
     pub(crate) take_over: bool,
     /// Archives migrated at once (`--parallel`).
     pub(crate) parallel: RunParallel,
+    /// Current wizard step.
     pub(crate) step: Step,
+    /// Full probe (hashes) instead of the quick size check when planning.
     pub(crate) probe_full: bool,
+    /// Measure download/upload speed before planning (otherwise the manual speeds are used).
     pub(crate) measure_speed: bool,
     /// Plan the pool's drive too (`--no-drive` when false). Default on.
     pub(crate) include_drive: IncludeDrive,
@@ -94,6 +113,7 @@ pub(crate) struct MigrationForm {
     pub(crate) rebalance: bool,
     /// Manual speeds, MiB/s; 0 = unknown.
     pub(crate) download_mib_s: f64,
+    /// Manual upload speed, MiB/s; 0 = unknown.
     pub(crate) upload_mib_s: f64,
     /// Plan just created (review step).
     pub(crate) plan: Option<Plan>,
@@ -109,20 +129,31 @@ pub(crate) struct MigrationForm {
     pub(crate) workspace: String,
     /// Migration shown in the run / lost steps.
     pub(crate) active_id: Option<String>,
+    /// Error shown at the top of the wizard card.
     pub(crate) error: Option<String>,
+    /// Informational message shown at the top of the wizard card.
     pub(crate) notice: Option<String>,
+    /// Migrations of `status_pool` recorded in the cloud.
     pub(crate) statuses: Vec<MigrationStatus>,
     /// Pool the `statuses` belong to; differs from `pool` → reload.
     pub(crate) status_pool: Option<String>,
+    /// Error of the last status listing.
     pub(crate) status_error: Option<String>,
+    /// When the last status listing started; drives the periodic refresh.
     pub(crate) last_status_at: Option<Instant>,
+    /// Whether the "Advanced / manual" section of Account changes is expanded.
     pub(crate) show_advanced: bool,
+    /// Our task currently running on the task runner, if any.
     pub(crate) watched: Option<Watched>,
+    /// A pause was requested for the running run task.
     pub(crate) pausing: bool,
     /// The "Clean up" step (`pool migrate retire|restore`).
     pub(crate) cleanup: super::cleanup_state::CleanupForm,
+    /// Channel of a planning thread in progress.
     planning: Option<Receiver<PlanOutcome>>,
+    /// Channel of a status listing in progress.
     status_pending: Option<Receiver<StatusOutcome>>,
+    /// Temporary folder holding the run's stop file; writing `stop` pauses the run.
     control: Option<tempfile::TempDir>,
 }
 
@@ -139,6 +170,7 @@ impl MigrationForm {
         }
     }
 
+    /// Back to the plan step, dropping the plan and the active migration.
     pub(crate) fn reset_to_plan(&mut self) {
         self.step = Step::Plan;
         self.plan = None;
@@ -147,14 +179,17 @@ impl MigrationForm {
         self.error = None;
     }
 
+    /// True while a planning thread is running.
     pub(crate) fn planning(&self) -> bool {
         self.planning.is_some()
     }
 
+    /// True while a status listing is running.
     pub(crate) fn status_loading(&self) -> bool {
         self.status_pending.is_some()
     }
 
+    /// Library plan options from the form; non-positive manual speeds become `None`.
     pub(crate) fn plan_options(&self, workers: usize) -> PlanOptions {
         PlanOptions {
             probe_full: self.probe_full,
@@ -295,6 +330,8 @@ impl MigrationForm {
         self.planning.is_some() || self.status_pending.is_some()
     }
 
+    /// Applies a finished plan: opens the review step for it, or reports a
+    /// planning error or a plan for a pool no longer selected.
     pub(crate) fn apply_plan(&mut self, outcome: PlanOutcome) {
         self.notice = outcome.speed_note;
         match outcome.plan {
@@ -320,6 +357,7 @@ impl MigrationForm {
         }
     }
 
+    /// Applies a finished status listing unless it belongs to another pool.
     pub(crate) fn apply_status(&mut self, outcome: StatusOutcome) {
         if outcome.pool != self.pool {
             return; // stale answer for a previously selected pool
@@ -335,6 +373,7 @@ impl MigrationForm {
         }
     }
 
+    /// Listed status of the active migration, if loaded.
     pub(crate) fn active_status(&self) -> Option<&MigrationStatus> {
         let id = self.active_id.as_deref()?;
         self.statuses.iter().find(|s| s.migration_id == id)
@@ -422,6 +461,7 @@ impl MigrationForm {
         Ok(())
     }
 
+    /// Starts `pool migrate abandon` (discard) for `id` on the task runner.
     pub(crate) fn start_abandon(
         &mut self,
         task: &mut crate::gui::task::TaskRunner,
@@ -512,6 +552,8 @@ impl MigrationForm {
         self.finish_task(watched, status);
     }
 
+    /// Sets the notice/error after our watched task ended and forces a status
+    /// reload; `status` is `None` when the outcome is unknown.
     pub(crate) fn finish_task(
         &mut self,
         watched: Watched,
@@ -554,6 +596,7 @@ impl MigrationForm {
     }
 }
 
+/// `Some(value)` for finite positive values, else `None` (unknown speed).
 fn positive(value: f64) -> Option<f64> {
     (value.is_finite() && value > 0.0).then_some(value)
 }
@@ -665,6 +708,7 @@ pub(crate) fn lost_from_plan(plan: &Plan) -> Vec<LostFile> {
         .collect()
 }
 
+/// First 12 characters of a migration id, for display.
 pub(crate) fn short_id(id: &str) -> &str {
     id.get(..12).unwrap_or(id)
 }
@@ -685,6 +729,7 @@ pub(crate) fn policy_change_affects_data(old: &PoolDefinition, new: &PoolDefinit
         || old.native_crypt != new.native_crypt
 }
 
+/// Translated ETA range text, or "unknown" without speeds.
 pub(crate) fn format_eta(range: Option<(f64, f64)>) -> String {
     match range {
         None => tr("unknown (no speed given)").into(),

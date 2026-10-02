@@ -1,14 +1,24 @@
+//! Saved pools (`pools.json`): loading, saving, validation, add/remove,
+//! option and target resolution, capacity/estimates, browsing of a pool's
+//! drive metadata, and reprocessing (re-encoding archives to a new layout).
+
 pub(crate) mod browse;
 mod browse_cache;
 pub(crate) mod browse_generations;
 mod browse_local;
 pub(crate) mod capacity;
 pub(crate) mod estimate;
+/// Loading the pool store.
 mod load;
+/// Adding, replacing and removing pools.
 mod manage;
+/// Effective put options from a pool or explicit remotes.
 mod resolve;
+/// Atomic saving of the pool store.
 mod save;
+/// Target remotes of pool-wide commands.
 mod targets;
+/// Pool name and definition validation.
 mod validate;
 
 pub(crate) use load::load_pool_store;

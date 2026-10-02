@@ -7,6 +7,7 @@ use super::model::{Retention, RollbackPlan, TrashEntry, VersionEntry};
 use super::ops::{Op, PurgeReport, RestoreReport};
 use crate::prelude::*;
 
+/// Dispatch `op` through `dispatch::run` and deserialize its JSON value.
 fn run<T: serde::de::DeserializeOwned>(
     rclone: &str,
     pool: &str,
@@ -17,6 +18,7 @@ fn run<T: serde::de::DeserializeOwned>(
     Ok((serde_json::from_value(value)?, notes))
 }
 
+/// List the pool's drive trash, newest first as the backend returns it.
 pub(crate) fn trash_list(
     rclone: &str,
     pool: &str,
@@ -24,6 +26,8 @@ pub(crate) fn trash_list(
 ) -> Result<(Vec<TrashEntry>, Vec<String>)> {
     run(rclone, pool, workspace, Op::TrashList)
 }
+/// Restore trash entries `ids`; `to` renames a single entry, `into` restores
+/// under another folder.
 pub(crate) fn trash_restore(
     rclone: &str,
     pool: &str,
@@ -56,6 +60,7 @@ pub(crate) fn trash_purge(
         },
     )
 }
+/// List the stored versions of the file at `path`.
 pub(crate) fn versions_list(
     rclone: &str,
     pool: &str,
@@ -69,6 +74,7 @@ pub(crate) fn versions_list(
         Op::VersionsList { path: path.into() },
     )
 }
+/// Restore version `id` of `path`, in place or (`as_copy`) beside it.
 pub(crate) fn versions_restore(
     rclone: &str,
     pool: &str,
@@ -108,9 +114,11 @@ pub(crate) fn rollback(
         },
     )
 }
+/// Read the pool's saved retention settings.
 pub(crate) fn retention(pool: &str) -> Result<Retention> {
     super::retention::load(pool)
 }
+/// Save all three retention settings for `pool`; returns the stored value.
 pub(crate) fn set_retention(pool: &str, value: Retention) -> Result<Retention> {
     super::retention::update(
         pool,

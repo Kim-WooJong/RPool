@@ -1,9 +1,14 @@
+//! Target picker of Maintenance › Integrity: an archive from the local
+//! inventory or a manifest path typed or browsed.
+
 use super::state::IntegrityForm;
 use crate::gui::i18n::tr;
 use crate::gui::widgets::local_file_field;
 use crate::inventory::load_inventory;
 use eframe::egui;
 
+/// Draws the inventory combo box (choosing an entry fills `form.manifest`) and
+/// the manifest field. Called by `integrity::show`.
 pub(crate) fn show(ui: &mut egui::Ui, form: &mut IntegrityForm) {
     let entries = load_inventory()
         .map(|store| {

@@ -41,6 +41,8 @@ fn conflict_line(ui: &mut egui::Ui, form: &mut MountForm, conflict: &Conflict) {
     });
 }
 
+/// Status card at the top of the Drive overview: state badge, pool and
+/// mountpoint, Mount / Sync now / Check capacity or Unmount / Force stop, and any conflict.
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let (form, settings) = (&mut state.mount, &mut state.settings);
     theme::card(ui).show(ui, |ui| {

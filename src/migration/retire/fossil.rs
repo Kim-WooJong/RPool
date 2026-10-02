@@ -17,11 +17,17 @@ use crate::prelude::*;
 /// Folded state of one item's active quarantine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ItemFossil {
+    /// The active `Fossil` record: objects, grace and quarantine time.
     pub fossil: RetireRecord,
+    /// A `Restore` record was seen for this generation.
     pub restored: bool,
+    /// A `Cancelled` record was seen for this generation.
     pub cancelled: bool,
+    /// A `Deleting` record was seen (point of no return).
     pub deleting: bool,
+    /// Addresses recorded as deleted by `Deleted` records.
     pub deleted: BTreeSet<String>,
+    /// A `Purged` record ended the quarantine.
     pub purged: bool,
 }
 
@@ -36,6 +42,7 @@ impl ItemFossil {
         !self.deletion_started() && (self.restored || self.cancelled)
     }
 
+    /// Unix time (s) from which deletion is allowed: quarantine time plus grace.
     pub(crate) fn due_unix(&self) -> u64 {
         self.fossil
             .ts_unix
@@ -67,6 +74,7 @@ impl ItemFossil {
             .collect()
     }
 
+    /// Report view of the quarantine at `now`; `None` when released.
     pub(crate) fn view(&self, now: u64) -> Option<FossilView> {
         let state = self.state(now)?;
         Some(FossilView {

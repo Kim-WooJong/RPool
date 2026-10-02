@@ -1,19 +1,35 @@
+//! Free-space budget of a set of pool remotes: queries each backing
+//! account's quota once, rejects remotes whose quota or identity cannot be
+//! trusted, and sums free space per capacity domain without double counting.
+//! Entry point `BudgetSnapshot::query`, used by `mount::capacity`,
+//! `mount::upload` and `placement`.
 use super::{BackendAdmin, RemoteCatalog};
 use crate::prelude::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Quota of one accepted pool remote.
 pub(crate) struct TargetBudget {
+    /// Pool remote address as given by the caller.
     pub remote: String,
+    /// Configured backing section the remote resolves to (see `RemoteCatalog::placement_target`).
     pub backing: String,
+    /// Capacity domain; remotes in the same domain share one quota.
     pub capacity_domain: String,
+    /// Declared outage domain, if any.
     pub failure_domain: Option<String>,
+    /// The backing remote has a user-declared identity in `provider_domains.json`.
     pub declared: bool,
+    /// Total quota in bytes reported by the provider.
     pub total: u64,
+    /// Free bytes reported by the provider.
     pub free: u64,
 }
 #[derive(Debug, Clone, Default)]
+/// Result of one quota round over a set of pool remotes.
 pub(crate) struct BudgetSnapshot {
+    /// Remotes accepted for capacity admission.
     pub targets: Vec<TargetBudget>,
+    /// Rejected remotes: (remote, reason, whether the quota query itself failed).
     pub rejected: Vec<(String, String, bool)>,
     /// Valid quota responses before unresolved identities are excluded from admission.
     pub observed_targets: Vec<TargetBudget>,
@@ -55,6 +71,9 @@ impl BudgetSnapshot {
         reports
     }
 
+    /// Resolves and quota-checks every remote in `remotes`. Remotes with
+    /// unresolved targets, failed or incomplete/inconsistent quotas, or (when
+    /// any identity is declared) undeclared identities are moved to `rejected`.
     pub(crate) fn query(
         admin: &dyn BackendAdmin,
         catalog: &RemoteCatalog,
@@ -139,6 +158,8 @@ impl BudgetSnapshot {
         }
         result
     }
+    /// Free bytes per capacity domain; remotes sharing a domain count the
+    /// smallest free value once.
     pub(crate) fn budgets(&self) -> BTreeMap<String, u64> {
         let mut budgets = BTreeMap::new();
         for target in &self.targets {
@@ -149,6 +170,7 @@ impl BudgetSnapshot {
         }
         budgets
     }
+    /// Sum of [`Self::budgets`]; errors on overflow.
     pub(crate) fn total_free(&self) -> Result<u64> {
         self.budgets().values().try_fold(0u64, |sum, n| {
             sum.checked_add(*n).context("quota total overflow")

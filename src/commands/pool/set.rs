@@ -1,8 +1,11 @@
+//! `rpool pool set`: creates or replaces a pool definition.
 use crate::models::{Placement, PoolDefinition};
 use crate::pool::upsert_pool;
 use anyhow::Result;
 
 #[allow(clippy::too_many_arguments)]
+/// Saves pool `name` with the given options via `pool::upsert_pool` and hints at
+/// `pool migrate plan` when the change affects already stored archives.
 pub(crate) fn run(
     rclone: &str,
     name: String,

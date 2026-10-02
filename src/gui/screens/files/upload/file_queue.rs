@@ -1,3 +1,6 @@
+//! The source-file queue of Files › Upload: drop zone, Add files… / Clear, and
+//! one row per file with size, status and Remove.
+
 use super::state::{UploadForm, UploadItemStatus};
 use crate::gui::i18n::{tr, trf};
 use crate::gui::theme;
@@ -6,6 +9,8 @@ use crate::presentation::format_bytes;
 use eframe::egui;
 use std::path::PathBuf;
 
+/// Draws the queue and adds dropped or picked files to `form`. Editing is
+/// disabled while a batch runs. Called by `upload::show`.
 pub(crate) fn show(ui: &mut egui::Ui, form: &mut UploadForm) {
     collect_dropped_files(ui, form);
 
@@ -110,6 +115,7 @@ pub(crate) fn show(ui: &mut egui::Ui, form: &mut UploadForm) {
     );
 }
 
+/// Adds the files dropped onto the window this frame to the queue.
 fn collect_dropped_files(ui: &egui::Ui, form: &mut UploadForm) {
     let dropped: Vec<PathBuf> = ui.ctx().input(|input| {
         input

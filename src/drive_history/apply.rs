@@ -11,7 +11,9 @@ use crate::prelude::*;
 pub(crate) trait Target {
     /// Paths with local writes not yet uploaded.
     fn pending(&self) -> BTreeSet<String>;
+    /// Write `payload` as a new revision of `path`.
     fn put(&self, path: &str, payload: &Payload) -> Result<()>;
+    /// Delete `path` (it moves to the drive trash).
     fn delete(&self, path: &str) -> Result<()>;
     /// Uploads/publishes queued changes.
     fn publish(&self) -> Result<()>;
@@ -37,12 +39,18 @@ impl Target for VirtualDrive {
 /// Outcome of applying actions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Applied {
+    /// Actions that were carried out, in order.
     pub changes: Vec<Action>,
     /// All changes reached the cloud (else they are queued in the workspace).
     pub published: bool,
+    /// Degraded-information notes, e.g. publish deferred to the next sync.
     pub notes: Vec<String>,
 }
 
+/// Carry out `actions` on `target`: refuse if any path has unsynced local
+/// writes or a payload is missing, apply in order, then publish. A failed
+/// publish is reported as a note (changes stay queued). Called by
+/// `ops::write` for restores and rollbacks.
 pub(crate) fn apply(target: &dyn Target, history: &History, actions: &[Action]) -> Result<Applied> {
     if actions.is_empty() {
         return Ok(Applied {

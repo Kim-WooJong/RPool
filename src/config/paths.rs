@@ -1,7 +1,13 @@
+//! Locations of RPool's configuration and state files. All live in one
+//! per-user directory ([`app_config_dir`]), overridable with `RPOOL_CONFIG_DIR`.
 use anyhow::{anyhow, bail, Context, Result};
 use std::env;
 use std::path::PathBuf;
 
+/// Per-user config directory: `RPOOL_CONFIG_DIR` (must be an existing absolute
+/// real directory), else `%APPDATA%\rpool` on Windows,
+/// `~/Library/Application Support/rpool` on macOS, or
+/// `$XDG_CONFIG_HOME/rpool` / `~/.config/rpool` elsewhere. Not created here.
 pub(crate) fn app_config_dir() -> Result<PathBuf> {
     if let Some(path) = env::var_os("RPOOL_CONFIG_DIR") {
         return checked_override_dir(PathBuf::from(path));
@@ -27,6 +33,8 @@ pub(crate) fn app_config_dir() -> Result<PathBuf> {
     path.ok_or_else(|| anyhow!("cannot determine rpool configuration directory"))
 }
 
+/// Validates a `RPOOL_CONFIG_DIR` override: absolute, existing, a directory and
+/// not a symlink; returns its canonical path.
 fn checked_override_dir(path: PathBuf) -> Result<PathBuf> {
     if !path.is_absolute() {
         bail!("RPOOL_CONFIG_DIR must be an absolute directory");
@@ -38,26 +46,32 @@ fn checked_override_dir(path: PathBuf) -> Result<PathBuf> {
     Ok(path.canonicalize()?)
 }
 
+/// Saved pool definitions (`pools.json`).
 pub(crate) fn pools_path() -> Result<PathBuf> {
     Ok(app_config_dir()?.join("pools.json"))
 }
 
+/// Local rebuildable archive inventory (`inventory.json`).
 pub(crate) fn inventory_path() -> Result<PathBuf> {
     Ok(app_config_dir()?.join("inventory.json"))
 }
 
+/// Operation history, one JSON record per line (`history.jsonl`).
 pub(crate) fn history_path() -> Result<PathBuf> {
     Ok(app_config_dir()?.join("history.jsonl"))
 }
 
+/// GUI settings (`gui.json`).
 pub(crate) fn gui_settings_path() -> Result<PathBuf> {
     Ok(app_config_dir()?.join("gui.json"))
 }
 
+/// Per-remote default paths (`remote_roots.json`).
 pub(crate) fn remote_roots_path() -> Result<PathBuf> {
     Ok(app_config_dir()?.join("remote_roots.json"))
 }
 
+/// Latest scrub/repair integrity snapshots (`integrity.json`).
 pub(crate) fn integrity_snapshot_path() -> Result<PathBuf> {
     Ok(app_config_dir()?.join("integrity.json"))
 }

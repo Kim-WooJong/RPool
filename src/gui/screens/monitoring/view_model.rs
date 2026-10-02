@@ -4,10 +4,14 @@ use super::format;
 use crate::gui::i18n::{relative_age_at, tr, trf};
 use crate::monitor::model::{Alert, AlertKind, MountEntry, NetStatus, RemoteTraffic};
 
+/// What an account (or a whole mount) is doing right now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Activity {
+    /// Sending data, or uploads are active.
     Uploading,
+    /// Receiving data, or downloads are active.
     Downloading,
+    /// No transfer.
     Idle,
 }
 
@@ -22,6 +26,7 @@ pub(crate) fn activity(remote: &RemoteTraffic) -> Activity {
     }
 }
 
+/// Translated activity badge text.
 pub(crate) fn activity_label(activity: Activity) -> &'static str {
     match activity {
         Activity::Uploading => tr("Uploading"),
@@ -62,16 +67,26 @@ pub(crate) fn alert_text(alert: &Alert) -> String {
     }
 }
 
+/// Display texts of one account on a mount card, from `remote_view`.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct RemoteView {
+    /// Remote (account) name.
     pub remote: String,
+    /// rclone backend type, when known.
     pub backend: Option<String>,
+    /// Current activity of the account.
     pub activity: Activity,
+    /// Upload rate text (10 s average).
     pub upload_rate: String,
+    /// Download rate text (10 s average).
     pub download_rate: String,
+    /// Sent / acknowledged / verified / received byte totals.
     pub totals: String,
+    /// Running uploads and downloads.
     pub transfers: String,
+    /// OK, failed and retried operation counts.
     pub ops: String,
+    /// Age of the last successful operation.
     pub last_ok: String,
     /// Error line and its age.
     pub last_error: Option<String>,
@@ -80,28 +95,41 @@ pub(crate) struct RemoteView {
     pub upload_limit: Option<String>,
 }
 
+/// Everything one mount card shows, from `mount_view`.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MountView {
+    /// Pool name (card title).
     pub pool: String,
+    /// Mount point (card subtitle).
     pub mountpoint: String,
+    /// Mount frontend label (FUSE, WinFsp, WebDAV).
     pub frontend: String,
     /// `None` while no fresh status was read.
     pub live: Option<LiveView>,
 }
 
+/// Live part of a mount card, built from the latest status.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LiveView {
+    /// "Up …" uptime text.
     pub uptime: String,
+    /// Time since the last metadata sync.
     pub last_sync: String,
+    /// Upload queue text (files and bytes waiting).
     pub queue: String,
     /// Oldest waiting change, when any.
     pub queue_oldest: Option<String>,
+    /// Whether anything waits to upload (highlights the queue line).
     pub queue_waiting: bool,
+    /// Alert kinds with their translated banner texts.
     pub alerts: Vec<(AlertKind, String)>,
+    /// Overall activity: uploading if any account uploads, else downloading, else idle.
     pub activity: Activity,
+    /// One entry per account, in status order.
     pub remotes: Vec<RemoteView>,
 }
 
+/// Display name of a mount frontend id (`fuse`, `winfsp`, `dav`); unknown ids unchanged.
 pub(crate) fn frontend_label(frontend: &str) -> String {
     match frontend {
         "fuse" => "FUSE".into(),
@@ -111,6 +139,8 @@ pub(crate) fn frontend_label(frontend: &str) -> String {
     }
 }
 
+/// Display texts of one account's traffic at time `now` (no upload-limit
+/// detail; `live_view` adds it).
 pub(crate) fn remote_view(remote: &RemoteTraffic, now: u64) -> RemoteView {
     let activity = activity(remote);
     RemoteView {
@@ -158,6 +188,8 @@ pub(crate) fn remote_view(remote: &RemoteTraffic, now: u64) -> RemoteView {
     }
 }
 
+/// The card of a mount: registry fields plus the live part when a status is
+/// present. Called by the Monitoring page for every mount each frame.
 pub(crate) fn mount_view(entry: &MountEntry, status: Option<&NetStatus>, now: u64) -> MountView {
     MountView {
         pool: entry.pool.clone(),
@@ -167,6 +199,8 @@ pub(crate) fn mount_view(entry: &MountEntry, status: Option<&NetStatus>, now: u6
     }
 }
 
+/// Live part of a card: per-account views with upload-limit details, overall
+/// activity, uptime, sync, queue and translated alerts.
 fn live_view(status: &NetStatus, now: u64) -> LiveView {
     let remotes: Vec<RemoteView> = status
         .remotes

@@ -1,9 +1,13 @@
+//! Upload target controls: the storage pool picker, or the manual one-off
+//! summary and destination selector.
+
 use super::state::UploadTargetMode;
 use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
 use crate::gui::widgets::remote_selector;
 use eframe::egui;
 
+/// Draws the main target control for the current mode. Called by `upload::show`.
 pub(crate) fn show_primary(ui: &mut egui::Ui, state: &mut GuiState) {
     match state.upload.target_mode {
         UploadTargetMode::Pool => show_pool_selector(ui, state),
@@ -11,6 +15,7 @@ pub(crate) fn show_primary(ui: &mut egui::Ui, state: &mut GuiState) {
     }
 }
 
+/// Pool combo box with a hint about where destinations and redundancy come from.
 fn show_pool_selector(ui: &mut egui::Ui, state: &mut GuiState) {
     ui.label(egui::RichText::new(tr("Storage pool")).strong());
     ui.horizontal(|ui| {
@@ -44,6 +49,7 @@ fn show_pool_selector(ui: &mut egui::Ui, state: &mut GuiState) {
     }
 }
 
+/// Manual mode: how many destinations are configured, pointing to Advanced.
 fn show_manual_summary(ui: &mut egui::Ui, state: &GuiState) {
     let count = state
         .settings
@@ -61,6 +67,8 @@ fn show_manual_summary(ui: &mut egui::Ui, state: &GuiState) {
     );
 }
 
+/// Remote selector for manual destinations (saved settings remotes), shown in
+/// Advanced.
 pub(crate) fn show_manual_destinations(ui: &mut egui::Ui, state: &mut GuiState) {
     ui.label(
         egui::RichText::new(

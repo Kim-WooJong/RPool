@@ -15,6 +15,8 @@ use crate::gui::task::TaskRunner;
 use crate::gui::theme;
 use eframe::egui;
 
+/// "Trash & versions" card on the Pools page (called by `pools::show`); needs
+/// a saved pool selected or named in the pool form.
 pub(crate) fn pool_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     let saved = [state.pools.name.trim(), state.pools.selected.as_str()]
         .into_iter()
@@ -38,6 +40,8 @@ pub(crate) fn pool_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut Task
     );
 }
 
+/// Card body: loads the retention settings, edits and saves them via
+/// `rpool drive retention set`, then the reclaimable-space section.
 fn body(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner, pool: &str) {
     let rclone = state.settings.rclone.clone();
     let history = &mut state.inventory.drive.history;
@@ -160,6 +164,7 @@ fn body(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner, pool: &s
     super::cleanup_section::show(ui, history, task, &rclone, pool);
 }
 
+/// Success or error line in the matching colour.
 fn badges_notice(ui: &mut egui::Ui, success: bool, text: &str) {
     let dark = ui.visuals().dark_mode;
     let color = if success {

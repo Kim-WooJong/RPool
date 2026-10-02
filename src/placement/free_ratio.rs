@@ -1,6 +1,12 @@
+//! Quota-driven placement: free-ratio (with a per-account cap per coding
+//! group), proportional (ratio only) and capacity-first, all over a live
+//! `BudgetSnapshot` of the targets. Called through `placement::assign`.
+
 use crate::prelude::*;
 use crate::storage::admin::{BackendAdmin, RcloneAdmin};
 
+/// [`plan_free_ratio_with_admin`] with the real rclone admin. Used by
+/// `assign_remotes` for FreeRatio (`cap` = parity) and Proportional (`None`).
 pub(crate) fn plan_free_ratio(
     rclone: &str,
     remotes: &[String],
@@ -9,6 +15,8 @@ pub(crate) fn plan_free_ratio(
 ) -> Result<Vec<usize>> {
     plan_free_ratio_with_admin(&RcloneAdmin::inherited(rclone), remotes, specs, cap)
 }
+/// Queries the targets' quota budgets via `admin` and runs [`allocate`];
+/// fails if any target's quota cannot be read. Injectable admin for tests.
 pub(crate) fn plan_free_ratio_with_admin(
     admin: &dyn BackendAdmin,
     remotes: &[String],
@@ -47,6 +55,9 @@ pub(crate) fn allocate(
 /// for spreading one coding group.
 const SPREAD_BAND: f64 = 0.85;
 
+/// One greedy pass of [`allocate`]: each shard goes to an eligible target
+/// (fits the budget, below the group cap) with the highest free ratio; with
+/// `spread` (or within `SPREAD_BAND` of the best ratio) fewest group shards win.
 fn allocate_ordered(
     snapshot: &crate::storage::admin::budget::BudgetSnapshot,
     specs: &[PhysicalSpec],

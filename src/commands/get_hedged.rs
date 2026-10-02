@@ -9,9 +9,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+/// Timing policy for speculative (hedged) parity reads.
 pub(super) struct Policy {
+    /// Stall/slow threshold used until enough samples exist or when not adaptive.
     pub delay: Duration,
+    /// How long the coordinator waits for a worker completion per loop turn.
     pub tick: Duration,
+    /// Derive the threshold from recent shard timings instead of using `delay`.
     pub adaptive: bool,
 }
 impl Default for Policy {
@@ -24,6 +28,8 @@ impl Default for Policy {
     }
 }
 impl Policy {
+    /// Stall threshold: `delay`, or twice the median of the last samples
+    /// (normalized per full shard) clamped to 250 ms..30 s once 4 samples exist.
     fn threshold(&self, samples: &VecDeque<Duration>) -> Duration {
         if !self.adaptive || samples.len() < 4 {
             return self.delay;
@@ -35,38 +41,70 @@ impl Policy {
 }
 
 #[derive(Clone)]
+/// One queued shard download.
 struct Task {
+    /// Shard to download.
     shard: Shard,
+    /// 1-based attempt number; retries stop at the `retries` limit.
     attempt: u32,
+    /// Earliest start time (retry backoff).
     ready: Instant,
+    /// Hedge read for a slow group; counts against the hedge budget.
     speculative: bool,
 }
+/// A download currently handed to a worker, keyed by shard index.
 struct Active {
+    /// The task being executed.
     task: Task,
+    /// Private staging file the worker writes.
     path: PathBuf,
+    /// Set by the coordinator to cancel the read cooperatively.
     cancel: Arc<AtomicBool>,
+    /// Byte progress used to detect stalled or slow reads.
     progress: Arc<ReadProgress>,
 }
+/// Restore state of one Reed-Solomon coding group (at most two are open).
 struct Group {
+    /// Data shards of the group.
     data: Vec<Shard>,
+    /// Parity shards not yet requested.
     candidates: VecDeque<Shard>,
+    /// Parity reads cancelled as slow; retried once alternatives are exhausted.
     deferred: VecDeque<Shard>,
+    /// Data reads cancelled as slow; retried when parity cannot cover them.
     deferred_data: VecDeque<Shard>,
+    /// Data shard indexes on their final protected retry (never cancelled as slow again).
     protected: BTreeSet<u32>,
+    /// Parity shard indexes on their final protected retry.
     protected_parity: BTreeSet<u32>,
+    /// Verified parity inputs: coding slot -> staged file.
     parity: BTreeMap<usize, PathBuf>,
+    /// Data shard indexes that failed or were given up as slow.
     failed: BTreeSet<u32>,
+    /// Staging directory for this group's shard files.
     temp: tempfile::TempDir,
+    /// Group fully restored (directly or reconstructed).
     done: bool,
 }
+/// Message sent to a worker thread.
 struct Work {
+    /// Shard index; identifies the completion.
     id: u32,
+    /// Shard to download.
     shard: Shard,
+    /// Staging file to write.
     path: PathBuf,
+    /// Cancellation flag shared with the coordinator.
     cancel: Arc<AtomicBool>,
+    /// Progress counter shared with the coordinator.
     progress: Arc<ReadProgress>,
 }
 
+/// Restores an erasure-coded archive into `output`. Workers only download into
+/// staging files; this coordinator commits data, reconstructs a group once the
+/// verified parity covers its missing data, and issues bounded speculative
+/// parity reads (hedge budget 1–2 workers) for stalled or slow groups.
+/// Resumable through the shared resume state. Called by `get_erasure`.
 pub(super) fn restore(
     reader: &StorageReader,
     manifest: &Manifest,
@@ -574,6 +612,8 @@ pub(super) fn restore(
     Ok(())
 }
 
+/// Copies a verified staged data shard into `output` at its offset; fails if
+/// the staged file is not exactly the shard size.
 fn commit_data(shard: &Shard, staged: &Path, output: &Path) -> Result<()> {
     let mut input = File::open(staged)?;
     let target = OpenOptions::new().read(true).write(true).open(output)?;
@@ -596,6 +636,7 @@ fn commit_data(shard: &Shard, staged: &Path, output: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Removes and returns the parity candidate whose remote has the fewest active reads.
 fn take_candidate(
     candidates: &mut VecDeque<Shard>,
     active: &BTreeMap<u32, Active>,
@@ -614,6 +655,8 @@ fn take_candidate(
     candidates.remove(index)
 }
 
+/// Next parity input needed to cover a failure: an untried candidate first,
+/// else a deferred one, which is then protected from further slow-cancellation.
 fn take_required(group: &mut Group) -> Option<Shard> {
     if let Some(shard) = group.candidates.pop_front() {
         return Some(shard);

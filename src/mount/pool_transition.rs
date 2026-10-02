@@ -1,36 +1,63 @@
 //! Explicit, resumable membership changes. Never sync or delete the original workspace.
+//!
+//! `rpool mount --apply-pool-changes` (`run`): copies the visible files of a
+//! pool-sync workspace into a staged workspace under a new epoch (with the
+//! pool's current membership), then swaps it in and keeps the original as a
+//! backup. Progress lives in a durable journal next to the workspace
+//! (`.<name>.pool-transition.json`), so an interrupted run resumes.
 use super::account_recovery as recovery;
 use super::namespace::{durable_json, random_id, Intent};
 use super::virtual_drive::{Revision, VirtualDrive};
 use crate::prelude::*;
 
+/// Progress of one visible path in the transition journal.
 #[derive(Serialize, Deserialize)]
 struct Entry {
+    /// Source revision id being copied (must not change across resumes).
     revision: String,
+    /// Destination intent created for the copy; `None` until begun.
     intent: Option<Intent>,
+    /// Copy uploaded and verified in the destination.
     complete: bool,
 }
+/// Durable transition state, persisted after every step by `persist`.
 #[derive(Serialize, Deserialize)]
 struct Journal {
+    /// Journal format version (1).
     version: u32,
+    /// Canonical workspace path being transitioned.
     workspace: PathBuf,
+    /// Staging workspace (`.<name>.pool-stage-<epoch>`) built by the copy.
     stage: PathBuf,
+    /// Backup path (`.<name>.pool-backup-<epoch>`) the original moves to.
     backup: PathBuf,
+    /// New metadata epoch of the destination (64 hex).
     epoch: String,
+    /// Selected pool name.
     pool: String,
+    /// Hash of the pool definition plus its remote roots; a change refuses resume.
     policy_hash: String,
+    /// Source workspace file hashes (`account_recovery::source_hashes`); a change
+    /// refuses resume and activation.
     source_hashes: BTreeMap<String, String>,
+    /// Canonical reprocess plan whose completed replacements are used, if any.
     reprocess_plan: Option<PathBuf>,
+    /// Per visible path progress.
     entries: BTreeMap<String, Entry>,
+    /// Every entry is complete and synced; activation may start.
     ready: bool,
+    /// Stage and original have been swapped (the transition is done).
     activated: bool,
 }
 
+/// Crash-safely writes the journal to `path`.
 fn persist(path: &Path, journal: &Journal) -> Result<()> {
     durable_json(path, journal)
 }
 
 // Refuse unrelated edits even when they do not collide with a copied path.
+/// Fails if the destination workspace contains pending intents, events or
+/// directories that the transition itself did not create.
 fn check_destination(
     drive: &VirtualDrive,
     journal: &Journal,
@@ -57,6 +84,7 @@ fn check_destination(
     Ok(())
 }
 
+/// Flushes the parent directory of `path` after a rename (no-op off Unix).
 fn sync_parent(path: &Path) -> Result<()> {
     #[cfg(unix)]
     File::open(path.parent().context("workspace parent missing")?)?.sync_all()?;
@@ -90,6 +118,8 @@ fn activate(journal_path: &Path, journal: &mut Journal) -> Result<()> {
     persist(journal_path, journal)
 }
 
+/// Runs (or resumes) a pool membership transition for `args.workspace`;
+/// called by `mount::run` for `--apply-pool-changes`.
 pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
     let _transition_lock = lock_workspace_transition(&args.workspace)?;
     let _stop = super::lifecycle::StopControl::new(args.stop_file.clone())?;
@@ -479,6 +509,8 @@ impl Drop for TransitionLock {
         let _ = self.0.unlock();
     }
 }
+/// Takes the exclusive `.<name>.pool-transition.lock` file lock next to the
+/// workspace. Held by `mount::run` for the whole mount and by `run`.
 pub(crate) fn lock_workspace_transition(workspace: &Path) -> Result<TransitionLock> {
     let parent = workspace
         .parent()

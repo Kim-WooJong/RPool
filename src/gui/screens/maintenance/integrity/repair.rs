@@ -1,3 +1,6 @@
+//! Repair card of Maintenance › Integrity: pick recoverable groups from the last
+//! scrub snapshot and reconstruct them with `rpool repair`.
+
 use super::state::IntegrityForm;
 use crate::gui::i18n::tr;
 use crate::gui::task::TaskRunner;
@@ -5,6 +8,9 @@ use crate::gui::widgets::{status_badge, StatusTone};
 use eframe::egui;
 use std::ffi::OsString;
 
+/// Draws the group table (only recoverable groups can be ticked) and starts the
+/// repair. Requires a snapshot of the same manifest; with an old snapshot that
+/// lacks group data it asks for a new scrub. Called by `integrity::show`.
 pub(crate) fn show(
     ui: &mut egui::Ui,
     form: &mut IntegrityForm,
@@ -97,6 +103,7 @@ pub(crate) fn show(
     }
 }
 
+/// Starts the "Repair" task with `args`.
 fn start(
     form: &IntegrityForm,
     task: &mut TaskRunner,
@@ -107,6 +114,8 @@ fn start(
     task.start_rpool("Repair", rclone, args(form, workers, retries))
 }
 
+/// `rpool repair <manifest> --workers N --retries N [--dry-run] [--quick]
+/// --group G…` for the selected groups; `--quick` follows the scrub mode.
 fn args(form: &IntegrityForm, workers: usize, retries: u32) -> Vec<OsString> {
     let mut args = vec![
         OsString::from("repair"),

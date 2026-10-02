@@ -1,3 +1,6 @@
+//! Human-readable formatting helpers for CLI and GUI output (byte sizes, usage bars).
+/// Renders a 10-cell text bar (`[####------]`) for a usage percentage;
+/// `None` (unknown) renders as `[??????????]`. Used by the usage table.
 pub(crate) fn usage_bar(percent: Option<f64>) -> String {
     let Some(percent) = percent else {
         return "[??????????]".to_string();
@@ -6,10 +9,13 @@ pub(crate) fn usage_bar(percent: Option<f64>) -> String {
     format!("[{}{}]", "#".repeat(filled), "-".repeat(10 - filled))
 }
 
+/// Formats an optional byte count with [`format_bytes`]; `None` becomes `n/a`.
 pub(crate) fn format_optional_bytes(value: Option<u64>) -> String {
     value.map(format_bytes).unwrap_or_else(|| "n/a".to_string())
 }
 
+/// Formats a byte count with binary units (B, KiB … PiB); bytes are shown as
+/// an integer, larger units with two decimals. Used widely in CLI/GUI output.
 pub(crate) fn format_bytes(bytes: u64) -> String {
     const UNITS: [&str; 6] = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
     let mut value = bytes as f64;

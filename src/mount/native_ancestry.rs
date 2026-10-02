@@ -7,6 +7,8 @@ use super::namespace::Intent;
 use super::virtual_drive::{Revision, VirtualDrive};
 use crate::prelude::*;
 
+/// Which revision a native-frontend edit descends from; chosen by
+/// `fs_core` from what the editor read and applied by `apply_ancestry`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Ancestry {
     /// Continues this workspace's pending or already committed intent.
@@ -85,6 +87,8 @@ impl VirtualDrive {
         Ok(Ancestry::Default)
     }
 
+    /// Rewrites a fresh `intent`'s `depends_on`, `parents` and `event_path` to
+    /// follow `ancestry`; unknown ids leave the drive's default ancestry in place.
     pub(super) fn apply_ancestry(&self, intent: &mut Intent, ancestry: &Ancestry) -> Result<()> {
         let s = self
             .state

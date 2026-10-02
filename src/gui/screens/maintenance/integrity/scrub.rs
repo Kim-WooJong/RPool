@@ -1,3 +1,6 @@
+//! Scrub card of Maintenance › Integrity: quick (existence and size) or full
+//! (BLAKE3) check of every shard with `rpool scrub`.
+
 use super::state::IntegrityForm;
 use crate::gui::i18n::{tr, trf};
 use crate::gui::task::TaskRunner;
@@ -6,6 +9,8 @@ use crate::presentation::format_bytes;
 use eframe::egui;
 use std::ffi::OsString;
 
+/// Draws the mode choice, the target line (from the inventory entry when an
+/// archive was picked) and Run scrub. Called by `integrity::show`.
 pub(crate) fn show(
     ui: &mut egui::Ui,
     form: &mut IntegrityForm,
@@ -67,6 +72,8 @@ pub(crate) fn show(
     });
 }
 
+/// Starts `rpool scrub <manifest> --workers N --retries N [--quick]` as the
+/// "Scrub" task. Errors without a manifest.
 fn start(
     form: &IntegrityForm,
     task: &mut TaskRunner,

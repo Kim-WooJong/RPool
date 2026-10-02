@@ -2,15 +2,24 @@
 
 use super::*;
 
+/// Running loopback WebDAV server of a virtual drive. rclone mounts it as `:webdav:`;
+/// started by `virtual_drive::run`, stopped (and joined) on drop.
 pub(crate) struct Server {
+    /// Loopback listen address (stable per workspace, see [`endpoint`]).
     pub address: std::net::SocketAddr,
+    /// Bearer token every request must present.
     pub token: String,
+    /// Tells the accept loop to stop.
     pub(super) stop: Arc<AtomicBool>,
+    /// Server thread running the tokio runtime; joined on drop.
     pub(super) thread: Option<std::thread::JoinHandle<()>>,
+    /// Write counters, summarized on drop.
     pub(super) write_stats: Arc<WriteStats>,
 }
 
 impl Server {
+    /// Binds the saved endpoint and serves the drive on a 2-thread tokio runtime with up to
+    /// 32 concurrent connections; unauthorized requests get 401.
     pub(crate) fn start(drive: Arc<VirtualDrive>) -> Result<Self> {
         crate::mount::adapter::preflight_virtual(&drive.root)?;
         let (listener, token) = endpoint(&drive.root)?;
@@ -136,6 +145,8 @@ impl Drop for Server {
     }
 }
 
+/// Loopback listener and token from `dav-identity.json`, created on first use. The port and
+/// token are reused so a restarted mount reconnects to the same URL; an occupied port is an error.
 pub(super) fn endpoint(root: &Path) -> Result<(std::net::TcpListener, String)> {
     #[derive(Serialize, Deserialize)]
     struct Identity {

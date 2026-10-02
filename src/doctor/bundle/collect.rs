@@ -17,6 +17,7 @@ pub(crate) const OPERATION_HISTORY_BYTES: u64 = 256 * 1024;
 pub(crate) const TOTAL_LOG_BYTES: u64 = 32 * 1024 * 1024;
 /// Workspaces and registry entries looked at.
 const MAX_WORKSPACES: usize = 16;
+/// Mount registry files (`<config>/mounts/*.json`) read at most.
 const MAX_REGISTRY_ENTRIES: usize = 64;
 /// Small JSON configuration files larger than this are not RPool's.
 const MAX_CONFIG_BYTES: u64 = 8 * 1024 * 1024;
@@ -30,6 +31,10 @@ const CONFIG_FILES: &[&str] = &[
     "integrity.json",
 ];
 
+/// Gather every bundle file for `sources`: build info, rclone facts, the
+/// doctor report, RPool config files, operation history tail, mount registry
+/// and per-workspace logs/network history, all redacted and within the log
+/// budget. Called by `bundle::write_bundle`.
 pub(crate) fn collect(sources: &Sources) -> Collected {
     let mut out = Collected::default();
     out.entries.push(Entry::new(
@@ -67,6 +72,7 @@ pub(crate) fn collect(sources: &Sources) -> Collected {
     out
 }
 
+/// Text for `rpool-build.txt`: version, debug/release, OS/arch, enabled features.
 fn build_info(now_unix: u64) -> String {
     let features: Vec<&str> = [("winfsp", cfg!(feature = "winfsp"))]
         .into_iter()
@@ -92,6 +98,8 @@ fn build_info(now_unix: u64) -> String {
     )
 }
 
+/// Add `rclone version` and `rclone config redacted` output, or record why
+/// they were skipped (`--local-only` or an rclone error).
 fn collect_rclone(sources: &Sources, out: &mut Collected) {
     let Some(rclone) = sources.rclone else {
         out.skipped
@@ -123,6 +131,8 @@ fn collect_rclone(sources: &Sources, out: &mut Collected) {
     }
 }
 
+/// Read a regular file of at most `MAX_CONFIG_BYTES`; `Ok(None)` when it is
+/// missing or not a file, an error when it is larger.
 fn read_bounded(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     let file = match std::fs::File::open(path) {
         Ok(file) => file,
@@ -140,6 +150,7 @@ fn read_bounded(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
     Ok(Some(bytes))
 }
 
+/// Add a JSON config file with secret fields removed, or a skip reason.
 fn add_json_file(out: &mut Collected, path: &Path, name: &str) {
     match read_bounded(path) {
         Ok(Some(bytes)) => out.entries.push(Entry::new(
@@ -272,6 +283,8 @@ fn workspaces(config_dir: &Path, registry: &[String]) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Add one workspace's files under `workspaces/<index>/`: its path, current and
+/// previous mount log tails, `net-status.json` and the newest network history tail.
 fn collect_workspace(out: &mut Collected, index: usize, workspace: &Path, budget: &mut u64) {
     let prefix = format!("workspaces/{index}");
     let meta = crate::monitor::files::metadata_dir(workspace);

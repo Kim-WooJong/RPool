@@ -1,8 +1,12 @@
+//! `rpool import`: thin CLI wrapper around `config_sync::import_package`.
 use crate::cli::ImportArgs;
 use crate::config_sync::{PackageCryptOutcome, PackageImportOutcome};
 use anyhow::Result;
 use std::path::Path;
 
+/// Validates and (unless `--dry-run`) applies a portable artifact tree, then
+/// prints the portable config path and the crypt-secret restore outcome.
+/// Called by `application::dispatch` for `rpool import`.
 pub(crate) fn run_package(rclone: &str, args: &ImportArgs) -> Result<()> {
     let outcome: PackageImportOutcome = crate::config_sync::import_package(
         &args.artifact_root,

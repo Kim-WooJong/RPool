@@ -19,6 +19,9 @@ fn finish(engine: &Engine, report: &super::model::SpeedTestReport, json: bool) -
     Ok(())
 }
 
+/// `rpool pool speed-test <name>`: tests the pool's remotes with the pool's
+/// workers, write path (native crypt or not) and a tuning shard no larger than
+/// the pool's shard size, then prints the report. Called by `application`.
 pub(crate) fn run_pool(rclone: &str, name: &str, size: SpeedTestSizeArgs) -> Result<()> {
     let store = crate::pool::load_pool_store()?;
     let pool = store
@@ -48,6 +51,9 @@ pub(crate) fn run_pool(rclone: &str, name: &str, size: SpeedTestSizeArgs) -> Res
     finish(&engine, &report, size.json)
 }
 
+/// `rpool provider speed-test --remote …`: tests the given remotes without a
+/// pool (rclone crypt writes, default parallelism, no pool estimate).
+/// Every remote must have a non-empty name. Called by `application`.
 pub(crate) fn run_remotes(
     rclone: &str,
     remotes: Vec<String>,

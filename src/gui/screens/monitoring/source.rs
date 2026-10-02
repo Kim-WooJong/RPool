@@ -4,9 +4,14 @@
 use crate::monitor::model::{HistoryPoint, MountEntry, NetStatus};
 use std::path::Path;
 
+/// Data access of the Monitoring page, so tests and snapshots can replace the
+/// real mount registry. Held as `MonitoringState::source`.
 pub(crate) trait MonitorSource: Send + Sync {
+    /// Mounts currently running on this PC.
     fn active_mounts(&self) -> Vec<MountEntry>;
+    /// The latest live status of a mount, if one can be read.
     fn read_status(&self, entry: &MountEntry) -> Option<NetStatus>;
+    /// Per-minute traffic points of the mount `workspace` from `since_unix` on.
     fn load_history(&self, workspace: &Path, since_unix: u64) -> Vec<HistoryPoint>;
 }
 
@@ -30,6 +35,7 @@ impl MonitorSource for LiveSource {
 #[cfg(any(test, debug_assertions))]
 #[derive(Default)]
 pub(crate) struct FixedSource {
+    /// Each mount with its status (if any) and history points.
     pub mounts: Vec<(MountEntry, Option<NetStatus>, Vec<HistoryPoint>)>,
 }
 

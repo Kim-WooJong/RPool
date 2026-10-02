@@ -7,6 +7,8 @@ use crate::models::QuotaReport;
 /// Name, backend type, (total, used) bytes when reported, encrypted.
 type Account = (&'static str, &'static str, Option<(u64, u64)>, bool);
 
+/// Fills `state` with seven sample providers (usage, crypts, limits) for
+/// tests, layout tests and debug snapshots.
 pub(crate) fn providers(state: &mut GuiState) {
     const GIB: u64 = 1 << 30;
     let accounts: [Account; 7] = [

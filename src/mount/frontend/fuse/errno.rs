@@ -2,6 +2,7 @@
 use crate::mount::fs_core::FsError;
 use fuser::Errno;
 
+/// POSIX errno for a core error; I/O errors are logged and become `EIO`.
 pub(super) fn errno(error: FsError) -> Errno {
     match error {
         FsError::NotFound => Errno::ENOENT,

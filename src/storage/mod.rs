@@ -1,6 +1,13 @@
+//! Storage layer: backends (rclone, native crypt), typed errors and
+//! capabilities, per-account limits/admin, readers/writers and upload sessions.
+//!
+//! Higher layers (archive, mount, pool) go through `reader`/`writer`/`traits`
+//! rather than calling rclone directly.
+
 pub(crate) mod account;
 pub(crate) mod admin;
 pub(crate) mod capabilities;
+/// Single data-shard upload helper (re-exported below).
 mod data_upload;
 pub(crate) mod error;
 // Synthetic contract backend; not a production archive write destination.

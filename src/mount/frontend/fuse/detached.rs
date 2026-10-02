@@ -7,12 +7,16 @@
 use crate::prelude::*;
 use std::sync::Condvar;
 
+/// Most seals run on worker threads at once; further jobs run inline.
 const LIMIT: usize = 16;
 
+/// Boxed seal job.
 type Job = Box<dyn FnOnce() + Send>;
 
 #[derive(Default)]
+/// Bounded runner of detached seal jobs, owned by `RpoolFs`.
 pub(super) struct Detached {
+    /// Number of running jobs and a condvar signalled when one finishes.
     running: Arc<(Mutex<usize>, Condvar)>,
 }
 
@@ -28,6 +32,8 @@ impl Drop for Running {
 }
 
 impl Detached {
+    /// Runs `job` on a new `rpool-fuse-seal` thread, or inline when `LIMIT` jobs already run
+    /// or the thread cannot be spawned.
     pub(super) fn run(&self, job: impl FnOnce() + Send + 'static) {
         {
             let mut count = self.running.0.lock().unwrap_or_else(|p| p.into_inner());

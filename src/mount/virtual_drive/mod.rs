@@ -1,3 +1,9 @@
+//! The mounted pool-sync drive (`VirtualDrive`): workspace state, the
+//! namespace, clean shard cache, spool and the wakers of its background
+//! uploader and publisher. Submodules implement opening, reads, writes,
+//! renames, upload queue/rounds and sync; frontends (`dav`, `fs_core`) call
+//! into it. Entry point for `rpool mount`: [`run`].
+
 use super::capacity::CapacityStatus;
 use super::namespace::{durable_json, random_id, valid_path, Intent, Namespace};
 use super::shard_cache::ShardCache;
@@ -38,6 +44,7 @@ pub(crate) use upload_wake::UploadControl;
 #[allow(unused_imports, reason = "API for the frontends that adopt the core")]
 pub(crate) use visible::VisibleView;
 
+/// Checks a metadata epoch is 64 lowercase hex digits.
 fn validate_workspace_epoch(epoch: &str) -> Result<()> {
     if epoch.len() != 64
         || !epoch
@@ -64,25 +71,37 @@ pub(crate) fn drive_metadata_roots(
     }
     Ok(roots)
 }
+/// A file revision a read is served from (pinned per path while open).
 #[derive(Clone, Debug)]
 pub(crate) enum Revision {
+    /// A committed revision stored in the pool.
     Cloud {
+        /// Namespace event id.
         id: String,
+        /// Content (manifest) to read through the shard cache.
         content: Content,
     },
+    /// A local spool image not yet committed (or committed but kept until clean).
     Local {
+        /// Intent id.
         id: String,
+        /// Spool image file.
         path: PathBuf,
+        /// Image size in bytes.
         size: u64,
+        /// Keeps the spool image from committed-spool cleanup while held
+        /// (see `local_lease`).
         _lease: Arc<()>,
     },
 }
 impl Revision {
+    /// Event id (cloud) or intent id (local).
     pub fn id(&self) -> &str {
         match self {
             Self::Cloud { id, .. } | Self::Local { id, .. } => id,
         }
     }
+    /// Revision size in bytes.
     pub fn size(&self) -> u64 {
         match self {
             Self::Cloud { content, .. } => content.size,
@@ -90,18 +109,31 @@ impl Revision {
         }
     }
 }
+/// One open drive workspace, shared (`Arc`) by the frontend and the
+/// background uploader, publisher and maintenance threads.
 pub(crate) struct VirtualDrive {
+    /// Workspace directory (namespace, spool, cache, `virtual.json`).
     pub root: PathBuf,
     /// The namespace; every mutable access invalidates the visible cache.
     pub state: StateLock,
+    /// Pool definition the drive uses (placement, workers, native crypt...).
     pub policy: PoolDefinition,
+    /// Pool name.
     pub pool: String,
+    /// rclone binary.
     pub rclone: String,
+    /// Clean, verified shard cache for reads.
     pub cache: ShardCache,
+    /// Last capacity snapshot (`None` until measured or after expiry).
     pub capacity: Mutex<Option<CapacityStatus>>,
+    /// Serializes pull/sync rounds and metadata compaction.
     pub sync_gate: Mutex<()>,
+    /// Revision currently served per open path, kept until released.
     pub pins: Mutex<BTreeMap<String, Revision>>,
+    /// Weak leases of local spool images in use (intent id -> lease); a live
+    /// lease blocks cleanup of that image.
     pub local_leases: Mutex<BTreeMap<String, std::sync::Weak<()>>>,
+    /// Spool byte budget (`--spool-gib`).
     pub spool_limit: u64,
     /// Serializes spool growth; holds the maintained spool byte count.
     pub spool_writes: Mutex<super::spool::SpoolMeter>,
@@ -122,6 +154,7 @@ pub(crate) struct VirtualDrive {
     /// Set while the mount's publisher thread runs: upload passes then only
     /// wake it instead of publishing inline (new uploads never wait for it).
     pub publisher_running: std::sync::atomic::AtomicBool,
+    /// Exclusive workspace lock file (`virtual.lock`), held while open.
     _lock: File,
 }
 

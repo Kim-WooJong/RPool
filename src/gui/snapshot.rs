@@ -7,6 +7,7 @@ use super::state::{DriveTab, FilesSection, GuiState, MaintenanceSection, Page, S
 use eframe::egui;
 use std::path::PathBuf;
 
+/// Window sizes every page is captured at (name used in the file name).
 const SIZES: [(&str, [f32; 2]); 3] = [
     ("wide", [1440.0, 900.0]),
     ("medium", [1024.0, 720.0]),
@@ -15,7 +16,9 @@ const SIZES: [(&str, [f32; 2]); 3] = [
 /// Frames to wait after a change so layout and fonts settle.
 const SETTLE: u32 = 12;
 
+/// Puts the GUI state on one page or tab.
 type Setter = fn(&mut GuiState);
+/// Pages and tabs captured, in order, with the setter that shows each.
 const PAGES: &[(&str, Setter)] = &[
     ("overview", |s| s.page = Page::Dashboard),
     ("drive", |s| {
@@ -142,14 +145,20 @@ fn history(s: &mut GuiState, fixture: Fixture) {
     }
 }
 
+/// Progress of a snapshot run; created by `gui::app` when `RPOOL_GUI_SNAPSHOTS` is set.
 pub(crate) struct Snapshots {
+    /// Output folder of the `.ppm` files.
     dir: PathBuf,
+    /// Index into sizes × pages; past the end the window closes.
     step: usize,
+    /// Frames left before the next screenshot is requested.
     wait: u32,
+    /// A screenshot was requested and has not arrived yet.
     requested: bool,
 }
 
 impl Snapshots {
+    /// Starts a run when `RPOOL_GUI_SNAPSHOTS` names a folder (created if needed).
     pub(crate) fn from_env() -> Option<Self> {
         let dir = PathBuf::from(std::env::var_os("RPOOL_GUI_SNAPSHOTS")?);
         std::fs::create_dir_all(&dir).ok()?;
@@ -162,6 +171,7 @@ impl Snapshots {
         })
     }
 
+    /// Size name, window size, page name and setter of the current step.
     fn current(&self) -> Option<(&'static str, [f32; 2], &'static str, Setter)> {
         let (size, dims) = SIZES.get(self.step / PAGES.len())?;
         let (page, set) = PAGES[self.step % PAGES.len()];
@@ -257,6 +267,7 @@ impl Snapshots {
     }
 }
 
+/// Writes an egui image as binary PPM (P6).
 fn write_ppm(path: &std::path::Path, image: &egui::ColorImage) -> std::io::Result<()> {
     let [w, h] = image.size;
     let mut out = format!("P6\n{w} {h}\n255\n").into_bytes();

@@ -1,7 +1,12 @@
+//! Search box and coding filter above the Library › Uploaded archives table.
+
 use super::state::{CodingFilter, InventoryForm};
 use crate::gui::i18n::tr;
 use eframe::egui;
 
+/// Draws the filter bar: free-text search (name, archive ID, manifest, pool,
+/// remotes), the Reed-Solomon / plain coding filter and a Clear button.
+/// Called by `inventory::archives` above the table.
 pub(crate) fn show(ui: &mut egui::Ui, form: &mut InventoryForm) {
     ui.horizontal_wrapped(|ui| {
         ui.add(

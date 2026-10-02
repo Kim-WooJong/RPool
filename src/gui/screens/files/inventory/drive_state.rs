@@ -8,32 +8,46 @@ use crate::pool::browse::PoolBrowse;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::mpsc::{Receiver, TryRecvError};
 
+/// Outcome of one background `pool::browse` listing; errors as display text.
 pub(crate) type BrowseResult = Result<PoolBrowse, String>;
 
 /// One file or folder of the drive tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DriveNode {
+    /// Normalized drive path (`Docs/a.txt`, no leading `/`).
     pub(crate) path: String,
+    /// Last path segment.
     pub(crate) name: String,
+    /// Folder (explicit or implied by a file path).
     pub(crate) is_dir: bool,
     /// File size, or the total size of every file below a folder.
     pub(crate) size: u64,
     /// Files below a folder (recursively); 0 for files.
     pub(crate) files: usize,
+    /// Child node ids, sorted folders first, then by name.
     pub(crate) children: Vec<usize>,
+    /// Parent folder id (`None` at the top level).
     parent: Option<usize>,
+    /// Lowercased path, for case-insensitive search.
     lower: String,
 }
 
 /// Folder tree of one pool's drive.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct DriveTree {
+    /// Listing mode from `PoolBrowse`: `v6`, or `none` when the pool has no drive yet.
     pub(crate) mode: String,
+    /// Notes from the listing (conflict copies and similar).
     pub(crate) notes: Vec<String>,
+    /// Every node; ids are indices into this vector.
     pub(crate) nodes: Vec<DriveNode>,
+    /// Top-level node ids, sorted.
     pub(crate) roots: Vec<usize>,
+    /// Number of files.
     pub(crate) files: usize,
+    /// Number of folders.
     pub(crate) dirs: usize,
+    /// Total bytes of all files.
     pub(crate) bytes: u64,
     /// Node id by normalized path, for jumping to a folder by its path.
     index: HashMap<String, usize>,
@@ -96,6 +110,7 @@ impl DriveTree {
         }
     }
 
+    /// Id of the folder at `path`, creating it and its parents when missing.
     fn ensure_dir(&mut self, index: &mut HashMap<String, usize>, path: &str) -> usize {
         if let Some(&existing) = index.get(path) {
             self.nodes[existing].is_dir = true;
@@ -105,6 +120,7 @@ impl DriveTree {
         self.push(index, path.to_string(), true, 0, parent)
     }
 
+    /// Append a node, index it and link it to its parent (or the roots).
     fn push(
         &mut self,
         index: &mut HashMap<String, usize>,
@@ -133,6 +149,7 @@ impl DriveTree {
         id
     }
 
+    /// Count files/folders, roll file sizes up into their folders and sort children.
     fn finish(&mut self) {
         for id in 0..self.nodes.len() {
             if self.nodes[id].is_dir {
@@ -188,6 +205,7 @@ impl DriveNode {
     }
 }
 
+/// `/a//./b/` -> `a/b`.
 fn normalize(path: &str) -> String {
     path.split('/')
         .filter(|part| !part.is_empty() && *part != ".")
@@ -195,22 +213,31 @@ fn normalize(path: &str) -> String {
         .join("/")
 }
 
+/// Parent path of `path` (`None` at the top level).
 fn parent_of(path: &str) -> Option<&str> {
     path.rsplit_once('/').map(|(parent, _)| parent)
 }
 
 #[derive(Debug, Clone)]
+/// Listing state of one pool.
 pub(crate) enum DriveLoad {
+    /// Listing loaded and built into a tree.
     Ready(DriveTree),
+    /// Listing failed; the error text is shown with a retry.
     Failed(String),
 }
 
 /// [`DriveForm::parts`].
 pub(crate) struct DriveParts<'a> {
+    /// Selected pool.
     pub(crate) pool: &'a str,
+    /// Its listing, if any arrived yet.
     pub(crate) load: Option<&'a DriveLoad>,
+    /// Explorer state (folder, sort, selection).
     pub(crate) explorer: &'a mut ExplorerState,
+    /// Search text.
     pub(crate) query: &'a mut String,
+    /// Trash/versions/rollback views.
     pub(crate) history: &'a mut HistoryForm,
 }
 
@@ -229,8 +256,11 @@ pub(crate) enum Source {
 /// refresh failed (the previous listing is then kept).
 #[derive(Debug, Clone)]
 struct Freshness {
+    /// When the listing arrived.
     at: std::time::Instant,
+    /// Where it came from.
     source: Source,
+    /// Error of the latest failed refresh, if any.
     error: Option<String>,
 }
 
@@ -238,21 +268,27 @@ struct Freshness {
 enum Message {
     /// The cached listing, before the cloud is read.
     Cached(PoolBrowse, u64),
+    /// Result of reading the cloud (or the mounted workspace).
     Done(BrowseResult),
 }
 
 #[derive(Debug, Default)]
+/// Library › Drive files form state: the selected pool, its listings
+/// (one background listing at a time) and the explorer/history views.
 pub(crate) struct DriveForm {
     /// The pool being browsed; empty until one is picked (no "All pools").
     pub(crate) pool: String,
+    /// Search text of the explorer.
     pub(crate) query: String,
     /// Current folder, history, sort, view and selection of the explorer.
     pub(crate) explorer: ExplorerState,
     /// Trash, versions and rollback (per pool, in memory).
     pub(crate) history: HistoryForm,
+    /// Latest listing per pool.
     results: BTreeMap<String, DriveLoad>,
     /// Listing runs off the UI thread: reading cloud metadata takes seconds.
     pending: Option<(String, Receiver<Message>)>,
+    /// Freshness of each pool's shown listing.
     loaded: BTreeMap<String, Freshness>,
 }
 
@@ -279,6 +315,7 @@ impl DriveForm {
         self.history.sync(pools, &self.pool);
     }
 
+    /// Switch to `pool`, resetting search and explorer state when it changes.
     pub(crate) fn select(&mut self, pool: String) {
         if pool != self.pool {
             self.pool = pool;
@@ -287,6 +324,7 @@ impl DriveForm {
         }
     }
 
+    /// Listing of the selected pool, if one has arrived.
     pub(crate) fn current(&self) -> Option<&DriveLoad> {
         self.results.get(&self.pool)
     }
@@ -303,12 +341,14 @@ impl DriveForm {
         }
     }
 
+    /// A listing of the selected pool is running in the background.
     pub(crate) fn is_loading(&self) -> bool {
         self.pending
             .as_ref()
             .is_some_and(|(pool, _)| *pool == self.pool)
     }
 
+    /// The selected pool has no listing yet and none is running.
     pub(crate) fn needs_load(&self) -> bool {
         !self.pool.is_empty() && !self.results.contains_key(&self.pool) && !self.is_loading()
     }

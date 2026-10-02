@@ -6,6 +6,9 @@ use super::nav::Nav;
 use crate::gui::i18n::tr;
 use eframe::egui;
 
+/// Draws the navigation bar: Back / Forward / Up buttons (disabled when not
+/// possible), the breadcrumb of `pool` and the current folder, and Roll back….
+/// Returns the clicked action. Called by `explorer::show` above the list.
 pub(crate) fn show(ui: &mut egui::Ui, pool: &str, nav: &Nav) -> Option<Action> {
     let mut action = None;
     ui.horizontal_wrapped(|ui| {

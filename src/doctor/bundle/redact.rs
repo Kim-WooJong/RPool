@@ -1,11 +1,13 @@
 //! RPool's own redaction pass over everything put in a diagnostics bundle.
 //! It runs after rclone's `config redacted` and on every other file, and
 //! errs on the side of removing too much. The rules are listed in
-//! [`RULES`] and copied into the bundle's manifest.
+//! `RULES` and copied into the bundle's manifest.
 use serde_json::Value;
 
+/// Replacement text for redacted values.
 pub(crate) const REDACTED: &str = "<redacted>";
 
+/// Human-readable redaction rules, copied into the bundle manifest.
 pub(crate) const RULES: &[&str] = &[
     "values of keys/flags whose name contains: pass, token, secret, key, credential, cookie, salt, private, session, bearer, signature, authorization (INI `k = v`, `k: v`, `k=v`, JSON fields, `--flag value`)",
     "user:password@ in URLs",
@@ -16,6 +18,7 @@ pub(crate) const RULES: &[&str] = &[
     "e-mail addresses",
 ];
 
+/// Substrings that mark a field/flag name as secret (matched case-insensitively).
 const SECRET_KEY_PARTS: &[&str] = &[
     "pass",
     "token",
@@ -103,6 +106,8 @@ pub(crate) fn redact_json_lines(text: &str) -> String {
     out
 }
 
+/// Redact a parsed JSON value in place: non-empty, non-boolean values of
+/// secret-named fields become `<redacted>`; other strings get `redact_text`.
 pub(crate) fn redact_json(value: &mut Value) {
     match value {
         Value::Object(map) => {
@@ -178,6 +183,7 @@ fn redact_after_scheme_word(line: &str) -> String {
     out
 }
 
+/// Characters allowed in a key/flag name scanned by `redact_key_values`.
 fn is_name_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.'
 }
@@ -267,6 +273,7 @@ fn redact_key_values(line: &str) -> String {
     out
 }
 
+/// Characters that make up a token run (base64/base64url plus `=`).
 fn is_token_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '+' | '=')
 }
@@ -282,6 +289,7 @@ fn looks_like_secret(run: &str) -> bool {
         && run.chars().any(|c| c.is_ascii_digit())
 }
 
+/// Replace secret-shaped token runs (see `looks_like_secret`) with `<redacted>`.
 fn redact_token_runs(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
     let mut run = String::new();
@@ -305,6 +313,7 @@ fn redact_token_runs(line: &str) -> String {
     out
 }
 
+/// Replace `local@domain.tld` e-mail addresses with `<email>`.
 fn redact_emails(line: &str) -> String {
     let chars: Vec<char> = line.chars().collect();
     let local = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '%' | '+' | '-');

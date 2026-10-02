@@ -1,9 +1,14 @@
+//! Shard placement policy ([`Placement`]): how `put`, the drive and
+//! migrations spread the shards of a coding group over a pool's remotes.
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, ValueEnum, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+/// Saved in pool definitions (kebab-case) and chosen on the CLI
+/// (`--placement`) or in the GUI pool/settings screens.
 pub(crate) enum Placement {
+    /// Cycle through the remotes in order.
     RoundRobin,
     /// Highest free ratio first, at most M shards per account per group.
     FreeRatio,
@@ -16,6 +21,7 @@ pub(crate) enum Placement {
 }
 
 impl Placement {
+    /// The CLI/JSON spelling (`round-robin`, ...), e.g. for generated commands.
     pub(crate) fn cli_value(self) -> &'static str {
         match self {
             Self::RoundRobin => "round-robin",
@@ -26,6 +32,7 @@ impl Placement {
         }
     }
 
+    /// English GUI label (translated with `tr` by the caller).
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::RoundRobin => "Round robin",
@@ -36,6 +43,8 @@ impl Placement {
         }
     }
 
+    /// Warning/explanation shown under the placement picker in the GUI;
+    /// `None` for round robin.
     pub(crate) fn protection_note(self) -> Option<&'static str> {
         match self {
             Self::Resilient => Some("Resilient: each declared outage group holds at most M shards per coding group. Independent outage groups are required."),

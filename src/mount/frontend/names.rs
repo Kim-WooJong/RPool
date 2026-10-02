@@ -3,6 +3,7 @@
 //! of case, so the namespace never gets names that differ only in case.
 use super::super::fs_core::FsCore;
 
+/// `parent/name`, or `name` at the root.
 pub(super) fn join(parent: &str, name: &str) -> String {
     if parent.is_empty() {
         name.into()

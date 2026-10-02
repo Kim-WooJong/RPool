@@ -26,23 +26,32 @@ const POLL: Duration = Duration::from_millis(200);
 /// Uploads one pending intent: `Some(content)` for a write, `None` for a deletion.
 pub(crate) type UploadFn<'a> = dyn Fn(&Intent) -> Result<Option<Content>> + Sync + 'a;
 
+/// Outcome of one upload round.
 #[derive(Debug, Default)]
 pub(crate) struct RoundReport {
+    /// Intents uploaded and committed.
     pub committed: usize,
+    /// Upload attempts that failed this round.
     pub failed: usize,
     /// `path: error` of the first failure of this round.
     pub first_error: Option<String>,
 }
 
+/// Round state shared by the worker threads (under one mutex).
 struct Shared<'a> {
+    /// Caller's retry book (backoff per intent).
     book: &'a mut RetryBook,
+    /// Intent ids currently uploading.
     running: BTreeSet<String>,
     /// Failed in this round: not retried before the next round.
     tried: BTreeSet<String>,
+    /// Running totals for the report.
     report: RoundReport,
 }
 
 impl VirtualDrive {
+    /// Runs one upload round with `UploadControl::files` worker threads sharing
+    /// one transfer budget, until nothing more may start; returns the totals.
     pub(super) fn upload_round(
         &self,
         book: &mut RetryBook,
@@ -112,6 +121,8 @@ impl VirtualDrive {
         }
     }
 
+    /// Worker loop: claims intents, uploads and commits each, wakes the
+    /// publisher, and records success or failure in the retry book.
     fn round_worker(
         &self,
         shared: &Mutex<Shared<'_>>,

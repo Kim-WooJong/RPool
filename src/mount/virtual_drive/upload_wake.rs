@@ -20,10 +20,14 @@ pub(crate) fn auto_upload_files(workers: usize, shards_per_group: usize) -> usiz
     (workers.div_ceil(shards_per_group.max(1)) * 2).clamp(2, MAX_UPLOAD_FILES)
 }
 
+/// Wake-up channel plus the concurrent-file setting; one instance drives the
+/// uploader (`VirtualDrive::upload`), another the publisher (`publish`).
 pub(crate) struct UploadControl {
     /// Bumped by every notification; waiters compare against what they saw.
     generation: Mutex<u64>,
+    /// Signalled on every notification.
     changed: Condvar,
+    /// Concurrent file uploads per round (see [`Self::files`]).
     files: AtomicUsize,
 }
 impl Default for UploadControl {
@@ -42,6 +46,8 @@ impl UploadControl {
         *generation = generation.wrapping_add(1);
         self.changed.notify_all();
     }
+    /// Current notification count; read before a pass and passed to
+    /// [`Self::wait_after`].
     pub(crate) fn generation(&self) -> u64 {
         *self.generation.lock().unwrap_or_else(|p| p.into_inner())
     }
@@ -68,6 +74,7 @@ impl UploadControl {
             .load(Ordering::Relaxed)
             .clamp(1, MAX_UPLOAD_FILES)
     }
+    /// Sets the concurrent file uploads (clamped to `1..=MAX_UPLOAD_FILES`).
     pub(crate) fn set_files(&self, files: usize) {
         self.files
             .store(files.clamp(1, MAX_UPLOAD_FILES), Ordering::Relaxed);

@@ -4,9 +4,13 @@
 //! `fsync` are the local durability points; per-descriptor `flush` does not
 //! seal. Both reply from a worker thread (`detached`) after the seal, so one
 //! large file's seal never stalls the session's request loop.
+/// Off-loop seal replies.
 mod detached;
+/// Core error → errno mapping.
 mod errno;
+/// `fuser::Filesystem` implementation.
 mod filesystem;
+/// Inode table.
 mod inodes;
 #[cfg(target_os = "macos")]
 pub(crate) mod macfuse;
@@ -18,9 +22,12 @@ use crate::mount::fs_core::FsCore;
 use crate::prelude::*;
 use fuser::{BackgroundSession, Config, SessionACL};
 
+/// A running FUSE session; returned by [`mount`] as a `NativeMount`.
 pub(super) struct FuseMount {
+    /// fuser background session serving the mount.
     session: BackgroundSession,
     #[cfg(target_os = "macos")]
+    /// Mountpoint, needed to unmount through macFUSE.
     mountpoint: PathBuf,
 }
 impl FuseMount {
@@ -82,6 +89,8 @@ fn session(
 }
 
 #[cfg(target_os = "macos")]
+/// macOS: mounts through macFUSE and serves the descriptor on one session thread;
+/// unmounts again if the session cannot start.
 fn session(
     core: Arc<FsCore>,
     mountpoint: &Path,
@@ -114,6 +123,7 @@ fn session(
     }
 }
 
+/// Mounts the FUSE frontend at `mountpoint`. Called by `frontend::run`.
 pub(super) fn mount(
     core: Arc<FsCore>,
     mountpoint: &Path,

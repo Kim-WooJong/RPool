@@ -9,12 +9,16 @@
 /// Three-state capability. `Unknown` must never be treated as `Supported`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Capability {
+    /// The backend confirmed the operation works.
     Supported,
+    /// The backend confirmed the operation is not available.
     Unsupported,
+    /// Not confirmed either way; callers must treat it as unsupported.
     Unknown,
 }
 
 impl Capability {
+    /// True only for `Supported`; `Unknown` and `Unsupported` both return false.
     #[cfg_attr(
         not(test),
         expect(
@@ -52,12 +56,19 @@ pub(crate) enum ConsistencyScope {
 /// What a backend can do. The safe default is `all_unknown()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct BackendCapabilities {
+    /// Whole-object read.
     pub(crate) read: Capability,
+    /// Byte-range (offset/length) read.
     pub(crate) ranged_read: Capability,
+    /// Incremental read without buffering the whole object.
     pub(crate) streaming_read: Capability,
+    /// Create a new object.
     pub(crate) write: Capability,
+    /// Replace an existing object.
     pub(crate) overwrite: Capability,
+    /// Delete an object.
     pub(crate) delete: Capability,
+    /// List objects under a prefix.
     pub(crate) list: Capability,
     /// Same-backend native copy. Cross-backend copy is a transfer-service
     /// concern, not a backend primitive.
@@ -65,18 +76,25 @@ pub(crate) struct BackendCapabilities {
     /// Atomic rename. Implementations that cannot provide atomicity must report
     /// `Unsupported` rather than emulate with copy+delete.
     pub(crate) rename: Capability,
+    /// Create only if absent (create-if-not-exists).
     pub(crate) conditional_create: Capability,
     /// Real conditional update (CAS). NOT implied by `version_pinning`.
     pub(crate) conditional_update: Capability,
+    /// Delete only if the current version matches.
     pub(crate) conditional_delete: Capability,
+    /// Read or address a specific object version (ETag/version id).
     pub(crate) version_pinning: Capability,
     /// Atomic replace (visibility). Distinct from power-loss durability.
     pub(crate) atomic_replace: Capability,
     /// Durability after a write returns (power-loss). Distinct from atomicity.
     pub(crate) durable_after_write: Capability,
+    /// Strongest consistency the backend guarantees.
     pub(crate) consistency_scope: ConsistencyScope,
+    /// Largest single object in bytes; `None` = unknown.
     pub(crate) max_object_size: Option<u64>,
+    /// Smallest multipart part in bytes; `None` = unknown or not multipart.
     pub(crate) min_part_size: Option<u64>,
+    /// Largest multipart part in bytes; `None` = unknown or not multipart.
     pub(crate) max_part_size: Option<u64>,
 }
 

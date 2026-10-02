@@ -1,15 +1,20 @@
+//! Atomic saving of the local inventory index.
+
 use crate::config::inventory_path;
 use crate::models::InventoryStore;
 use anyhow::Result;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+/// Writes the store to the default inventory path and returns that path.
 pub(crate) fn save_inventory(store: &InventoryStore) -> Result<PathBuf> {
     let path = inventory_path()?;
     save_inventory_at(&path, store)?;
     Ok(path)
 }
 
+/// Writes via a synced temp file that replaces `path`, so a crash leaves the
+/// old or the new index, never a truncated one.
 fn save_inventory_at(path: &Path, store: &InventoryStore) -> Result<()> {
     let parent = path
         .parent()

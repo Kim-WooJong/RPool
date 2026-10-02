@@ -6,7 +6,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "action")]
+/// One planned drive change, produced by trash/versions/rollback planning
+/// and carried out by `apply::apply`.
 pub(crate) enum Action {
+    /// Write an old revision's bytes as a new revision of `path`.
     Put {
         /// Namespace path written.
         path: String,
@@ -15,18 +18,22 @@ pub(crate) enum Action {
         /// Where those bytes were (trash restore), for reporting.
         from: Option<String>,
     },
+    /// Delete the file visible at `path` (it moves to the trash).
     Delete {
+        /// Namespace path deleted.
         path: String,
         /// Revision visible at `path` when planned (must still be current).
         rev: String,
     },
 }
 impl Action {
+    /// Namespace path the action changes.
     pub(crate) fn path(&self) -> &str {
         match self {
             Self::Put { path, .. } | Self::Delete { path, .. } => path,
         }
     }
+    /// Revision the action uses (`Put`) or expects to be current (`Delete`).
     pub(crate) fn rev(&self) -> &str {
         match self {
             Self::Put { rev, .. } | Self::Delete { rev, .. } => rev,

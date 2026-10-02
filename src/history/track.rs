@@ -1,3 +1,6 @@
+//! Mapping CLI commands to history records: [`describe_command`] before a
+//! command runs and [`finish_record`] after it, both called by `application`.
+
 use crate::cli::{
     Commands, InventoryCommands, ManifestCommands, PoolCommands, ProviderCommands,
     RemoteRootCommands,
@@ -6,14 +9,21 @@ use crate::history::redact_text;
 use crate::models::TaskRecord;
 use crate::utils::now_unix;
 
+/// A started command not yet written to the history.
 #[derive(Debug, Clone)]
 pub(crate) struct PendingTaskRecord {
+    /// 16-hex-digit id derived from operation, target, start time and pid.
     pub(crate) id: String,
+    /// Short operation name (e.g. `put`, `pool-reprocess`).
     pub(crate) operation: String,
+    /// Redacted target (path, manifest, pool…), at most 300 characters.
     pub(crate) target: Option<String>,
+    /// Start time, Unix seconds.
     pub(crate) started_unix: u64,
 }
 
+/// Describes a command for the history, or `None` for commands that are not
+/// recorded (GUI, history, config).
 pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> {
     let (operation, target) = match command {
         Commands::Gui | Commands::History(_) => return None,
@@ -153,6 +163,8 @@ pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> 
     })
 }
 
+/// Completes `pending` with the finish time, `success`/`failed` status and the
+/// redacted error message (at most 500 characters).
 pub(crate) fn finish_record(pending: PendingTaskRecord, result: &anyhow::Result<()>) -> TaskRecord {
     TaskRecord {
         id: pending.id,

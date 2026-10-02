@@ -14,11 +14,17 @@ use eframe::egui;
 /// What the buttons under the list asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Request {
+    /// A row action (or the matching button) on the selected entries.
     Row(RowAction),
+    /// "Delete expired": purge every expired entry (no dialog).
     PurgeExpired,
+    /// "Empty trash…": opens the confirmation.
     Empty,
 }
 
+/// Draws the trash of `pool`: notice, loading/error state, totals, the
+/// selected-entries toolbar and the list (filtered by `query`). Called through
+/// `history::trash` from the Library drive view while the trash is open.
 pub(crate) fn show(
     ui: &mut egui::Ui,
     history: &mut HistoryForm,
@@ -195,6 +201,8 @@ pub(crate) fn show(
     }
 }
 
+/// Carries out a request on the selected `ids`: starts restores and expired
+/// purges directly, opens a confirmation dialog for Restore to…, purge and empty.
 #[allow(clippy::too_many_arguments)]
 fn apply(
     history: &mut HistoryForm,

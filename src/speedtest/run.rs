@@ -12,10 +12,13 @@ use std::time::Duration;
 
 /// The pool under test.
 pub(crate) struct PoolTarget<'a> {
+    /// Pool name, shown in the report.
     pub name: &'a str,
+    /// Pool definition: shard counts and placement for the estimate.
     pub definition: &'a PoolDefinition,
 }
 
+/// 8 random bytes as hex; names the run's test folder on each remote.
 fn run_id() -> Result<String> {
     let mut id = [0u8; 8];
     getrandom::fill(&mut id).map_err(|e| anyhow!("random run id: {e}"))?;

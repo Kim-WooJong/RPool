@@ -1,3 +1,4 @@
+//! Summary pane of the overview page: reported capacity, health and file count.
 use crate::gui::i18n::{tr, trf};
 use crate::gui::screens::dashboard::health::pools_needing_attention;
 use crate::gui::screens::dashboard::DashboardData;
@@ -7,6 +8,7 @@ use crate::models::QuotaReport;
 use crate::presentation::format_bytes;
 use eframe::egui;
 
+/// Draw the capacity, health and files cards.
 pub(crate) fn show(
     ui: &mut egui::Ui,
     data: &DashboardData,
@@ -75,6 +77,8 @@ pub(crate) fn show(
     ui.separator();
 }
 
+/// Health card: Refreshing, Attention (any error or pool needing attention),
+/// Unknown (no reports) or Healthy, plus the number of reporting providers.
 fn health_card(
     ui: &mut egui::Ui,
     reports: &[QuotaReport],
@@ -111,6 +115,7 @@ fn health_card(
     });
 }
 
+/// A card with a label, a large value and an optional detail line.
 fn metric(ui: &mut egui::Ui, label: &str, value: String, detail: Option<String>) {
     theme::card(ui).show(ui, |ui| {
         ui.set_min_height(92.0);
@@ -123,6 +128,7 @@ fn metric(ui: &mut egui::Ui, label: &str, value: String, detail: Option<String>)
     });
 }
 
+/// Sum of used and total bytes over providers that reported both without error.
 fn aggregate_capacity(reports: &[QuotaReport]) -> (u64, u64) {
     reports
         .iter()

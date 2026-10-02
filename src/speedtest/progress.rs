@@ -28,20 +28,26 @@ const TICK_BYTES: Duration = Duration::from_millis(250);
 const TICK_TEXT: Duration = Duration::from_secs(2);
 /// Status line interval in a terminal.
 const TICK_TEXT_TERMINAL: Duration = Duration::from_secs(10);
+/// Bytes per MiB, for status lines.
 const MIB: f64 = 1024.0 * 1024.0;
 
 /// Remote position for status lines.
 #[derive(Clone, Copy)]
 pub(crate) struct Position<'a> {
+    /// Address of the remote under test.
     pub remote: &'a str,
+    /// 1-based position of the remote in this run.
     pub index: usize,
+    /// Number of remotes in this run.
     pub count: usize,
 }
 
 impl Position<'_> {
+    /// Prints `Testing <remote> (i/n): <phase>` on stderr.
     pub(crate) fn status(&self, phase: &str) {
         say(&status_line(self, phase));
     }
+    /// Prints the final `Tested <remote> (i/n): ok|failed: …` line on stderr.
     pub(crate) fn done(&self, error: Option<&str>) {
         say(&done_line(self, error));
     }
@@ -53,10 +59,12 @@ fn say(line: &str) {
     let _ = writeln!(std::io::stderr(), "{line}");
 }
 
+/// Formats a `Testing …` status line.
 pub(crate) fn status_line(at: &Position<'_>, phase: &str) -> String {
     format!("Testing {} ({}/{}): {phase}", at.remote, at.index, at.count)
 }
 
+/// Formats a `Tested …` result line.
 pub(crate) fn done_line(at: &Position<'_>, error: Option<&str>) -> String {
     let outcome = match error {
         None => "ok".to_owned(),
@@ -68,6 +76,7 @@ pub(crate) fn done_line(at: &Position<'_>, error: Option<&str>) -> String {
     )
 }
 
+/// Phase text of a transfer, e.g. `uploading 1/4 files, 6.0/16.0 MiB`.
 pub(crate) fn transfer_phase(
     verb: &str,
     files_done: usize,
@@ -84,7 +93,9 @@ pub(crate) fn transfer_phase(
 
 /// Live counters of one transfer phase of one remote.
 pub(crate) struct Transfer {
+    /// Bytes moved so far (uploaded or read back).
     pub moved: AtomicU64,
+    /// Files that finished successfully.
     pub files_done: AtomicUsize,
     /// Bytes already reported through the protocol.
     reported: AtomicU64,
@@ -95,6 +106,7 @@ pub(crate) struct Transfer {
 }
 
 impl Transfer {
+    /// Counters for a phase that reports its bytes through the progress protocol.
     pub(crate) fn new() -> Self {
         Self {
             moved: AtomicU64::new(0),
@@ -122,6 +134,7 @@ impl Transfer {
             crate::progress::advance(moved - before, moved - before);
         }
     }
+    /// Bytes already reported through the progress protocol.
     pub(crate) fn reported(&self) -> u64 {
         self.reported.load(Ordering::Relaxed)
     }

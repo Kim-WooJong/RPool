@@ -1,3 +1,6 @@
+//! `rpool export` implementation: writes the portable artifact tree with pools,
+//! remote roots, account limits and portable GUI settings, plus the age-encrypted
+//! crypt secret vault when crypt remotes exist. Entry point [`export_package`].
 use super::age_vault::AgeEncrypt;
 use super::artifact::ArtifactPaths;
 use super::crypt_secrets::extract_crypt_secrets;
@@ -13,13 +16,20 @@ use crate::utils::{now_unix, save_json_atomic};
 use anyhow::{bail, Result};
 use std::path::{Path, PathBuf};
 
+/// Result of [`export_package`], printed by `commands::config_sync::export`.
 pub(crate) struct PackageExportOutcome {
+    /// Canonical artifact root.
     pub(crate) artifact_root: PathBuf,
+    /// Written portable config file.
     pub(crate) portable_path: PathBuf,
+    /// Written encrypted vault; `None` when no crypt remotes exist.
     pub(crate) vault_path: Option<PathBuf>,
+    /// Number of exported crypt remotes.
     pub(crate) crypt_remotes: usize,
 }
 
+/// Builds and validates the portable config from the local stores and GUI
+/// settings, with the given crypt definitions and vault binding.
 fn build_bundle(
     crypt_remotes: Vec<PortableCryptRemote>,
     secret_vault: Option<PortableSecretVault>,

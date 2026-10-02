@@ -2,10 +2,16 @@
 
 use super::*;
 
+/// `StorageBackend` that maps object keys to addresses under an rclone remote
+/// root and performs I/O via rclone (daemon or subprocess).
 pub(crate) struct RcloneBackend {
+    /// Identifier reported by `id()`.
     pub(super) id: BackendId,
+    /// rclone binary/config/environment used for every call.
     pub(super) context: RcloneContext,
+    /// Remote root that keys are appended to (e.g. `remote:` or `remote:dir`); empty for legacy bindings.
     pub(super) root: String,
+    /// Raw legacy address bound to the single key `legacy-object`; `None` for normal backends.
     pub(super) legacy_object: Option<String>,
     /// Base remote of a native crypt backend: writes carry RPool ciphertext.
     pub(super) crypt_base: bool,
@@ -54,6 +60,8 @@ impl RcloneBackend {
             crypt_base: false,
         }
     }
+    /// Full rclone address for `key` (`root` + separator + key); for a legacy
+    /// binding only `legacy-object` resolves, anything else is `NotFound`.
     pub(super) fn address(&self, key: &ObjectKey) -> Result<String, StorageError> {
         if let Some(raw) = &self.legacy_object {
             return if key.as_str() == "legacy-object" {

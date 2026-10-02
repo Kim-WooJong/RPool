@@ -1,7 +1,10 @@
+//! Structural validation of manifests before they are used.
+
 use crate::erasure::validate_rs_counts;
 use crate::manifest::{coding_group_count, content_root_v1, content_root_v2, data_shards};
 use crate::prelude::*;
 
+/// Validates a version 1 or 2 manifest; other versions are rejected.
 pub(crate) fn validate_manifest(manifest: &Manifest) -> Result<()> {
     match manifest.version {
         1 => validate_manifest_v1(manifest),
@@ -10,6 +13,8 @@ pub(crate) fn validate_manifest(manifest: &Manifest) -> Result<()> {
     }
 }
 
+/// Version 1: contiguous indexes and offsets covering `original_size`, and a
+/// matching v1 content root.
 pub(crate) fn validate_manifest_v1(manifest: &Manifest) -> Result<()> {
     let mut expected_offset = 0u64;
     for (position, shard) in manifest.shards.iter().enumerate() {
@@ -36,6 +41,9 @@ pub(crate) fn validate_manifest_v1(manifest: &Manifest) -> Result<()> {
     Ok(())
 }
 
+/// Version 2: contiguous data shards covering `original_size`, consistent
+/// Reed-Solomon coding (counts, group/slot layout, full-size parity) and a
+/// matching v2 content root.
 pub(crate) fn validate_manifest_v2(manifest: &Manifest) -> Result<()> {
     for (position, shard) in manifest.shards.iter().enumerate() {
         if shard.index as usize != position {

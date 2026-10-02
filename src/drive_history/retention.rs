@@ -9,10 +9,14 @@ use super::graph::History;
 use super::model::{CleanupSettings, Retention};
 use crate::prelude::*;
 
+/// Seconds per day, for converting day settings to unix-time offsets.
 pub(crate) const DAY: u64 = 86_400;
+/// Upper bound for trash/version days (about 100 years).
 const MAX_DAYS: u32 = 36_500;
+/// Upper bound for `keep_versions`.
 const MAX_VERSIONS: u32 = 10_000;
 
+/// Reject retention values above `MAX_DAYS`/`MAX_VERSIONS` (0 means unlimited).
 pub(crate) fn validate(retention: &Retention) -> Result<()> {
     if retention.trash_days > MAX_DAYS || retention.version_days > MAX_DAYS {
         bail!("retention days must be between 0 and {MAX_DAYS} (0 = unlimited)");

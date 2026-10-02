@@ -1,5 +1,9 @@
 //! Automatic immutable metadata replication within the existing encrypted pool.
 //! No mutable shared catalog, coordinator, or destructive history collection.
+//!
+//! Entry points: `roots` (per-remote v6 metadata roots of a pool),
+//! `VirtualDrive::pull_pool` / publication of local events, and the listing
+//! helpers `list_unseen`/`read_unseen` shared with `metadata_pool` browsing.
 use super::metadata_limits::{PAGE_BYTES, PAGE_RECORDS, STREAM_BYTES_MAX, STREAM_RECORDS_MAX};
 use super::shared_model::Event;
 use super::shared_transport::SharedTransport;
@@ -32,8 +36,12 @@ pub(crate) fn roots(pool: &str, remotes: &[String]) -> Result<Vec<String>> {
 /// Namespace events by id (as `collect` returns them).
 pub(crate) type Events = BTreeMap<String, Event>;
 
+/// One replica of the pool-sync event directory. Implemented by
+/// `SharedTransport` (real remotes); tests use in-memory stores.
 pub(crate) trait EventStore {
+    /// Every listed event not in `known`, with its bytes.
     fn missing(&self, known: &BTreeSet<String>) -> Result<BTreeMap<String, Vec<u8>>>;
+    /// Writes event `bytes` under `id` (content-addressed; idempotent).
     fn publish(&self, id: &str, bytes: &[u8]) -> Result<()>;
     /// Listing only: unseen `(id, size)`. The default reads (test fakes).
     fn unseen(&self, known: &BTreeSet<String>) -> Result<Vec<(String, u64)>> {
@@ -67,10 +75,14 @@ impl EventStore for SharedTransport {
 
 /// Unseen records of every replica: id -> (first replica listing it, size).
 pub(crate) struct Unseen {
+    /// Unseen id -> (index of the first replica listing it, size in bytes).
     pub entries: BTreeMap<String, (usize, u64)>,
     /// The compaction gate record is listed (deletion may have happened).
     pub gate: bool,
 }
+/// Lists replicas one after another and merges their unseen records;
+/// stops at the first unreachable replica. Used by `pull_pool` and
+/// `metadata_pool::read_v6`.
 pub(crate) fn list_unseen(stores: &[&dyn EventStore], known: &BTreeSet<String>) -> Result<Unseen> {
     if stores.is_empty() {
         bail!("metadata destinations missing");
@@ -222,6 +234,8 @@ fn publish_everywhere(transports: &[SharedTransport], id: &str, event: &Event) -
 }
 
 impl super::virtual_drive::VirtualDrive {
+    /// One `SharedTransport` per pool-sync root of this drive (native crypt as
+    /// the pool configures).
     pub(crate) fn pool_transports(&self) -> Result<Vec<SharedTransport>> {
         self.pool_sync_roots
             .iter()
@@ -231,6 +245,9 @@ impl super::virtual_drive::VirtualDrive {
             })
             .collect()
     }
+    /// Pulls unseen events (checkpointed and tail records) from the pool into
+    /// the namespace and saves it; checkpointed events are marked published.
+    /// Called by `virtual_drive::sync` at the start of each sync round.
     pub(crate) fn pull_pool(&self) -> Result<()> {
         let transports = self.pool_transports()?;
         let stores: Vec<&dyn EventStore> =
@@ -383,12 +400,17 @@ pub(crate) fn read_stores(
         })
         .collect()
 }
+/// Pool-sync state reported in the mount status (GUI conflict list).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Status {
+    /// v6 metadata roots this drive syncs with.
     pub roots: Vec<String>,
+    /// Current concurrent-edit conflicts from [`super::peer_projection::project`].
     pub conflicts: Vec<super::peer_projection::Conflict>,
 }
 impl super::virtual_drive::VirtualDrive {
+    /// Current [`Status`] from the namespace; read by `virtual_drive::run` for
+    /// the mount status report.
     pub(crate) fn pool_status(&self) -> Result<Status> {
         let state = self.state.lock().unwrap();
         Ok(Status {

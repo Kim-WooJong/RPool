@@ -1,7 +1,13 @@
+//! Editor for the list of crypt remote targets of an upload or manifest operation.
+
 use crate::gui::i18n::tr;
 use eframe::egui;
 use std::collections::BTreeMap;
 
+/// Edits `selected` targets: remove entries, add a typed `crypt-remote:path`,
+/// or add a discovered crypt remote with its per-remote root (from
+/// `remote_roots`) or else `default_remote_path` appended. Used by the upload
+/// and manifest screens.
 pub(crate) fn remote_selector(
     ui: &mut egui::Ui,
     selected: &mut Vec<String>,
@@ -68,6 +74,7 @@ pub(crate) fn remote_selector(
     }
 }
 
+/// Per-remote configured root for `remote`'s name, else the global default path.
 fn configured_or_default_path<'a>(
     remote: &str,
     default_remote_path: &'a str,
@@ -83,6 +90,8 @@ fn configured_or_default_path<'a>(
         .unwrap_or(default_remote_path)
 }
 
+/// Appends `path` to a bare remote (`name:`); a remote with its own path or an
+/// empty `path` is returned unchanged.
 fn append_default_path(remote: &str, path: &str) -> String {
     let path = path.trim();
     if path.is_empty() {

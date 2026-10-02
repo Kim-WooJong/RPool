@@ -34,6 +34,8 @@ pub(crate) fn drive_state(status: &DriveStatus) -> (&'static str, StatusTone) {
     }
 }
 
+/// Drive section of the review step: file counts by action, size, ETA and
+/// quota verdict of the plan's drive part, plus its notes.
 pub(super) fn review(ui: &mut egui::Ui, drive: &DrivePlan) {
     ui.separator();
     ui.label(
@@ -113,6 +115,8 @@ pub(super) fn review(ui: &mut egui::Ui, drive: &DrivePlan) {
     }
 }
 
+/// Drive section of the run step: layout, state badge and a progress bar of
+/// drive files switched out of those to move.
 pub(super) fn progress(ui: &mut egui::Ui, status: &DriveStatus) {
     ui.separator();
     ui.horizontal_wrapped(|ui| {

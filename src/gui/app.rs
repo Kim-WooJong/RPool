@@ -1,3 +1,6 @@
+//! The egui application: window setup (`launch`), the top-level `RpoolGui`
+//! frame loop, background polling (mounts, monitoring, tasks, provider
+//! discovery) and automatic provider encryption after discovery.
 use crate::gui::i18n::{tr, trf};
 use crate::gui::navigation;
 use crate::gui::screens::{dashboard, files, jobs, maintenance, monitoring, settings, storage};
@@ -11,20 +14,29 @@ use eframe::egui;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
+/// Task name of the automatic "encrypt every provider" job; also checked by
+/// `screens::storage::providers` to show its progress.
 pub(crate) const AUTO_ENCRYPTION_TASK: &str = "Ensure provider encryption";
 
 #[derive(Default)]
+/// Tracks when the automatic provider encryption should run: at most once per
+/// (rclone path, provider catalog signature), and only when the GUI is idle.
 struct EncryptionSetup {
+    /// (rclone, catalog signature) pairs already tried, so a failure is not repeated.
     attempted: BTreeSet<(String, String)>,
+    /// Pair waiting to run once nothing else is busy.
     pending: Option<(String, String)>,
 }
 
 impl EncryptionSetup {
+    /// Record a discovery result; queue a run when providers need encryption and
+    /// this (rclone, signature) pair has not been tried yet.
     fn discover(&mut self, rclone: String, signature: String, has_providers: bool) {
         let key = (rclone, signature);
         self.pending = (has_providers && !self.attempted.contains(&key)).then_some(key);
     }
 
+    /// Take the queued rclone path when not `busy`, marking it attempted.
     fn take_ready(&mut self, busy: bool) -> Option<String> {
         if busy {
             return None;
@@ -36,6 +48,8 @@ impl EncryptionSetup {
     }
 }
 
+/// Start the GUI: tidy old config keys, release a Windows console started
+/// only for us, and run the eframe window. Called by `application` (`rpool gui`).
 pub(crate) fn launch(startup_rclone: &str) -> Result<()> {
     super::config_tidy::run();
     super::console::release_own_console();
@@ -61,21 +75,31 @@ pub(crate) fn launch(startup_rclone: &str) -> Result<()> {
     .map_err(|error| anyhow!(error.to_string()))
 }
 
+/// Root application state passed to eframe.
 struct RpoolGui {
+    /// All screen state and saved settings.
     state: GuiState,
+    /// The single foreground job runner (uploads, mounts, maintenance).
     task: TaskRunner,
+    /// Background provider discovery and usage refresh.
     usage: UsageRefresh,
+    /// A provider/usage refresh should start once the previous one finished.
     refresh_pending: bool,
+    /// Automatic provider encryption scheduling.
     encryption: EncryptionSetup,
+    /// rclone path the last discovery ran with; a change triggers a refresh.
     discovery_rclone: String,
     /// `None` follows the window height; a click sets it explicitly.
     console_open: Option<bool>,
+    /// "rclone is too old" banner shown above the pages.
     rclone_banner: crate::gui::widgets::rclone_banner::RcloneVersionBanner,
     #[cfg(debug_assertions)]
+    /// Debug builds: screenshot automation driven by environment variables.
     snapshots: Option<super::snapshot::Snapshots>,
 }
 
 impl RpoolGui {
+    /// Load settings and language and start the first background discovery.
     fn new(startup_rclone: &str) -> Self {
         let state = state::load(startup_rclone);
         super::i18n::set_language(state.settings.language);
@@ -95,6 +119,9 @@ impl RpoolGui {
         }
     }
 
+    /// Per-frame polling of background work: rclone banner, mounts, monitoring,
+    /// the connection wizard, task completion handlers, discovery results and
+    /// the automatic encryption job.
     fn poll_background(&mut self) {
         self.rclone_banner.poll(&self.state.settings.rclone);
         self.state.mount.poll();
@@ -351,6 +378,7 @@ fn mount_badge(ui: &mut egui::Ui, state: &GuiState) {
         .on_hover_text(pools);
 }
 
+/// Translated heading of a page.
 fn page_title(page: Page) -> &'static str {
     match page {
         Page::Dashboard => tr("Overview"),

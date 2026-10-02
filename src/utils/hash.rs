@@ -1,5 +1,8 @@
+//! BLAKE3 hashing of file byte ranges (shard and source content hashes).
 use crate::prelude::*;
 
+/// BLAKE3 hex of `size` bytes of `path` starting at `offset`; fails if the file
+/// ends early. Used by `put`, upload sources, journals and the writer's staging check.
 pub(crate) fn hash_file_range(path: &Path, offset: u64, size: u64) -> Result<String> {
     let mut file = File::open(path)?;
     file.seek(SeekFrom::Start(offset))?;

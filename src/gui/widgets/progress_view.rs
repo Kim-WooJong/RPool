@@ -1,9 +1,13 @@
+//! Progress bar for a GUI task.
+
 use crate::gui::i18n::trf;
 use crate::gui::task::TaskProgress;
 use crate::gui::theme;
 use crate::presentation::format_bytes;
 use eframe::egui;
 
+/// Draws a percentage bar for `progress`, then item counts or bytes done,
+/// network bytes, rate and ETA when known. Draws nothing without a total.
 pub(crate) fn progress_view(ui: &mut egui::Ui, progress: &TaskProgress) {
     let Some(ratio) = progress.fraction().map(|value| value.clamp(0.0, 1.0)) else {
         return;

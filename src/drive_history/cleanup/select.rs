@@ -37,6 +37,7 @@ pub(crate) struct World {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One unreferenced drive archive folder, as listed on the pool accounts.
 pub(crate) struct Archive {
     /// Listed objects, manifest replicas first.
     pub objects: Vec<RetireObject>,
@@ -44,12 +45,14 @@ pub(crate) struct Archive {
     pub version: bool,
 }
 impl Archive {
+    /// Total stored bytes of the listed objects.
     pub(crate) fn bytes(&self) -> u64 {
         self.objects.iter().map(|o| o.size).sum()
     }
 }
 
 #[derive(Debug, Default)]
+/// Result of `select`: what may be deleted and what blocks a run.
 pub(crate) struct Selection {
     /// Unreferenced archives with objects still stored.
     pub candidates: BTreeMap<String, Archive>,
@@ -57,6 +60,7 @@ pub(crate) struct Selection {
     pub gone: BTreeSet<String>,
     /// Drive objects stored on the listed accounts (mass-delete guard).
     pub totals: Totals,
+    /// Unreadable sources; a non-empty list postpones the run.
     pub uncertain: Vec<String>,
 }
 
@@ -74,6 +78,7 @@ pub(crate) fn folders(manifest: &Manifest) -> BTreeSet<String> {
     out
 }
 
+/// Whether `name` is a drive archive folder (`virtual-*`).
 pub(crate) fn is_drive_folder(name: &str) -> bool {
     crate::migration::enumerate::is_drive_archive(name)
 }
@@ -101,6 +106,10 @@ pub(crate) fn kept_revisions(
     Ok(keep)
 }
 
+/// Decide which drive archives are unreferenced: keep everything named by a
+/// kept revision, this PC's drive or `World::refs`, then list the remaining
+/// named folders as candidates (objects stored) or gone (nothing stored).
+/// Pure; called by `execute::run` before marking and again before deleting.
 pub(crate) fn select(world: &World, retention: &Retention, now: u64) -> Selection {
     let mut out = Selection {
         uncertain: world.uncertain.clone(),

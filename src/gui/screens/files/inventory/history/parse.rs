@@ -4,11 +4,15 @@
 
 use serde::de::DeserializeOwned;
 
+/// Deserializes the JSON document from a command's stdout, or `None` when no
+/// line parses as `T`. Used by `query::run` on a successful child process.
 pub(crate) fn from_stdout<T: DeserializeOwned>(stdout: &str) -> Option<T> {
     let lines: Vec<&str> = stdout.lines().collect();
     from_lines(&lines)
 }
 
+/// Tries each line that opens `[`/`{` from the last one backwards, parsing it
+/// and everything after it; returns the first value that parses.
 fn from_lines<T: DeserializeOwned>(lines: &[&str]) -> Option<T> {
     (0..lines.len()).rev().find_map(|start| {
         let first = lines[start].trim_start();

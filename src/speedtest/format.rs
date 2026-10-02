@@ -1,6 +1,7 @@
 //! Human-readable speed test report (the `--json` report is the model).
 use super::model::{ConcurrencyTuning, RemoteSpeed, SpeedTestReport};
 
+/// Bytes per MiB, for sizes shown in MiB.
 const MIB: f64 = 1024.0 * 1024.0;
 
 /// Decimal units per second, as providers advertise them: MB/s from 1 MB/s,
@@ -34,10 +35,12 @@ fn transfer_rate(rate: Option<f64>, seconds: Option<f64>, files: usize) -> Strin
 /// From this many files per remote the table also shows files per second.
 const MANY_FILES: usize = 16;
 
+/// Milliseconds as `N ms`, or `-` when unknown.
 fn ms(value: Option<u64>) -> String {
     value.map_or_else(|| "-".into(), |v| format!("{v} ms"))
 }
 
+/// Status column: `ok`, `failed: <error>` or `failed`.
 fn status(remote: &RemoteSpeed) -> String {
     match (&remote.error, remote.ok) {
         (None, true) => "ok".into(),
@@ -46,6 +49,7 @@ fn status(remote: &RemoteSpeed) -> String {
     }
 }
 
+/// Upload or download rate of `remote` in the report, for the bottleneck lines.
 fn rate_of(report: &SpeedTestReport, remote: &str, upload: bool) -> String {
     report
         .remotes
@@ -61,6 +65,8 @@ fn rate_of(report: &SpeedTestReport, remote: &str, upload: bool) -> String {
         .unwrap_or_else(|| "-".into())
 }
 
+/// Renders the plain-text report printed by the CLI without `--json`: header,
+/// per-remote table, bottlenecks, pool estimate, tuning sections and leftovers.
 pub(crate) fn render(report: &SpeedTestReport) -> String {
     let mut out = String::new();
     let target = report
@@ -192,6 +198,10 @@ fn tuning(report: &SpeedTestReport) -> String {
     out
 }
 
+/// Renders one tuning section (uploads or downloads, chosen by `pick`): per
+/// remote the rate at each level, the recommendation versus the current
+/// limit, and an `rpool provider limits set … <flag> N` hint when they differ.
+/// Empty when no remote was tuned.
 fn tuning_section(
     report: &SpeedTestReport,
     what: &str,
@@ -245,6 +255,7 @@ fn tuning_section(
     out
 }
 
+/// Remote name of an address (before `:`), for the `limits set` hint.
 fn remote_name(remote: &str) -> Option<String> {
     crate::storage::rclone::remote_name(remote)
         .ok()

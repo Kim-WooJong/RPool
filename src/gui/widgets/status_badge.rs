@@ -1,15 +1,24 @@
+//! Small rounded status pill with a tone-specific color.
+
 use crate::gui::theme;
 use eframe::egui;
 
+/// Color tone of a [`status_badge`], mapped to the theme's badge colors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum StatusTone {
+    /// Idle or informational without emphasis.
     Neutral,
+    /// Done / healthy.
     Success,
+    /// Needs attention.
     Warning,
+    /// Failed.
     Error,
+    /// Highlighted information (accent colors).
     Info,
 }
 
+/// Draws `label` as a rounded pill in the colors of `tone`.
 pub(crate) fn status_badge(ui: &mut egui::Ui, label: &str, tone: StatusTone) {
     let dark = ui.visuals().dark_mode;
     let (fill, foreground) = match tone {

@@ -40,6 +40,7 @@ pub(crate) fn combo(ui: &mut egui::Ui, id: &str, index: &mut usize) {
     ));
 }
 
+/// Index of `encoding` in `FILENAME_ENCODINGS`; unknown values map to 0 (base32).
 pub(crate) fn index_of(encoding: &str) -> usize {
     FILENAME_ENCODINGS
         .iter()
@@ -50,16 +51,22 @@ pub(crate) fn index_of(encoding: &str) -> usize {
 /// The "Name encoding…" dialog of a provider card.
 #[derive(Debug, Default)]
 pub(crate) struct Editor {
+    /// Whether the dialog is shown.
     pub(crate) open: bool,
     /// Crypt remotes of the provider the dialog was opened for.
     crypts: Vec<String>,
+    /// Crypt remote to change.
     crypt: String,
+    /// Chosen index into `FILENAME_ENCODINGS`.
     encoding: usize,
+    /// Pass `--existing-files-ok`: change even if the remote already holds files.
     existing_files_ok: bool,
+    /// Start result, shown in the dialog.
     notice: Option<String>,
 }
 
 impl Editor {
+    /// Opens the dialog for a provider's crypts, preselecting base32768.
     pub(crate) fn open_for(crypts: &[String]) -> Self {
         let crypt = crypts.first().cloned().unwrap_or_default();
         Self {
@@ -87,6 +94,7 @@ pub(crate) fn args(crypt: &str, encoding: &str, existing_files_ok: bool) -> Vec<
     args
 }
 
+/// Draws the "Name encoding" dialog and starts `provider name-encoding`.
 pub(crate) fn show(ctx: &egui::Context, editor: &mut Editor, rclone: &str, task: &mut TaskRunner) {
     if !editor.open {
         return;

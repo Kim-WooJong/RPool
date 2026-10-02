@@ -3,6 +3,8 @@
 use super::*;
 
 impl MountProcess {
+    /// Validates paths, takes the mount lease, and spawns rclone mounting the drive's WebDAV
+    /// server with a private log and an authenticated loopback RC port. Called by `virtual_drive::run`.
     pub(crate) fn start(config: MountConfig) -> Result<Self> {
         validate_mountpoint(&config)?;
         #[cfg(target_os = "macos")]
@@ -118,6 +120,8 @@ impl MountProcess {
         })
     }
 
+    /// Non-blocking exit check. On exit clears the lease, except on macOS without a confirmed
+    /// graceful quit, where it records `ShutdownUncertain` and returns an error.
     pub(crate) fn poll(&mut self) -> Result<Option<ExitStatus>> {
         let status = self.child.try_wait()?;
         if let Some(_exit) = &status {
@@ -161,6 +165,7 @@ impl MountProcess {
         }
     }
 
+    /// New redacted rclone log lines since the last call.
     pub(crate) fn logs(&self) -> Vec<String> {
         self.logs
             .lock()
@@ -168,6 +173,7 @@ impl MountProcess {
             .unwrap_or_default()
     }
 
+    /// True while the child has not exited.
     pub(crate) fn is_running(&mut self) -> bool {
         !self.stopped && matches!(self.child.try_wait(), Ok(None))
     }
@@ -194,6 +200,7 @@ impl MountProcess {
         }
     }
 
+    /// [`stop_with_grace`](Self::stop_with_grace) with 12 s on macOS (NFS teardown) and 3 s elsewhere.
     pub(crate) fn stop(&mut self) -> Result<StopReport> {
         self.stop_with_grace(Duration::from_secs(if cfg!(target_os = "macos") {
             12
@@ -202,6 +209,8 @@ impl MountProcess {
         }))
     }
 
+    /// Drains rclone's write-back queue, asks it to quit, and waits `grace`. Then kills it
+    /// (not on macOS, where it stays alive and the lease is marked uncertain).
     pub(super) fn stop_with_grace(&mut self, grace: Duration) -> Result<StopReport> {
         if self.shutdown_uncertain {
             bail!("macOS NFS shutdown remains uncertain; rclone was not killed and mount lease is retained");
@@ -254,6 +263,7 @@ impl MountProcess {
         }
     }
 
+    /// Calls an RC endpoint with an empty body (400 ms timeout, 1 MiB response limit).
     pub(super) fn rc(&self, endpoint: &str) -> Result<Vec<u8>> {
         rc_call(
             self.address,

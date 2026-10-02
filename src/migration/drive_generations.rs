@@ -17,6 +17,7 @@ use crate::prelude::*;
 /// Drive migrations recorded for a pool.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Known {
+    /// Adoption markers of every adopted migration.
     pub adoptions: Vec<DriveAdoption>,
     /// Freezes of migrations neither adopted nor abandoned.
     pub freezes: Vec<DriveFreeze>,
@@ -25,20 +26,24 @@ pub(crate) struct Known {
 }
 
 impl Known {
+    /// The latest adoption whose source is `generation`, if it was moved on.
     fn superseded(&self, generation: &GenerationRef) -> Option<&DriveAdoption> {
         self.adoptions
             .iter()
             .filter(|a| a.source == *generation)
             .max_by(|a, b| (a.ts_unix, &a.epoch).cmp(&(b.ts_unix, &b.epoch)))
     }
+    /// Some adoption created the generation `epoch`.
     fn adopted(&self, epoch: &str) -> bool {
         self.adoptions.iter().any(|a| a.epoch == epoch)
     }
+    /// Epochs of all recorded migrations (adopted or not).
     fn migration_epochs(&self) -> BTreeSet<String> {
         self.migration_ids.iter().map(|id| epoch_for(id)).collect()
     }
 }
 
+/// The reference used in migration documents for a browse generation.
 pub(crate) fn generation_ref(generation: &Generation) -> GenerationRef {
     GenerationRef {
         epoch: generation.epoch.clone(),
@@ -77,6 +82,7 @@ pub(crate) fn fresh_workspace(known: &Known) -> Option<&DriveAdoption> {
 /// What a workspace on `generation` may do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Fence {
+    /// No migration involves this generation.
     Proceed,
     /// A migration is moving this drive: mount, but do not publish.
     Frozen(DriveFreeze),
@@ -84,6 +90,8 @@ pub(crate) enum Fence {
     Superseded(DriveAdoption),
 }
 
+/// Decides what a workspace on `generation` may do: superseded wins over
+/// frozen. Used by mounts and sync before publishing.
 pub(crate) fn fence(generation: &GenerationRef, known: &Known) -> Fence {
     if let Some(adoption) = known.superseded(generation) {
         return Fence::Superseded(adoption.clone());

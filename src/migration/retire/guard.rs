@@ -8,7 +8,9 @@ use crate::prelude::*;
 /// Objects and bytes currently stored on the listed roots.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct Totals {
+    /// Object count.
     pub objects: u64,
+    /// Sum of object sizes in bytes.
     pub bytes: u64,
 }
 

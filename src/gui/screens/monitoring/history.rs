@@ -12,18 +12,25 @@ use std::time::{Duration, Instant};
 /// A loaded range is refreshed after this long while it is shown.
 pub(crate) const HISTORY_REFRESH: Duration = Duration::from_secs(60);
 
+/// Time span of a mount card's history chart; picked in `history_view::show`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Range {
+    /// Last hour, one bar per minute (the default).
     #[default]
     Hour,
+    /// Last 24 hours, one bar per 15 minutes.
     Day,
+    /// Last 7 days, one bar per hour.
     Week,
+    /// Last 30 days, one bar per 6 hours.
     Month,
 }
 
 impl Range {
+    /// Every range, in the order of the picker.
     pub(crate) const ALL: [Range; 4] = [Range::Hour, Range::Day, Range::Week, Range::Month];
 
+    /// Length of one bar (bucket) in seconds.
     pub(crate) fn bucket_seconds(self) -> u64 {
         match self {
             Range::Hour => 60,
@@ -33,6 +40,7 @@ impl Range {
         }
     }
 
+    /// Number of bars in the chart.
     pub(crate) fn buckets(self) -> usize {
         match self {
             Range::Hour => 60,
@@ -42,28 +50,40 @@ impl Range {
         }
     }
 
+    /// Whole span of the range in seconds (bucket length × count).
     pub(crate) fn seconds(self) -> u64 {
         self.bucket_seconds() * self.buckets() as u64
     }
 }
 
+/// Traffic of one account in one bucket, in bytes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct Bucket {
+    /// Bytes uploaded.
     pub up: u64,
+    /// Bytes downloaded.
     pub down: u64,
 }
 
+/// One account's row of a history chart, built by `aggregate`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RemoteHistory {
+    /// Remote (account) name.
     pub remote: String,
+    /// `Range::buckets` buckets, oldest first.
     pub buckets: Vec<Bucket>,
+    /// Bytes uploaded in the whole range.
     pub total_up: u64,
+    /// Bytes downloaded in the whole range.
     pub total_down: u64,
+    /// Successful operations in the range.
     pub ok_ops: u64,
+    /// Failed operations in the range.
     pub failed_ops: u64,
 }
 
 impl RemoteHistory {
+    /// Largest upload or download of any bucket, for scaling the bars.
     pub(crate) fn peak(&self) -> u64 {
         self.buckets
             .iter()
@@ -73,11 +93,14 @@ impl RemoteHistory {
     }
 }
 
+/// A mount's traffic history for one range, ready to draw.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HistoryChart {
+    /// Range the chart covers.
     pub range: Range,
     /// Start of the first bucket.
     pub start_unix: u64,
+    /// One row per account, sorted by name.
     pub remotes: Vec<RemoteHistory>,
 }
 
@@ -131,13 +154,16 @@ pub(crate) fn aggregate(points: &[HistoryPoint], range: Range, now: u64) -> Hist
 /// progress.
 #[derive(Default)]
 pub(crate) struct HistoryState {
+    /// Last finished chart (kept on screen while a reload runs).
     pub chart: Option<HistoryChart>,
     /// Range and time of the last finished load.
     loaded: Option<(Range, Instant)>,
+    /// Range and receiver of a load still running on a background thread.
     pending: Option<(Range, Receiver<HistoryChart>)>,
 }
 
 impl HistoryState {
+    /// Whether a load is running.
     pub(crate) fn loading(&self) -> bool {
         self.pending.is_some()
     }

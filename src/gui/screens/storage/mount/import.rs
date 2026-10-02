@@ -8,6 +8,7 @@ use crate::gui::state::GuiState;
 use crate::gui::theme;
 use eframe::egui;
 
+/// "RPool archives" card: add or remove manifests applied at the next start.
 fn manifests(ui: &mut egui::Ui, form: &mut MountForm) {
     theme::card_section(ui, tr("RPool archives"), Some(tr("Adds archives made with Upload to the drive at the next Mount or Sync. Pool membership is never inferred.")), |_| {}, |ui| {
         ui.horizontal_wrapped(|ui| {
@@ -57,6 +58,8 @@ fn manifests(ui: &mut egui::Ui, form: &mut MountForm) {
     });
 }
 
+/// "Files stored with rclone" card: source, destination, batch size and the
+/// Import button (mount action 9), plus the running import's progress.
 fn rclone(
     ui: &mut egui::Ui,
     form: &mut MountForm,
@@ -90,6 +93,7 @@ fn rclone(
     });
 }
 
+/// Import tab of the Drive page; disabled while the session runs.
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let (form, settings) = (&mut state.mount, &mut state.settings);
     ui.add_enabled_ui(!form.session.runner.is_running(), |ui| {

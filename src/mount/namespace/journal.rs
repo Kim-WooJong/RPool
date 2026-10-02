@@ -29,9 +29,13 @@ use crate::mount::shared_model::Event;
 use crate::prelude::*;
 use std::io::{Read as _, Seek as _, SeekFrom};
 
+/// Journal file of the primary checkpoint `namespace.json`.
 pub(super) const JOURNAL: &str = "namespace.journal";
+/// Journal of `namespace.previous.json`, copied there by compaction.
 pub(super) const PREVIOUS_JOURNAL: &str = "namespace.previous.journal";
+/// File signature and format version (first 8 header bytes).
 const MAGIC: &[u8; 8] = b"RPNSJ001";
+/// Header size in bytes: magic, checkpoint hash (hex), header checksum.
 pub(super) const HEADER_LEN: u64 = 8 + 64 + 32;
 /// Length prefix plus chain trailer.
 pub(super) const RECORD_OVERHEAD: u64 = 4 + 32;
@@ -46,10 +50,12 @@ pub(super) struct Tail {
     pub len: u64,
     /// The last 32 bytes before `len`: the chain value to extend.
     pub chain: [u8; 32],
+    /// Valid records after the header (bounded by `MAX_JOURNAL_RECORDS`).
     pub records: u64,
 }
 
 impl Tail {
+    /// Tail of a checkpoint with no journal yet; set after a full checkpoint.
     pub(super) fn empty() -> Self {
         Self {
             len: 0,
@@ -59,6 +65,7 @@ impl Tail {
     }
 }
 
+/// Header bytes binding a journal to `checkpoint` (64 hex chars, else error).
 fn header(checkpoint: &str) -> Result<Vec<u8>> {
     if checkpoint.len() != 64 || !checkpoint.bytes().all(|b| b.is_ascii_hexdigit()) {
         bail!("invalid namespace checkpoint hash");
@@ -71,6 +78,8 @@ fn header(checkpoint: &str) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+/// Chain value of one record: BLAKE3 of the previous chain, the u32 LE
+/// payload length and the payload.
 fn chain(previous: &[u8; 32], payload: &[u8]) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(previous);
@@ -79,6 +88,8 @@ fn chain(previous: &[u8; 32], payload: &[u8]) -> [u8; 32] {
     *hasher.finalize().as_bytes()
 }
 
+/// Encodes one record (length, payload, chain) and returns it with its new
+/// chain value; empty or oversized payloads are refused.
 fn record(previous: &[u8; 32], payload: &[u8]) -> Result<(Vec<u8>, [u8; 32])> {
     if payload.is_empty() || payload.len() as u64 > MAX_RECORD {
         bail!("namespace journal record size out of range");
@@ -228,13 +239,18 @@ pub(super) fn replay(path: &Path, checkpoint: &str, state: &mut Namespace) -> Re
     Ok(tail)
 }
 
+/// How the pending intent list changed between two saves.
 #[derive(Debug, Serialize, Deserialize)]
 enum PendingDelta {
     /// Drop these intent ids, then append these intents.
     Edit {
+        /// Ids of pending intents that are gone (committed or dropped).
         remove: Vec<String>,
+        /// Intents added at the end of the list.
         append: Vec<Intent>,
     },
+    /// Full replacement list, used when the change is not a removal plus an
+    /// append (reordering, edited or duplicate intents).
     Replace(Vec<Intent>),
 }
 
@@ -242,30 +258,45 @@ enum PendingDelta {
 /// collections record only added, changed and removed entries.
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub(super) struct Delta {
+    /// Generation of the new namespace (replay requires consecutive ones).
     generation: u64,
+    /// Namespace format version.
     version: u32,
+    /// Device id.
     device: String,
+    /// Worker name.
     worker: String,
+    /// Events added or changed, by id.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     events_put: BTreeMap<String, Event>,
+    /// Removed event ids.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     events_del: Vec<String>,
+    /// Newly published event ids.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     published_add: Vec<String>,
+    /// Event ids no longer marked published.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     published_del: Vec<String>,
+    /// New or changed commit receipts (intent id -> event id).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     committed_put: BTreeMap<String, String>,
+    /// Removed commit receipts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     committed_del: Vec<String>,
+    /// New or changed edit bases (path -> parent event ids).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     bases_put: BTreeMap<String, Vec<String>>,
+    /// Paths whose base was removed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     bases_del: Vec<String>,
+    /// Directories created.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     directories_add: Vec<String>,
+    /// Directories removed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     directories_del: Vec<String>,
+    /// Pending-list change; `None` when the list is unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pending: Option<PendingDelta>,
 }
@@ -312,6 +343,7 @@ fn diff_map<V: Clone>(
     (put, del)
 }
 
+/// Added and removed members of a set (`new - old`, `old - new`).
 fn diff_set(old: &BTreeSet<String>, new: &BTreeSet<String>) -> (Vec<String>, Vec<String>) {
     (
         new.difference(old).cloned().collect(),
@@ -319,6 +351,7 @@ fn diff_set(old: &BTreeSet<String>, new: &BTreeSet<String>) -> (Vec<String>, Vec
     )
 }
 
+/// Minimal `PendingDelta` from `old` to `new`; `None` when equal.
 fn diff_pending(old: &[Intent], new: &[Intent]) -> Option<PendingDelta> {
     if old == new {
         return None;

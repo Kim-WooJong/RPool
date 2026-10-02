@@ -9,6 +9,7 @@ use crate::gui::state::{GuiState, Page};
 use crate::gui::theme;
 use eframe::egui;
 
+/// Optional completed reprocess plan path with a file picker.
 fn reprocess_plan(ui: &mut egui::Ui, form: &mut MountForm) {
     ui.horizontal_wrapped(|ui| {
         ui.add(
@@ -51,6 +52,8 @@ fn target(ui: &mut egui::Ui, state: &mut GuiState) {
     }
 }
 
+/// "Apply a changed pool to a drive" card (mount action 6); shown in
+/// Storage › Account changes.
 pub(crate) fn apply_card(ui: &mut egui::Ui, state: &mut GuiState) {
     theme::card_section(ui, tr("Apply a changed pool to a drive"), Some(tr("After adding or removing accounts in Pools: unmount, then apply. The pool name and workspace stay; current files, conflicts and sealed writes are verified in a new metadata generation first.")), |_| {}, |ui| {
         target(ui, state);
@@ -66,6 +69,8 @@ pub(crate) fn apply_card(ui: &mut egui::Ui, state: &mut GuiState) {
     });
 }
 
+/// "Recover after losing an account" card: original workspace, skipped
+/// remotes and plan, then account recovery; shown in Storage › Account changes.
 pub(crate) fn recover_card(ui: &mut egui::Ui, state: &mut GuiState) {
     theme::card_section(ui, tr("Recover after losing an account"), Some(tr("Copies the verified contents of an old workspace into a NEW pool and workspace. The original is kept.")), |_| {}, |ui| {
         ui.label(tr("1. In Pools, save the remaining accounts as a NEW pool. In Drive, select it with a NEW empty workspace."));

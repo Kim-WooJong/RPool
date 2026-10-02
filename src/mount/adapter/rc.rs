@@ -2,6 +2,8 @@
 
 use super::*;
 
+/// POSTs `body` to rclone's RC `endpoint` over HTTP/1.0 with Basic auth and returns the
+/// response body; non-200 is an error. Reads at most `limit` bytes.
 pub(super) fn rc_call(
     address: SocketAddr,
     credential: &str,
@@ -104,6 +106,7 @@ pub(in crate::mount) fn drain_writeback(
     }
 }
 
+/// Standard padded base64 encoding (used for the RC Basic-auth header).
 pub(super) fn base64(bytes: &[u8]) -> String {
     const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();

@@ -1,4 +1,4 @@
-//! Incremental parts of [`Namespace::validate`].
+//! Incremental parts of `Namespace::validate`.
 //!
 //! Two caches, each keyed by the exact values it checked ([`Shared::is`]):
 //!
@@ -22,16 +22,22 @@ use crate::mount::shared_model::Event;
 use crate::prelude::*;
 use std::sync::Weak;
 
+/// The namespace event map (event id -> event).
 type Events = BTreeMap<String, Event>;
 
+/// Identity of the events, published set, bases and committed receipts
+/// that last passed the reference checks.
 type ReferencesKey = (
     Weak<Events>,
     Weak<BTreeSet<String>>,
     Weak<BTreeMap<String, Vec<String>>>,
     Weak<BTreeMap<String, String>>,
 );
+/// The projection and directories a [`PathIndex`] was built from, with the
+/// index (`None` when they did not pass on their own).
 type PathsKeyed = (Projected, Weak<BTreeSet<String>>, Option<Arc<PathIndex>>);
 
+/// The cached check results held inside [`CheckCache`].
 #[derive(Default, Clone)]
 pub(super) struct Checked {
     /// Events with published, bases, committed intents that passed.
@@ -59,6 +65,7 @@ impl std::fmt::Debug for CheckCache {
 }
 
 impl CheckCache {
+    /// Locks the cache, recovering the value from a poisoned mutex.
     fn lock(&self) -> std::sync::MutexGuard<'_, Checked> {
         self.0.lock().unwrap_or_else(|p| p.into_inner())
     }
@@ -176,6 +183,8 @@ pub(super) struct PathIndex {
 }
 
 impl PathIndex {
+    /// Builds the index of the committed files of `projected` plus explicit
+    /// `directories`, after the full path check passes on them (error otherwise).
     fn build(projected: &Projected, directories: &BTreeSet<String>) -> Result<Self> {
         let live: BTreeSet<&str> = committed_files(projected).collect();
         check_paths(&live, directories)?;

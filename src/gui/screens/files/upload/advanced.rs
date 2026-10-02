@@ -1,3 +1,7 @@
+//! The collapsed "Advanced" section of Files › Upload: pool vs manual target,
+//! a one-off pool policy override or the manual destinations and policy, and
+//! the archive ID of a single-file upload.
+
 use super::manual_options;
 use super::state::UploadTargetMode;
 use super::target;
@@ -5,6 +9,7 @@ use crate::gui::i18n::tr;
 use crate::gui::state::GuiState;
 use eframe::egui;
 
+/// Draws the Advanced section. Called by `upload::show` under the pool picker.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     egui::CollapsingHeader::new(tr("Advanced"))
         .id_salt("upload-advanced")
@@ -47,6 +52,8 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
         });
 }
 
+/// Archive ID field for single-file uploads (passed as `--id`); with several
+/// files the ID is cleared and generated per file.
 fn show_archive_id(ui: &mut egui::Ui, state: &mut GuiState) {
     ui.label(egui::RichText::new(tr("Archive identity")).strong());
     if state.upload.items.len() <= 1 {

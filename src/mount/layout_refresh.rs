@@ -17,13 +17,18 @@ pub(crate) const STATUS_FILE: &str = "layout-status.json";
 /// The layout part of a pool policy.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Layout {
+    /// Shard size in bytes.
     pub(crate) shard_size: u64,
+    /// Shard placement rule.
     pub(crate) placement: Placement,
+    /// Reed-Solomon data shards (K).
     pub(crate) data_shards: usize,
+    /// Reed-Solomon parity shards (M).
     pub(crate) parity_shards: usize,
 }
 
 impl Layout {
+    /// Layout fields of `policy`.
     pub(crate) fn of(policy: &PoolDefinition) -> Self {
         Self {
             shard_size: policy.shard_size.bytes(),

@@ -10,15 +10,23 @@ use crate::prelude::*;
 use crate::storage::error::{StorageError, StorageErrorKind};
 use crate::storage::writer::StorageWriter;
 
+/// Production [`RetireIo`] for one migration of one pool.
 pub(crate) struct LiveIo {
+    /// Path of the rclone binary.
     rclone: String,
+    /// Pool name.
     pool: String,
+    /// Migration whose cleanup this is.
     migration_id: String,
+    /// The migration's cloud journal (`retire/` and `records/`).
     journal: Journal,
+    /// Pool uses native crypt; selects the storage writer for deletions.
     native_crypt: bool,
 }
 
 impl LiveIo {
+    /// Opens the journal of `migration_id`; fails when `pool` is not configured.
+    /// Called by `migration::retire::retire`.
     pub(crate) fn open(rclone: &str, pool: &str, migration_id: &str) -> Result<Self> {
         let native_crypt = crate::pool::load_pool_store()?
             .pools

@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// Checks anchor, cache and target paths before mounting: absolute, non-overlapping, target
+/// outside the workspace, empty and not already a mountpoint (Windows: unused drive letter).
+/// Called by `MountProcess::start` before and after building the command.
 pub(crate) fn validate_mountpoint(config: &MountConfig) -> Result<()> {
     if !config.anchor_dir.is_absolute() || !config.cache_dir.is_absolute() {
         bail!("mount source and cache must be absolute paths");
@@ -81,6 +84,7 @@ pub(crate) fn validate_mountpoint(config: &MountConfig) -> Result<()> {
     Ok(())
 }
 
+/// Canonical path, or canonical parent plus file name when `path` does not exist yet.
 pub(super) fn normalized_existing_or_parent(path: &Path) -> Result<PathBuf> {
     if path.exists() {
         return Ok(path.canonicalize()?);

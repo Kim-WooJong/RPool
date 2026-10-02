@@ -13,8 +13,12 @@ use super::writer::StorageWriter;
 use crate::prelude::*;
 
 #[derive(Debug, Default)]
+/// State of one archive upload, stored in `StorageWriter::session` between
+/// [`StorageWriter::begin_upload_session`] and [`StorageWriter::finish_upload_session`].
 pub(crate) struct UploadSession {
+    /// No earlier attempt exists, so writes skip the "already stored?" probe.
     fresh: bool,
+    /// Shards whose provider-hash check was deferred, with what the provider must report.
     pending: Vec<(Shard, Expected)>,
 }
 
@@ -37,6 +41,8 @@ impl StorageWriter {
         }
     }
 
+    /// Queues `shard` for the archive-wide hash check in `finish_upload_session`
+    /// (ignored outside a session). Called by `write_file` for deferred writes.
     pub(super) fn defer_check(&self, shard: Shard, expected: Expected) {
         if let Ok(mut session) = self.session.lock() {
             if let Some(session) = session.as_mut() {

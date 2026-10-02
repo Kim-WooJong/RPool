@@ -9,14 +9,19 @@
 /// One entry of the drive, `/`-separated path relative to the drive root.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct BrowseEntry {
+    /// Drive path (`/`-separated, relative to the root).
     pub path: String,
     /// Plaintext size in bytes; 0 for directories.
     pub size: u64,
+    /// Directory (explicit or implied by a file below it).
     pub is_dir: bool,
 }
 
+/// Result of [`browse`]: the drive listing of one pool, shown by the GUI
+/// Library and `rpool pool browse`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct PoolBrowse {
+    /// Pool name.
     pub pool: String,
     /// "v6" or "none" (the pool has no pool-sync drive yet).
     pub mode: String,
@@ -153,6 +158,7 @@ pub(crate) fn browse_cached(pool: &str) -> Option<(PoolBrowse, u64)> {
     Some((result, cached.saved_unix))
 }
 
+/// Note naming the metadata generation (epoch prefix) a listing came from.
 fn generation_note(epoch: &str) -> String {
     format!(
         "metadata generation {} (after Apply pool changes or a pool migration)",
@@ -160,7 +166,9 @@ fn generation_note(epoch: &str) -> String {
     )
 }
 
+/// Visible file path -> size in bytes.
 type Files = std::collections::BTreeMap<String, u64>;
+/// Concurrent-edit conflicts of the projection.
 type Conflicts = Vec<crate::mount::peer_projection::Conflict>;
 
 /// `None` when no v6 events exist in any replica.
@@ -174,6 +182,8 @@ fn project_v6(
     )?)
 }
 
+/// Visible files and conflicts of `events` (v6 peer projection); `None`
+/// when there are no events.
 fn project_events(
     events: &crate::mount::pool_sync::Events,
 ) -> anyhow::Result<Option<(Files, Conflicts)>> {
@@ -189,6 +199,8 @@ fn project_events(
     Ok(Some((files, projection.conflicts)))
 }
 
+/// Builds the sorted [`PoolBrowse`] from files (adding implied
+/// directories) with one note per conflict.
 fn listing(pool: &str, mode: &str, files: Files, conflicts: &Conflicts) -> PoolBrowse {
     let mut all: std::collections::BTreeMap<String, BrowseEntry> = Default::default();
     for (path, size) in files {

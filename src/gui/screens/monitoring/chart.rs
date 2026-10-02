@@ -6,7 +6,9 @@ use super::ring::{unit_points, Ring};
 use crate::gui::theme;
 use eframe::egui;
 
+/// Height of an account's live sparkline, in points.
 pub(crate) const SPARKLINE_HEIGHT: f32 = 46.0;
+/// Height of an account's history bar chart, in points.
 pub(crate) const BARS_HEIGHT: f32 = 64.0;
 
 /// Upload and download colours (the success and info foregrounds).
@@ -15,6 +17,8 @@ pub(crate) fn colors(ui: &egui::Ui) -> (egui::Color32, egui::Color32) {
     (theme::success_colors(dark).1, theme::info_colors(dark).1)
 }
 
+/// Allocates a full-width chart area of `height` and paints its background
+/// and border; returns the rectangle to draw into.
 fn frame(ui: &mut egui::Ui, height: f32) -> egui::Rect {
     let p = theme::pal(ui);
     let width = ui.available_width().max(40.0);

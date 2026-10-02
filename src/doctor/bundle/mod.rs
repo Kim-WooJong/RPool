@@ -1,12 +1,17 @@
 //! `rpool doctor --bundle FILE.zip`: a redacted diagnostics archive to attach
 //! to a bug report. Collection, redaction, the manifest and the ZIP writer
 //! each live in their own file.
+/// Gathers the redacted bundle files.
 mod collect;
+/// Renders `manifest.txt`.
 mod manifest;
+/// rclone facts (version, redacted config) behind a testable trait.
 mod rclone_info;
+/// RPool's own redaction rules.
 pub(crate) mod redact;
 #[cfg(test)]
 mod tests;
+/// Minimal stored-only ZIP writer.
 pub(crate) mod zip;
 
 use crate::doctor::Diagnostic;
@@ -18,12 +23,16 @@ pub(crate) use rclone_info::{RcloneCommand, RcloneInfo};
 /// One file of the bundle, already redacted.
 #[derive(Debug)]
 pub(crate) struct Entry {
+    /// Path inside the archive (`/`-separated, relative).
     pub(crate) name: String,
+    /// Redacted file contents.
     pub(crate) bytes: Vec<u8>,
+    /// Where the content came from, for the manifest.
     pub(crate) note: String,
 }
 
 impl Entry {
+    /// Construct an entry; used throughout `collect`.
     pub(crate) fn new(name: &str, bytes: Vec<u8>, note: &str) -> Self {
         Self {
             name: name.into(),
@@ -34,25 +43,36 @@ impl Entry {
 }
 
 #[derive(Debug, Default)]
+/// Output of `collect::collect`: included files plus skip reasons.
 pub(crate) struct Collected {
+    /// Files to put in the archive, in order.
     pub(crate) entries: Vec<Entry>,
     /// `name: reason` of files looked for but not included.
     pub(crate) skipped: Vec<String>,
 }
 
+/// Inputs for one bundle export; built by `export` (or by tests with fixtures).
 pub(crate) struct Sources<'a> {
+    /// RPool's configuration directory (`pools.json`, `gui.json`, `mounts/`, ...).
     pub(crate) config_dir: PathBuf,
     /// `None` with `--local-only`.
     pub(crate) rclone: Option<&'a dyn RcloneInfo>,
+    /// Doctor diagnostics to include as `doctor.json`.
     pub(crate) doctor: Vec<Diagnostic>,
+    /// Export time, stamped into the build info, manifest and ZIP entries.
     pub(crate) now_unix: u64,
 }
 
 #[derive(Debug, serde::Serialize)]
+/// Result of a bundle export, printed by `commands::doctor`.
 pub(crate) struct Summary {
+    /// Where the archive was written.
     pub(crate) path: PathBuf,
+    /// Archive member names, manifest first.
     pub(crate) files: Vec<String>,
+    /// `name: reason` of files not included.
     pub(crate) skipped: Vec<String>,
+    /// Final archive size in bytes (0 if it could not be read back).
     pub(crate) bytes: u64,
 }
 

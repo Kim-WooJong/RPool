@@ -30,6 +30,10 @@ pub(crate) fn allowed(version: Option<&VersionEntry>) -> (bool, bool) {
     }
 }
 
+/// Draws the versions panel of `history.versions`, if open: header with Close
+/// (or "Back to the files" when `narrow`), the version list and the restore
+/// buttons, which start `drive versions restore` through `changes::start`.
+/// Called through `history::versions` from the Library drive view.
 pub(crate) fn show(
     ui: &mut egui::Ui,
     history: &mut HistoryForm,

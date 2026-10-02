@@ -5,6 +5,8 @@ use crate::gui::state::{GuiState, StorageSection};
 use crate::gui::widgets::{status_badge, StatusTone};
 use eframe::egui;
 
+/// One-line status of how many capacity targets have a declared account
+/// identity, with a link to edit them in Pools; hidden without a capacity snapshot.
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let Some(capacity) = &state.mount.session.capacity else {
         return;

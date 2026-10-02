@@ -14,9 +14,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Set by the signal handler; copied into the run's stop flag by a watcher thread.
 static SIGNALLED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
+/// macOS/Linux: installs the SIGINT/SIGTERM handler; returns false if
+/// `signal` failed (then no stop flag is wired).
 fn install_handlers() -> bool {
     extern "C" fn on_signal(signal: libc::c_int) {
         SIGNALLED.store(true, Ordering::SeqCst);
@@ -35,6 +38,7 @@ fn install_handlers() -> bool {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+/// Other platforms: installs nothing (the process ends on Ctrl-C).
 fn install_handlers() -> bool {
     false
 }

@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 /// maintenance or recovery run of that pool).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct MountedSession {
+    /// Pool of the session.
     pub(crate) pool: String,
+    /// Workspace of the session.
     pub(crate) workspace: PathBuf,
     /// Drive letter or mount folder; empty when `mounted` is false.
     pub(crate) mountpoint: String,
@@ -30,6 +32,7 @@ pub(crate) fn mounted_sessions(state: &GuiState) -> Vec<MountedSession> {
     state.mount.mounted_sessions()
 }
 
+/// Display name of a drive frontend ("FUSE", "WinFsp", "WebDAV").
 pub(crate) fn frontend_label(frontend: crate::cli::Frontend) -> &'static str {
     use crate::cli::Frontend;
     match frontend {
@@ -51,6 +54,7 @@ pub(crate) enum Conflict {
 }
 
 impl Conflict {
+    /// Translated explanation of the conflict, shown in the status bar.
     pub(crate) fn message(&self) -> String {
         match self {
             Self::Pool(pool) => trf("Pool {pool} is already mounted or busy. Unmount it first.", &[("pool", pool)]),
@@ -99,6 +103,8 @@ fn path_key(value: &str) -> PathBuf {
     }
 }
 
+/// Comparable key of a mountpoint: `X:` for a drive letter, else the
+/// resolved path; `None` when empty.
 fn mount_key(value: &str) -> Option<String> {
     if value.trim().is_empty() {
         return None;
@@ -228,6 +234,7 @@ impl MountForm {
         all
     }
 
+    /// Every running session (selected and background), sorted by pool.
     pub(crate) fn mounted_sessions(&self) -> Vec<MountedSession> {
         self.all_sessions()
             .into_iter()
@@ -265,6 +272,7 @@ impl MountForm {
             .collect()
     }
 
+    /// Whether any pool's session is running.
     pub(crate) fn any_running(&self) -> bool {
         self.session.is_running() || self.background.values().any(MountSession::is_running)
     }

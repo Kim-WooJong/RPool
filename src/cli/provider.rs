@@ -1,14 +1,21 @@
+//! Arguments of `rpool provider`: account limits, keepalive, crypt remote
+//! creation, name encoding, health, speed test and drain. Dispatched in
+//! `application::dispatch` to `commands::provider`, `config_sync::provision`
+//! and `speedtest`.
 use crate::config::constants::{DEFAULT_RETRIES, DEFAULT_WORKERS};
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Args, Debug)]
+/// Arguments of the `rpool provider` group.
 pub(crate) struct ProviderArgs {
     #[command(subcommand)]
+    /// Selected `provider` subcommand.
     pub(crate) command: ProviderCommands,
 }
 
 #[derive(Subcommand, Debug)]
+/// Subcommands of `rpool provider`.
 pub(crate) enum ProviderCommands {
     /// Daily upload budgets, bandwidth/request limits and inactivity warnings.
     Limits(super::provider_limits::LimitsArgs),
@@ -20,6 +27,7 @@ pub(crate) enum ProviderCommands {
         #[arg(long = "remote")]
         remotes: Vec<String>,
         #[arg(long)]
+        /// Print JSON instead of text.
         json: bool,
     },
     /// Add missing crypt remotes for base providers without replacing existing keys.
@@ -28,8 +36,10 @@ pub(crate) enum ProviderCommands {
         #[arg(long, default_value_t = 1024)]
         entropy_bits: usize,
         #[arg(long, default_value = "standard")]
+        /// rclone crypt `filename_encryption` for new crypt remotes (`standard`, `obfuscate` or `off`).
         filename_encryption: String,
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        /// rclone crypt `directory_name_encryption` for new crypt remotes.
         directory_encryption: bool,
         /// How encrypted names are stored: base32 (rclone default, works
         /// everywhere), base32768 (about a quarter of the characters, for
@@ -38,11 +48,13 @@ pub(crate) enum ProviderCommands {
         #[arg(long, default_value = "base32")]
         filename_encoding: String,
         #[arg(long)]
+        /// Print JSON instead of text.
         json: bool,
     },
     /// Create a new crypt remote with OS-generated keys, never rotate existing keys.
     Encrypt {
         #[arg(long)]
+        /// Name of the new crypt remote, without colon.
         name: String,
         /// Existing non-crypt remote name, without colon.
         #[arg(long)]
@@ -51,8 +63,10 @@ pub(crate) enum ProviderCommands {
         #[arg(long, default_value_t = 1024)]
         entropy_bits: usize,
         #[arg(long, default_value = "standard")]
+        /// rclone crypt `filename_encryption` (`standard`, `obfuscate` or `off`).
         filename_encryption: String,
         #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        /// rclone crypt `directory_name_encryption`.
         directory_encryption: bool,
         /// How encrypted names are stored: base32 (rclone default, works
         /// everywhere), base32768 (about a quarter of the characters, for
@@ -74,8 +88,10 @@ pub(crate) enum ProviderCommands {
         #[arg(long)]
         encoding: String,
         #[arg(long)]
+        /// Allow the change even though the remote already holds files.
         existing_files_ok: bool,
         #[arg(long)]
+        /// Print JSON instead of text.
         json: bool,
     },
     /// Check provider accessibility, latency, and quota information.
@@ -85,12 +101,15 @@ pub(crate) enum ProviderCommands {
         remotes: Vec<String>,
 
         #[arg(long)]
+        /// Check the remotes of this saved pool.
         pool: Option<String>,
 
         #[arg(long, default_value_t = DEFAULT_WORKERS)]
+        /// Number of remotes checked concurrently.
         workers: usize,
 
         #[arg(long)]
+        /// Print JSON instead of text.
         json: bool,
     },
 
@@ -103,6 +122,7 @@ pub(crate) enum ProviderCommands {
         #[arg(long = "remote", required = true)]
         remotes: Vec<String>,
         #[command(flatten)]
+        /// Test volume, file count, tuning and output options.
         size: crate::cli::pool::SpeedTestSizeArgs,
     },
 
@@ -112,9 +132,11 @@ pub(crate) enum ProviderCommands {
         manifest: String,
 
         #[arg(long)]
+        /// Remote whose shards are moved away.
         from: String,
 
         #[arg(long)]
+        /// Remote that receives the shards.
         to: String,
 
         /// Output manifest path. Required when the input manifest is remote.
@@ -122,9 +144,11 @@ pub(crate) enum ProviderCommands {
         output: Option<PathBuf>,
 
         #[arg(long, default_value_t = DEFAULT_WORKERS)]
+        /// Number of shard transfers performed concurrently.
         workers: usize,
 
         #[arg(long, default_value_t = DEFAULT_RETRIES)]
+        /// Whole-shard copy attempts.
         retries: u32,
 
         /// Print the migration plan without copying or modifying anything.

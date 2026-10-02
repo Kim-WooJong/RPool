@@ -1,7 +1,9 @@
+//! Arguments of `rpool doctor`, consumed by `commands::doctor`.
 use clap::Args;
 use std::path::PathBuf;
 
 #[derive(Args, Debug)]
+/// Options of `rpool doctor`: local-only checks, JSON output, optional diagnostics bundle.
 pub(crate) struct DoctorArgs {
     /// Check local metadata without probing rclone or legacy remote encryption.
     #[arg(long)]

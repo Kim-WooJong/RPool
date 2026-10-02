@@ -65,6 +65,8 @@ fn follow_moves(history: &History, lineages: &mut Vec<String>) {
     }
 }
 
+/// Classify a revision: deletion, first revision, restore (content seen in an
+/// earlier, non-parent ancestor or parents all deletions) or modification.
 fn kind(history: &History, id: &str) -> VersionKind {
     let rev = &history.revs[id];
     let Some(content) = &rev.content else {
@@ -108,6 +110,9 @@ fn purged_bytes(history: &History) -> BTreeSet<String> {
         .collect()
 }
 
+/// Every revision of the lineages of `path`, newest first, with kind, size,
+/// author, whether it is current and whether its data is still restorable.
+/// Used by `ops::read` for `Op::VersionsList`.
 pub(crate) fn list(history: &History, path: &str) -> Result<Vec<VersionEntry>> {
     let lineages = lineages(history, path)?;
     let current: BTreeSet<String> = history.view_at(None)?.into_values().collect();

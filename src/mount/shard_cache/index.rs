@@ -11,22 +11,29 @@ use std::time::Duration;
 /// displaces data the user is actively reading.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum Admission {
+    /// A reader needs the bytes now.
     Demand,
+    /// Readahead / background relief.
     Prefetch,
 }
 
 /// Recently accessed entries readahead must not evict.
 pub(super) const PREFETCH_PROTECT: Duration = Duration::from_secs(30);
 
+/// One published clean cache entry.
 struct Entry {
+    /// File size in bytes.
     size: u64,
+    /// Last access, the LRU key.
     accessed: SystemTime,
     /// Open reads copying from this entry; a pinned entry is never evicted.
     pins: u32,
 }
 
+/// Accounting of the clean cache, kept under the cache state mutex.
 #[derive(Default)]
 pub(super) struct Index {
+    /// Entries by file name (`<blake3>-<size>`).
     entries: HashMap<String, Entry>,
     /// Sum of published entry sizes.
     total: u64,
@@ -34,6 +41,7 @@ pub(super) struct Index {
     reserved: u64,
 }
 
+/// Whether `name` has the cache entry form `<64 hex>-<size>`.
 pub(super) fn is_entry_name(name: &str) -> bool {
     let Some((hash, size)) = name.split_once('-') else {
         return false;
@@ -42,6 +50,7 @@ pub(super) fn is_entry_name(name: &str) -> bool {
 }
 
 impl Index {
+    /// Indexes every regular entry-named file in `root` (other files ignored).
     pub(super) fn scan(root: &Path) -> Result<Self> {
         let mut index = Self::default();
         for item in fs::read_dir(root)? {
@@ -57,9 +66,11 @@ impl Index {
         }
         Ok(index)
     }
+    /// Published plus reserved bytes, compared against the cache limit.
     pub(super) fn used(&self) -> u64 {
         self.total.saturating_add(self.reserved)
     }
+    /// Whether an entry with this name is published.
     pub(super) fn contains(&self, name: &str) -> bool {
         self.entries.contains_key(name)
     }
@@ -88,6 +99,7 @@ impl Index {
         self.total -= entry.size;
         Some(entry.size)
     }
+    /// Pins an entry for an open read; false if it is not published.
     pub(super) fn pin(&mut self, name: &str) -> bool {
         match self.entries.get_mut(name) {
             Some(entry) => {
@@ -97,6 +109,7 @@ impl Index {
             None => false,
         }
     }
+    /// Releases one pin and advances the access time to `accessed`, if given.
     pub(super) fn unpin(&mut self, name: &str, accessed: Option<SystemTime>) {
         if let Some(entry) = self.entries.get_mut(name) {
             entry.pins = entry.pins.saturating_sub(1);
@@ -105,9 +118,11 @@ impl Index {
             }
         }
     }
+    /// Adds bytes promised to a download or restore.
     pub(super) fn reserve(&mut self, bytes: u64) {
         self.reserved += bytes;
     }
+    /// Returns reserved bytes (saturating).
     pub(super) fn release(&mut self, bytes: u64) {
         self.reserved = self.reserved.saturating_sub(bytes);
     }

@@ -9,8 +9,10 @@ use std::collections::VecDeque;
 /// Remembered read streams; the oldest stream is forgotten first.
 const STREAMS: usize = 64;
 
+/// Recently read streams for sequential-access detection (most recent first).
 #[derive(Default)]
 pub(super) struct Sequential {
+    /// (stream key, end offset of its last read), at most `STREAMS` entries.
     streams: VecDeque<(String, u64)>,
 }
 

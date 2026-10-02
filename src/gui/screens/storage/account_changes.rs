@@ -7,6 +7,8 @@ use crate::gui::task::TaskRunner;
 use crate::gui::theme;
 use eframe::egui;
 
+/// Renders the Account changes section (`StorageSection::Changes` in
+/// `storage::show`): migration wizard card, then the collapsible manual tools.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     theme::page_body(ui, "account-changes", |ui| {
         theme::page_header(

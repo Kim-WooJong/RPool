@@ -15,11 +15,16 @@ const TASK: &str = "Drive metadata";
 /// Last result per pool for this session (never saved).
 #[derive(Debug, Default)]
 pub(crate) struct MetadataForm {
+    /// Pool whose check/compact task is running; taken by `handle_task_completion`.
     pub(crate) running: Option<String>,
+    /// Last report per pool; inner `None` = the pool has no drive metadata.
     pub(crate) results: BTreeMap<String, Option<Report>>,
+    /// Start or failure message per pool, shown under the buttons.
     pub(crate) notices: BTreeMap<String, String>,
 }
 
+/// "Drive metadata" card on the Pools page (called by `pools.rs`); needs a
+/// saved pool selected or named in the pool form.
 pub(crate) fn pool_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     let saved = [state.pools.name.trim(), state.pools.selected.as_str()]
         .into_iter()
@@ -40,6 +45,8 @@ pub(crate) fn pool_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut Task
     );
 }
 
+/// Card body: Check (dry run) and Compact buttons, the running hint, the
+/// last notice and the report summary for `pool`.
 fn body(
     ui: &mut egui::Ui,
     form: &mut MetadataForm,
@@ -122,6 +129,7 @@ pub(crate) fn summary(r: &Report) -> Vec<String> {
     lines
 }
 
+/// Argv of `rpool pool compact --json [--dry-run] -- <pool>`.
 pub(crate) fn args(pool: &str, dry_run: bool) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec!["pool".into(), "compact".into(), "--json".into()];
     if dry_run {
@@ -131,6 +139,8 @@ pub(crate) fn args(pool: &str, dry_run: bool) -> Vec<OsString> {
     args
 }
 
+/// Starts the compact task (`dry_run` = Check metadata) and remembers the
+/// pool, or records the start error as the pool's notice.
 fn start(form: &mut MetadataForm, task: &mut TaskRunner, rclone: &str, pool: &str, dry_run: bool) {
     match task.start_rpool(TASK, rclone, args(pool, dry_run)) {
         Ok(()) => {

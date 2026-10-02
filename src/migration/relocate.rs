@@ -87,6 +87,7 @@ pub(crate) struct Relocated {
 /// orchestrator owns the type; the migration records the archive as lost.
 pub(crate) use super::execute::Unrecoverable;
 
+/// Wraps definite group losses as an [`Unrecoverable`] error.
 fn unrecoverable(losses: Vec<GroupLoss>) -> anyhow::Error {
     Unrecoverable(losses).into()
 }
@@ -96,7 +97,9 @@ fn unrecoverable(losses: Vec<GroupLoss>) -> anyhow::Error {
 /// text starts with the stable marker `UnknownGroup`.
 #[derive(Debug, Clone)]
 pub(crate) struct RelocateError {
+    /// Source archive that could not be relocated.
     pub archive_id: String,
+    /// Groups short of K readable shards, with the missing shards.
     pub losses: Vec<GroupLoss>,
     /// Objects already written under the new archive id before the problem was
     /// discovered (only possible when a shard fails during download after the
@@ -104,6 +107,7 @@ pub(crate) struct RelocateError {
     pub orphans: Vec<String>,
 }
 
+/// Appends " group G has A/K shards" per loss to the `Display` text.
 fn write_losses(f: &mut std::fmt::Formatter<'_>, losses: &[GroupLoss]) -> std::fmt::Result {
     for loss in losses {
         write!(
@@ -176,10 +180,13 @@ fn pool_writer(rclone: &str, target: &PoolDefinition) -> StorageWriter {
 /// already has its own verification (hash or readback).
 pub(crate) const FULL_SCAN_AFTER_RELOCATION: bool = false;
 
+/// True when env var `name` is `1`, `true` or `yes`.
 fn env_flag(name: &str) -> bool {
     std::env::var(name).is_ok_and(|v| matches!(v.trim(), "1" | "true" | "yes"))
 }
 
+/// Full readback scan wanted: [`FULL_SCAN_AFTER_RELOCATION`] or
+/// `RPOOL_MIGRATE_FULL_SCAN=1`.
 fn force_full_scan() -> bool {
     FULL_SCAN_AFTER_RELOCATION || env_flag("RPOOL_MIGRATE_FULL_SCAN")
 }
@@ -200,12 +207,18 @@ pub(super) trait ShardCopier: Sync {
 /// Production copier: `rclone copyto` over the crypt remotes. Capabilities
 /// are queried once per rclone remote name.
 pub(super) struct RcloneCopier {
+    /// rclone context used for copies, hashes and capability queries.
     context: RcloneContext,
+    /// Operation context (no cancellation/progress) for those calls.
     ctx: OperationContext,
+    /// Crypt copy capabilities per rclone remote name; `None` when the query
+    /// failed (treated as unknown, never retried).
     capabilities: Mutex<BTreeMap<String, Option<CryptCopyCapabilities>>>,
 }
 
 impl RcloneCopier {
+    /// Copier over the rclone binary at `rclone`; used by [`relocate`] unless
+    /// `RPOOL_MIGRATE_NO_COPY` is set.
     pub(super) fn new(rclone: &str) -> Self {
         Self {
             context: RcloneContext::inherited(rclone),
@@ -213,6 +226,8 @@ impl RcloneCopier {
             capabilities: Mutex::new(BTreeMap::new()),
         }
     }
+    /// Cached copy capabilities of the remote behind `address`; logs and caches
+    /// `None` on query errors.
     fn capabilities(&self, address: &str) -> Option<CryptCopyCapabilities> {
         let name = remote_name(address).ok()?.to_owned();
         if let Some(known) = self.capabilities.lock().ok()?.get(&name) {
@@ -272,10 +287,13 @@ pub(super) enum Verified {
 /// Why a direct transfer failed: the source could not be read (the group
 /// falls back to reconstruction) or the destination could not be written.
 enum Failure {
+    /// Reading the source shard failed.
     Source(anyhow::Error),
+    /// Writing or copying to the destination failed.
     Write(anyhow::Error),
 }
 
+/// True when `error` is a `StorageError` of kind `AlreadyExists`.
 fn is_already_exists(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<StorageError>()
@@ -284,19 +302,30 @@ fn is_already_exists(error: &anyhow::Error) -> bool {
 
 /// Transfer primitives of one relocation, with byte counters.
 struct Work<'a> {
+    /// Writer of the target pool.
     storage: &'a StorageWriter,
+    /// Reader for source shards and readbacks.
     reader: &'a crate::storage::reader::StorageReader,
+    /// Provider-side copier; `None` streams every shard through this PC.
     copier: Option<&'a dyn ShardCopier>,
+    /// Original archive's manifest.
     source: &'a Manifest,
+    /// Replacement manifest (same shard order as `source`).
     manifest: &'a Manifest,
+    /// Transfer retries per shard (from the target pool).
     retries: u32,
+    /// Bytes downloaded to this PC.
     downloaded: AtomicU64,
+    /// Bytes uploaded from this PC.
     uploaded: AtomicU64,
+    /// Bytes copied by the provider (server-side).
     server_side: AtomicU64,
+    /// Bytes read back for verification.
     readback: AtomicU64,
 }
 
 impl Work<'_> {
+    /// (downloaded, uploaded, server-side, readback) byte totals for `Relocated`.
     fn counters(&self) -> (u64, u64, u64, u64) {
         (
             self.downloaded.load(Ordering::Relaxed),
@@ -305,6 +334,7 @@ impl Work<'_> {
             self.readback.load(Ordering::Relaxed),
         )
     }
+    /// True when the copier would copy shard `i` server-side.
     fn server_side(&self, i: usize) -> bool {
         self.copier.is_some_and(|c| {
             c.server_side(
@@ -397,6 +427,8 @@ struct Probed {
     problem: Option<MissingReason>,
 }
 
+/// Missing reason for a probe result; a provider error counts as a loss
+/// only off target (removed remote), otherwise as `ProviderError`.
 fn reason_for(probe: &Probe, on_target: bool) -> Option<MissingReason> {
     match probe {
         Probe::Ok => None,
@@ -408,6 +440,7 @@ fn reason_for(probe: &Probe, on_target: bool) -> Option<MissingReason> {
     }
 }
 
+/// Same classification as [`reason_for`] for a failed download.
 fn reason_for_error(error: &anyhow::Error, on_target: bool) -> MissingReason {
     match error.downcast_ref::<StorageError>().map(StorageError::kind) {
         Some(StorageErrorKind::NotFound) => MissingReason::Missing,
@@ -417,6 +450,7 @@ fn reason_for_error(error: &anyhow::Error, on_target: bool) -> MissingReason {
     }
 }
 
+/// True when `error` is a `StorageError` of kind `NotFound`.
 fn is_not_found(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<StorageError>()
@@ -436,6 +470,9 @@ fn relative_object(archive_id: &str, shard: &Shard, coding: Option<&Coding>) -> 
     }
 }
 
+/// Rejects relocations that are not allowed: non-v2 or invalid source,
+/// unsafe/reused archive id, empty or duplicate remotes, or changed coding
+/// or shard size (those need a re-encode), and object size over the limit.
 fn check_inputs(
     source: &Manifest,
     target: &PoolDefinition,
@@ -507,6 +544,8 @@ fn groups_of(source: &Manifest) -> Vec<(u32, Vec<usize>, usize)> {
         .collect()
 }
 
+/// Loss of one group when fewer than `required` members are free of
+/// `problems`; `available` counts the virtual zero data slots.
 fn group_loss(
     source: &Manifest,
     group: u32,
@@ -540,6 +579,9 @@ fn group_loss(
     })
 }
 
+/// Error for failed groups: [`RelocateError`] (retry later) when any
+/// missing shard is a provider error, otherwise [`Unrecoverable`] (orphans
+/// are only logged).
 fn failure(source: &Manifest, losses: Vec<GroupLoss>, orphans: Vec<String>) -> anyhow::Error {
     let unknown = losses.iter().any(|loss| {
         loss.missing
@@ -561,6 +603,8 @@ fn failure(source: &Manifest, losses: Vec<GroupLoss>, orphans: Vec<String>) -> a
 }
 
 #[allow(clippy::too_many_arguments)]
+/// [`relocate`] with injected storage and copier (tests use fakes): probe,
+/// assign slots, transfer/rebuild per group, verify, publish the manifest.
 pub(super) fn relocate_with_storage(
     storage: &StorageWriter,
     copier: Option<&dyn ShardCopier>,

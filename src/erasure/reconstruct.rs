@@ -1,7 +1,12 @@
+//! Data-shard recovery for downloads (`commands::get_hedged`).
 use crate::manifest::data_shards;
 use crate::prelude::*;
 use crate::utils::{hash_file_range, read_exact_at, write_all_at};
 
+/// Rebuild `missing_data` shards of `group` in place inside `output` (the
+/// partially downloaded file) from the present data shards and the
+/// `local_parity` files `(slot, path)`. Fails if fewer parity shards than
+/// missing shards are available or a rebuilt shard fails its BLAKE3 check.
 pub(crate) fn reconstruct_group(
     manifest: &Manifest,
     coding: &Coding,

@@ -1,3 +1,7 @@
+//! Manifest replica cards of Maintenance › Metadata: choose where the replicas
+//! live (pool or explicit remotes), verify or rewrite them against a reference
+//! manifest, or recover a lost manifest by archive ID.
+
 use crate::gui::i18n::tr;
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
@@ -6,6 +10,8 @@ use crate::gui::widgets::{local_file_field, output_file_field, remote_selector};
 use eframe::egui;
 use std::ffi::OsString;
 
+/// Draws the location card and the check / recover cards side by side.
+/// Called by `metadata::show`.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     theme::card_section(ui, tr("Where the manifest replicas live"), Some(tr("Used by all three actions below: a pool, or explicit crypt remotes. With neither, the manifest's own providers are used.")), |_| {}, |ui| {
         pool_selector(ui, &state.pool_names, &mut state.manifest.pool_name);
@@ -28,6 +34,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     );
 }
 
+/// "Check replicas" card: Verify replicas and Replicate / repair.
 fn check_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     theme::card_section(
         ui,
@@ -64,6 +71,7 @@ fn check_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     );
 }
 
+/// "Recover a lost manifest" card: archive ID, optional output, Recover.
 fn recover_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     theme::card_section(
         ui,
@@ -93,6 +101,7 @@ fn recover_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) 
     );
 }
 
+/// Optional pool combo box ("Derive from manifest" = none).
 fn pool_selector(ui: &mut egui::Ui, pool_names: &[String], selected: &mut String) {
     ui.horizontal_wrapped(|ui| {
         ui.label(tr("Target pool (optional)"));
@@ -111,6 +120,8 @@ fn pool_selector(ui: &mut egui::Ui, pool_names: &[String], selected: &mut String
     });
 }
 
+/// Starts `rpool manifest <action> …` ("verify" or "replicate") as the
+/// "Manifest" task.
 fn start_reference_action(
     state: &GuiState,
     task: &mut TaskRunner,
@@ -123,6 +134,9 @@ fn start_reference_action(
     )
 }
 
+/// Arguments of `manifest verify|replicate <reference>` with `--pool` or the
+/// explicit `--remote`s; replicate also passes `--retries`. Errors without a
+/// reference manifest.
 fn reference_args(state: &GuiState, action: &str) -> Result<Vec<OsString>, String> {
     let reference = state.manifest.reference.trim();
     if reference.is_empty() {
@@ -152,6 +166,8 @@ fn reference_args(state: &GuiState, action: &str) -> Result<Vec<OsString>, Strin
     Ok(args)
 }
 
+/// Starts `rpool manifest recover <archive_id>` with `--pool` or `--remote`s
+/// and an optional `--output`. Needs an archive ID and a pool or remote.
 fn start_recovery(state: &GuiState, task: &mut TaskRunner) -> Result<(), String> {
     let archive_id = state.manifest.recovery_archive_id.trim();
     if archive_id.is_empty() {

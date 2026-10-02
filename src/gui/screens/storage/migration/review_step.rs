@@ -18,6 +18,7 @@ pub(super) fn quota_verdict(quota_ok: Option<bool>) -> (&'static str, StatusTone
     }
 }
 
+/// Count badges and the size / ETA / quota grid of a plan, plus its notes.
 pub(super) fn summary(ui: &mut egui::Ui, plan: &Plan) {
     let c = &plan.counts;
     ui.horizontal_wrapped(|ui| {
@@ -94,6 +95,8 @@ pub(super) fn summary(ui: &mut egui::Ui, plan: &Plan) {
     }
 }
 
+/// Renders step 2: plan summary, drive part and the Start / Lost files /
+/// Discard / Back buttons; falls back to the plan step without a plan.
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     let Some(plan) = state.migration.plan.clone() else {
         state.migration.reset_to_plan();

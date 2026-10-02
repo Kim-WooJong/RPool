@@ -12,10 +12,15 @@ use std::time::{Duration, Instant};
 
 use super::stall::Stall;
 
+/// Pipe read/write buffer size (bytes) for stdin/stdout streaming; also the pacing/metering granularity.
 pub(super) const CHUNK: usize = 64 * 1024;
+/// Most stderr bytes kept for error classification; the rest is drained and dropped.
 const STDERR_LIMIT: usize = 16 * 1024;
+/// Supervisor polling interval; also the base for cancellation polling in `limit` and `pacer`.
 pub(super) const POLL: Duration = Duration::from_millis(10);
 
+/// Fails with `Cancelled` or `Timeout` when `ctx` was cancelled or its deadline passed.
+/// Polled throughout the runner, the caps in `limit` and the `pacer` waits.
 pub(super) fn check(ctx: &OperationContext) -> Result<(), StorageError> {
     if ctx.is_cancelled() {
         return Err(StorageError::Cancelled {
@@ -29,11 +34,14 @@ pub(super) fn check(ctx: &OperationContext) -> Result<(), StorageError> {
     }
     Ok(())
 }
+/// Generic retriable stream failure; never carries OS error text.
 fn io_error() -> StorageError {
     StorageError::TransientIo {
         detail: "rclone stream I/O failed".into(),
     }
 }
+/// Maps a sink write error: admin output cap overflow -> `OutputBoundsViolated`,
+/// invalid data/input -> invalid input, anything else -> transient I/O.
 pub(super) fn sink_error(error: std::io::Error) -> StorageError {
     if error
         .get_ref()
@@ -50,6 +58,7 @@ pub(super) fn sink_error(error: std::io::Error) -> StorageError {
     }
 }
 
+/// Kills and reaps the child on drop, so an unwind or early return never leaves rclone running.
 struct ChildGuard(Arc<Mutex<Child>>);
 impl Drop for ChildGuard {
     fn drop(&mut self) {
@@ -168,6 +177,10 @@ pub(super) fn rate_limited(text: &str) -> Option<StorageError> {
     )
 }
 
+/// Turns a failed rclone exit into a [`StorageError`] from its exit code and stderr.
+/// Mutations are `RateLimited` only on explicit provider rejection evidence, else
+/// unknown outcome (the write may have happened); reads map denial, missing (exit 3/4),
+/// rate limits, timeouts and exit 5 (I/O). Used by every subprocess call.
 pub(super) fn classify(status: ExitStatus, stderr: &[u8], mutation: bool) -> StorageError {
     if mutation {
         if upload_limit_reported(stderr) {
@@ -217,7 +230,7 @@ pub(super) fn run(
     run_metered(command, ctx, source, sink, mutation, None)
 }
 
-/// [`run`] that counts each stdin chunk rclone accepted as sent and each
+/// `run` that counts each stdin chunk rclone accepted as sent and each
 /// stdout chunk as received bytes of `meter`.
 pub(super) fn run_metered(
     command: &mut Command,
@@ -254,6 +267,9 @@ pub(super) fn run_upload(
 /// Detail of the retriable error of a stalled upload.
 pub(super) const STALLED_DETAIL: &str = "rclone upload stalled; stopped so it can be re-sent";
 
+/// Shared body of [`run_metered`] and [`run_upload`]: spawns `command`, streams
+/// `source` to stdin or stdout to `sink`, while a supervisor thread kills the child
+/// on cancellation, deadline or upload stall; returns bytes streamed or the classified error.
 fn run_supervised(
     command: &mut Command,
     ctx: &OperationContext,

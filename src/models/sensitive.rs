@@ -5,12 +5,16 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 #[serde(transparent)]
+/// A secret string (e.g. an obscured crypt password) that is zeroed on drop
+/// and serialized transparently as a plain JSON string.
 pub(crate) struct SensitiveText(String);
 
 impl SensitiveText {
+    /// Takes ownership of `value`.
     pub(crate) fn new(value: String) -> Self {
         Self(value)
     }
+    /// The secret text; callers must not log it.
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
@@ -23,6 +27,7 @@ impl Drop for SensitiveText {
     }
 }
 
+/// Secret bytes (generated keys, decrypted config) zeroed on drop.
 pub(crate) struct SensitiveBytes(pub(crate) Vec<u8>);
 
 impl Drop for SensitiveBytes {

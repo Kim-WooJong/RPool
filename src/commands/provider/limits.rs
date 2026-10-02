@@ -11,6 +11,8 @@ use crate::storage::rclone::RcloneContext;
 use crate::storage::traits::OperationContext;
 use std::time::{Duration, Instant};
 
+/// Executes one `provider limits` subcommand: edits the account limits store
+/// (`storage::account::store`) or shows it. Called via `commands::provider::limits`.
 pub(crate) fn run(rclone: &str, command: LimitsCommands) -> Result<()> {
     match command {
         LimitsCommands::Show { json } => show(rclone, json),
@@ -100,6 +102,7 @@ pub(crate) fn run(rclone: &str, command: LimitsCommands) -> Result<()> {
     }
 }
 
+/// Text line describing the default simultaneous uploads per account.
 fn default_uploads_line(store: &crate::storage::account::limits::LimitsStore) -> String {
     match store.default_max_uploads {
         Some(n) => format!(
@@ -109,6 +112,7 @@ fn default_uploads_line(store: &crate::storage::account::limits::LimitsStore) ->
     }
 }
 
+/// Text line describing the default simultaneous downloads per account.
 fn default_downloads_line(store: &crate::storage::account::limits::LimitsStore) -> String {
     match store.default_max_downloads {
         Some(n) => format!(
@@ -129,6 +133,8 @@ fn resolve_account(rclone: &str, remote: &str) -> String {
     }
 }
 
+/// Prints the global bandwidth timetable, the rate in effect now (local time)
+/// and when it changes next.
 fn print_bandwidth(text: Option<&str>) -> Result<()> {
     let Some(text) = text else {
         println!("Bandwidth: unlimited");
@@ -153,6 +159,8 @@ fn print_bandwidth(text: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// `limits show`: per-account budget, pause state, activity and overrides as a
+/// table or JSON, followed by the defaults and the bandwidth timetable.
 fn show(rclone: &str, json: bool) -> Result<()> {
     let catalog = RcloneAdmin::inherited(rclone).catalog()?;
     let accounts = limits_view::accounts_from_catalog(&catalog);
@@ -216,6 +224,7 @@ Inactivity is measured from this computer's last successful call; providers deci
     Ok(())
 }
 
+/// "uploaded in 24 h / budget" table cell.
 fn budget_cell(row: &AccountStatus) -> String {
     let used = format_bytes(row.uploaded_24h);
     match row.daily_upload_limit {
@@ -224,6 +233,7 @@ fn budget_cell(row: &AccountStatus) -> String {
     }
 }
 
+/// State table cell: `ok`, or the pause reason with the remaining wait.
 fn state_cell(row: &AccountStatus, now: u64) -> String {
     match (row.pause_reason, row.paused_until_unix) {
         (Some("provider"), Some(until)) => {
@@ -239,6 +249,7 @@ fn state_cell(row: &AccountStatus, now: u64) -> String {
     }
 }
 
+/// Last-activity table cell, with a warning when near or over the inactivity limit.
 fn activity_cell(row: &AccountStatus) -> String {
     let age = match row.inactive_days {
         Some(0) => "today".to_string(),

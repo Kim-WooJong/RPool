@@ -4,6 +4,7 @@
 //! drive is overwritten without the ancestry a WebDAV write would have had.
 //! Everything else is kept in `recovered-native-cache/<id>` and reported.
 #[path = "cache_recovery_scan.rs"]
+/// Parser of a frozen rclone VFS cache directory.
 mod scan;
 
 use super::namespace::{durable_json, random_id, valid_path};
@@ -11,31 +12,42 @@ use super::virtual_drive::{Revision, VirtualDrive};
 use crate::prelude::*;
 use scan::{CacheEntry, EntryKind};
 
+/// Per-directory journal inside each frozen cache; makes recovery resumable and idempotent.
 const JOURNAL: &str = "rpool-recovery.json";
+/// Status file in `.rpool/` with the latest [`RecoveryReport`]s; read by the GUI mount screen.
 pub(crate) const REPORT: &str = "cache-recovery.json";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "kebab-case")]
+/// What happened to one cache entry; journaled per drive path so reruns repeat the decision.
 pub(crate) enum Outcome {
     /// Imported at its own path as the next write.
     Imported {
+        /// Id of the sealed pending write that holds the data.
         intent: String,
     },
     /// Imported next to the original as a named copy.
     Copied {
+        /// Drive path of the named copy (see [`recovered_name`]).
         target: String,
+        /// Id of the sealed pending write that holds the data.
         intent: String,
     },
+    /// Not imported because the same content is already in the drive.
     Skipped {
+        /// Short human-readable explanation.
         reason: String,
     },
+    /// Not imported; the entry stays in the frozen cache folder for the user.
     Kept {
+        /// Short human-readable explanation.
         reason: String,
     },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+/// Origin of a frozen cache directory; decides whether in-place import is allowed.
 enum Source {
     /// The cache of the last WebDAV session of this workspace.
     DavCache,
@@ -45,22 +57,33 @@ enum Source {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+/// Recovery journal (`rpool-recovery.json`) of one frozen cache directory.
 struct Journal {
+    /// Journal format version (currently 1).
     version: u32,
+    /// Where the frozen cache came from.
     source: Source,
+    /// All entries were handled; the directory is skipped on later runs.
     done: bool,
     #[serde(default)]
+    /// Outcome per drive path already decided.
     entries: BTreeMap<String, Outcome>,
 }
 
 /// Summary of one recovered cache directory, also saved for the GUI.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct RecoveryReport {
+    /// Frozen cache directory under `recovered-native-cache/`.
     pub dir: PathBuf,
+    /// Drive paths imported in place.
     pub imported: Vec<String>,
+    /// `(original path, recovered copy path)` pairs.
     pub copied: Vec<(String, String)>,
+    /// `(path, reason)` of entries left in the cache folder; empty path means the whole directory.
     pub kept: Vec<(String, String)>,
+    /// Entries skipped because their content was already present.
     pub skipped: usize,
+    /// Clean (read-only cache) entries that needed nothing.
     pub clean: usize,
     /// The directory held nothing to keep and was removed.
     pub removed: bool,
@@ -99,6 +122,8 @@ impl VirtualDrive {
         Ok(reports)
     }
 
+    /// Moves a non-empty `vfs-cache` into `recovered-native-cache/<random id>`, writing its
+    /// `DavCache` journal first.
     fn freeze_cache(&self, recovery: &Path) -> Result<()> {
         let cache = self.root.join("vfs-cache");
         if !cache.exists() {
@@ -123,6 +148,8 @@ impl VirtualDrive {
         Ok(())
     }
 
+    /// Recovers one frozen cache directory per its journal; removes it when nothing was kept.
+    /// Returns `None` when already done or nothing notable happened.
     fn recover_dir(&self, dir: &Path) -> Result<Option<RecoveryReport>> {
         let path = dir.join(JOURNAL);
         let mut journal = match fs::read(&path) {
@@ -204,6 +231,8 @@ impl VirtualDrive {
         Ok((!quiet || !report.kept.is_empty()).then_some(report))
     }
 
+    /// Imports one dirty entry as a sealed pending write, in place when its ancestry is safe,
+    /// otherwise as a named recovered copy. Problems become `Kept` instead of errors.
     fn import_entry(&self, entry: &CacheEntry, tag: &str, source: Source) -> Result<Outcome> {
         if valid_path(&entry.rel).is_err() {
             return Ok(Outcome::Kept {
@@ -274,6 +303,7 @@ impl VirtualDrive {
         })
     }
 
+    /// Copies the cached data of `entry` into the intent's spool file and checks its size.
     fn copy_cached(&self, entry: &CacheEntry, intent: &super::namespace::Intent) -> Result<()> {
         let mut out = OpenOptions::new()
             .create_new(true)
@@ -300,6 +330,7 @@ impl VirtualDrive {
     }
 }
 
+/// New, empty journal for a cache of `source`.
 fn journal(source: Source) -> Journal {
     Journal {
         version: 1,
@@ -309,12 +340,14 @@ fn journal(source: Source) -> Journal {
     }
 }
 
+/// `Outcome::Skipped` with `reason`.
 fn skipped(reason: &str) -> Outcome {
     Outcome::Skipped {
         reason: reason.into(),
     }
 }
 
+/// Content hash of a drive revision (cloud content hash, or hash of the local spool file).
 fn revision_hash(revision: &Revision) -> Result<String> {
     match revision {
         Revision::Cloud { content, .. } => Ok(content.hash.clone()),
@@ -345,6 +378,7 @@ pub(crate) fn recovered_name(path: &str, tag: &str, hash: &str) -> String {
     }
 }
 
+/// Prints a one-cache recovery summary to stdout.
 fn print_report(report: &RecoveryReport) {
     println!(
         "Recovered unsaved WebDAV cache {}: {} at original path, {} as recovered copies, {} kept, {} already present",

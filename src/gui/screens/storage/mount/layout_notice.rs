@@ -6,6 +6,7 @@ use crate::gui::theme;
 use crate::mount::layout_refresh::Layout;
 use eframe::egui;
 
+/// Shard size, K + M and placement of a layout as one line.
 fn describe(layout: &Layout) -> String {
     let mib = layout.shard_size as f64 / (1024.0 * 1024.0);
     trf(
@@ -19,6 +20,8 @@ fn describe(layout: &Layout) -> String {
     )
 }
 
+/// Warning that a pool layout change is deferred until pending uploads
+/// finish, with the active and next layouts; hidden when nothing is deferred.
 pub(super) fn show(ui: &mut egui::Ui, form: &MountForm) {
     let Some(deferral) = &form.session.layout_status else {
         return;

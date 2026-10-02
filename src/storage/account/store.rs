@@ -13,15 +13,19 @@ pub(crate) fn load_from(path: &Path) -> Result<LimitsStore> {
     Ok(store)
 }
 
+/// Validates `store` and writes it atomically to `path`.
 pub(crate) fn save_to(path: &Path, store: &LimitsStore) -> Result<()> {
     store.validate()?;
     save_json_atomic(path, store)
 }
 
+/// Loads `account_limits.json` from the app config directory.
+/// Used by `runtime::settings`, the CLI/GUI editors and config sync.
 pub(crate) fn load_limits() -> Result<LimitsStore> {
     load_from(&crate::config::account_limits_path()?)
 }
 
+/// Validates and saves `store` to the app config directory; returns the path written.
 pub(crate) fn save_limits(store: &LimitsStore) -> Result<PathBuf> {
     let path = crate::config::account_limits_path()?;
     save_to(&path, store)?;

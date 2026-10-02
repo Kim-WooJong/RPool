@@ -1,39 +1,69 @@
 //! Explicit-source, copy-only reprocessing. Original archives are never mutated.
+//!
+//! Flow: [`build_plan`] freezes the selected source manifests and the target
+//! pool into a fingerprinted `plan.json` under `<config>/reprocess/<id>/`;
+//! [`execute_plan`] re-encodes each source into a new `reprocess-*` archive,
+//! verifies and indexes it, and writes a per-item completion receipt so an
+//! interrupted run can resume. Driven by `pool reprocess` (CLI, `application`)
+//! and the GUI storage reprocess screen; recovery code reads receipts through
+//! [`completed_reprocess_replacements`].
 use crate::manifest::{load_manifest, manifest_fingerprint, validate_manifest};
 use crate::prelude::*;
 use crate::storage::writer::StorageWriter;
 use crate::utils::{append_suffix, read_json};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// One selected source archive, frozen at plan time.
 pub(crate) struct ReprocessEntry {
+    /// Manifest source (path or remote location) given by the user.
     pub(crate) source: String,
+    /// Snapshot of the source manifest when the plan was built.
     pub(crate) manifest: Manifest,
+    /// Fingerprint of `manifest`; execution aborts if the live source differs.
     pub(crate) fingerprint: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Saved reprocess plan (`plan.json`): the target pool, frozen sources and
+/// transfer/time estimates shown to the user before execution.
 pub(crate) struct ReprocessPlan {
+    /// Plan format version (1 or 2 accepted on load; new plans are 2).
     pub(crate) version: u32,
+    /// Random hex id; also the plan's directory name.
     pub(crate) operation_id: String,
+    /// Location of this `plan.json`; checked against the actual path on load.
     pub(crate) plan_path: PathBuf,
+    /// Target pool definition (remote roots applied) the archives are copied to.
     pub(crate) target: PoolDefinition,
+    /// Sources to reprocess, in execution order.
     pub(crate) entries: Vec<ReprocessEntry>,
+    /// Sum of the sources' original (plaintext) sizes, in bytes.
     pub(crate) input_bytes: u64,
+    /// Estimated bytes the new archives occupy (data plus full parity shards).
     pub(crate) new_storage_bytes: u64,
+    /// Estimated bytes downloaded: sources once plus new shards twice (writer
+    /// readback and final verification).
     pub(crate) download_bytes: u64,
+    /// Estimated bytes uploaded (equal to `new_storage_bytes`).
     pub(crate) upload_bytes: u64,
+    /// Rough duration in seconds; `None` unless both transfer rates were given.
     pub(crate) estimated_seconds: Option<f64>,
+    /// User-facing explanation of what the estimate includes and excludes.
     pub(crate) estimate_note: String,
     #[serde(default)]
+    /// Human-readable per-archive change notes (destinations, shard size, coding).
     pub(crate) change_summary: Vec<String>,
 }
 
+/// 24 random bytes as lowercase hex, for operation, attempt and archive ids.
 fn random_id() -> Result<String> {
     let mut bytes = [0u8; 24];
     getrandom::fill(&mut bytes).map_err(|e| anyhow!("random identifier: {e}"))?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// Creates a directory (mode 0700 on Unix) and fsyncs its parent; fails if it
+/// already exists, so each plan/attempt/item directory is fresh.
 fn private_dir(path: &Path) -> Result<()> {
     let builder = fs::DirBuilder::new();
     #[cfg(unix)]
@@ -52,6 +82,8 @@ fn private_dir(path: &Path) -> Result<()> {
 }
 
 // Create-only, fsynced receipts avoid losing discovery information on interrupted writes.
+/// Writes `value` as pretty JSON to a new file, fsynced, without overwriting
+/// an existing file (create-only).
 fn save_new<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     let parent = path.parent().context("receipt parent missing")?;
     let mut file = tempfile::NamedTempFile::new_in(parent)?;
@@ -65,6 +97,9 @@ fn save_new<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     Ok(())
 }
 
+/// Estimated stored bytes for a `size`-byte file on `target`: the plaintext
+/// plus one full shard per parity shard per RS group. Errors on empty files
+/// when parity is used, because RS archives cannot be empty.
 fn storage_bytes(size: u64, target: &PoolDefinition) -> Result<u64> {
     let shard = target.shard_bytes()?.get();
     if target.parity_shards == 0 {
@@ -84,6 +119,11 @@ fn storage_bytes(size: u64, target: &PoolDefinition) -> Result<u64> {
         .context("storage estimate overflow")
 }
 
+/// Builds and saves a new reprocess plan for explicit `sources` onto `target`.
+/// Loads and validates every source manifest, rejects duplicates, computes
+/// size/transfer estimates (rates in aggregate MiB/s, optional) and writes
+/// `plan.json` plus its BLAKE3 fingerprint. Nothing remote is changed.
+/// Called by the `pool reprocess` plan command and the GUI reprocess screen.
 pub(crate) fn build_plan(
     rclone: &str,
     sources: Vec<String>,
@@ -157,6 +197,8 @@ pub(crate) fn build_plan(
     Ok(plan)
 }
 
+/// Loads a saved plan and checks its BLAKE3 fingerprint, version, recorded
+/// location and target pool. Any edit to `plan.json` invalidates it.
 pub(crate) fn load_plan(plan_path: &Path) -> Result<ReprocessPlan> {
     let plan_path = plan_path.canonicalize()?;
     let dir = plan_path.parent().context("plan directory missing")?;
@@ -176,6 +218,11 @@ pub(crate) fn load_plan(plan_path: &Path) -> Result<ReprocessPlan> {
     Ok(plan)
 }
 
+/// Executes a saved plan copy-only: holds the plan's execution lock, rechecks
+/// that every pending source is unchanged, then re-encodes each entry into a
+/// new archive, verifies and adds it to the inventory, and records a
+/// completion receipt. Completed entries are re-verified and re-indexed on
+/// resume. Emits item progress; originals are never deleted.
 pub(crate) fn execute_plan(rclone: &str, plan_path: &Path) -> Result<()> {
     let started = std::time::Instant::now();
     let plan_path = plan_path.canonicalize()?;
@@ -264,6 +311,8 @@ pub(crate) fn execute_plan(rclone: &str, plan_path: &Path) -> Result<()> {
 
 // File locks are kernel-owned: a crash releases ownership automatically. Never
 // remove execution.lock: unlinking it would allow simultaneous lock owners.
+/// Takes an exclusive kernel file lock on `execution.lock` in the plan
+/// directory; fails if another process is executing the same plan.
 fn lock_plan(dir: &Path) -> Result<File> {
     let file = OpenOptions::new()
         .read(true)
@@ -277,12 +326,18 @@ fn lock_plan(dir: &Path) -> Result<File> {
 }
 
 #[derive(Serialize, Deserialize)]
+/// Completion receipt (`completed-NNNNNNNN.json`) for one plan entry.
 struct Completion {
+    /// Fingerprint of the source manifest this replacement was made from.
     source_fingerprint: String,
+    /// Canonical path of the new archive's local manifest.
     manifest_path: PathBuf,
+    /// Fingerprint of that manifest at completion time.
     manifest_fingerprint: String,
 }
 
+/// Writes a create-only completion receipt for `entry` pointing at the new
+/// manifest at `manifest_path`.
 fn record_completion(path: &Path, entry: &ReprocessEntry, manifest_path: &Path) -> Result<()> {
     let manifest: Manifest = read_json(manifest_path)?;
     save_new(
@@ -295,6 +350,9 @@ fn record_completion(path: &Path, entry: &ReprocessEntry, manifest_path: &Path) 
     )
 }
 
+/// Checks a completion receipt against the plan entry: the manifest must be
+/// inside the plan directory, match the recorded fingerprints and size, and
+/// be a different archive than the source. Returns the manifest path.
 fn validate_completion(path: &Path, dir: &Path, entry: &ReprocessEntry) -> Result<PathBuf> {
     let receipt: Completion =
         read_json(path).context("invalid completion receipt; originals retained")?;
@@ -370,6 +428,8 @@ pub(crate) fn completed_reprocess_replacements(
     Ok(replacements)
 }
 
+/// Validates a completion receipt and fully re-verifies the replacement
+/// archive's shards through `writer`'s reader before it is trusted on resume.
 fn verify_completion(
     writer: &StorageWriter,
     path: &Path,
@@ -383,6 +443,9 @@ fn verify_completion(
     Ok(manifest_path)
 }
 
+/// Builds the plan's `change_summary`: per archive, which destinations are
+/// added/removed and whether shard size or K/M coding changes, plus a general
+/// note that reprocessing is a full copy.
 fn describe_changes(entries: &[ReprocessEntry], target: &PoolDefinition) -> Vec<String> {
     let mut notes = Vec::new();
     for entry in entries {

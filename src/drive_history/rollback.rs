@@ -13,6 +13,10 @@ use super::model::{ChangeAction, RollbackChange, RollbackPlan, HISTORY_VERSION};
 use super::restore::Action;
 use crate::prelude::*;
 
+/// Plan a rollback of `scope` (empty = whole drive) to time `at`: compare the
+/// view at `at` with the current view and list `Revert`/`Undelete`/`Remove`
+/// changes; paths whose old data is gone are reported in `skipped`.
+/// Used by `ops::read` (preview) and `ops::actions` (apply).
 pub(crate) fn plan(history: &History, pool: &str, scope: &str, at: u64) -> Result<RollbackPlan> {
     let then = history.view_at(Some(at))?;
     let now = history.view_at(None)?;

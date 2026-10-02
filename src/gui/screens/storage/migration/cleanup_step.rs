@@ -1,4 +1,4 @@
-//! Step 5: clean up after a completed migration (`pool migrate retire` /
+//! Step 6: clean up after a completed migration (`pool migrate retire` /
 //! `restore`): the dry-run summary per account, "Move to cleanup
 //! quarantine", the quarantine list with its countdown, "Restore" and,
 //! after the grace period, "Delete permanently". A refusal of the
@@ -17,6 +17,7 @@ use crate::presentation::format_bytes;
 use eframe::egui;
 use std::path::PathBuf;
 
+/// Translated explanation of why an item is kept; used by the Kept list.
 pub(crate) fn keep_reason(reason: KeepReason) -> &'static str {
     match reason {
         KeepReason::DriveArchive => tr("drive revision (never cleaned up here)"),
@@ -33,6 +34,7 @@ pub(crate) fn keep_reason(reason: KeepReason) -> &'static str {
     }
 }
 
+/// Label of a cleanup item kind (replaced original or partial copy).
 fn kind_label(kind: ItemKind) -> &'static str {
     match kind {
         ItemKind::Original => tr("Replaced original"),
@@ -54,6 +56,7 @@ pub(crate) fn countdown(now: u64, due: u64) -> String {
     }
 }
 
+/// Quarantine state text: countdown, deletion progress or "deleted".
 fn state_text(view: &FossilView, now: u64) -> String {
     match view.state {
         FossilState::Waiting | FossilState::Due => countdown(now, view.due_unix),
@@ -71,6 +74,7 @@ fn running_workspaces(state: &GuiState) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Per-account table of objects and freed bytes.
 fn accounts_table(ui: &mut egui::Ui, id: &str, rows: &[AccountBytes]) {
     egui::Grid::new(id)
         .striped(true)
@@ -89,6 +93,9 @@ fn accounts_table(ui: &mut egui::Ui, id: &str, rows: &[AccountBytes]) {
         });
 }
 
+/// Renders step 5 (clean up) of the migration wizard: starts the dry-run
+/// check for a completed migration, shows the summary, quarantine and
+/// buttons, and starts the retire/restore task.
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     let Some(id) = state.migration.active_id.clone() else {
         state.migration.reset_to_plan();
@@ -235,6 +242,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     }
 }
 
+/// Badges with counts and sizes of cleanup candidates and quarantined items.
 fn summary(ui: &mut egui::Ui, report: &RetireReport) {
     let candidate_bytes: u64 = report.candidates.iter().map(|i| i.bytes()).sum();
     let quarantine_bytes: u64 = report.quarantine.iter().map(|v| v.item.bytes()).sum();
@@ -353,6 +361,7 @@ fn quarantine_table(
     action
 }
 
+/// Collapsible list of items that are kept, with the reason for each.
 fn kept_list(ui: &mut egui::Ui, report: &RetireReport) {
     if report.kept.is_empty() {
         return;

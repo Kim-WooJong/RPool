@@ -1,6 +1,10 @@
+//! Provider health check: probes each remote and joins the result with its
+//! quota report. Used by `rpool provider health`.
 use crate::prelude::*;
 use crate::storage::admin::{collect_quota_reports, unavailable_quota, BackendAdmin, RcloneAdmin};
 use std::time::Instant;
+/// Checks `remotes` through the real rclone admin backend; see
+/// [`check_providers_with_admin`]. Called by `commands::provider::health`.
 pub(crate) fn check_providers(
     rclone: &str,
     remotes: &[String],
@@ -8,6 +12,11 @@ pub(crate) fn check_providers(
 ) -> Result<Vec<ProviderHealthReport>> {
     check_providers_with_admin(&RcloneAdmin::inherited(rclone), remotes, workers)
 }
+/// Probes every remote in parallel (up to `workers` threads), measuring
+/// latency in ms, and attaches the quota of the account each remote resolves
+/// to (quotas are fetched once per account). Unresolvable capacity yields an
+/// unavailable quota instead of failing. Reports are sorted by remote name;
+/// `workers` must be non-zero. The admin is injectable for tests.
 pub(crate) fn check_providers_with_admin(
     admin: &dyn BackendAdmin,
     remotes: &[String],

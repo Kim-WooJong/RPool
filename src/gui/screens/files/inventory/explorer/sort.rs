@@ -4,17 +4,24 @@ use super::summary::extension;
 use crate::gui::screens::files::inventory::drive_state::DriveTree;
 use std::cmp::Ordering;
 
+/// Column the explorer list is sorted by; set by clicking a List header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum SortKey {
+    /// By name, case-insensitive (ties: exact name, then path).
     #[default]
     Name,
+    /// By size in bytes (folders: total size below them), then by name.
     Size,
+    /// By lowercased extension, then by name.
     Type,
 }
 
+/// Current sort order of an `ExplorerState`; folders always sort before files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct Sort {
+    /// Column sorted by.
     pub(crate) key: SortKey,
+    /// Reverse order of `key` (folders still come first).
     pub(crate) descending: bool,
 }
 
@@ -41,10 +48,13 @@ impl Sort {
         }
     }
 
+    /// Sorts node ids of `tree` in place by this order. Called by `explorer::show`
+    /// on the entries before drawing.
     pub(crate) fn apply(&self, tree: &DriveTree, ids: &mut [usize]) {
         ids.sort_by(|&a, &b| self.compare(tree, a, b));
     }
 
+    /// Folders first, then `key` (reversed when descending), then name as tie-breaker.
     fn compare(&self, tree: &DriveTree, a: usize, b: usize) -> Ordering {
         let (left, right) = (&tree.nodes[a], &tree.nodes[b]);
         let by_name = || {

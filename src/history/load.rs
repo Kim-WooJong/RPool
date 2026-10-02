@@ -1,8 +1,13 @@
+//! Reading the task history file.
+
 use crate::config::history_path;
 use crate::models::TaskRecord;
 use anyhow::Result;
 use std::fs;
 
+/// Reads all history records; a missing file is empty and damaged lines are
+/// skipped with a note on stderr. Used by `history list`, the dashboard and
+/// `doctor`.
 pub(crate) fn load_history() -> Result<Vec<TaskRecord>> {
     let path = history_path()?;
     if !path.exists() {

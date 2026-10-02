@@ -6,19 +6,26 @@ use crate::provider::limits_view::{self, AccountRef, AccountStatus};
 use crate::storage::account::limits::LimitsStore;
 use std::time::{Duration, Instant};
 
+/// How long the loaded rows stay valid before they are re-read.
 const REFRESH: Duration = Duration::from_secs(5);
 
+/// Account limit rows of the provider cards (`ProviderForm::limits`).
 #[derive(Debug, Default)]
 pub(crate) struct LimitsCache {
+    /// When the rows were last loaded; `None` = reload on the next draw.
     loaded: Option<Instant>,
+    /// Limits file as last read; the Limits dialog opens from it.
     pub(crate) store: LimitsStore,
+    /// One status row per shown account.
     pub(crate) rows: Vec<AccountStatus>,
+    /// First error reading the limits file or the usage ledger.
     pub(crate) error: Option<String>,
     /// Sample data (tests, snapshots): never re-read from disk.
     pub(crate) frozen: bool,
 }
 
 impl LimitsCache {
+    /// Status row of `account`, if it is shown.
     pub(crate) fn row(&self, account: &str) -> Option<&AccountStatus> {
         self.rows.iter().find(|row| row.account == account)
     }

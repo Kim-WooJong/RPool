@@ -7,12 +7,15 @@ use std::path::{Path, PathBuf};
 /// A status older than this is not live (the mount process died or hangs).
 pub(crate) const STATUS_STALE_SECONDS: u64 = 10;
 
+/// `<workspace>/.rpool`, the mount's local metadata folder.
 pub(crate) fn metadata_dir(workspace: &Path) -> PathBuf {
     workspace.join(".rpool")
 }
+/// Path of the live status file of a mount.
 pub(crate) fn status_path(workspace: &Path) -> PathBuf {
     metadata_dir(workspace).join(STATUS_FILE)
 }
+/// Folder of the per-minute traffic history files.
 pub(crate) fn history_dir(workspace: &Path) -> PathBuf {
     metadata_dir(workspace).join(HISTORY_DIR)
 }

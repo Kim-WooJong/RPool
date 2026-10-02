@@ -1,3 +1,7 @@
+//! Restores crypt remote passwords from an encrypted vault into the target
+//! rclone.conf during `rpool import`. The target must already contain the same
+//! crypt remotes with the same structure; only `password`/`password2` change,
+//! always through the staging transaction in `config_sync::transaction`.
 use super::age_vault::{AgeDecrypt, AgeEncrypt};
 use super::crypt_secrets::{bool_setting, read_dump, DumpRemote};
 use super::secret_process::{execute, rclone_command, Output};
@@ -8,6 +12,8 @@ use anyhow::{anyhow, bail, Result};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+/// Checks that the portable crypt definitions are well-formed, unique and name
+/// exactly the remotes in the secret bundle.
 pub(super) fn validate_matching_names(
     portable: &[PortableCryptRemote],
     secrets: &SecretBundle,
@@ -33,6 +39,8 @@ pub(super) fn validate_matching_names(
     Ok(())
 }
 
+/// Checks that every portable crypt remote exists in the target config with the
+/// same backing remote, name/directory encryption and encoding (and data encryption on).
 fn validate_target(
     portable: &[PortableCryptRemote],
     current: &BTreeMap<String, DumpRemote>,
@@ -58,6 +66,8 @@ fn validate_target(
     Ok(())
 }
 
+/// Whether the target already holds exactly the bundle's obscured passwords
+/// (a missing `password2` matches an empty one).
 fn exact_secrets(current: &BTreeMap<String, DumpRemote>, secrets: &SecretBundle) -> bool {
     secrets.rclone.crypt.iter().all(|(name, expected)| {
         current
@@ -76,9 +86,14 @@ fn exact_secrets(current: &BTreeMap<String, DumpRemote>, secrets: &SecretBundle)
     })
 }
 
+/// [`ConfigDriver`] that applies a secret bundle to an rclone config via the
+/// `rclone` executable (`config dump` / `config update`).
 struct RcloneDriver<'a> {
+    /// rclone executable.
     executable: &'a Path,
+    /// Expected crypt remote structure from the portable config.
     portable: &'a [PortableCryptRemote],
+    /// Obscured passwords to restore.
     secrets: &'a SecretBundle,
 }
 
@@ -173,6 +188,8 @@ pub(crate) fn restore_crypt_vault(
 
 // Obscured values are base64url and can start with '-'. End option parsing before
 // any remote/key/value, preserving exact values instead of rotating or escaping keys.
+/// Adds `rclone config update --no-obscure … <name> password … password2 …`
+/// arguments that set the obscured values unchanged.
 pub(super) fn configure_secret_update(
     command: &mut std::process::Command,
     name: &str,

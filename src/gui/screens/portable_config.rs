@@ -9,15 +9,25 @@ use crate::gui::widgets::section_header;
 use eframe::egui;
 use std::ffi::OsString;
 
+/// Inputs of the Portable configuration tab, held in `GuiState::portable`;
+/// turned into `rpool export` / `rpool import` arguments for the task runner.
 #[derive(Debug)]
 pub(crate) struct PortableForm {
+    /// Package folder to export to or import from (`ROOT` argument).
     package_root: String,
+    /// age public key (`age1…`) that encrypts crypt secrets on export; optional on import.
     age_recipient: String,
+    /// Private age identity file used to decrypt the package on import.
     age_identity: String,
+    /// `age` executable name or path (`--age`).
     age: String,
+    /// `age-keygen` executable name or path (`--age-keygen`, import only).
     age_keygen: String,
+    /// Optional rclone.conf path; empty = rclone's active config.
     rclone_config: String,
+    /// Confirmation checkbox that enables the destructive Import button; reset after each import.
     import_confirmed: bool,
+    /// Argument-building error from the last button press, shown under the buttons.
     error: Option<String>,
 }
 impl Default for PortableForm {
@@ -45,6 +55,7 @@ fn required<'a>(value: &'a str, missing: &str) -> Result<&'a str, String> {
 }
 
 impl PortableForm {
+    /// Appends the options shared by export and import (`--rclone-config`, `--age`) when set.
     fn common(&self, args: &mut Vec<OsString>) {
         if !self.rclone_config.trim().is_empty() {
             args.extend(["--rclone-config".into(), self.rclone_config.trim().into()]);
@@ -84,6 +95,8 @@ impl PortableForm {
     }
 }
 
+/// One labelled text field row of the package grid; `pick` adds a Choose…
+/// button: `Some(true)` picks a folder, `Some(false)` a file, `None` none.
 fn field(ui: &mut egui::Ui, label: &str, value: &mut String, hint: &str, pick: Option<bool>) {
     ui.label(label);
     ui.horizontal(|ui| {
@@ -109,6 +122,8 @@ fn field(ui: &mut egui::Ui, label: &str, value: &mut String, hint: &str, pick: O
     ui.end_row();
 }
 
+/// Starts `rpool <args>` as a background task named `name`; returns the
+/// argument or start error to show, `None` on success.
 fn start(
     task: &mut TaskRunner,
     rclone: &str,
@@ -119,6 +134,8 @@ fn start(
         .err()
 }
 
+/// Grid of the active settings file paths (same as `rpool config paths`),
+/// each with a Copy button; contents are never read.
 fn paths(ui: &mut egui::Ui) {
     let rows: [(&str, anyhow::Result<std::path::PathBuf>); 5] = [
         (tr("Settings folder"), crate::config::app_config_dir()),
@@ -160,6 +177,8 @@ fn paths(ui: &mut egui::Ui) {
     ));
 }
 
+/// Renders the Portable configuration tab; called by `screens::settings::show`.
+/// Buttons stay disabled while another task runs.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     let (form, rclone) = (&mut state.portable, state.settings.rclone.clone());
     let busy = task.is_running();

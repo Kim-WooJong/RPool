@@ -1,26 +1,34 @@
 //! Explorer navigation: the current folder and Back / Forward history.
 //! Paths are normalized drive paths; "" is the drive root.
 
+/// Current folder plus Back / Forward stacks, owned by `ExplorerState`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Nav {
+    /// Folder being shown; `""` is the drive root.
     current: String,
+    /// Folders to return to with Back; the most recent is last.
     back: Vec<String>,
+    /// Folders undone by Back, for Forward; cleared by every new `open`.
     forward: Vec<String>,
 }
 
 impl Nav {
+    /// The folder being shown (`""` = drive root).
     pub(crate) fn current(&self) -> &str {
         &self.current
     }
 
+    /// Whether Back has anything to return to.
     pub(crate) fn can_back(&self) -> bool {
         !self.back.is_empty()
     }
 
+    /// Whether Forward has anything to redo.
     pub(crate) fn can_forward(&self) -> bool {
         !self.forward.is_empty()
     }
 
+    /// Whether there is a parent folder (false at the drive root).
     pub(crate) fn can_up(&self) -> bool {
         !self.current.is_empty()
     }
@@ -36,6 +44,8 @@ impl Nav {
         self.forward.clear();
     }
 
+    /// Returns to the previous folder, pushing the current one to Forward.
+    /// Returns false when there is no history.
     pub(crate) fn back(&mut self) -> bool {
         let Some(previous) = self.back.pop() else {
             return false;
@@ -45,6 +55,7 @@ impl Nav {
         true
     }
 
+    /// Redoes the last Back. Returns false when Forward is empty.
     pub(crate) fn forward(&mut self) -> bool {
         let Some(next) = self.forward.pop() else {
             return false;
@@ -75,6 +86,7 @@ impl Nav {
     }
 }
 
+/// Parent of a drive path (`"a/b"` -> `"a"`, `"a"` -> `""`).
 pub(crate) fn parent(path: &str) -> &str {
     path.rsplit_once('/').map_or("", |(parent, _)| parent)
 }

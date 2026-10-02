@@ -6,6 +6,7 @@ use crate::gui::theme;
 use crate::gui::widgets::{status_badge, StatusTone};
 use eframe::egui;
 
+/// Translated name of a version kind; also used by the migration cleanup step.
 pub(crate) fn kind_label(kind: VersionKind) -> &'static str {
     match kind {
         VersionKind::Created => tr("Created"),
@@ -15,6 +16,8 @@ pub(crate) fn kind_label(kind: VersionKind) -> &'static str {
     }
 }
 
+/// A version-kind badge (Created / Modified / Deleted / Restored) in its tone.
+/// Used by the versions panel rows.
 pub(crate) fn kind(ui: &mut egui::Ui, kind: VersionKind) {
     let tone = match kind {
         VersionKind::Created => StatusTone::Info,
@@ -25,6 +28,7 @@ pub(crate) fn kind(ui: &mut egui::Ui, kind: VersionKind) {
     status_badge(ui, kind_label(kind), tone);
 }
 
+/// The "Current" badge marking the live version in the versions panel.
 pub(crate) fn current(ui: &mut egui::Ui) {
     status_badge(ui, tr("Current"), StatusTone::Success);
 }
@@ -50,6 +54,7 @@ pub(crate) fn warning(ui: &mut egui::Ui, text: &str) {
     banner(ui, theme::warning_colors(ui.visuals().dark_mode), text);
 }
 
+/// A full-width coloured frame with `text`; `(fill, fg)` from the theme.
 fn banner(ui: &mut egui::Ui, (fill, fg): (egui::Color32, egui::Color32), text: &str) {
     egui::Frame::new()
         .fill(fill)

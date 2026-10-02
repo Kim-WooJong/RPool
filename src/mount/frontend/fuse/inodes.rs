@@ -2,12 +2,17 @@
 //! Renames move numbers; unlink forgets a path so a recreated file gets a new one.
 use crate::prelude::*;
 
+/// Path-keyed inode table of one FUSE session.
 pub(super) struct Inodes {
+    /// Last inode number handed out (numbers are never reused).
     next: u64,
+    /// Inode of each known path.
     by_path: BTreeMap<String, u64>,
+    /// Path of each known inode.
     paths: BTreeMap<u64, String>,
 }
 impl Inodes {
+    /// Table with only the root (empty path) as inode 1.
     pub(super) fn new() -> Self {
         let mut inodes = Self {
             next: 1,
@@ -18,6 +23,7 @@ impl Inodes {
         inodes.paths.insert(1, String::new());
         inodes
     }
+    /// Inode of `path`, allocating a new number on first sight.
     pub(super) fn ino(&mut self, path: &str) -> u64 {
         if let Some(ino) = self.by_path.get(path) {
             return *ino;
@@ -27,9 +33,11 @@ impl Inodes {
         self.paths.insert(self.next, path.into());
         self.next
     }
+    /// Path of `ino`, `None` if forgotten or never issued.
     pub(super) fn path(&self, ino: u64) -> Option<String> {
         self.paths.get(&ino).cloned()
     }
+    /// Forgets `path` and everything below it.
     pub(super) fn forget_path(&mut self, path: &str) {
         let prefix = format!("{path}/");
         let gone: Vec<String> = self

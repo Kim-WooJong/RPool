@@ -10,6 +10,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+/// Starts the publisher thread for `drive` (sets `publisher_running` while
+/// it runs). Called by `mount::maintenance` when background work starts.
 pub(super) fn spawn(
     drive: Arc<VirtualDrive>,
     cancelled: Arc<AtomicBool>,
@@ -22,6 +24,8 @@ pub(super) fn spawn(
     })
 }
 
+/// Publisher loop: publish and clean, then wait for the next commit or
+/// `interval` (at most 10 s after a failure); logs only changed errors.
 fn run(drive: &VirtualDrive, cancelled: &AtomicBool, interval: Duration) {
     let mut last_error: Option<String> = None;
     while !cancelled.load(Ordering::Acquire) {

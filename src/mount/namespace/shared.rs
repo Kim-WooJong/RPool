@@ -13,10 +13,13 @@
 use crate::prelude::*;
 use std::sync::Weak;
 
+/// Copy-on-write `Arc` wrapper for one large namespace collection (events,
+/// published, receipts, directories, bases); see the module docs.
 #[derive(Default)]
 pub(crate) struct Shared<T>(Arc<T>);
 
 impl<T> Shared<T> {
+    /// Wraps `value` in a new, unshared allocation.
     pub(crate) fn new(value: T) -> Self {
         Self(Arc::new(value))
     }

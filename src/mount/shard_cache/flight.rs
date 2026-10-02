@@ -12,9 +12,15 @@ pub(super) enum Outcome {
     Published,
     /// Nothing was published. `retry` marks a readahead failure: a demand
     /// reader starts its own flight (with reconstruction) instead of failing.
-    Failed { message: String, retry: bool },
+    Failed {
+        /// Why the flight failed, for the error returned to waiters.
+        message: String,
+        /// A readahead failure: demand readers retry with their own flight.
+        retry: bool,
+    },
 }
 
+/// Shared progress of a flight, guarded by `Flight::progress`.
 struct Progress {
     /// Read handle of the partial download (an independent file object, so
     /// positional reads never move the writer's cursor).
@@ -23,23 +29,31 @@ struct Progress {
     written: u64,
     /// A reader was handed bytes of the unverified prefix.
     served: bool,
+    /// Set once by `finish`; waiters return it.
     outcome: Option<Outcome>,
 }
 
+/// One in-flight download shared by every reader of the shard; stored in
+/// the cache's flight table until retired.
 pub(super) struct Flight {
+    /// Demand or readahead; decides eviction rights and retry semantics.
     pub(super) mode: Admission,
+    /// Partial-download progress and the final outcome.
     progress: Mutex<Progress>,
+    /// Signalled on every progress change and at the end.
     changed: Condvar,
 }
 
 /// What a waiting reader may do next.
 pub(super) enum Ready {
+    /// The flight ended with this outcome.
     Done(Outcome),
     /// The requested range is already present in the partial download.
     Prefix(Arc<File>),
 }
 
 impl Flight {
+    /// New flight with no download stream yet.
     pub(super) fn new(mode: Admission) -> Self {
         Self {
             mode,
@@ -52,15 +66,18 @@ impl Flight {
             changed: Condvar::new(),
         }
     }
+    /// Locks the progress, recovering from a poisoned mutex.
     fn progress(&self) -> std::sync::MutexGuard<'_, Progress> {
         // Progress holds plain counters; a panicking writer leaves them usable.
         self.progress.lock().unwrap_or_else(|e| e.into_inner())
     }
+    /// Starts serving a new direct download from `partial` (reset to 0 bytes).
     pub(super) fn stream_to(&self, partial: File) {
         let mut p = self.progress();
         p.partial = Some(Arc::new(partial));
         p.written = 0;
     }
+    /// Records `bytes` more written to the partial file and wakes waiters.
     pub(super) fn advance(&self, bytes: u64) {
         self.progress().written += bytes;
         self.changed.notify_all();
@@ -73,6 +90,7 @@ impl Flight {
         p.written = 0;
         p.served
     }
+    /// Ends the flight with `outcome` and wakes every waiter.
     pub(super) fn finish(&self, outcome: Outcome) {
         let mut p = self.progress();
         p.partial = None;
@@ -102,7 +120,9 @@ impl Flight {
 /// Download sink: writes to the partial file and publishes progress after
 /// each chunk, so waiting readers can be served from the prefix.
 pub(super) struct ProgressSink<'a> {
+    /// Partial download file being written.
     pub(super) file: &'a mut File,
+    /// Flight whose progress is advanced after each write.
     pub(super) flight: &'a Flight,
 }
 impl Write for ProgressSink<'_> {

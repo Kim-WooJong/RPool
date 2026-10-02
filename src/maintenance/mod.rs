@@ -1,7 +1,16 @@
+//! Archive integrity maintenance: probe every shard of a manifest (scrub),
+//! judge each coding group's recoverability, rebuild bad shards and keep the
+//! last integrity snapshot. Used by `scrub`, `repair`, `get` and migrations.
+
+/// Group status from shard probes.
 mod group_health;
+/// Counts of degraded and unrecoverable groups.
 mod recoverability;
+/// Rebuilding and re-uploading bad shards.
 mod repair;
+/// Probing all shards into a scrub report.
 mod scan;
+/// The last integrity snapshot on disk.
 mod snapshot_store;
 
 pub(crate) use group_health::analyze_groups;

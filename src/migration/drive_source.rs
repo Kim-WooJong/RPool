@@ -6,6 +6,8 @@ use super::drive_generations::{effective, generation_ref};
 use super::drive_model::{GenerationRef, SourceView};
 use crate::prelude::*;
 
+/// Read access to a pool's drive in the cloud: [`CloudDrive`] in production,
+/// fakes in tests. Used by drive planning and adoption.
 pub(crate) trait DriveSource: Sync {
     /// Generations holding drive records, best first. Empty: the pool has
     /// no drive.
@@ -16,12 +18,16 @@ pub(crate) trait DriveSource: Sync {
 
 /// Production source over rclone, for the saved (new) pool policy.
 pub(crate) struct CloudDrive {
+    /// rclone executable.
     rclone: String,
+    /// Pool name.
     pool: String,
+    /// Pool policy whose remotes hold the drive records.
     policy: PoolDefinition,
 }
 
 impl CloudDrive {
+    /// Source for `pool` with the given (saved, new) policy.
     pub(crate) fn new(rclone: &str, pool: &str, policy: &PoolDefinition) -> Self {
         Self {
             rclone: rclone.into(),

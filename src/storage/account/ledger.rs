@@ -10,12 +10,16 @@
 use crate::prelude::*;
 use crate::utils::{append_suffix, read_json, save_json_atomic};
 
+/// Format version of the ledger file; other versions are rejected on read.
 pub(crate) const LEDGER_VERSION: u32 = 1;
 /// Length of the rolling upload window.
 pub(crate) const WINDOW_SECONDS: u64 = 24 * 3600;
+/// Seconds per bucket; uploads are counted per unix hour.
 const HOUR: u64 = 3600;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// What this computer uploaded to one account in the rolling window, plus
+/// provider pauses and keep-alive time. Read by `budget::evaluate`.
 pub(crate) struct AccountUsage {
     /// (unix hour, bytes uploaded during that hour), oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -35,6 +39,8 @@ impl AccountUsage {
     pub(crate) fn expires_at(hour: u64) -> u64 {
         (hour + 1) * HOUR + WINDOW_SECONDS
     }
+    /// Adds `bytes` uploaded at `now` to the current hour's bucket, pruning
+    /// expired buckets first. Called from `runtime::record_upload`.
     pub(crate) fn add(&mut self, now: u64, bytes: u64) {
         self.prune(now);
         if bytes == 0 {
@@ -67,7 +73,9 @@ impl AccountUsage {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// Whole contents of the ledger file (`account_usage.json`).
 pub(crate) struct LedgerData {
+    /// File format version, [`LEDGER_VERSION`].
     pub version: u32,
     /// Keyed by account: the bottom remote of a crypt/alias chain.
     #[serde(default)]
@@ -78,6 +86,7 @@ pub(crate) struct LedgerData {
 }
 
 impl LedgerData {
+    /// Usage entry of account `name`, created empty if missing.
     pub(crate) fn account(&mut self, name: &str) -> &mut AccountUsage {
         self.accounts.entry(name.to_owned()).or_default()
     }
@@ -91,6 +100,8 @@ impl LedgerData {
             .filter_map(|name| self.activity.get(name.trim_end_matches(':')).copied())
             .max()
     }
+    /// Records a successful operation on remote `name` (trailing `:` ignored)
+    /// at `at`, keeping the latest time. Used by keep-alive and `runtime::note_activity`.
     pub(crate) fn note_activity(&mut self, name: &str, at: u64) {
         let slot = self
             .activity
@@ -103,13 +114,17 @@ impl LedgerData {
 /// The ledger file at one path.
 #[derive(Debug, Clone)]
 pub(crate) struct Ledger {
+    /// Path of the JSON data file; the lock file is this path plus `.lock`.
     path: PathBuf,
 }
 
 impl Ledger {
+    /// Ledger stored at `path` (from `config::account_usage_path`); does not touch the disk.
     pub(crate) fn at(path: PathBuf) -> Self {
         Self { path }
     }
+    /// Opens (creating it and its directory if needed) the lock file used to
+    /// serialise readers and writers.
     fn lock_file(&self) -> Result<File> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
@@ -122,6 +137,8 @@ impl Ledger {
             .open(append_suffix(&self.path, ".lock"))
             .context("cannot open account usage lock")
     }
+    /// Reads and version-checks the data file without locking; an absent file
+    /// yields an empty ledger. Callers hold the lock.
     fn read(&self) -> Result<LedgerData> {
         if !self.path.exists() {
             return Ok(LedgerData {

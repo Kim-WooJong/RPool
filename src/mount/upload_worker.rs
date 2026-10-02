@@ -10,6 +10,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+/// Starts the uploader thread running `upload_pending` passes until
+/// `cancelled`. Called by `mount::maintenance` when background work starts.
 pub(super) fn spawn(
     drive: Arc<VirtualDrive>,
     cancelled: Arc<AtomicBool>,
@@ -32,6 +34,8 @@ fn idle_wait(book: &RetryBook, interval: Duration, now: Instant) -> Duration {
 /// One upload pass (`VirtualDrive::upload_pending`; injectable for tests).
 pub(super) type Pass<'a> = dyn Fn(&mut RetryBook, &AtomicBool) -> Result<()> + 'a;
 
+/// Uploader loop: run `pass`, log only changed errors, then wait for the
+/// next write notification or [`idle_wait`]. Injectable `pass` for tests.
 pub(super) fn run(
     drive: &VirtualDrive,
     cancelled: &AtomicBool,

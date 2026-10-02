@@ -52,6 +52,7 @@ pub(crate) struct BackendFeatures {
 /// Copy abilities inside one crypt remote.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CryptCopyCapabilities {
+    /// The crypt can copy objects server-side (its base backend reports `Features.Copy`).
     pub server_side_copy: bool,
     /// Hashes of the base's ciphertext objects, preferred first, used to
     /// verify a server-side copy. Empty when the base reports none.
@@ -60,6 +61,8 @@ pub(crate) struct CryptCopyCapabilities {
     pub base: String,
 }
 
+/// Parses `rclone backend features` JSON into copy support and advertised hash
+/// types (`none`/empty dropped). Used by `copy` when probing a crypt's base.
 pub(crate) fn parse_backend_features(bytes: &[u8]) -> Result<BackendFeatures, StorageError> {
     let value: Value =
         serde_json::from_slice(bytes).map_err(|_| invalid("invalid rclone features JSON"))?;
@@ -123,6 +126,8 @@ pub(crate) fn parse_cryptdecode(bytes: &[u8], path: &str) -> Result<String, Stor
     Ok(encrypted.to_owned())
 }
 
+/// Joins `relative` onto a remote address, adding `/` unless `base` already ends
+/// in `:` or `/`. Used by `copy` to build the ciphertext address on the base.
 pub(crate) fn join_base(base: &str, relative: &str) -> String {
     if base.ends_with([':', '/']) {
         format!("{base}{relative}")
@@ -131,6 +136,9 @@ pub(crate) fn join_base(base: &str, relative: &str) -> String {
     }
 }
 
+/// Parses `rclone lsjson --stat --hash` JSON of one object into `(size, "type:hex")`
+/// for the first of `hashes` it reports (lowercased); `Ok(None)` when none is reported.
+/// Errors on a directory or missing size. Used by `copy` to verify server-side copies.
 pub(crate) fn parse_object_hash(
     bytes: &[u8],
     hashes: &[String],
@@ -154,6 +162,9 @@ pub(crate) fn parse_object_hash(
     }))
 }
 
+/// The remote name before `:` in an rclone address. Rejects missing/empty names,
+/// path separators, control characters and Windows drive letters (`C:\`).
+/// Used across the adapter and by speed test, keepalive and upload-limit code.
 pub(crate) fn remote_name(address: &str) -> Result<&str, StorageError> {
     let (name, _) = address
         .split_once(':')

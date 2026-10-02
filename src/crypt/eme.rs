@@ -3,16 +3,21 @@
 use aes::cipher::{generic_array::GenericArray, BlockDecrypt, BlockEncrypt};
 use aes::Aes256;
 
+/// AES block size in bytes.
 const BLOCK: usize = 16;
 /// EME operates on 1..=128 AES blocks.
 pub(super) const MAX_BLOCKS: usize = 128;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+/// Whether `transform` encrypts or decrypts.
 pub(super) enum Direction {
+    /// Encrypt names (`encrypt_file_name`).
     Encrypt,
+    /// Decrypt names (`decrypt_file_name`).
     Decrypt,
 }
 
+/// Multiply a block by 2 in GF(2^128) (EME's doubling, little-endian as in rfjakob/eme).
 fn mult_by_two(block: &mut [u8; BLOCK]) {
     let input = *block;
     block[0] = input[0].wrapping_mul(2);
@@ -26,12 +31,14 @@ fn mult_by_two(block: &mut [u8; BLOCK]) {
     }
 }
 
+/// `out = a XOR b`, element-wise over the shortest of the three slices.
 fn xor_into(out: &mut [u8], a: &[u8], b: &[u8]) {
     for ((o, x), y) in out.iter_mut().zip(a).zip(b) {
         *o = x ^ y;
     }
 }
 
+/// Apply AES-256 to one 16-byte block in the given direction.
 fn aes(cipher: &Aes256, block: &mut [u8], direction: Direction) {
     let block = GenericArray::from_mut_slice(block);
     match direction {

@@ -1,9 +1,18 @@
+//! Overview page: summary, warnings, providers, pools and recent jobs in
+//! fixed-size panes. `show` is drawn by `app` for `Page::Dashboard`.
+/// Overview data loaded from local files.
 mod data;
+/// Pool readiness classification.
 mod health;
+/// Pools pane.
 mod pools;
+/// Providers (capacity) pane.
 mod providers;
+/// Recent jobs pane.
 mod recent_jobs;
+/// Summary metrics pane.
 mod summary;
+/// Warnings pane.
 mod warnings;
 
 pub(crate) use data::{DashboardData, DashboardPool};
@@ -15,6 +24,7 @@ use crate::gui::usage_refresh::UsageRefresh;
 use crate::gui::widgets::{section_header, toolbar};
 use eframe::egui;
 
+/// Draw the overview page with a Refresh toolbar; two columns on wide windows.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, usage: &mut UsageRefresh) {
     section_header(
         ui,

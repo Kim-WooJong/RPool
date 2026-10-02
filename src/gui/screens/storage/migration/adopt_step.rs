@@ -10,6 +10,8 @@ use crate::gui::theme;
 use crate::gui::widgets::status_badge;
 use eframe::egui;
 
+/// Renders step 4 (adopt) of the migration wizard for the active migration;
+/// falls back to the plan step when no migration is active.
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     let Some(id) = state.migration.active_id.clone() else {
         state.migration.reset_to_plan();

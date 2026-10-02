@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// `rpool mount` for a virtual drive: handles `--recover-spool`, picks the
+/// frontend and worker name, opens (or adopts) the workspace and runs the
+/// mount or its offline action. Called by `mount::run`.
 pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     let workspace_started = std::time::Instant::now();
     if args.recover_spool {

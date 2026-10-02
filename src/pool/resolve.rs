@@ -1,3 +1,5 @@
+//! Resolves the effective upload (put) options from a named pool or explicit
+//! `--remote` list plus CLI overrides. Used by `application` for uploads.
 use crate::config::constants::*;
 use crate::models::{Placement, ResolvedPutOptions};
 use crate::pool::{load_pool_store, validate_pool};
@@ -5,6 +7,11 @@ use crate::remote_root::apply_remote_roots;
 use anyhow::{bail, Result};
 
 #[allow(clippy::too_many_arguments)]
+/// Builds [`ResolvedPutOptions`] for an upload: loads and validates the named
+/// pool (or uses `explicit_remotes`), applies remote roots, and fills every
+/// unset override from the pool or the crate defaults. Errors if both a pool
+/// and remotes are given, no remote results, or a `--shard-mib` override
+/// exceeds the pool's provider object limit. Called from `application`.
 pub(crate) fn resolve_put_options(
     pool_name: Option<&str>,
     explicit_remotes: Vec<String>,

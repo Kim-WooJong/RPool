@@ -14,11 +14,17 @@ use crate::storage::reader::StorageReader;
 use crate::storage::traits::OperationContext;
 
 #[derive(Debug, Clone, Default)]
+/// Planner settings from `pool migrate plan` (CLI) and the GUI migration
+/// screen; consumed by [`plan_listed`].
 pub(crate) struct PlanOptions {
     /// Hash every shard of affected archives instead of listing sizes.
     pub probe_full: bool,
+    /// Assumed aggregate download rate in MiB/s for the time estimate; `None`
+    /// leaves the estimate open. Must be finite and positive.
     pub download_mib_s: Option<f64>,
+    /// Assumed aggregate upload rate in MiB/s; same rules as `download_mib_s`.
     pub upload_mib_s: Option<f64>,
+    /// Parallel archive workers; 0 uses the target pool's `workers` (min 1).
     pub workers: usize,
     /// Leave the pool's drive out (archives only). The drive is planned by
     /// default when the pool has one.
@@ -109,15 +115,23 @@ fn replaced_archives(rclone: &str, pool: &str) -> (BTreeSet<String>, Vec<String>
 /// Production cloud access: rclone listings, metadata reads, scans and quota
 /// queries only.
 pub(super) struct RcloneCloud {
+    /// rclone context for listings and remote calls.
     context: RcloneContext,
+    /// Reads manifests and shard metadata.
     reader: StorageReader,
+    /// Quota and backend feature queries.
     admin: RcloneAdmin,
+    /// Configured rclone remotes, loaded only for resilient placement; `None`
+    /// when not needed or unavailable.
     catalog: Option<RemoteCatalog>,
     /// Copy features per rclone remote name, queried once per plan.
     features: Mutex<BTreeMap<String, Option<CopyFeatures>>>,
 }
 
 impl RcloneCloud {
+    /// Builds the production cloud from the rclone binary path; `need_catalog`
+    /// loads the remote catalog (resilient placement). Used by `plan` and
+    /// `drive_adopt_live`.
     pub(super) fn new(rclone: &str, need_catalog: bool) -> Self {
         let admin = RcloneAdmin::inherited(rclone);
         let catalog = need_catalog.then(|| admin.catalog().ok()).flatten();
@@ -197,6 +211,7 @@ impl Cloud for RcloneCloud {
     }
 }
 
+/// rclone remote name of `name:path` (the part before the first `:`).
 fn remote_name(remote: &str) -> &str {
     remote.split_once(':').map_or(remote, |(name, _)| name)
 }
@@ -219,6 +234,8 @@ pub(super) fn list_all(
         .collect()
 }
 
+/// PC label for `Plan::created_by`: `RPOOL_PC_NAME`, `COMPUTERNAME`,
+/// `HOSTNAME`, then the `hostname` command, else `unknown-pc`.
 fn pc_name() -> String {
     for key in ["RPOOL_PC_NAME", "COMPUTERNAME", "HOSTNAME"] {
         if let Ok(value) = std::env::var(key) {
@@ -237,12 +254,14 @@ fn pc_name() -> String {
         .unwrap_or_else(|| "unknown-pc".into())
 }
 
+/// 32 hex characters from 16 random bytes; the new plan's `migration_id`.
 fn random_hex32() -> Result<String> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).map_err(|e| anyhow!("random identifier: {e}"))?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// First probe error among `states`, used as the Unknown reason.
 fn first_unknown(states: &[ShardState]) -> Option<&str> {
     states.iter().find_map(|s| match s {
         ShardState::Unknown(e) => Some(e.as_str()),
@@ -384,6 +403,7 @@ pub(crate) fn plan_with_replaced(
 
 /// What archive planning learned that the drive part reuses.
 pub(super) struct Listed {
+    /// Listing per target and departed remote, reused by drive planning.
     pub listings: BTreeMap<String, RemoteListing>,
     /// New shards of the archive entries, for the combined quota check.
     pub specs: Vec<Vec<PhysicalSpec>>,

@@ -2,14 +2,20 @@
 use crate::prelude::*;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// User-declared identities of one backing remote.
 pub(crate) struct DomainIdentity {
+    /// Capacity domain id; remotes with the same id share one quota.
     pub capacity: String,
+    /// Failure (outage) domain id; empty = not declared.
     pub failure: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Contents of `provider_domains.json` in the app config directory.
 pub(crate) struct DomainStore {
+    /// File format version; only 1 is accepted.
     pub version: u32,
+    /// Identities keyed by backing remote name (no colon or path).
     pub remotes: BTreeMap<String, DomainIdentity>,
 }
 impl Default for DomainStore {
@@ -21,6 +27,7 @@ impl Default for DomainStore {
     }
 }
 impl DomainStore {
+    /// Checks version, key names and that every id is a valid domain id.
     pub(crate) fn validate(&self) -> Result<()> {
         if self.version != 1 {
             bail!("unsupported provider domain store");
@@ -36,6 +43,7 @@ impl DomainStore {
         }
         Ok(())
     }
+    /// Loads and validates `provider_domains.json`; defaults when absent.
     pub(crate) fn load() -> Result<Self> {
         let path = crate::config::app_config_dir()?.join("provider_domains.json");
         if !path.exists() {
@@ -45,6 +53,7 @@ impl DomainStore {
         store.validate()?;
         Ok(store)
     }
+    /// Validates and atomically writes `provider_domains.json`.
     pub(crate) fn save(&self) -> Result<()> {
         self.validate()?;
         let dir = crate::config::app_config_dir()?;
@@ -53,6 +62,9 @@ impl DomainStore {
     }
 }
 
+/// Merges `remote=identity` mappings from the mount CLI options
+/// (`--capacity-domain` / `--failure-domain`) into the store and saves it.
+/// Called by `mount::run`; no-op when both lists are empty.
 pub(crate) fn update(capacity: &[String], failure: &[String]) -> Result<()> {
     if capacity.is_empty() && failure.is_empty() {
         return Ok(());

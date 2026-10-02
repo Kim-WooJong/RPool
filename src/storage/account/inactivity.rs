@@ -1,28 +1,40 @@
 //! Inactivity warnings: providers may delete accounts nobody used for a long
 //! time. RPool can only report when *it* last reached the account; whether a
 //! provider counts API access as activity is the provider's decision.
+/// Seconds per day.
 const DAY: u64 = 86_400;
 /// Share of the threshold after which the age is shown as "near".
 const NEAR_PERCENT: u64 = 80;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// How close an account is to its inactivity warning threshold.
 pub(crate) enum Level {
     /// No threshold for this account.
     Untracked,
     /// Never reached by RPool on this computer.
     Unknown,
+    /// Idle for less than 80 % of the threshold.
     Fine,
+    /// Idle for at least 80 % of the threshold but not yet past it.
     Near,
+    /// Idle for the threshold or longer.
     Exceeded,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Inactivity status of one account, shown by `provider::limits_view` and the GUI.
 pub(crate) struct Inactivity {
+    /// Grade of the idle time against the threshold.
     pub level: Level,
+    /// Whole days since RPool last reached the account (`None` = never seen).
     pub age_days: Option<u64>,
+    /// Warning threshold in days (`None` = no threshold configured).
     pub warn_days: Option<u32>,
 }
 
+/// Grades how long the account has been idle since `last_activity` (unix
+/// seconds) against `warn_days` at `now`. A clock behind the record counts as age 0.
+/// Called by `provider::limits_view`.
 pub(crate) fn evaluate(last_activity: Option<u64>, warn_days: Option<u32>, now: u64) -> Inactivity {
     let age_days = last_activity.map(|at| now.saturating_sub(at) / DAY);
     let level = match (warn_days, age_days) {

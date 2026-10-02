@@ -6,21 +6,28 @@ use crate::storage::admin::{BackendAdmin, RcloneAdmin};
 /// A pool destination and the configured backing section it resolves to.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct BackingRemote {
+    /// Pool destination (`remote:path`, after remote roots).
     pub remote: String,
+    /// rclone section that holds the data for that destination.
     pub backing: String,
     /// rclone backend type of the backing section.
     pub kind: String,
 }
 
+/// `rpool pool capacity` report (also shown by the GUI pool capacity widget).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct PoolCapacity {
+    /// Pool definition the report was computed for.
     pub policy: PoolDefinition,
+    /// Drive namespace usage; always `None` here (not queried).
     pub namespace_used: Option<u64>,
+    /// Account quotas and pool capacity estimates.
     pub capacity: CapacityStatus,
     /// Every resolvable destination, including ones whose quota query failed.
     #[serde(default)]
     pub backings: Vec<BackingRemote>,
 }
+/// Builds the report for `policy` with `admin` (quota queries only).
 pub(crate) fn inspect(admin: &dyn BackendAdmin, policy: &PoolDefinition) -> Result<PoolCapacity> {
     let mut capacity = CapacityStatus::inspect(admin, policy)?;
     capacity.usage_scope = "not-queried".into();
@@ -55,9 +62,12 @@ pub(crate) fn backings(
         })
         .collect())
 }
+/// [`inspect`] with the real rclone admin. Used by `run` and the GUI.
 pub(crate) fn query(rclone: &str, policy: &PoolDefinition) -> Result<PoolCapacity> {
     inspect(&RcloneAdmin::inherited(rclone), policy)
 }
+/// `rpool pool capacity`: a saved pool or an ad-hoc definition from the
+/// CLI options, printed as text or JSON.
 pub(crate) fn run(rclone: &str, args: crate::cli::pool::PoolCapacityArgs) -> Result<()> {
     let mut policy = match args.name {
         Some(name) => super::load_pool_store()?

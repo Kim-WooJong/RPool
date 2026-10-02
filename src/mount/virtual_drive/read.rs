@@ -3,6 +3,8 @@
 use super::*;
 
 impl VirtualDrive {
+    /// Lease for the local spool image of intent `id` (shared while any holder
+    /// keeps it); committed-spool cleanup skips images with a live lease.
     pub(crate) fn local_lease(&self, id: &str) -> Arc<()> {
         let mut leases = self.local_leases.lock().unwrap();
         if let Some(lease) = leases.get(id).and_then(std::sync::Weak::upgrade) {
@@ -18,9 +20,12 @@ impl VirtualDrive {
         let (s, projection, _) = self.locked_visible()?;
         self.full_view(&s, &projection)
     }
+    /// Spool image file of `intent`: `<root>/spool/<id>/content`.
     pub(crate) fn spool_path(&self, intent: &Intent) -> PathBuf {
         self.root.join("spool").join(&intent.id).join("content")
     }
+    /// Reads up to `count` bytes at `offset` of `revision`: cloud revisions via
+    /// the shard cache (background downloads), local ones from the spool image.
     pub(crate) fn read(&self, revision: &Revision, offset: u64, count: usize) -> Result<Vec<u8>> {
         match revision {
             // Background shard downloads may outlive this call, so they share
@@ -45,6 +50,10 @@ impl VirtualDrive {
             }
         }
     }
+    /// Pins `revision` as what `path` serves and records it as the edit base.
+    /// On pool-sync drives it fails when the revision is no longer current or
+    /// differs from one already served for `path` (DAV range reads never mix
+    /// revisions). Called by the DAV filesystem on open.
     pub(crate) fn pin_read(&self, path: &str, revision: &Revision) -> Result<()> {
         let mut s = self.state.lock().unwrap();
         if !self.pool_sync_roots.is_empty() {

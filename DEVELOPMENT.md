@@ -102,6 +102,26 @@ Before adding code, decide its owner:
 
 If no existing domain fits, create a narrowly named module instead of appending unrelated code to an existing file.
 
+## Code documentation
+
+Every item carries a rustdoc comment, enforced by
+`clippy::missing_docs_in_private_items` (warned in `src/main.rs` and the
+launcher, so `cargo clippy -- -D warnings` fails on a missing one; tests
+are exempt):
+
+- `//!` at the top of every file: what the module is for, its entry points
+  and who uses it.
+- `///` on every function, method, type, field, variant, constant and `mod`
+  declaration: what it does or means (units, `None`/`0` meanings,
+  invariants) and its main caller(s), e.g. "Called by
+  `mount::virtual_drive::sync` before each upload round."
+- In the clap definitions (`src/cli*.rs`) a `///` is also the `--help` text:
+  write it for users, without implementation details.
+- Links (`[`Item`]`) must resolve:
+  `cargo doc --no-deps --document-private-items --bin rpool` stays free of
+  warnings. A module's `//!` links resolve in its parent's scope when the
+  parent documents the `mod` line too; write those names as plain code.
+
 ## Verification workflow
 
 For refactors and feature additions:

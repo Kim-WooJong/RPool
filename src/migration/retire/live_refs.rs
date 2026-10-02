@@ -11,18 +11,29 @@ use crate::migration::model::Action;
 use crate::prelude::*;
 use crate::storage::reader::StorageReader;
 
+/// Inputs of reference collection; built by `retire::observe` and the drive
+/// history cleanup (`drive_history::cleanup::live`).
 pub(crate) struct Sources<'a> {
+    /// Path of the rclone binary.
     pub rclone: &'a str,
+    /// Pool name.
     pub pool: &'a str,
+    /// Pool definition (for the drive's cloud metadata).
     pub policy: &'a PoolDefinition,
+    /// Current migration; excluded from `other_migrations`.
     pub migration_id: &'a str,
+    /// Fresh listings per root; their manifest replicas are references.
     pub listings: &'a BTreeMap<String, RemoteListing>,
     /// Archives being cleaned up: their own manifests are not references.
     pub subjects: &'a BTreeSet<String>,
+    /// Local drive workspaces whose JSON files are scanned for references.
     pub workspaces: &'a [PathBuf],
+    /// Reader used to load manifests.
     pub reader: &'a StorageReader,
 }
 
+/// Collects references from all sources: inventory, cloud manifests, drive
+/// metadata, given workspaces and other in-progress migrations.
 pub(crate) fn collect(sources: &Sources<'_>) -> References {
     let mut refs = References::default();
     inventory(sources, &mut refs);
@@ -50,6 +61,8 @@ pub(crate) fn collect(sources: &Sources<'_>) -> References {
     refs
 }
 
+/// Adds every inventory manifest (except subjects); an unreadable one marks
+/// the result uncertain only when it lists one of the listed roots.
 pub(crate) fn inventory(sources: &Sources<'_>, refs: &mut References) {
     let store = match crate::inventory::load_inventory() {
         Ok(store) => store,
@@ -84,6 +97,8 @@ pub(crate) fn inventory(sources: &Sources<'_>, refs: &mut References) {
     }
 }
 
+/// Adds every manifest replica found on the listed roots (except subjects and
+/// drive archives), trying each replica of an id until one loads.
 pub(crate) fn cloud_manifests(sources: &Sources<'_>, refs: &mut References) {
     let mut by_id: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (root, listing) in sources.listings {

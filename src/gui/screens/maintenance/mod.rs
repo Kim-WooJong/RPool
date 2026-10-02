@@ -1,6 +1,13 @@
+//! The Maintenance page: Archive check (verify / status forms), Integrity
+//! (scrub and repair), Metadata (manifests and inventory) and Diagnostics
+//! (`rpool doctor`). Entry points `show` and `handle_task_completion`.
+
+/// Diagnostics tab: runs the doctor checks.
 pub(crate) mod diagnostics;
+/// Integrity tab: scrub, repair and the integrity summary.
 #[path = "integrity/mod.rs"]
 pub(crate) mod integrity;
+/// Metadata tab: manifest tools and the inventory.
 #[path = "metadata/mod.rs"]
 pub(crate) mod metadata;
 
@@ -13,6 +20,8 @@ use crate::gui::state::{GuiState, MaintenanceSection};
 use crate::gui::task::{JobStatus, TaskRunner};
 use eframe::egui;
 
+/// Draws the Maintenance tabs and the selected section. Called by the app for
+/// `Page::Maintenance`.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     crate::gui::theme::tabs(
         ui,
@@ -38,6 +47,9 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     }
 }
 
+/// After a task finishes: refreshes the integrity snapshot after Scrub/Repair
+/// and the inventory after an inventory rebuild, and sets the section's notice.
+/// Called by the app when the task runner reports a finished job.
 pub(crate) fn handle_task_completion(state: &mut GuiState, task: &TaskRunner, status: JobStatus) {
     let Some(last) = task.last_task() else {
         return;

@@ -24,6 +24,9 @@ pub(crate) fn status(rclone: &str, pool: &str, migration_id: &str) -> Result<Opt
     )))
 }
 
+/// Folds the drive plan with journal records, freeze and adoption into a
+/// [`DriveStatus`]: counts of switched/verified/failed entries, lost files
+/// (from the plan and from the run) and whether adoption is ready.
 pub(crate) fn summarize(
     drive: &DrivePlan,
     records: &[Record],

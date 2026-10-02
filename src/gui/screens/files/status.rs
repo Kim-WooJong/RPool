@@ -1,3 +1,6 @@
+//! Archive status form: runs `rpool status` on a manifest (shard availability,
+//! degraded groups, recoverability, failure domains), optionally with provider usage.
+
 use crate::gui::i18n::tr;
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
@@ -5,10 +8,15 @@ use crate::gui::widgets::local_file_field;
 use eframe::egui;
 use std::ffi::OsString;
 
+/// Inputs of the status form, in `GuiState::status` (also prefilled by the
+/// Library's Status action).
 #[derive(Debug)]
 pub(crate) struct StatusForm {
+    /// Manifest: a local file or a remote manifest path.
     pub(crate) manifest: String,
+    /// Pass `--usage` to append provider usage (on by default).
     pub(crate) include_usage: bool,
+    /// Validation or start error shown above the button.
     pub(crate) error: Option<String>,
 }
 
@@ -22,6 +30,8 @@ impl Default for StatusForm {
     }
 }
 
+/// Draws the status form and starts the check on click. Called by
+/// Maintenance › Archive.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     ui.heading(tr("Archive status"));
     ui.label(tr("Inspect shard availability, degraded groups, recoverability, and provider failure-domain safety."));
@@ -53,6 +63,8 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     }
 }
 
+/// Validates the manifest and starts `rpool status <manifest> --workers N
+/// [--usage]` as a background task.
 fn start_status(state: &GuiState, task: &mut TaskRunner) -> Result<(), String> {
     if state.status.manifest.trim().is_empty() {
         return Err(tr("Select or enter a manifest first.").to_string());

@@ -9,14 +9,19 @@ use crate::prelude::*;
 use crate::utils::relative_remote_object;
 
 #[derive(Debug, Clone, PartialEq)]
+/// Probe result of one shard, in `manifest.shards` order; produced by
+/// `quick_states`/`full_states` and fed to [`assess`] and the estimator.
 pub(crate) enum ShardState {
+    /// Present (and matching size/hash for the probe level used).
     Ok,
+    /// Known not readable, with the reason recorded in the plan.
     Missing(MissingReason),
     /// Could not be checked (provider error): may still be readable.
     Unknown(String),
 }
 
 impl ShardState {
+    /// True only for [`ShardState::Ok`].
     pub(crate) fn is_ok(&self) -> bool {
         matches!(self, Self::Ok)
     }
@@ -96,7 +101,9 @@ pub(crate) struct Availability {
 /// Groups of `manifest` with their shard positions. Uncoded archives form one
 /// group that needs every shard.
 pub(crate) struct GroupView {
+    /// Reed-Solomon group number (0 for uncoded archives).
     pub group: u32,
+    /// Shards needed to rebuild the group (K; all shards when uncoded).
     pub required_k: usize,
     /// Zero-filled data slots of a final partial group (always available).
     pub virtual_zero: usize,
@@ -104,6 +111,8 @@ pub(crate) struct GroupView {
     pub members: Vec<usize>,
 }
 
+/// Splits `manifest` into its Reed-Solomon groups. Used by [`assess`] and
+/// `estimate` (transfer sizes per group).
 pub(crate) fn groups(manifest: &Manifest) -> Vec<GroupView> {
     let Some(coding) = &manifest.coding else {
         return vec![GroupView {
@@ -137,6 +146,9 @@ pub(crate) fn groups(manifest: &Manifest) -> Vec<GroupView> {
         .collect()
 }
 
+/// Counts per group the available (ok + virtual zero), unknown and missing
+/// shards and reports lost / undetermined groups. Called by the planner for
+/// every archive.
 pub(crate) fn assess(manifest: &Manifest, states: &[ShardState]) -> Availability {
     let mut out = Availability::default();
     for view in groups(manifest) {

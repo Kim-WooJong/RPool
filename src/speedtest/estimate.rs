@@ -115,10 +115,12 @@ fn data_mask(specs: &[PhysicalSpec], k: Option<usize>) -> Vec<bool> {
         .collect()
 }
 
+/// First line of an error message, for one-line report errors.
 fn first_line(text: &str) -> &str {
     text.lines().next().unwrap_or("")
 }
 
+/// A speed that is finite and positive, else `None`.
 fn usable(speed: Option<f64>) -> Option<f64> {
     speed.filter(|s| s.is_finite() && *s > 0.0)
 }

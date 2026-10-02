@@ -1,6 +1,9 @@
+//! Prints the per-remote quota usage table.
 use crate::prelude::*;
 use crate::presentation::{format_optional_bytes, usage_bar};
 
+/// Prints one aligned row per remote (used/free/total, percent, bar, trash
+/// and status or error) to stdout. Called by the `status` and `usage` commands.
 pub(crate) fn print_usage_table(reports: &[QuotaReport]) {
     let remote_width = reports
         .iter()

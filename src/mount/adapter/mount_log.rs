@@ -24,14 +24,20 @@ pub(super) fn open_mount_log(path: &Path) -> Result<std::fs::File> {
 
 /// Incrementally reads rclone's log file into bounded, redacted display lines.
 pub(super) struct MountLog {
+    /// rclone log file being tailed.
     pub(super) path: PathBuf,
+    /// Bytes of the file already consumed; reset if the file shrinks.
     pub(super) offset: u64,
+    /// Bytes of an unfinished line carried to the next read.
     pub(super) partial: Vec<u8>,
+    /// Current line exceeded `LOG_LINE_LIMIT` and is being skipped until its newline.
     pub(super) discarding: bool,
+    /// Non-empty strings replaced by `[redacted]` in every returned line.
     pub(super) secrets: Vec<String>,
 }
 
 impl MountLog {
+    /// Creates a reader starting at offset 0; empty secrets are dropped.
     pub(super) fn new(path: PathBuf, secrets: Vec<String>) -> Self {
         Self {
             path,
@@ -42,6 +48,8 @@ impl MountLog {
         }
     }
 
+    /// Reads up to `LOG_READ_LIMIT` new bytes and returns complete, redacted lines
+    /// (at most `LOG_LINES_RETURNED`). Read errors return nothing. Backs `MountProcess::logs`.
     pub(super) fn read_new(&mut self) -> Vec<String> {
         let mut chunk = Vec::new();
         let read = std::fs::File::open(&self.path).and_then(|mut file| {
@@ -73,6 +81,7 @@ impl MountLog {
         lines
     }
 
+    /// Appends bytes to the current line, switching to discard mode once it is too long.
     pub(super) fn push(&mut self, bytes: &[u8]) {
         if self.discarding {
             return;
@@ -85,6 +94,7 @@ impl MountLog {
         }
     }
 
+    /// Ends the current line: redacts secrets, or returns a placeholder for an oversized line.
     pub(super) fn finish_line(&mut self) -> String {
         if std::mem::take(&mut self.discarding) {
             return "[oversized mount log line omitted]".into();

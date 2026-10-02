@@ -9,9 +9,13 @@ impl VirtualDrive {
         let visible = self.view()?.get(path).cloned();
         self.begin_observed(path, visible.as_ref())
     }
+    /// [`Self::begin_intent`] for a write whose editor saw `visible`.
     pub(crate) fn begin_observed(&self, path: &str, visible: Option<&Revision>) -> Result<Intent> {
         self.begin_intent(path, visible)
     }
+    /// Begins a write to `path`: records the edit base (recorded base, the
+    /// visible cloud revision, or the path's heads), creates `spool/<id>/` and
+    /// returns an unsealed intent. The caller writes the image, then seals it.
     pub(crate) fn begin_intent(&self, path: &str, visible: Option<&Revision>) -> Result<Intent> {
         valid_path(path)?;
         let mut s = self
@@ -90,6 +94,7 @@ impl VirtualDrive {
         self.record_intent(&intent)?;
         Ok(intent)
     }
+    /// Hashes the written spool image and seals the intent ([`Self::seal_hashed`]).
     pub(crate) fn seal(&self, mut intent: Intent) -> Result<()> {
         (intent.size, intent.hash) = self.hash_spool(&intent)?;
         self.seal_hashed(intent)
@@ -121,6 +126,8 @@ impl VirtualDrive {
         self.upload.notify();
         Ok(())
     }
+    /// Deletion intent for `path` at `revision`: depends on a local intent, or
+    /// descends from the cloud event (on that event's path).
     pub(in crate::mount) fn deletion_for(&self, path: &str, revision: &Revision) -> Result<Intent> {
         let mut intent = self.begin_observed(path, Some(revision))?;
         intent.spool = None;
@@ -176,6 +183,7 @@ impl VirtualDrive {
         *s = next;
         Ok(true)
     }
+    /// Queues a deletion of the visible file at `path`.
     pub(crate) fn delete(&self, path: &str) -> Result<()> {
         let revision = self
             .view()?
@@ -201,6 +209,9 @@ impl VirtualDrive {
         self.upload.notify();
         Ok(())
     }
+    /// Adds an existing archive (`manifest` at `source`) to the namespace as a
+    /// new file at its original name, without reading data; publication follows
+    /// in the next upload pass.
     pub(crate) fn import(&self, source: &str) -> Result<()> {
         let manifest = crate::manifest::load_manifest(&self.rclone, source)?;
         crate::manifest::validate_manifest(&manifest)?;

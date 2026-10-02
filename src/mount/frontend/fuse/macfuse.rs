@@ -11,14 +11,19 @@ use std::ffi::{c_char, c_int, CString};
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 
+/// macFUSE bundle path; its presence is part of [`installed`].
 pub(crate) const BUNDLE: &str = "/Library/Filesystems/macfuse.fs";
+/// libfuse 2 dylibs installed by macFUSE, tried in order.
 const LIBRARIES: [&str; 2] = [
     "/usr/local/lib/libfuse.2.dylib",
     "/usr/local/lib/libfuse.dylib",
 ];
+/// Hint appended when macFUSE is missing.
 const INSTALL_HINT: &str =
     "install macFUSE from https://macfuse.github.io/ and restart RPool, or use --frontend dav";
+/// How to enable the macFUSE FSKit file system extension.
 const FSKIT_HINT: &str = "open macFUSE once (/Library/Filesystems/macfuse.fs/Contents/Resources/macfuse.app) so it registers its file system extension, then turn macFUSE on under System Settings > General > Login Items & Extensions > File System Extensions (https://github.com/macfuse/macfuse/wiki/Getting-Started)";
+/// What the kernel backend needs from macOS security settings.
 const KERNEL_HINT: &str = "the kernel backend needs the macFUSE kernel extension allowed in System Settings > Privacy & Security (on Apple silicon also reduced security in Startup Security Utility)";
 
 /// Whether macFUSE's bundle and libfuse are installed (cheap file checks).
@@ -29,16 +34,23 @@ pub(crate) fn installed() -> bool {
 /// Which macFUSE backend serves the mount.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Backend {
+    /// FSKit file system extension (no kernel extension).
     FsKit,
+    /// macFUSE kernel extension.
     Kernel,
 }
 
 #[repr(C)]
+/// libfuse's `struct fuse_args`.
 struct FuseArgs {
+    /// Number of arguments.
     argc: c_int,
+    /// Argument strings.
     argv: *const *const c_char,
+    /// Nonzero if libfuse owns `argv`; always 0 here.
     allocated: c_int,
 }
+/// C signature of `fuse_mount_compat25`: mountpoint and args → FUSE descriptor or -1.
 type MountFn = unsafe extern "C" fn(*const c_char, *const FuseArgs) -> c_int;
 
 /// `fuse_mount_compat25` from a loaded libfuse. The library is never
@@ -72,6 +84,7 @@ fn mount_fn() -> Result<MountFn> {
     }
 }
 
+/// Last `dlerror()` message.
 fn dl_error() -> String {
     // SAFETY: dlerror returns NULL or a NUL-terminated thread-local string.
     let message = unsafe { libc::dlerror() };
@@ -138,6 +151,7 @@ pub(super) fn fskit_supported(macos: Option<(u32, u32)>, macfuse: Option<(u32, u
     matches!(macos, Some(v) if v >= (15, 4)) && matches!(macfuse, Some((major, _)) if major >= 5)
 }
 
+/// macOS product version (`kern.osproductversion`) as `(major, minor)`.
 fn macos_version() -> Option<(u32, u32)> {
     let mut buffer = [0u8; 32];
     let mut len = buffer.len();
@@ -158,11 +172,13 @@ fn macos_version() -> Option<(u32, u32)> {
     major_minor(text.trim_end_matches('\0'))
 }
 
+/// Installed macFUSE version from its bundle Info.plist.
 fn macfuse_version() -> Option<(u32, u32)> {
     let plist = fs::read_to_string(Path::new(BUNDLE).join("Contents/Info.plist")).ok()?;
     major_minor(plist_string(&plist, "CFBundleShortVersionString")?)
 }
 
+/// Calls libfuse's mount with `-o options`; returns the owned FUSE descriptor.
 fn mount_with(mount: MountFn, mountpoint: &CString, options: &str) -> std::io::Result<OwnedFd> {
     let options = CString::new(options).map_err(std::io::Error::other)?;
     let argv = [c"rpool".as_ptr(), c"-o".as_ptr(), options.as_ptr()];
@@ -227,6 +243,7 @@ pub(super) fn mount(
     }
 }
 
+/// `major.minor` or `unknown` for messages.
 fn version_text(version: Option<(u32, u32)>) -> String {
     version.map_or("unknown".into(), |(major, minor)| {
         format!("{major}.{minor}")

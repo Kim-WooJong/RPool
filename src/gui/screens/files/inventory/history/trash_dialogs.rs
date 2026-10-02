@@ -13,12 +13,18 @@ use eframe::egui;
 /// Folders listed in the picker at most (narrow the search for more).
 const MAX_FOLDERS: usize = 300;
 
+/// What a dialog's buttons asked for this frame.
 enum Outcome {
+    /// Nothing clicked; stay open.
     Keep,
+    /// Cancelled or closed.
     Close,
+    /// Confirmed: start this change with these CLI arguments.
     Run(Change, Vec<std::ffi::OsString>),
 }
 
+/// Draws the open trash confirmation (`history.dialog`), if any, and starts the
+/// confirmed change through `changes::start`. Called by `history::dialogs`.
 pub(crate) fn show(
     ctx: &egui::Context,
     history: &mut HistoryForm,
@@ -166,6 +172,8 @@ pub(crate) fn folders(tree: Option<&DriveTree>, filter: &str) -> Vec<String> {
     out
 }
 
+/// Folder search box, selectable folder list (at most `MAX_FOLDERS`) and the
+/// resulting destination; writes the choice to `folder`.
 fn folder_picker(
     ui: &mut egui::Ui,
     tree: Option<&DriveTree>,

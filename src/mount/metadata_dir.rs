@@ -3,6 +3,9 @@
 //! tests use an in-memory fake.
 use anyhow::Result;
 
+/// Content-addressed object store for one metadata directory; the
+/// checkpoint/compaction code (`metadata_checkpoint`, `metadata_compaction`)
+/// reads and writes records, heads, chunks and marks only through it.
 pub(crate) trait ObjectDir {
     /// Every valid `(id, size)`; a missing directory is empty. An unreachable
     /// replica is an error, never an empty listing.
@@ -16,10 +19,14 @@ pub(crate) trait ObjectDir {
     fn remove(&self, id: &str) -> Result<()>;
 }
 
+/// Id of a metadata object: lowercase hex BLAKE3 of its bytes (64 chars).
+/// Used by the fake directory and `metadata_checkpoint_model` to verify ids.
 pub(crate) fn object_id(bytes: &[u8]) -> String {
     blake3::hash(bytes).to_hex().to_string()
 }
 
+/// True when `id` has the shape of an object id: exactly 64 lowercase hex
+/// digits. Also reused for mount-registry and drive-history ids.
 pub(crate) fn valid_id(id: &str) -> bool {
     id.len() == 64
         && id

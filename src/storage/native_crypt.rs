@@ -25,12 +25,19 @@ use crate::storage::traits::*;
 
 pub(crate) mod route;
 
+/// `StorageBackend` that encrypts keys and data like rclone `crypt` and stores
+/// them through the base remote's backend. Built per crypt remote by
+/// `route::NativeCrypt`.
 pub(crate) struct CryptBackend {
+    /// Identifier reported by `id()` (e.g. `native-crypt-<alias>`).
     id: BackendId,
+    /// Backend of the crypt remote's base; sees only encrypted names and ciphertext.
     inner: Arc<dyn StorageBackend>,
+    /// Name and data cipher derived from the crypt remote's keys.
     cipher: Arc<Cipher>,
 }
 
+/// `CorruptData` error for an object that is not valid rclone crypt data.
 fn corrupt(found: impl Into<String>) -> StorageError {
     StorageError::CorruptData {
         found: found.into(),
@@ -39,10 +46,12 @@ fn corrupt(found: impl Into<String>) -> StorageError {
 }
 
 impl CryptBackend {
+    /// Wraps `inner` (the base backend) with `cipher`; called by `route::NativeCrypt::build`.
     pub(crate) fn new(id: BackendId, inner: Arc<dyn StorageBackend>, cipher: Arc<Cipher>) -> Self {
         Self { id, inner, cipher }
     }
 
+    /// Encrypted stored key for plaintext logical `key`.
     fn file_key(&self, key: &ObjectKey) -> Result<ObjectKey, StorageError> {
         let name = self
             .cipher
@@ -51,10 +60,13 @@ impl CryptBackend {
         ObjectKey::stored(name)
     }
 
+    /// Plaintext size for an encrypted object size; errors if the size is impossible.
     fn plain_size(&self, encrypted: u64) -> Result<u64, StorageError> {
         data::decrypted_size(encrypted).map_err(|_| corrupt(format!("encrypted size {encrypted}")))
     }
 
+    /// Reads and parses the crypt header of `key`, returning the file nonce and the
+    /// object version seen, so a range read can detect concurrent replacement.
     fn header(
         &self,
         ctx: &OperationContext,
@@ -72,17 +84,27 @@ impl CryptBackend {
 /// Decrypts ciphertext streamed by the inner backend, one block at a time, and
 /// forwards the requested plaintext window to the caller's sink.
 struct DecryptingSink<'a> {
+    /// Data cipher used to open blocks.
     cipher: &'a Cipher,
+    /// Nonce of the next block to open (incremented per block).
     nonce: Nonce,
+    /// Ciphertext received but not yet decrypted (less than one full block).
     pending: Vec<u8>,
+    /// Plaintext bytes still to skip before the requested window starts.
     discard: u64,
+    /// Plaintext bytes of the window still to forward.
     remaining: u64,
+    /// Plaintext bytes forwarded so far.
     written: u64,
+    /// Caller's destination for plaintext.
     sink: &'a mut dyn Write,
+    /// Typed error behind the last `io::Error`, returned instead of the generic one.
     failure: Option<StorageError>,
 }
 
 impl DecryptingSink<'_> {
+    /// Decrypts the first `sealed_len` pending bytes as one block and forwards the
+    /// part inside the window; records a typed failure on auth or sink errors.
     fn emit(&mut self, sealed_len: usize) -> io::Result<()> {
         let plain = match self
             .cipher
@@ -110,6 +132,8 @@ impl DecryptingSink<'_> {
         Ok(())
     }
 
+    /// Decrypts the final partial block, if any, and returns plaintext bytes written.
+    /// A leftover no longer than a tag is reported as truncation.
     fn finish(mut self) -> Result<u64, StorageError> {
         match self.pending.len() {
             0 => {}

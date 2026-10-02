@@ -4,6 +4,7 @@
 use crate::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Classification of one cached file, used by `cache_recovery` to decide what to import.
 pub(crate) enum EntryKind {
     /// Not dirty: a read cache of data the drive already has.
     Clean,
@@ -11,35 +12,48 @@ pub(crate) enum EntryKind {
     Dirty,
     /// Dirty but sparse: the missing ranges cannot be reconstructed.
     Incomplete,
+    /// Cannot be classified safely (the reason is kept for the report); never imported.
     Unknown(String),
 }
 
 #[derive(Debug, Clone)]
+/// One file found in the frozen cache, keyed by its drive path.
 pub(crate) struct CacheEntry {
     /// Drive path, `/`-separated.
     pub rel: String,
+    /// Cached data file, `None` when only metadata exists.
     pub data: Option<PathBuf>,
+    /// Bytes to recover: the metadata size for dirty entries, else the data file length.
     pub size: u64,
+    /// Classification of the entry.
     pub kind: EntryKind,
 }
 
 #[derive(Deserialize)]
+/// rclone `vfsMeta` JSON of one file (only the fields RPool needs).
 struct Meta {
     #[serde(rename = "Size")]
+    /// Logical file size in bytes.
     size: u64,
     #[serde(rename = "Rs")]
+    /// Byte ranges present in the data file; `None` means none recorded.
     ranges: Option<Vec<Range>>,
     #[serde(rename = "Dirty")]
+    /// File has unsaved (not yet uploaded) changes.
     dirty: bool,
 }
 #[derive(Deserialize)]
+/// One cached byte range of a file.
 struct Range {
     #[serde(rename = "Pos")]
+    /// Start offset in bytes.
     pos: u64,
     #[serde(rename = "Size")]
+    /// Length in bytes.
     size: u64,
 }
 
+/// True when the cached ranges cover `[0, size)` without gaps.
 fn covers(ranges: &[Range], size: u64) -> bool {
     let mut spans: Vec<(u64, u64)> = ranges
         .iter()
@@ -106,12 +120,14 @@ pub(crate) fn scan(dir: &Path) -> Result<std::result::Result<Vec<CacheEntry>, St
     Ok(Ok(entries))
 }
 
+/// Logical size from a metadata file, `None` if unreadable.
 fn meta_size(meta: &Path) -> Option<u64> {
     serde_json::from_slice::<Meta>(&fs::read(meta).ok()?)
         .ok()
         .map(|m| m.size)
 }
 
+/// Classifies one entry from its metadata file and data file length.
 fn classify(meta: &Path, data_len: Option<u64>) -> EntryKind {
     let bytes = match fs::read(meta) {
         Ok(b) => b,
@@ -139,6 +155,8 @@ fn classify(meta: &Path, data_len: Option<u64>) -> EntryKind {
     }
 }
 
+/// Collects relative `/`-separated paths below `base`; non-UTF-8 names and non-regular
+/// files are marked unknown.
 fn walk(
     base: &Path,
     dir: &Path,

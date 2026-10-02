@@ -51,6 +51,9 @@ impl VirtualDrive {
         }
         refreshed
     }
+    /// Measures provider capacity for the pool and fills in the drive's
+    /// logical usage, spool and pending-write figures from the namespace.
+    /// Called by `refresh_capacity`.
     pub(super) fn measure_capacity(&self) -> Result<CapacityStatus> {
         let mut status = CapacityStatus::inspect(
             &crate::storage::admin::RcloneAdmin::inherited(&self.rclone),

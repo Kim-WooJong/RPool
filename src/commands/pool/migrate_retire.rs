@@ -8,6 +8,7 @@ use crate::migration::retire::model::{
 use crate::presentation::format_bytes;
 use anyhow::Result;
 
+/// Maps the CLI `--step` value to the retire engine's [`RetireStep`].
 pub(crate) fn step(arg: RetireStepArg) -> RetireStep {
     match arg {
         RetireStepArg::All => RetireStep::All,
@@ -16,6 +17,8 @@ pub(crate) fn step(arg: RetireStepArg) -> RetireStep {
     }
 }
 
+/// Runs `migrate retire` via `migration::retire::retire` (dry run unless
+/// `options.confirm`) and prints the report as JSON or text.
 pub(crate) fn retire(
     rclone: &str,
     pool: &str,
@@ -32,6 +35,8 @@ pub(crate) fn retire(
     Ok(())
 }
 
+/// Runs `migrate restore`: takes the given (or all) items out of the cleanup
+/// quarantine and prints how many were restored.
 pub(crate) fn restore(
     rclone: &str,
     pool: &str,
@@ -44,6 +49,7 @@ pub(crate) fn restore(
     Ok(())
 }
 
+/// Prints one line per account with its object count and bytes, under `title`.
 fn accounts(title: &str, rows: &[AccountBytes]) {
     for row in rows {
         println!(
@@ -55,6 +61,7 @@ fn accounts(title: &str, rows: &[AccountBytes]) {
     }
 }
 
+/// Prints a retire report: candidates, quarantine states, purges and kept items.
 fn print_report(r: &RetireReport) {
     println!(
         "migration_id={} pool={} mode={}",

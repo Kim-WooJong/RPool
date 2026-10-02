@@ -17,34 +17,47 @@
 use super::super::marks::MarkStore;
 use crate::prelude::*;
 
+/// Record format version; records with another format are skipped on read.
 pub(crate) const FORMAT: u32 = 1;
+/// `kind` of cleanup records, distinguishing them from purge marks in the same store.
 pub(crate) const KIND: &str = "cleanup";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// Journal step a record represents (see the module docs for folding rules).
 pub(crate) enum Step {
+    /// Start a grace period for the named archives.
     Mark,
+    /// End a mark's grace period (or, with `release_deleting`, undo a run's `Deleting`).
     Cancel,
+    /// Deletion of the named archives started (point of no return).
     Deleting,
+    /// Every object of the named archives is gone.
     Deleted,
 }
 
 /// Size of an archive when it was marked (for reports).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Info {
+    /// Stored objects of the archive.
     pub objects: u64,
+    /// Stored bytes of the archive.
     pub bytes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// One immutable journal record, published content-addressed by `publish`.
 pub(crate) struct Record {
+    /// Always `FORMAT`.
     pub format: u32,
     /// Always [`KIND`].
     pub kind: String,
+    /// What this record does.
     pub step: Step,
     /// Random id of the mark (`Mark`, `Cancel`) or of the deletion run
     /// (`Deleting`, its `Cancel`, `Deleted`).
     pub mark: String,
+    /// Archive folder name -> its size when recorded.
     pub archives: BTreeMap<String, Info>,
     /// `Mark`: seconds until the archives may be deleted.
     #[serde(default)]
@@ -52,11 +65,14 @@ pub(crate) struct Record {
     /// `Cancel` of a deletion run's own `Deleting` (nothing deleted yet).
     #[serde(default)]
     pub release_deleting: bool,
+    /// PC/worker that published the record.
     pub worker: String,
+    /// Publication time (unix seconds).
     pub unix: u64,
 }
 
 impl Record {
+    /// A record with no grace period and `release_deleting` off.
     pub(crate) fn new(
         step: Step,
         mark: &str,
@@ -118,6 +134,7 @@ pub(crate) struct State {
     pub marks: BTreeMap<String, u64>,
     /// Deletion started (point of no return) and not finished.
     pub deleting: bool,
+    /// Every object is gone; overrides marks and `deleting`.
     pub deleted: bool,
     /// Size when last marked.
     pub info: Info,
@@ -134,6 +151,8 @@ impl State {
     }
 }
 
+/// Fold records of every PC into per-archive state (order-free); archives
+/// with nothing pending are dropped. Used by `execute::run` and `unrestorable`.
 pub(crate) fn fold(records: &[Record]) -> BTreeMap<String, State> {
     let mut cancelled: BTreeSet<(&str, &str)> = BTreeSet::new();
     let mut released: BTreeSet<(&str, &str)> = BTreeSet::new();

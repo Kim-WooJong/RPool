@@ -50,6 +50,9 @@ pub(crate) fn before_open(rclone: &str, pool: &str, workspace: &Path) -> Result<
     open_decision(workspace_generation(workspace)?, &known, pool)
 }
 
+/// Decides how to open a workspace bound to `generation`: a fresh workspace (`None`) may get
+/// the adopted epoch to initialize on; a superseded one is refused; a frozen one only warns.
+/// Pure part of [`before_open`], tested directly.
 pub(crate) fn open_decision(
     generation: Option<GenerationRef>,
     known: &Known,
@@ -90,6 +93,7 @@ pub(crate) fn check_transition_source(rclone: &str, pool: &str, workspace: &Path
 
 /// Last fence check per workspace root: when, and the refusal (if any).
 type Checks = BTreeMap<PathBuf, (Instant, Option<String>)>;
+/// Process-wide cache of [`Checks`].
 fn checks() -> &'static Mutex<Checks> {
     static CHECKS: std::sync::OnceLock<Mutex<Checks>> = std::sync::OnceLock::new();
     CHECKS.get_or_init(|| Mutex::new(BTreeMap::new()))

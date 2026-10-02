@@ -12,12 +12,16 @@ use eframe::egui;
 /// than this reports no additional space.
 const FRESH_SECONDS: u64 = 120;
 
+/// Capacity verdict shown at the top of the Capacity card.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Verdict {
+    /// Fresh snapshot with eligible accounts: this many more bytes can be written.
     Writable(u64),
+    /// Writes are blocked; the translated reasons why.
     NotWritable(Vec<String>),
 }
 
+/// Seconds since the capacity snapshot was observed.
 fn age(capacity: &CapacityStatus, now: u64) -> u64 {
     now.saturating_sub(capacity.observed_unix)
 }
@@ -65,6 +69,7 @@ pub(super) fn verdict(capacity: &CapacityStatus, now: u64) -> Verdict {
     Verdict::NotWritable(reasons)
 }
 
+/// Current Unix time in seconds (0 if the clock is before the epoch).
 fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -72,6 +77,8 @@ fn now() -> u64 {
         .unwrap_or(0)
 }
 
+/// Capacity card of the Drive overview: verdict badge, per-account table and
+/// collapsed notes, or "Not measured yet" without a snapshot.
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let form = &state.mount;
     let Some(capacity) = &form.session.capacity else {

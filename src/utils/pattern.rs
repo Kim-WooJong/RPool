@@ -1,3 +1,6 @@
+//! Wildcard matching for user filters.
+/// ASCII case-insensitive glob match of the whole `text`: `*` matches any run,
+/// `?` any single byte. Used by `inventory::query`.
 pub(crate) fn wildcard_match(pattern: &str, text: &str) -> bool {
     let pattern = pattern.to_ascii_lowercase();
     let text = text.to_ascii_lowercase();

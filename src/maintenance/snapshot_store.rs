@@ -1,8 +1,12 @@
+//! The last integrity snapshot (result of the latest scrub), stored as JSON
+//! in the config directory and shown by the GUI.
+
 use crate::config::integrity_snapshot_path;
 use crate::models::{IntegritySnapshot, ScrubReport, INTEGRITY_SNAPSHOT_VERSION};
 use crate::utils::{now_unix, read_json, save_json_atomic};
 use anyhow::Result;
 
+/// Loads the last snapshot; `None` when none was saved yet.
 pub(crate) fn load_integrity_snapshot() -> Result<Option<IntegritySnapshot>> {
     let path = integrity_snapshot_path()?;
     if !path.exists() {
@@ -11,6 +15,8 @@ pub(crate) fn load_integrity_snapshot() -> Result<Option<IntegritySnapshot>> {
     Ok(Some(read_json(&path)?))
 }
 
+/// Saves `report` as the latest snapshot (only unhealthy shards are kept as
+/// issues) and returns it.
 pub(crate) fn save_integrity_snapshot(
     manifest_source: &str,
     report: &ScrubReport,

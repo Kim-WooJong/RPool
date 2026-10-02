@@ -8,20 +8,29 @@ use crate::storage::admin::{RcloneAdmin, ToolDiagnostics};
 use eframe::egui;
 use std::sync::mpsc::{Receiver, TryRecvError};
 
+/// Result of `rclone version`: its first output line or the error text.
 type Probe = Result<String, String>;
 
+/// Background rclone version check and its dismissable banner; held by
+/// `gui::app`.
 #[derive(Default)]
 pub(crate) struct RcloneVersionBanner {
     /// The rclone the last finished (or running) check was for.
     checked: Option<String>,
+    /// Running check with the rclone it was started for.
     pending: Option<(String, Receiver<Probe>)>,
+    /// Result of the last finished check.
     result: Option<Probe>,
+    /// The user hid the banner; reset by the next finished check.
     dismissed: bool,
 }
 
+/// How serious a banner message is.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Severity {
+    /// rclone works but is older than recommended.
     Warning,
+    /// rclone is missing, did not run or is unsupported.
     Error,
 }
 
@@ -58,10 +67,12 @@ impl RcloneVersionBanner {
         self.pending = Some((rclone.to_string(), rx));
     }
 
+    /// A version check is running.
     pub(crate) fn is_checking(&self) -> bool {
         self.pending.is_some()
     }
 
+    /// Draws the banner at the top when the last check reported a problem.
     pub(crate) fn show(&mut self, ui: &mut egui::Ui) {
         if self.dismissed {
             return;

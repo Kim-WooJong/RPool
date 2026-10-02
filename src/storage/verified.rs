@@ -25,19 +25,26 @@ use std::sync::Mutex;
 const CAPACITY: usize = 200_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Identity of one full verified read: setup, object and expected content.
 struct Key {
     /// Which rclone binary/config resolved the address.
     route: String,
+    /// Raw object address.
     object: String,
+    /// Expected size in bytes.
     size: u64,
+    /// Expected BLAKE3 hex of the object's content.
     blake3: String,
 }
 
 /// What the provider reported for the object; must match exactly to reuse.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Fingerprint {
+    /// Object size the provider reported.
     pub(crate) size: u64,
+    /// Provider modification time (opaque text), if reported.
     pub(crate) modified: Option<String>,
+    /// Provider version/ETag, if reported.
     pub(crate) version: Option<String>,
 }
 impl Fingerprint {
@@ -49,10 +56,13 @@ impl Fingerprint {
 }
 
 #[derive(Default)]
+/// In-memory proofs of full verified reads, bounded by [`CAPACITY`] (cleared when full).
 pub(crate) struct VerifiedSet {
+    /// Verified identity -> fingerprint seen right after that verification.
     entries: HashMap<Key, Fingerprint>,
 }
 impl VerifiedSet {
+    /// The lookup key of `shard` under `route`.
     fn key(route: &str, shard: &Shard) -> Key {
         Key {
             route: route.to_owned(),
@@ -89,21 +99,26 @@ impl VerifiedSet {
     }
 }
 
+/// The process-wide set behind the free functions below.
 fn global() -> &'static Mutex<VerifiedSet> {
     static SET: std::sync::OnceLock<Mutex<VerifiedSet>> = std::sync::OnceLock::new();
     SET.get_or_init(Default::default)
 }
+/// Process-wide [`VerifiedSet::unchanged`]; false if the lock is poisoned.
+/// Used by `StorageReader::verify_unchanged`.
 pub(crate) fn unchanged(route: &str, shard: &Shard, now: &Fingerprint) -> bool {
     global()
         .lock()
         .map(|set| set.unchanged(route, shard, now))
         .unwrap_or(false)
 }
+/// Process-wide [`VerifiedSet::record`]; used by `StorageReader` after full or hash-proven verification.
 pub(crate) fn record(route: &str, shard: &Shard, seen: Fingerprint) {
     if let Ok(mut set) = global().lock() {
         set.record(route, shard, seen);
     }
 }
+/// Process-wide [`VerifiedSet::forget`]; used by `StorageReader` before rewrites and after failed checks.
 pub(crate) fn forget(route: &str, object: &str) {
     if let Ok(mut set) = global().lock() {
         set.forget(route, object);

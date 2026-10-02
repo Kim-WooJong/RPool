@@ -9,31 +9,47 @@ use crate::storage::account::limits::{
 };
 use eframe::egui;
 
+/// Bytes per GiB, for the daily budget field.
 const GIB: f64 = (1u64 << 30) as f64;
 
+/// Choice for a limit that has a backend default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum Mode {
+    /// Use the backend's default.
     #[default]
     Default,
+    /// Use the value entered in the dialog.
     Custom,
+    /// No limit (daily upload) or no warning (inactivity).
     Off,
 }
 
+/// State of the "Limits…" dialog for one account (`ProviderForm::limits_editor`).
 #[derive(Debug, Clone, Default)]
 pub(crate) struct LimitsEditor {
+    /// Whether the dialog is shown.
     pub(crate) open: bool,
+    /// Account (backing remote) being edited.
     pub(crate) account: String,
+    /// Backend type; picks the defaults shown.
     pub(crate) kind: String,
+    /// Daily upload budget mode.
     pub(crate) daily: Mode,
+    /// Custom daily upload budget, GiB.
     pub(crate) daily_gib: f64,
+    /// Bandwidth limit in rclone `--bwlimit` syntax; empty or `off` = none.
     pub(crate) bwlimit: String,
+    /// Requests per second (`--tpslimit`); 0 = none.
     pub(crate) tpslimit: f64,
     /// 0 = backend default.
     pub(crate) max_uploads: u32,
     /// 0 = the default.
     pub(crate) max_downloads: u32,
+    /// Inactivity warning mode.
     pub(crate) warn: Mode,
+    /// Custom inactivity warning, days (at least 1).
     pub(crate) warn_days: u32,
+    /// Save result or validation error, shown in the dialog.
     pub(crate) notice: Option<String>,
 }
 
@@ -108,6 +124,7 @@ impl LimitsEditor {
     }
 }
 
+/// Default / Custom / Off radio buttons for `mode`.
 fn mode_row(ui: &mut egui::Ui, mode: &mut Mode, default: &str, off: &str) {
     ui.horizontal_wrapped(|ui| {
         ui.radio_value(mode, Mode::Default, default);
@@ -198,6 +215,7 @@ pub(crate) fn show(ctx: &egui::Context, editor: &mut LimitsEditor) -> bool {
     saved
 }
 
+/// Applies the editor to the current limits file and saves it; returns the message to show.
 fn save(editor: &LimitsEditor) -> String {
     let result = crate::storage::account::store::load_limits()
         .map_err(|e| format!("{e:#}"))

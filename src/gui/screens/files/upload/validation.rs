@@ -1,3 +1,6 @@
+//! Upload preflight: checks the queue and target before an upload can start and
+//! prepares the summary card's texts.
+
 use super::state::{UploadItemStatus, UploadTargetMode};
 use crate::erasure::validate_rs_counts;
 use crate::gui::i18n::{tr, trf};
@@ -7,24 +10,37 @@ use crate::pool::validate_pool;
 use crate::remote_root::remote_name;
 use std::collections::BTreeSet;
 
+/// Result of `evaluate`: whether the upload can start, summary labels, and the
+/// problems found. Shown by `summary::show`; gates the start button.
 #[derive(Debug, Clone)]
 pub(crate) struct UploadPreflight {
+    /// No issues: the upload can start.
     pub(crate) ready: bool,
+    /// A batch runs or an item is uploading.
     pub(crate) in_progress: bool,
+    /// Files line (pending / uploading counts and size).
     pub(crate) files_label: String,
+    /// Target line (pool name or manual).
     pub(crate) target_label: String,
+    /// Policy line (RS K+M, shard size, placement).
     pub(crate) policy_label: String,
+    /// Storage line (number of encrypted destinations).
     pub(crate) destinations_label: String,
+    /// Blocking problems; the first one is the start button's tooltip.
     pub(crate) issues: Vec<String>,
+    /// Non-blocking notes.
     pub(crate) warnings: Vec<String>,
 }
 
 impl UploadPreflight {
+    /// The first blocking issue, if any.
     pub(crate) fn first_issue(&self) -> Option<&str> {
         self.issues.first().map(String::as_str)
     }
 }
 
+/// Checks the queue (pending items, files still present) and the target, and
+/// builds the summary. Called by `upload::show` every frame.
 pub(crate) fn evaluate(state: &GuiState) -> UploadPreflight {
     let mut issues = Vec::new();
     let mut warnings = Vec::new();
@@ -105,6 +121,7 @@ pub(crate) fn evaluate(state: &GuiState) -> UploadPreflight {
     }
 }
 
+/// `Err` with the first preflight issue; called by `batch::start_batch`.
 pub(crate) fn validate_configuration(state: &GuiState) -> Result<(), String> {
     let report = evaluate(state);
     if let Some(issue) = report.first_issue() {
@@ -113,6 +130,8 @@ pub(crate) fn validate_configuration(state: &GuiState) -> Result<(), String> {
     Ok(())
 }
 
+/// Pool mode: the pool exists, is valid and writes only to crypt remotes.
+/// Returns the target, policy and storage labels.
 fn validate_pool_target(
     state: &GuiState,
     issues: &mut Vec<String>,
@@ -155,6 +174,8 @@ fn validate_pool_target(
     )
 }
 
+/// Manual mode: at least one remote, valid shard size, workers and K+M, and
+/// crypt-only remotes. Returns the target, policy and storage labels.
 fn validate_manual_target(
     state: &GuiState,
     issues: &mut Vec<String>,
@@ -215,6 +236,7 @@ fn validate_manual_target(
     )
 }
 
+/// Checks the pool's remotes against the known crypt remotes.
 fn validate_crypt_destinations(
     pool: &PoolDefinition,
     crypt_remotes: &[String],
@@ -224,6 +246,8 @@ fn validate_crypt_destinations(
     validate_remote_names(&pool.remotes, crypt_remotes, issues, warnings);
 }
 
+/// Adds an issue for remotes that are not known crypt remotes (case-insensitive
+/// by remote name); only a warning when crypt discovery has no results yet.
 fn validate_remote_names(
     remotes: &[String],
     crypt_remotes: &[String],
@@ -266,6 +290,7 @@ fn validate_remote_names(
     }
 }
 
+/// "RS K+M · N MiB shards · placement" (or "No EC …") for a pool.
 fn pool_policy_label(pool: &PoolDefinition) -> String {
     if pool.parity_shards > 0 {
         trf(
@@ -288,6 +313,7 @@ fn pool_policy_label(pool: &PoolDefinition) -> String {
     }
 }
 
+/// "N encrypted destination(s)" text.
 fn destination_count_label(count: usize) -> String {
     match count {
         0 => tr("No destinations").to_string(),

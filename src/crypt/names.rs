@@ -6,10 +6,14 @@ use super::eme::{self, Direction};
 use super::options::NameMode;
 use anyhow::{anyhow, bail, Result};
 
+/// AES/EME block size for padded names.
 const NAME_BLOCK: usize = 16;
+/// Upper bound on decoded name ciphertext (EME's 128-block limit = 2048 bytes).
 const MAX_NAME_CIPHERTEXT: usize = 2048;
+/// Escape character used by obfuscated names.
 const QUOTE: char = '!';
 
+/// PKCS#7-pad a name to a whole number of 16-byte blocks (always adds padding).
 fn pkcs7_pad(data: &[u8]) -> Vec<u8> {
     let pad = NAME_BLOCK - data.len() % NAME_BLOCK;
     let mut out = Vec::with_capacity(data.len() + pad);
@@ -18,6 +22,7 @@ fn pkcs7_pad(data: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Strip and verify PKCS#7 padding; errors on any inconsistency.
 fn pkcs7_unpad(data: &[u8]) -> Result<&[u8]> {
     if data.is_empty() {
         bail!("crypt name padding too short");
@@ -37,6 +42,7 @@ fn pkcs7_unpad(data: &[u8]) -> Result<&[u8]> {
 }
 
 impl Cipher {
+    /// Standard mode: PKCS#7 pad, EME-encrypt and encode one path segment.
     fn encrypt_segment(&self, plain: &str) -> Result<String> {
         if plain.is_empty() {
             return Ok(String::new());
@@ -52,6 +58,7 @@ impl Cipher {
         Ok(self.name_encoding.encode(&encrypted))
     }
 
+    /// Reverse of `encrypt_segment`; errors on bad encoding, length or padding.
     fn decrypt_segment(&self, encoded: &str) -> Result<String> {
         if encoded.is_empty() {
             return Ok(String::new());
@@ -72,10 +79,14 @@ impl Cipher {
         String::from_utf8(plain.to_vec()).map_err(|_| anyhow!("decrypted crypt name is not UTF-8"))
     }
 
+    /// Sum of the name key bytes; offsets the rotation in obfuscate mode.
     fn name_key_sum(&self) -> i64 {
         self.name_key.iter().map(|&b| i64::from(b)).sum()
     }
 
+    /// Obfuscate mode: prefix the segment with its code-point sum mod 256 and
+    /// rotate digits/letters/Latin-1/other characters by a key-derived shift
+    /// (rclone `obfuscateSegment`). `!` escapes characters that cannot rotate.
     fn obfuscate_segment(&self, plain: &str) -> String {
         if plain.is_empty() {
             return String::new();
@@ -130,6 +141,7 @@ impl Cipher {
         out
     }
 
+    /// Reverse of `obfuscate_segment`; a `!.` prefix means the body is stored as is.
     fn deobfuscate_segment(&self, text: &str) -> Result<String> {
         if text.is_empty() {
             return Ok(String::new());
@@ -202,6 +214,8 @@ impl Cipher {
         Ok(out)
     }
 
+    /// Apply `segment` to each `/`-separated part; directory parts are left
+    /// untouched unless directory name encryption is enabled.
     fn map_segments(
         &self,
         path: &str,
@@ -259,6 +273,7 @@ impl Cipher {
     }
 }
 
+/// Convert a rotated code point back to `char`; the ranges used never leave valid scalars.
 fn char_at(value: i64) -> char {
     u32::try_from(value)
         .ok()

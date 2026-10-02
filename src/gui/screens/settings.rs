@@ -1,3 +1,6 @@
+//! Settings page: a tab strip over General, New-pool defaults, Encryption &
+//! paths, Network and Portable configuration. Rendered by `gui::app` for
+//! `Page::Settings`; edits live in `GuiState::settings` until saved.
 use crate::gui::i18n::{tr, trf};
 use crate::gui::settings;
 use crate::gui::state::GuiState;
@@ -6,12 +9,19 @@ use crate::models::Placement;
 use crate::remote_root::{load_remote_root_store, remove_remote_root, set_remote_root};
 use eframe::egui;
 
+/// Tab id of General (language, rclone path, retries, diagnostics export).
 const GENERAL: u8 = 0;
+/// Tab id of New-pool defaults (shard size, K/M, placement, saved destinations).
 const POOL_DEFAULTS: u8 = 3;
+/// Tab id of Encryption & paths (crypt defaults and per-remote default paths).
 const ENCRYPTION: u8 = 1;
+/// Tab id of Portable configuration (`portable_config`).
 const PORTABLE: u8 = 2;
+/// Tab id of Network (`network_settings`).
 const NETWORK: u8 = 4;
 
+/// Renders the Settings page; the selected tab is kept in egui temp data
+/// (`settings-tab`), so it resets to General on restart.
 pub(crate) fn show(
     ui: &mut egui::Ui,
     state: &mut GuiState,
@@ -60,6 +70,7 @@ pub(crate) fn show(
     });
 }
 
+/// Save settings button plus the last save notice, shared by several cards.
 fn save_row(ui: &mut egui::Ui, state: &mut GuiState) {
     ui.horizontal_wrapped(|ui| {
         if theme::primary_button(ui, true, tr("Save settings")).clicked() {
@@ -74,6 +85,7 @@ fn save_row(ui: &mut egui::Ui, state: &mut GuiState) {
     });
 }
 
+/// General card: language (applied immediately), rclone executable and retries.
 fn general(ui: &mut egui::Ui, state: &mut GuiState) {
     theme::card_section(
         ui,
@@ -118,6 +130,8 @@ fn general(ui: &mut egui::Ui, state: &mut GuiState) {
     );
 }
 
+/// New-pool defaults: shard size, data/parity counts and placement, plus the
+/// read-only list of saved upload destinations.
 fn pool_defaults(ui: &mut egui::Ui, state: &mut GuiState) {
     theme::two_up(
         ui,
@@ -176,6 +190,8 @@ fn pool_defaults(ui: &mut egui::Ui, state: &mut GuiState) {
     );
 }
 
+/// Per-remote default path editor: lists the stored roots with Remove and adds
+/// or replaces one, writing through `remote_root` and reloading the list.
 fn show_remote_roots(ui: &mut egui::Ui, state: &mut GuiState) {
     ui.label(egui::RichText::new(tr("Per-remote default paths")).strong());
     theme::hint(ui, tr("Use this when the root of a remote is not the correct storage location. Explicit paths always override this default."));
@@ -266,6 +282,7 @@ fn show_remote_roots(ui: &mut egui::Ui, state: &mut GuiState) {
     });
 }
 
+/// Re-reads the remote root store into `GuiState::remote_roots`; errors go to the settings notice.
 fn reload_remote_roots(state: &mut GuiState) {
     match load_remote_root_store() {
         Ok(store) => state.remote_roots = store.roots,
@@ -278,10 +295,13 @@ fn reload_remote_roots(state: &mut GuiState) {
     }
 }
 
+/// Card wrapper around `encryption_body`.
 fn show_encryption(ui: &mut egui::Ui, state: &mut GuiState) {
     theme::card_section(ui, tr("Encryption for new providers"), Some(tr("Used when RPool creates a crypt remote. Existing keys and encrypted folders are never changed or rotated.")), |_| {}, |ui| encryption_body(ui, state));
 }
 
+/// Crypt defaults for new providers (entropy, filename/directory encryption,
+/// name encoding); validated before the save button is enabled.
 fn encryption_body(ui: &mut egui::Ui, state: &mut GuiState) {
     theme::hint(
         ui,

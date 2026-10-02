@@ -1,22 +1,43 @@
+//! Plain data types shared across RPool: manifests, pool definitions,
+//! inventory, journals, scrub/health reports, placement, portable config and
+//! secrets. Mostly serde structs; behavior lives in the modules that use them.
+/// Erasure-coding parameters and shard kind.
 mod coding;
+/// Command history records.
 mod history;
+/// Saved integrity check summary and group health.
 mod integrity_snapshot;
+/// Local archive inventory.
 mod inventory;
+/// Upload resume journal.
 mod journal;
+/// Scrub report and per-shard health.
 mod maintenance;
+/// Archive manifest and shard entries.
 mod manifest;
+/// Shard placement policy.
 mod placement;
+/// Pool definitions and the pool store.
 mod pool;
+/// Portable configuration bundle.
 mod portable_config;
+/// Shard probe result.
 mod probe;
+/// Provider health report.
 mod provider;
+/// Resolved `put` settings.
 mod put_options;
+/// Account quota report.
 mod quota;
+/// Remote root store.
 mod remote_root;
+/// `get` resume state.
 mod resume;
+/// Crypt secret bundle for the encrypted vault.
 pub(crate) mod secrets;
 pub(crate) mod sensitive;
 pub(crate) mod shard_size;
+/// Upload plan, physical shard specs and generated parity.
 mod upload;
 pub(crate) mod volume;
 

@@ -16,25 +16,44 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
+/// State of the Reprocess card (Account changes › Advanced), held in `GuiState::reprocess`.
 #[derive(Default)]
 pub(crate) struct ReprocessForm {
+    /// Saved pool whose policy is the starting point of the draft.
     target: String,
+    /// `target` the draft was last loaded from; a change reloads the draft.
     loaded_target: String,
+    /// Editable target policy (this PC's worker count); not saved unless asked.
     draft: Option<PoolDefinition>,
+    /// Provider picker for the draft's destinations.
     picker: PoolPicker,
+    /// Plan started or opened from disk; used by Resume and "Use this plan below".
     active_plan: Option<ReprocessPlan>,
+    /// Manifest sources of the archives to reprocess.
     selected: BTreeSet<String>,
+    /// Text box for a manifest source not in the library list.
     manual: String,
+    /// Download speed for the time estimate, MiB/s; 0 = unknown.
     download_mib_s: f64,
+    /// Upload speed for the time estimate, MiB/s; 0 = unknown.
     upload_mib_s: f64,
+    /// Calculated plan, valid while `preview_signature` matches the inputs.
     preview: Option<ReprocessPlan>,
+    /// Input signature the preview was built from.
     preview_signature: String,
+    /// Channel of a plan calculation in progress.
     pending: Option<Receiver<Result<ReprocessPlan, String>>>,
+    /// Input signature when the running calculation started; a mismatch discards its result.
     pending_signature: String,
+    /// Channel of a "save draft as pool defaults" in progress.
     pending_save: Option<Receiver<Result<(), String>>>,
+    /// Last result or error, shown in the card.
     notice: Option<String>,
 }
 
+/// Renders the Reprocess card: target draft, archive selection, preview
+/// calculation, execute / open / resume a plan and hand it to the drive
+/// transitions. Called by `account_changes::show`.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     poll_save(state);
     theme::hint(ui, tr("Edit a target draft, select archives, calculate, then execute. Draft changes do not save the pool policy. Originals and old provider connections are retained."));
@@ -442,6 +461,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     ui.small(tr("Saving a pool only changes future uploads. Saving draft defaults is optional and separate from conversion. This operation covers only selected archives, not necessarily the entire pool. No old provider data is deleted or disconnected."));
 }
 
+/// Saves the draft as the target pool's policy in a background thread.
 fn start_save(state: &mut GuiState) {
     let Some(draft) = state.reprocess.draft.clone() else {
         return;
@@ -464,6 +484,7 @@ fn start_save(state: &mut GuiState) {
     });
 }
 
+/// Collects a finished draft save and reloads the pool list.
 fn poll_save(state: &mut GuiState) {
     match state
         .reprocess
@@ -504,6 +525,7 @@ fn poll_save(state: &mut GuiState) {
     }
 }
 
+/// Loads a saved plan file as the active plan, or reports why it cannot.
 fn load_active_plan(state: &mut GuiState, path: PathBuf) {
     match load_plan(&path) {
         Ok(plan) => {
@@ -522,6 +544,7 @@ fn load_active_plan(state: &mut GuiState, path: PathBuf) {
     }
 }
 
+/// Argv of `rpool pool reprocess --plan <path>`.
 fn execute_args(path: &std::path::Path) -> Vec<OsString> {
     vec![
         "pool".into(),
@@ -530,9 +553,12 @@ fn execute_args(path: &std::path::Path) -> Vec<OsString> {
         path.as_os_str().to_owned(),
     ]
 }
+/// Input signature of the current form and rclone path.
 fn signature(state: &GuiState) -> String {
     input_signature(&state.reprocess, &state.settings.rclone)
 }
+/// JSON of every input that changes a plan (target, draft, selection,
+/// speeds, rclone), used to invalidate stale previews.
 fn input_signature(form: &ReprocessForm, rclone: &str) -> String {
     serde_json::to_string(&(
         &form.target,
@@ -544,6 +570,8 @@ fn input_signature(form: &ReprocessForm, rclone: &str) -> String {
     ))
     .unwrap_or_default()
 }
+/// Starts the plan calculation (`build_plan`) for the draft and selection in
+/// a background thread.
 fn start_preview(state: &mut GuiState) {
     let Some(target) = state.reprocess.draft.clone() else {
         return;
@@ -563,6 +591,7 @@ fn start_preview(state: &mut GuiState) {
         );
     });
 }
+/// Collects a finished calculation; drops it when the inputs changed meanwhile.
 fn poll(state: &mut GuiState, signature: &str) {
     let received = state.reprocess.pending.as_ref().map(|rx| rx.try_recv());
     match received {
@@ -590,6 +619,8 @@ fn poll(state: &mut GuiState, signature: &str) {
     }
 }
 
+/// After a "Reprocess pool data" task: refreshes the library and sets the
+/// outcome notice. Called from `gui::app`.
 pub(crate) fn handle_task_completion(
     state: &mut GuiState,
     task: &TaskRunner,

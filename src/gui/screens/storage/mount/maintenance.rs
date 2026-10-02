@@ -5,6 +5,8 @@ use crate::gui::state::GuiState;
 use crate::gui::theme;
 use eframe::egui;
 
+/// Maintenance tab: "Trim clean cache" (action 4) and "Export recoverable
+/// spool" (action 5); disabled while the session runs.
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let (form, settings) = (&mut state.mount, &mut state.settings);
     ui.add_enabled_ui(!form.session.runner.is_running(), |ui| {

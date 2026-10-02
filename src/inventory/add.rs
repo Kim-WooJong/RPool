@@ -1,7 +1,12 @@
+//! Adding or updating one archive in the local inventory.
+
 use crate::inventory::{entry_from_manifest, load_inventory, save_inventory};
 use crate::manifest::{load_manifest, validate_manifest};
 use anyhow::Result;
 
+/// Loads and validates the manifest at `source` and stores its entry in the
+/// inventory under a file lock, so concurrent processes do not lose updates.
+/// Called after `put`, manifest recovery, provider drain and `inventory add`.
 pub(crate) fn add_manifest(rclone: &str, source: &str) -> Result<()> {
     let manifest = load_manifest(rclone, source)?;
     validate_manifest(&manifest)?;

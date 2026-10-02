@@ -16,6 +16,7 @@ pub(super) trait NativeMount {
 }
 
 #[allow(unused_variables, reason = "each frontend exists on one OS")]
+/// Mounts `core` with the requested native frontend; errors for frontends unavailable on this OS.
 fn start(
     frontend: Frontend,
     core: Arc<FsCore>,
@@ -53,17 +54,27 @@ pub(crate) fn native_start_failed(error: &anyhow::Error) -> bool {
     error.downcast_ref::<NativeStartFailed>().is_some()
 }
 
+/// Parameters of [`run_native`], built by `virtual_drive::run`.
 pub(crate) struct NativeRun<'a> {
+    /// Native frontend to mount (FUSE or WinFsp).
     pub(crate) frontend: Frontend,
+    /// Where to mount.
     pub(crate) mountpoint: &'a Path,
     /// Volume name shown by the OS where the frontend supports one (macOS).
     pub(crate) volume_name: &'a str,
+    /// Serve without writes; background maintenance is skipped.
     pub(crate) read_only: bool,
+    /// Background maintenance interval.
     pub(crate) interval: Duration,
+    /// Stop request and cancellation of the session.
     pub(crate) stop: &'a StopControl,
+    /// Refreshes and publishes capacity (passed to `Maintenance::poll`).
     pub(crate) report: Arc<dyn Fn() + Send + Sync>,
 }
 
+/// Mounts a native frontend over `drive`, runs background maintenance until a stop request
+/// or external unmount, then unmounts and joins the workers. Mount errors are tagged
+/// [`NativeStartFailed`] so `--frontend auto` can fall back to WebDAV.
 pub(crate) fn run_native(drive: Arc<VirtualDrive>, run: NativeRun<'_>) -> Result<()> {
     let core = Arc::new(FsCore::new(drive.clone()).map_err(|e| anyhow!("{e}"))?);
     let mount = start(

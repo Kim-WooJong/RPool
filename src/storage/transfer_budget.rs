@@ -9,11 +9,16 @@
 use std::cell::RefCell;
 use std::sync::{Arc, Condvar, Mutex};
 
+/// Counting semaphore of shard-transfer slots shared by concurrent `put`s of one
+/// virtual-drive upload round (`mount::virtual_drive::upload_round`).
 pub(crate) struct TransferBudget {
+    /// Slots currently free.
     free: Mutex<usize>,
+    /// Signalled when a [`Slot`] is returned.
     released: Condvar,
 }
 impl TransferBudget {
+    /// A budget of `slots` transfers (at least 1).
     pub(crate) fn new(slots: usize) -> Self {
         Self {
             free: Mutex::new(slots.max(1)),
@@ -35,6 +40,7 @@ impl TransferBudget {
     }
 }
 
+/// One held transfer slot; returned to its budget on drop.
 pub(crate) struct Slot<'a>(&'a TransferBudget);
 impl Drop for Slot<'_> {
     fn drop(&mut self) {

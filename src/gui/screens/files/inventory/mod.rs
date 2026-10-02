@@ -1,12 +1,22 @@
+//! Files › Library: browse a pool's drive (read-only explorer) or the archives
+//! uploaded to it (local inventory with restore / verify / status actions).
+//! Entry point `show`, called from `files::show` for the Library tab.
+
+/// Loading inventory rows and matching each archive to a pool.
 mod data;
+/// Details panel of the selected archive and its actions.
 mod details;
 mod drive;
 mod drive_state;
 mod explorer;
+/// Search and coding filter of the archives table.
 mod filters;
 pub(crate) mod history;
+/// The "Rebuild inventory" panel.
 mod rebuild;
+/// `InventoryForm`: Library state, filtering and sorting.
 mod state;
+/// The archives table.
 mod table;
 
 use crate::gui::i18n::{tr, trf};
@@ -23,6 +33,9 @@ use crate::presentation::format_bytes;
 use details::InventoryAction;
 use eframe::egui;
 
+/// Draws the Library section: Drive files / Uploaded archives tabs, the pool
+/// picker and toolbar, then the chosen view. Upload and the archive actions
+/// switch to other sections by changing `state`.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     section_header(
         ui,

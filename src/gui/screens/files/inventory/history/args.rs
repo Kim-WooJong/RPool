@@ -5,6 +5,7 @@
 use crate::drive_history::model::Retention;
 use std::ffi::OsString;
 
+/// `drive <words…> --pool <pool>`: the common prefix of every history command.
 fn base(words: &[&str], pool: &str) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec!["drive".into()];
     args.extend(words.iter().map(OsString::from));
@@ -12,12 +13,14 @@ fn base(words: &[&str], pool: &str) -> Vec<OsString> {
     args
 }
 
+/// Appends one `--id <id>` pair per entry id.
 fn ids(args: &mut Vec<OsString>, ids: &[String]) {
     for id in ids {
         args.extend(["--id".into(), id.into()]);
     }
 }
 
+/// `drive trash list --pool <pool> --json`; run as a query by the trash view.
 pub(crate) fn trash_list(pool: &str) -> Vec<OsString> {
     let mut args = base(&["trash", "list"], pool);
     args.push("--json".into());
@@ -35,6 +38,8 @@ pub(crate) fn trash_restore(pool: &str, entries: &[String], to: Option<&str>) ->
     args
 }
 
+/// `drive trash purge --id … --confirm`: permanently deletes the given trash
+/// entries. Built by the purge confirmation in `trash_dialogs`.
 pub(crate) fn trash_purge(pool: &str, entries: &[String]) -> Vec<OsString> {
     let mut args = base(&["trash", "purge"], pool);
     ids(&mut args, entries);
@@ -42,24 +47,29 @@ pub(crate) fn trash_purge(pool: &str, entries: &[String]) -> Vec<OsString> {
     args
 }
 
+/// `drive trash purge --expired --confirm`: deletes every expired trash entry.
 pub(crate) fn trash_purge_expired(pool: &str) -> Vec<OsString> {
     let mut args = base(&["trash", "purge"], pool);
     args.extend(["--expired".into(), "--confirm".into()]);
     args
 }
 
+/// `drive trash empty --confirm`: deletes everything in the trash.
 pub(crate) fn trash_empty(pool: &str) -> Vec<OsString> {
     let mut args = base(&["trash", "empty"], pool);
     args.push("--confirm".into());
     args
 }
 
+/// `drive versions list --path <path> --json`; the versions panel query.
 pub(crate) fn versions_list(pool: &str, path: &str) -> Vec<OsString> {
     let mut args = base(&["versions", "list"], pool);
     args.extend(["--path".into(), path.into(), "--json".into()]);
     args
 }
 
+/// `drive versions restore --path <path> --id <id>`, with `--as-copy` to keep
+/// the current file and restore beside it. Used by the versions panel.
 pub(crate) fn versions_restore(pool: &str, path: &str, id: &str, as_copy: bool) -> Vec<OsString> {
     let mut args = base(&["versions", "restore"], pool);
     args.extend(["--path".into(), path.into(), "--id".into(), id.into()]);
@@ -83,12 +93,15 @@ pub(crate) fn rollback(pool: &str, scope: &str, at: u64, confirm: bool) -> Vec<O
     args
 }
 
+/// `drive retention show --json`; queried by Storage › retention card.
 pub(crate) fn retention_show(pool: &str) -> Vec<OsString> {
     let mut args = base(&["retention", "show"], pool);
     args.push("--json".into());
     args
 }
 
+/// `drive retention set` with all three limits (0 = unlimited); sent by the
+/// Storage › retention card.
 pub(crate) fn retention_set(pool: &str, retention: Retention) -> Vec<OsString> {
     let mut args = base(&["retention", "set"], pool);
     for (flag, value) in [

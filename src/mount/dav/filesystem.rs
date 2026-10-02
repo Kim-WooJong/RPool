@@ -3,13 +3,18 @@
 use super::*;
 
 #[derive(Clone)]
+/// `DavFileSystem` handed to dav-server by `Server::start`; one per server.
 pub(super) struct VirtualFs {
+    /// Drive whose visible namespace is served.
     pub(super) drive: Arc<VirtualDrive>,
+    /// Last `get_quota` had no verified capacity; used to log only state changes.
     pub(super) quota_unavailable: Arc<AtomicBool>,
+    /// Write counters shared with the server.
     pub(super) write_stats: Arc<WriteStats>,
 }
 
 impl VirtualFs {
+    /// Metadata of a file or directory in the visible view; directory tags change with the view generation.
     pub(super) fn stat(&self, path: &str) -> FsResult<Meta> {
         let view = self.drive.visible().map_err(failure)?;
         if let Some((id, size)) = view.file(path) {

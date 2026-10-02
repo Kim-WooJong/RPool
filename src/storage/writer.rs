@@ -10,6 +10,8 @@ use super::traits::WriteOptions;
 use crate::prelude::*;
 
 #[derive(Debug)]
+/// Error context marking that a write was acknowledged but its readback failed;
+/// [`upload_retry`] never retries it.
 struct ReadbackFailed;
 impl std::fmt::Display for ReadbackFailed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -17,6 +19,8 @@ impl std::fmt::Display for ReadbackFailed {
     }
 }
 
+/// Retry policy for shard uploads (`commands::put`): like `scheduler::read_retry`,
+/// except an acknowledged write whose readback failed is never replayed.
 pub(crate) fn upload_retry(error: &anyhow::Error, attempt: u32) -> Option<std::time::Duration> {
     // A readback failure must NEVER replay the acknowledged write transaction.
     if error.downcast_ref::<ReadbackFailed>().is_some() {
@@ -34,13 +38,19 @@ fn full_readback_forced() -> bool {
     })
 }
 
+/// Verified archive mutations: shard/metadata uploads with readback, migration
+/// copies and deletes. Built per pool by `put`, migration, replication and the
+/// virtual drive.
 pub(crate) struct StorageWriter {
+    /// Verified reader used for readback, reuse checks and address resolution.
     reader: StorageReader,
+    /// Native crypt writer (`None` = writes go through rclone crypt).
     native: Option<NativeCrypt>,
     /// Set by `put` for one archive upload (`upload_session`).
     pub(super) session: Mutex<Option<super::upload_session::UploadSession>>,
 }
 impl StorageWriter {
+    /// Writer that writes through rclone crypt with the inherited rclone config.
     pub(crate) fn rclone(executable: &str) -> Self {
         Self {
             reader: StorageReader::rclone(executable),
@@ -55,6 +65,7 @@ impl StorageWriter {
         }
         Self::native(RcloneContext::inherited(executable))
     }
+    /// Writer with RPool's native crypt on `context`; readback still goes through rclone crypt.
     pub(crate) fn native(context: RcloneContext) -> Self {
         Self {
             reader: StorageReader::with_rclone_context(context.clone()),
@@ -74,9 +85,12 @@ impl StorageWriter {
     pub(crate) fn is_native(&self) -> bool {
         self.native.is_some()
     }
+    /// The verified reader behind this writer.
     pub(crate) fn reader(&self) -> &StorageReader {
         &self.reader
     }
+    /// Checks that `raw` is a writable crypt destination (native route or rclone crypt
+    /// gate) before anything is written. Called by journals, migration and replication.
     pub(crate) fn ensure_destination(&self, raw: &str) -> Result<()> {
         if let Some(native) = &self.native {
             native.ensure(self.reader.operation_context(), raw)?;
@@ -98,6 +112,11 @@ impl StorageWriter {
             Err(error) => Err(error),
         }
     }
+    /// Uploads `shard.size` bytes of `path` from `offset` as `shard.object`: stages
+    /// them in a private spool, checks their BLAKE3, skips already-verified objects
+    /// (unless the session is fresh), writes with retries, then proves the stored object
+    /// by provider hash, deferred session check or full readback.
+    /// Called by `storage::data_upload`.
     pub(crate) fn write_file(
         &self,
         path: &Path,
@@ -183,6 +202,7 @@ impl StorageWriter {
         }
         unreachable!()
     }
+    /// Uploads an in-memory metadata object (manifest replica) via [`Self::write_file`].
     pub(crate) fn write_bytes(&self, destination: &str, bytes: &[u8], retries: u32) -> Result<()> {
         let spool = tempfile::tempdir()?;
         let path = spool.path().join("metadata");
@@ -213,6 +233,7 @@ impl StorageWriter {
         target.object = destination.to_owned();
         self.write_file(&path, 0, &target, retries)
     }
+    /// Deletes the object `raw` and forgets any in-process proof for it.
     pub(crate) fn delete(&self, raw: &str) -> Result<()> {
         let (backend, key) = self.reader.resolve(raw)?;
         self.reader.forget_verified(raw);
@@ -220,6 +241,8 @@ impl StorageWriter {
         Ok(())
     }
 }
+/// A data-shard descriptor for a single object (index/offset 0, no remote), used for
+/// metadata uploads and tests.
 pub(super) fn descriptor(object: &str, size: u64, blake3: String) -> Shard {
     Shard {
         index: 0,

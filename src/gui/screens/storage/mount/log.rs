@@ -4,6 +4,7 @@ use crate::gui::i18n::{tr, trf};
 use crate::gui::theme;
 use eframe::egui;
 
+/// Collapsible log of the selected session's process output, open while it runs.
 pub(super) fn show(ui: &mut egui::Ui, form: &MountForm) {
     let lines = form.session.runner.logs().len();
     egui::CollapsingHeader::new(trf("Log · {lines} lines", &[("lines", &lines)]))

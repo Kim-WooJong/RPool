@@ -1,25 +1,43 @@
+//! GUI settings of this PC (`gui_settings_path()`): language, rclone path,
+//! new-pool defaults, encryption defaults and per-pool mount profiles.
+//! Loaded once at startup (`state::persistence`), saved by the Settings,
+//! Network and Drive screens; invalid parts fall back to defaults on load.
 use crate::models::Placement;
 use crate::utils::{read_json, save_json_atomic};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+/// Everything the GUI remembers between runs, held in `GuiState::settings`.
+/// Missing fields take their defaults (`#[serde(default)]`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct GuiSettings {
     /// GUI language (English by default).
     pub(crate) language: crate::gui::i18n::Language,
+    /// Cache budgets for a mount when no pool profile exists yet.
     pub(crate) mount_cache: MountCacheSettings,
+    /// Mount inputs saved per pool name.
     pub(crate) mount_profiles: BTreeMap<String, MountProfile>,
+    /// Options for crypt remotes RPool creates (Settings › Encryption).
     pub(crate) encryption: crate::config_sync::provision::EncryptionDefaults,
+    /// rclone executable name or path; a non-default startup value overrides it.
     pub(crate) rclone: String,
+    /// Global crypt folder fallback when a remote has no per-remote default path.
     pub(crate) default_remote_path: String,
+    /// Saved upload destinations for manual uploads; also prefill new pools.
     pub(crate) remotes: Vec<String>,
+    /// Shard size of new pools, MiB.
     pub(crate) shard_mib: u64,
+    /// Shard transfers of this PC (Settings › Network); also new pools' `workers`.
     pub(crate) workers: usize,
+    /// Retry count for rclone transfers.
     pub(crate) retries: u32,
+    /// Data shards (K) of new pools.
     pub(crate) data_shards: usize,
+    /// Parity shards (M) of new pools.
     pub(crate) parity_shards: usize,
+    /// Placement of new pools.
     pub(crate) placement: Placement,
 }
 
@@ -47,17 +65,23 @@ impl Default for GuiSettings {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct MountProfile {
+    /// Persistent local workspace folder.
     pub(crate) workspace: String,
+    /// Drive letter or mount folder.
     pub(crate) mountpoint: String,
     /// Display name in pool-sync conflicts (`--pool-worker`). Older settings
     /// stored it as `worker_name`.
     #[serde(alias = "worker_name")]
     pub(crate) pc_name: String,
+    /// Archive manifests applied at the next start.
     pub(crate) manifests: Vec<String>,
+    /// Background sync interval, seconds (clamped to 2..=86400 on load).
     pub(crate) interval_seconds: u64,
+    /// Cache budgets of this pool's mount.
     pub(crate) cache: MountCacheSettings,
     /// Filesystem frontend.
     pub(crate) frontend: crate::cli::Frontend,
+    /// Mount read-only with a native frontend.
     pub(crate) native_read_only: bool,
 }
 
@@ -84,9 +108,13 @@ impl Default for MountProfile {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct MountCacheSettings {
+    /// Clean shard cache budget, GiB.
     pub(crate) shard_gib: u64,
+    /// Native / OS mount cache target, GiB.
     pub(crate) native_gib: u64,
+    /// Disk space to leave free, GiB (may be 0).
     pub(crate) min_free_gib: u64,
+    /// Pending-write (spool) limit, GiB.
     pub(crate) spool_gib: u64,
 }
 
@@ -102,6 +130,7 @@ impl Default for MountCacheSettings {
 }
 
 impl MountCacheSettings {
+    /// Checks every budget is within 1..=1048576 GiB (free-space target 0..=1048576).
     pub(crate) fn validate(&self) -> Result<(), String> {
         if [self.shard_gib, self.native_gib, self.spool_gib]
             .iter()
@@ -116,6 +145,9 @@ impl MountCacheSettings {
     }
 }
 
+/// Reads the settings file (defaults when missing or unreadable), replaces
+/// invalid encryption or cache values with defaults, and applies a
+/// non-default `startup_rclone`.
 pub(crate) fn load(startup_rclone: &str) -> GuiSettings {
     let mut settings = settings_path()
         .and_then(|path| read_json::<GuiSettings>(&path).ok())
@@ -139,6 +171,7 @@ pub(crate) fn load(startup_rclone: &str) -> GuiSettings {
     settings
 }
 
+/// Validates and atomically writes the settings; returns the file path or an error message.
 pub(crate) fn save(settings: &GuiSettings) -> Result<PathBuf, String> {
     settings.mount_cache.validate()?;
     for profile in settings.mount_profiles.values() {
@@ -152,6 +185,7 @@ pub(crate) fn save(settings: &GuiSettings) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// Path of the GUI settings file; `None` when the config directory is unknown.
 pub(crate) fn settings_path() -> Option<PathBuf> {
     crate::config::gui_settings_path().ok()
 }

@@ -3,6 +3,9 @@
 use super::*;
 
 impl RcloneContext {
+    /// Uploads `source` to a crypt remote address with `rclone rcat` (rclone
+    /// encrypts). Refuses conditional writes and non-crypt destinations (`ensure_crypt`).
+    /// Used by `RcloneBackend::write` and the speed test.
     pub(crate) fn write_raw(
         &self,
         ctx: &OperationContext,
@@ -29,6 +32,9 @@ impl RcloneContext {
     ) -> Result<WriteReceipt, StorageError> {
         self.write_streamed(ctx, address, source, size, options, true)
     }
+    /// Shared upload body: `rcat` with single retries, account admission and caps,
+    /// parent-folder creation, stall-supervised streaming, traffic/account accounting,
+    /// and (when `check_stored_hash`) comparison or deferral of the provider's stored hash.
     fn write_streamed(
         &self,
         ctx: &OperationContext,
@@ -184,6 +190,8 @@ impl RcloneContext {
             self.capture(ctx, &["mkdir", "--", parent]).is_ok()
         });
     }
+    /// Deletes one object (`rclone deletefile`), retrying provider rejections with
+    /// backoff. Used by `RcloneBackend::delete` and speed-test cleanup.
     pub(crate) fn delete_raw(
         &self,
         ctx: &OperationContext,
@@ -367,6 +375,7 @@ pub(super) fn permit(
     }
 }
 
+/// Rejects conditional writes: rclone can only overwrite unconditionally, with no expected version.
 pub(super) fn unconditional(options: &WriteOptions) -> Result<(), StorageError> {
     if !options.overwrite || options.expected_version.is_some() {
         return Err(StorageError::unsupported("rclone conditional write"));
@@ -374,8 +383,10 @@ pub(super) fn unconditional(options: &WriteOptions) -> Result<(), StorageError> 
     Ok(())
 }
 
+/// Route identity + remote name -> stored-hash kinds the provider reports (`None` = do not check).
 type HashKindCache = std::collections::HashMap<String, Option<Vec<String>>>;
 
+/// Process-wide cache behind `stored_hash_kinds`.
 fn stored_hash_cache() -> &'static std::sync::Mutex<HashKindCache> {
     static CACHE: std::sync::OnceLock<std::sync::Mutex<HashKindCache>> = std::sync::OnceLock::new();
     CACHE.get_or_init(Default::default)

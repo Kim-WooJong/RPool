@@ -1,7 +1,12 @@
+//! Restore resume state for `get`.
+
 use crate::manifest::data_shards;
 use crate::prelude::*;
 use crate::utils::{hash_file_range, now_unix, save_json_atomic};
 
+/// Re-checks completed shards against the partly written `output` (hash of each
+/// shard's byte range) and drops unknown or mismatching ones, then saves the
+/// state. Returns how many entries were dropped. Called by `commands::get`.
 pub(crate) fn validate_restore_state(
     manifest: &Manifest,
     output: &Path,
@@ -40,6 +45,7 @@ pub(crate) fn validate_restore_state(
     Ok(invalid.len() + unknown)
 }
 
+/// Saves the restore state (format version 2) with a fresh timestamp.
 pub(crate) fn persist_restore_state(path: &Path, state: &mut ResumeState) -> Result<()> {
     state.version = 2;
     state.updated_unix = now_unix();

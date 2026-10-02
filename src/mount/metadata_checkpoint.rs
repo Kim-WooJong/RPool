@@ -11,14 +11,19 @@ use crate::prelude::*;
 pub(crate) struct Replica<'a> {
     /// Record directories, aligned with `Family::kinds`.
     pub records: Vec<&'a dyn ObjectDir>,
+    /// Checkpoint head objects.
     pub heads: &'a dyn ObjectDir,
+    /// Checkpoint chunk objects.
     pub chunks: &'a dyn ObjectDir,
+    /// Deletion mark objects.
     pub marks: &'a dyn ObjectDir,
 }
 
 /// id -> (size, replica indices listing it).
 pub(crate) type Listing = BTreeMap<String, (u64, BTreeSet<usize>)>;
 
+/// Lists every directory and merges the listings by id; a size disagreement between
+/// replicas is an error.
 pub(crate) fn list_all(dirs: &[&dyn ObjectDir]) -> Result<Listing> {
     let mut result = Listing::new();
     for (index, dir) in dirs.iter().enumerate() {
@@ -57,8 +62,11 @@ pub(crate) fn read_any(
 /// Valid heads and the record ids of every chunk they use.
 #[derive(Default)]
 pub(crate) struct Survey {
+    /// Usable heads by id.
     pub heads: BTreeMap<String, Head>,
+    /// All listed head objects.
     pub head_listing: Listing,
+    /// All listed chunk objects.
     pub chunk_listing: Listing,
     /// Heads that are listed but unusable (invalid, unreadable, missing chunk).
     pub broken: usize,
@@ -76,6 +84,7 @@ impl Survey {
             .filter(|(_, h)| h.chunks.len() == all.len())
             .max_by_key(|(_, h)| h.created_unix)
     }
+    /// Creation time of the newest usable head.
     pub(crate) fn newest_unix(&self) -> Option<u64> {
         self.heads.values().map(|h| h.created_unix).max()
     }

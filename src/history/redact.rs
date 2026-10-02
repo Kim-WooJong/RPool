@@ -1,3 +1,7 @@
+//! Redaction of secrets in text stored in the history or diagnostics.
+
+/// Collapses whitespace, redacts each token (see `redact_token`) and cuts the
+/// result to `max_chars` characters. Used for history targets/messages.
 pub(crate) fn redact_text(input: &str, max_chars: usize) -> String {
     let flattened = input.split_whitespace().collect::<Vec<_>>().join(" ");
     let redacted = flattened
@@ -8,6 +12,8 @@ pub(crate) fn redact_text(input: &str, max_chars: usize) -> String {
     redacted.chars().take(max_chars).collect()
 }
 
+/// Masks `token=`, `password=`, `secret=`, API key and authorization values,
+/// and strips user info, query and fragment from URLs.
 fn redact_token(token: &str) -> String {
     let lower = token.to_ascii_lowercase();
     for key in [

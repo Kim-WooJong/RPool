@@ -46,6 +46,7 @@ impl FsCore {
             tag: tag.into(),
         }))
     }
+    /// True for the root, any path with visible or unsealed descendants, and explicit directories.
     fn is_directory(
         &self,
         view: &VisibleView,
@@ -61,6 +62,7 @@ impl FsCore {
             || view.directories().contains(path)
     }
 
+    /// Attributes of `path`: unsealed generation, visible file, or directory; else `NotFound`.
     pub(crate) fn lookup(&self, path: &str) -> FsResult<Attr> {
         let view = self.drive.visible()?;
         let unsealed = self.unsealed()?;
@@ -78,6 +80,8 @@ impl FsCore {
         Err(FsError::NotFound)
     }
 
+    /// Entries of `directory` with attributes, merging visible files, unsealed files and explicit
+    /// directories (a subdirectory wins over a same-named file).
     pub(crate) fn readdir(&self, directory: &str) -> FsResult<Vec<(String, Attr)>> {
         let view = self.drive.visible()?;
         let unsealed = self.unsealed()?;
@@ -147,6 +151,7 @@ impl FsCore {
         Ok(entries.into_iter().collect())
     }
 
+    /// Creates an explicit directory; `Exists` if anything is at `path`.
     pub(crate) fn mkdir(&self, path: &str) -> FsResult<()> {
         checked(path)?;
         let _namespace = self.exclusive()?;
@@ -156,6 +161,7 @@ impl FsCore {
         Ok(self.drive.create_directory(path)?)
     }
 
+    /// Removes an empty directory; `NotEmpty` if visible or unsealed files remain below it.
     pub(crate) fn rmdir(&self, path: &str) -> FsResult<()> {
         checked(path)?;
         let _namespace = self.exclusive()?;
@@ -262,6 +268,7 @@ impl FsCore {
         Ok(())
     }
 
+    /// Drive quota `(used, available)` in bytes from `VirtualDrive::quota`; `None` when unavailable.
     pub(crate) fn statfs(&self) -> Option<(u64, Option<u64>)> {
         self.drive.quota()
     }

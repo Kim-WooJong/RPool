@@ -1,6 +1,8 @@
+//! `rpool remote-root list`: prints the per-remote default paths.
 use crate::remote_root::load_remote_root_store;
 use anyhow::Result;
 
+/// Prints the remote-root store as JSON or as a remote/path table.
 pub(crate) fn run(json: bool) -> Result<()> {
     let store = load_remote_root_store()?;
     if json {

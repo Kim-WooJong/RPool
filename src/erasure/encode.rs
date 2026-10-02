@@ -1,5 +1,11 @@
+//! Parity generation for `rpool put` and the storage writer.
 use crate::prelude::*;
 
+/// Compute the parity shards of coding `group` from the data shards of
+/// `source` (as laid out in `plan`), stripe by stripe, into
+/// `temp_root/gNNNNNNNN/pNNN.bin`. Missing tail data shards count as zeros.
+/// Returns each parity file with its plan entry and BLAKE3 hash. Called by
+/// `commands::put` and migration relocation.
 pub(crate) fn generate_parity_group(
     source: &Path,
     plan: &UploadPlan,

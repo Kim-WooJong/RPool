@@ -9,10 +9,15 @@ use crate::pool::browse::{BrowseEntry, PoolBrowse};
 /// How the sample drive is shown.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct SampleView {
+    /// Folder to open (`""` = drive root).
     pub(crate) folder: &'static str,
+    /// Path of the entry to select, if any.
     pub(crate) selected: Option<&'static str>,
+    /// Icons view instead of the List view.
     pub(crate) icons: bool,
+    /// Name search text put into the search field.
     pub(crate) query: &'static str,
+    /// Search the whole drive instead of the current folder.
     pub(crate) search_all: bool,
 }
 
@@ -37,6 +42,8 @@ pub(crate) fn show(form: &mut DriveForm, pool: &str, view: SampleView) {
     form.query = view.query.to_string();
 }
 
+/// The sample listing: a few nested folders and files plus 30 long-named photos
+/// to exercise scrolling and truncation. Used by `show` and the test `tree`.
 pub(crate) fn browse() -> PoolBrowse {
     let file = |path: &str, size: u64| BrowseEntry {
         path: path.into(),

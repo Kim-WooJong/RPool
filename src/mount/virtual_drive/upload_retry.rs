@@ -6,19 +6,29 @@ use std::time::{Duration, Instant};
 
 /// First retry delay; doubles per failure up to [`RETRY_MAX`].
 pub(crate) const RETRY_FIRST: Duration = Duration::from_secs(5);
+/// Longest retry delay (the doubling stops here).
 pub(crate) const RETRY_MAX: Duration = Duration::from_secs(120);
 
+/// Failure history of one pending intent.
 struct Entry {
+    /// Consecutive failures.
     failures: u32,
+    /// When the next attempt may start.
     due: Instant,
+    /// Last error text, to log only changed errors.
     error: String,
 }
 
+/// Backoff state of failed uploads by intent id, owned by the uploader
+/// thread across upload passes.
 #[derive(Default)]
 pub(crate) struct RetryBook {
+    /// Failure history by intent id.
     entries: BTreeMap<String, Entry>,
 }
 impl RetryBook {
+    /// Backoff after `failures` failures: 5 s doubled per failure, capped at
+    /// [`RETRY_MAX`].
     pub(crate) fn delay(failures: u32) -> Duration {
         let shift = failures.saturating_sub(1).min(16);
         RETRY_FIRST.saturating_mul(1u32 << shift).min(RETRY_MAX)

@@ -1,3 +1,9 @@
+//! Transaction runner for crypt-config restoration.
+//!
+//! `run` locks the config, preflights the driver, writes an age-encrypted
+//! snapshot plus journal, builds the candidate (encrypted stage or in-RAM
+//! plaintext), commits, verifies, and rolls back on failure. Called by
+//! `config_sync::crypt_restore`.
 use super::files::{
     self, Committer, ConfigCommit, ConfigFormat, ConfigLock, Journal, Phase, SNAPSHOT, STAGE,
 };
@@ -7,6 +13,10 @@ use anyhow::{anyhow, bail, Result};
 use std::fs;
 use std::path::Path;
 
+/// Run a restore transaction against `config` using the production
+/// `ConfigCommit` writer. Returns `NoChanges` when preflight reports the
+/// config is already exact; errors leave the original (or a retained
+/// encrypted recovery) in place.
 pub(crate) fn run(
     config: &Path,
     driver: &impl ConfigDriver,
@@ -15,6 +25,7 @@ pub(crate) fn run(
     run_with(config, driver, snapshots, &ConfigCommit)
 }
 
+/// `run` with an injectable `Committer`, so tests can simulate write failures.
 pub(super) fn run_with(
     config: &Path,
     driver: &impl ConfigDriver,

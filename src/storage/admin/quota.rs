@@ -1,5 +1,8 @@
+//! Parser for `rclone about --json` output, used by `RcloneAdmin::quota`.
 use crate::prelude::*;
 use crate::utils::json_u64;
+/// Builds a [`QuotaReport`] from `about` JSON, deriving a missing total,
+/// used or free value from the other two; invalid JSON yields a report with `error` set.
 pub(super) fn parse(remote: &str, output: &[u8]) -> QuotaReport {
     let value: Value = match serde_json::from_slice(output) {
         Ok(value) => value,

@@ -8,8 +8,11 @@ use bytes::{Buf, Bytes};
 use dav_server::{davpath::DavPath, fs::*, DavHandler};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+/// `DavFileSystem` implementation over the virtual drive.
 mod filesystem;
+/// Open file handles.
 mod handle;
+/// Server lifecycle and persistent endpoint.
 mod server;
 #[cfg(test)]
 mod tests;
@@ -21,23 +24,36 @@ use server::endpoint;
 pub(crate) use server::Server;
 
 #[derive(Default)]
+/// Diagnostic counters of DAV writes, printed as a summary when the server stops.
 struct WriteStats {
+    /// Authorized PUT requests.
     put_attempts: AtomicU64,
+    /// PUT requests that returned success.
     put_successes: AtomicU64,
+    /// Authorized PATCH requests.
     patch_attempts: AtomicU64,
+    /// Authorized requests with a `Content-Range` header.
     ranged_attempts: AtomicU64,
+    /// Files opened for writing.
     write_opens: AtomicU64,
+    /// Write opens that truncated the file.
     truncating_opens: AtomicU64,
+    /// Request body bytes written to spool files.
     body_bytes: AtomicU64,
+    /// Bytes copied from the previous revision into a new spool file (non-truncating opens).
     baseline_copy_bytes: AtomicU64,
+    /// Write intents sealed on flush.
     seals: AtomicU64,
+    /// Writes rejected because fewer body bytes arrived than expected.
     incomplete: AtomicU64,
 }
 
+/// Logs `e` and maps it to `FsError::GeneralFailure`.
 fn failure(e: impl std::fmt::Display) -> FsError {
     eprintln!("Virtual filesystem: {e}");
     FsError::GeneralFailure
 }
+/// Drive path of a DAV path without the trailing slash; invalid names are `Forbidden`.
 fn path(p: &DavPath) -> FsResult<String> {
     let raw = p
         .as_rel_ospath()
@@ -50,9 +66,13 @@ fn path(p: &DavPath) -> FsResult<String> {
     Ok(raw.into())
 }
 #[derive(Clone, Debug)]
+/// DAV metadata of a file or directory.
 struct Meta {
+    /// Size in bytes (0 for directories).
     size: u64,
+    /// Is a directory.
     directory: bool,
+    /// ETag: revision/intent id for files, `dir-<generation>` for directories; also seeds `modified`.
     tag: String,
 }
 impl DavMetaData for Meta {
@@ -73,8 +93,11 @@ impl DavMetaData for Meta {
         Some(self.tag.clone())
     }
 }
+/// One directory listing entry.
 struct Entry {
+    /// Entry name (last path component).
     name: String,
+    /// Entry metadata.
     meta: Meta,
 }
 impl DavDirEntry for Entry {

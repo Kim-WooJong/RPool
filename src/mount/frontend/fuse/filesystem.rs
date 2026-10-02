@@ -14,29 +14,43 @@ use std::ffi::OsStr;
 use std::os::unix::fs::MetadataExt;
 use std::time::{Duration, SystemTime};
 
+/// Attribute and entry cache lifetime given to the kernel.
 const TTL: Duration = Duration::from_secs(1);
+/// Preferred I/O block size reported in attributes.
 const BLOCK: u32 = 4096;
 // `renameat2` flags on Linux; macFUSE forwards `renamex_np` flags instead.
 #[cfg(target_os = "linux")]
+/// Linux `renameat2` exchange flag.
 const RENAME_EXCHANGE: u32 = libc::RENAME_EXCHANGE;
 #[cfg(target_os = "linux")]
+/// Linux `renameat2` no-replace flag.
 const RENAME_NOREPLACE: u32 = libc::RENAME_NOREPLACE;
 #[cfg(target_os = "macos")]
+/// macOS `renamex_np` swap flag (exchange).
 const RENAME_EXCHANGE: u32 = libc::RENAME_SWAP;
 #[cfg(target_os = "macos")]
+/// macOS `renamex_np` exclusive flag (no-replace).
 const RENAME_NOREPLACE: u32 = libc::RENAME_EXCL;
 
+/// The `fuser::Filesystem` implementation; created by `fuse::session` per mount.
 pub(super) struct RpoolFs {
+    /// Shared filesystem core every operation goes through.
     core: Arc<FsCore>,
+    /// Inode ↔ path table.
     inodes: Mutex<Inodes>,
+    /// Mounted read-only: mutations return `EROFS` and permissions drop write bits.
     read_only: bool,
+    /// Owner uid reported for every entry (the mountpoint's owner).
     uid: u32,
+    /// Owner gid reported for every entry (the mountpoint's owner).
     gid: u32,
+    /// Mount start time, reported as every entry's timestamps.
     started: SystemTime,
     /// Seals (`release`, `fsync`) replying off the request loop.
     seals: Detached,
 }
 
+/// `parent/name` drive path; rejects non-UTF-8, empty, `.`, `..` and names with `/`.
 fn join(parent: &str, name: &OsStr) -> Result<String, Errno> {
     let name = name.to_str().ok_or(Errno::EINVAL)?;
     if name.is_empty() || name.contains('/') || name == "." || name == ".." {
@@ -48,11 +62,13 @@ fn join(parent: &str, name: &OsStr) -> Result<String, Errno> {
         format!("{parent}/{name}")
     })
 }
+/// Core handle id of a FUSE file handle.
 fn handle(fh: FileHandle) -> HandleId {
     HandleId(fh.0)
 }
 
 impl RpoolFs {
+    /// Creates the filesystem; owner ids are taken from `mountpoint`.
     pub(super) fn new(core: Arc<FsCore>, mountpoint: &Path, read_only: bool) -> Result<Self> {
         let owner = fs::metadata(mountpoint).context("mountpoint must exist")?;
         Ok(Self {
@@ -65,23 +81,28 @@ impl RpoolFs {
             seals: Detached::default(),
         })
     }
+    /// Locks the inode table, ignoring poisoning.
     fn inodes(&self) -> std::sync::MutexGuard<'_, Inodes> {
         self.inodes
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+    /// Drive path of `ino`, `ENOENT` if unknown.
     fn path(&self, ino: INodeNo) -> Result<String, Errno> {
         self.inodes().path(ino.0).ok_or(Errno::ENOENT)
     }
+    /// Drive path of `name` inside directory inode `parent`.
     fn child(&self, parent: INodeNo, name: &OsStr) -> Result<String, Errno> {
         join(&self.path(parent)?, name)
     }
+    /// `EROFS` on a read-only mount.
     fn writable(&self) -> Result<(), Errno> {
         if self.read_only {
             return Err(Errno::EROFS);
         }
         Ok(())
     }
+    /// FUSE attributes for `attr` (fixed modes 0755/0644, mount-time timestamps).
     fn attr(&self, ino: u64, attr: &Attr) -> FileAttr {
         let (kind, perm, nlink) = if attr.directory {
             (FileType::Directory, 0o755, 2)
@@ -112,6 +133,7 @@ impl RpoolFs {
         let ino = self.inodes().ino(path);
         Ok(self.attr(ino, &attr))
     }
+    /// Truncates through `fh`, or through a temporary write handle when none is given.
     fn truncate(&self, path: &str, fh: Option<FileHandle>, size: u64) -> Result<(), FsError> {
         if let Some(fh) = fh {
             return self.core.truncate(handle(fh), size);

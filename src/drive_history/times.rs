@@ -6,12 +6,16 @@
 use crate::prelude::*;
 
 #[derive(Deserialize)]
+/// One entry of an `rclone lsjson -R` listing of a generation root.
 pub(crate) struct Listed {
     #[serde(rename = "Path")]
+    /// Path relative to the listed root.
     pub path: String,
     #[serde(rename = "ModTime", default)]
+    /// Object ModTime (RFC 3339); empty when absent.
     pub mod_time: String,
     #[serde(rename = "IsDir", default)]
+    /// Directory entries are skipped.
     pub is_dir: bool,
 }
 

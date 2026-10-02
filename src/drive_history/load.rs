@@ -6,7 +6,10 @@ use crate::mount::history_bridge::{self as bridge, VirtualDrive};
 use crate::pool::browse_generations::Generation;
 use crate::prelude::*;
 
+/// A drive's history plus notes about degraded information; returned by
+/// `from_drive` and `from_cloud` to `dispatch`.
 pub(crate) struct Loaded {
+    /// The revision graph, with cleaned-up payloads removed.
     pub history: History,
     /// Degraded information worth telling the user (stderr).
     pub notes: Vec<String>,
@@ -78,6 +81,7 @@ pub(crate) fn generation(rclone: &str, pool: &str) -> Result<Option<Generation>>
     )
 }
 
+/// The saved, validated definition of `pool`; errors if it does not exist.
 pub(crate) fn pool_definition(pool: &str) -> Result<PoolDefinition> {
     let policy = crate::pool::load_pool_store()?
         .pools

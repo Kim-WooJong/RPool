@@ -62,14 +62,19 @@ pub(crate) use parse::{
 use sink::{AdminOutputCap, BoundedVec, Counted, RangeSink};
 use write::permit;
 
+/// Output cap (bytes) for admin calls and daemon admin responses (config dumps, about, etc.).
 const ADMIN_LIMIT: usize = 8 * 1024 * 1024;
+/// Output cap (bytes) for listings (`lsjson`), large because a pool folder can hold many objects.
 const LIST_LIMIT: usize = 1 << 30;
 /// Extra attempts for a mutation the provider rejected before performing it.
 const REJECTED_RETRIES: u32 = 3;
+/// Base delay for [`write::backoff`]; doubled per attempt. Short in tests so retries stay fast.
 const REJECTED_BACKOFF_MS: u64 = if cfg!(test) { 20 } else { 2000 };
 
 #[derive(Clone)]
+/// Which rclone config file a context passes to rclone.
 pub(crate) enum ConfigSelection {
+    /// No `--config` flag: rclone uses `RCLONE_CONFIG` from the context environment or its default.
     Inherited,
     #[cfg_attr(
         not(test),
@@ -78,13 +83,19 @@ pub(crate) enum ConfigSelection {
             reason = "Explicit config selection remains available to opt-in backend callers"
         )
     )]
+    /// Pass `--config <path>` explicitly (used by tests and opt-in callers).
     File(PathBuf),
 }
 
 #[derive(Clone)]
+/// How to run rclone: executable, config and environment, plus routing flags.
+/// Cloned into every backend/admin/speed-test object that spawns rclone.
 pub(crate) struct RcloneContext {
+    /// Path of the rclone binary.
     executable: PathBuf,
+    /// Which config file rclone reads.
     config: ConfigSelection,
+    /// Exact environment for the child (the parent environment is cleared, see `base_command`).
     environment: Vec<(OsString, OsString)>,
     /// Read-only calls may use the shared `rclone rcd` daemon. Off in unit
     /// tests unless a test opts in, so tests never start real daemons.
@@ -94,6 +105,7 @@ pub(crate) struct RcloneContext {
     traffic_alias: Option<(String, String)>,
 }
 
+/// Shorthand for an invalid-input [`StorageError`]; used by `admin` validation.
 fn invalid(detail: &str) -> StorageError {
     StorageError::invalid_input(detail)
 }

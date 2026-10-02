@@ -1,5 +1,8 @@
+//! Content-root checksums that seal a manifest's shard list.
+
 use crate::prelude::*;
 
+/// Version-1 root: BLAKE3 over index, offset, size and hash of every shard.
 pub(crate) fn content_root_v1(shards: &[Shard]) -> String {
     let mut hasher = Hasher::new();
     for shard in shards {
@@ -11,6 +14,8 @@ pub(crate) fn content_root_v1(shards: &[Shard]) -> String {
     hasher.finalize().to_hex().to_string()
 }
 
+/// Version-2 root: BLAKE3 over sizes, coding parameters and every shard's
+/// index, kind, group, slot, offset, size, remote, object and hash.
 pub(crate) fn content_root_v2(
     original_size: u64,
     shard_size: u64,

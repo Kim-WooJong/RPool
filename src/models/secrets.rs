@@ -1,3 +1,6 @@
+//! Crypt password bundle (`SecretBundle`) stored only inside the
+//! age-encrypted vault of a portable export (`config_sync::age_vault`), plus
+//! syntax checks for remote names and rclone-obscured values.
 use super::sensitive::SensitiveText;
 use anyhow::{bail, Result};
 use serde::de::{self, MapAccess, Visitor};
@@ -6,32 +9,44 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::marker::PhantomData;
 
+/// Current [`SecretBundle::schema_version`].
 pub(crate) const SECRET_BUNDLE_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// rclone-obscured passwords of one crypt remote (JSON keys `password`,
+/// `password2`).
 pub(crate) struct CryptSecret {
     #[serde(rename = "password")]
+    /// Obscured crypt `password`.
     pub(crate) obscured_password: SensitiveText,
     #[serde(rename = "password2", default, skip_serializing_if = "Option::is_none")]
+    /// Obscured crypt `password2` (salt); `None` when the remote has none.
     pub(crate) obscured_password2: Option<SensitiveText>,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// rclone section of the bundle.
 pub(crate) struct RcloneSecrets {
     #[serde(deserialize_with = "unique_map")]
+    /// Secrets per crypt remote name; duplicate keys are rejected.
     pub(crate) crypt: BTreeMap<String, CryptSecret>,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Vault payload written by `config_sync::crypt_secrets`/`crypt_generate`;
+/// unknown fields are rejected.
 pub(crate) struct SecretBundle {
+    /// Must equal [`SECRET_BUNDLE_SCHEMA_VERSION`].
     pub(crate) schema_version: u32,
+    /// rclone crypt secrets.
     pub(crate) rclone: RcloneSecrets,
 }
 
 impl SecretBundle {
+    /// Bundle of the current schema for `crypt`.
     pub(crate) fn new(crypt: BTreeMap<String, CryptSecret>) -> Self {
         Self {
             schema_version: SECRET_BUNDLE_SCHEMA_VERSION,
@@ -39,6 +54,7 @@ impl SecretBundle {
         }
     }
 
+    /// Checks the schema version, every remote name and every obscured value.
     pub(crate) fn validate(&self) -> Result<()> {
         if self.schema_version != SECRET_BUNDLE_SCHEMA_VERSION {
             bail!("unsupported crypt secret schema version");

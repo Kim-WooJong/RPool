@@ -47,50 +47,71 @@ pub(crate) fn format_millis(ms: u64) -> String {
     }
 }
 
+/// One speed bar of a remote row.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Bar {
     /// Share of the fastest remote's speed, 0..=1.
     pub(crate) ratio: f32,
+    /// Text on the bar: speed, plus files/s for many-file runs.
     pub(crate) text: String,
 }
 
+/// Display data of one remote in a speed test report.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct RemoteRow {
+    /// Remote name as tested.
     pub(crate) remote: String,
+    /// rclone backend type, if reported.
     pub(crate) backend: Option<String>,
+    /// The remote passed the test.
     pub(crate) ok: bool,
+    /// Why it failed.
     pub(crate) error: Option<String>,
+    /// Duration of the first operation (e.g. "850 ms").
     pub(crate) first_op: Option<String>,
+    /// The first operation took longer than `SLOW_START_MS`.
     pub(crate) slow_start: bool,
+    /// Measured round-trip latency.
     pub(crate) latency: Option<String>,
+    /// Upload bar; `None` when not measured.
     pub(crate) upload: Option<Bar>,
+    /// Download bar; `None` when not measured.
     pub(crate) download: Option<Bar>,
     /// The lowest measured speed of all accounts.
     pub(crate) slowest_upload: bool,
+    /// Lowest measured download speed of all accounts.
     pub(crate) slowest_download: bool,
     /// The account that limits the pool: largest share of the pool's shards
     /// per unit of speed. Not always the slowest one, since placement gives
     /// accounts different shares.
     pub(crate) limits_upload: bool,
+    /// The account that limits the pool's download speed.
     pub(crate) limits_download: bool,
+    /// Result of `--tune-uploads` for this remote.
     pub(crate) upload_tuning: Option<TuningView>,
+    /// Result of `--tune-downloads` for this remote.
     pub(crate) download_tuning: Option<TuningView>,
 }
 
 /// Which limit a tuning result sets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TuneKind {
+    /// Simultaneous shard uploads (`max_uploads`).
     Uploads,
+    /// Simultaneous shard downloads (`max_downloads`).
     Downloads,
 }
 
 /// `--tune-uploads` / `--tune-downloads` result of one account.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TuningView {
+    /// Which limit the result applies to.
     pub(crate) kind: TuneKind,
+    /// Backing account the limit belongs to; `None` if unknown (no Apply).
     pub(crate) account: Option<String>,
     /// "1: 2.0 MB/s", "4: failed" in test order, with the failure if any.
     pub(crate) steps: Vec<(String, Option<String>)>,
+    /// Recommended level, if any step succeeded.
     pub(crate) recommended: Option<usize>,
     /// The account's own limit (None = backend default).
     pub(crate) current: Option<usize>,
@@ -99,6 +120,7 @@ pub(crate) struct TuningView {
 }
 
 impl TuningView {
+    /// Display form of a tuning result.
     fn new(kind: TuneKind, tuning: &crate::speedtest::model::ConcurrencyTuning) -> Self {
         Self {
             kind,
@@ -124,6 +146,7 @@ impl TuningView {
 }
 
 impl RemoteRow {
+    /// Whether this remote limits the pool's upload or download speed.
     pub(crate) fn is_bottleneck(&self) -> bool {
         self.limits_upload || self.limits_download
     }
@@ -143,20 +166,29 @@ fn slowest(rates: impl Iterator<Item = Option<f64>>) -> Option<usize> {
     best.map(|(i, _)| i)
 }
 
+/// Expected pool speed, formatted.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Estimate {
+    /// Expected upload speed text.
     pub(crate) upload: String,
+    /// Expected download speed text.
     pub(crate) download: String,
 }
 
+/// Display form of a `SpeedTestReport`, stored per target in `SpeedTestForm::results`.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ReportView {
     /// "16 x 1 MiB" per account.
     pub(crate) mode: String,
+    /// One row per tested remote, in report order.
     pub(crate) rows: Vec<RemoteRow>,
+    /// Expected pool speed, if the report has one.
     pub(crate) estimate: Option<Estimate>,
+    /// Remote limiting the pool's upload speed.
     pub(crate) bottleneck_upload: Option<String>,
+    /// Remote limiting the pool's download speed.
     pub(crate) bottleneck_download: Option<String>,
+    /// Test folders that could not be deleted.
     pub(crate) leftovers: Vec<String>,
     /// Written by a newer RPool than this GUI knows.
     pub(crate) newer_version: bool,
@@ -208,6 +240,7 @@ impl ReportView {
             }
         }
     }
+    /// Builds the view from a parsed report (bars, slowest and bottleneck marks, tunings).
     pub(crate) fn new(report: &SpeedTestReport) -> Self {
         let uploads = bars(
             report

@@ -1,9 +1,14 @@
+//! Sequential upload batch: starts one `rpool put` per pending queue item and
+//! moves on when the task runner reports the previous one finished.
+
 use super::state::UploadItemStatus;
 use super::{start, validation};
 use crate::gui::i18n::tr;
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 
+/// Starts the batch after checking that no task runs, the queue has pending
+/// files and the preflight passes. Called by the Start upload button.
 pub(crate) fn start_batch(state: &mut GuiState, task: &mut TaskRunner) -> Result<(), String> {
     if task.is_running() {
         return Err(tr("Another rpool operation is already running.").to_string());
@@ -23,6 +28,10 @@ pub(crate) fn start_batch(state: &mut GuiState, task: &mut TaskRunner) -> Result
     start_next(state, task)
 }
 
+/// Advances an active batch while the task runner is idle: records the last
+/// outcome on the running item, stops on cancel or failure (pending items stay
+/// queued), otherwise starts the next item. Called every frame from the app
+/// through `upload::poll_batch`.
 pub(crate) fn poll_batch(state: &mut GuiState, task: &mut TaskRunner) {
     if !state.upload.batch_active || task.is_running() {
         return;
@@ -72,6 +81,8 @@ pub(crate) fn poll_batch(state: &mut GuiState, task: &mut TaskRunner) {
     }
 }
 
+/// Starts the first pending item, marking it Running; ends the batch when none
+/// is left. On a start error the item is marked Failed and the batch stops.
 fn start_next(state: &mut GuiState, task: &mut TaskRunner) -> Result<(), String> {
     let Some(index) = state
         .upload

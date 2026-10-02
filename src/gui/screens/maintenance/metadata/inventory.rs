@@ -1,9 +1,14 @@
+//! Inventory card of Maintenance › Metadata: rebuild this PC's archive index
+//! from a folder of manifests, or add one archive by its manifest.
+
 use crate::gui::i18n::tr;
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 use eframe::egui;
 use std::ffi::OsString;
 
+/// Draws both rows and starts "Inventory rebuild" / "Inventory add" tasks.
+/// Called by `metadata::show`.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     ui.label(egui::RichText::new(tr("Inventory cache")).strong());
     ui.label(egui::RichText::new(tr("Rebuild the local inventory index from manifest files. The index is not a source of truth.")).weak());
@@ -74,6 +79,7 @@ fn add_args(manifest: &str) -> Result<Vec<OsString>, String> {
     Ok(vec!["inventory".into(), "add".into(), manifest.into()])
 }
 
+/// Starts `rpool inventory rebuild <directory>`; errors without a directory.
 fn start(state: &GuiState, task: &mut TaskRunner) -> Result<(), String> {
     let directory = state.manifest.inventory_directory.trim();
     if directory.is_empty() {

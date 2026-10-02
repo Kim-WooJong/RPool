@@ -6,15 +6,21 @@ use crate::presentation::format_bytes;
 use crate::provider::limits_view::AccountStatus;
 use crate::storage::account::inactivity::Level;
 
+/// Colour class of a card line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Tone {
+    /// Informational.
     Muted,
+    /// Needs attention soon (pause, near inactivity).
     Warning,
+    /// Action needed (inactivity exceeded).
     Danger,
 }
 
+/// Rolling 24 h upload budget bar of a card.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct BudgetLine {
+    /// Used share of the budget, 0.0–1.0.
     pub ratio: f32,
     /// Text on the bar, e.g. `12%`.
     pub bar: String,
@@ -22,13 +28,16 @@ pub(crate) struct BudgetLine {
     pub line: String,
 }
 
+/// Everything a card shows about its account limits; built by `card_limits`.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CardLimits {
     /// Only for accounts with a daily budget.
     pub budget: Option<BudgetLine>,
     /// Pause or window reset, with its tone.
     pub state: Option<(String, Tone)>,
+    /// Last activity text, with the inactivity warning when near or over.
     pub activity: String,
+    /// Tone of `activity`.
     pub activity_tone: Tone,
 }
 
@@ -48,6 +57,8 @@ pub(crate) fn wait(seconds: u64) -> String {
     }
 }
 
+/// Card limit lines of one account at `now` (Unix seconds): budget bar, pause
+/// or window reset, and last activity. Used by `card::limits_section`.
 pub(crate) fn card_limits(status: &AccountStatus, now: u64) -> CardLimits {
     let budget = status.budget_ratio().map(|ratio| BudgetLine {
         ratio,

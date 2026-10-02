@@ -2,9 +2,13 @@
 use crate::models::volume::{CapacityDomainId, FailureDomainId};
 use crate::prelude::*;
 #[derive(Debug, Clone)]
+/// One rclone config section, reduced to non-secret facts.
 struct Entry {
+    /// Backend type in lowercase (`crypt`, `alias`, `drive`, …).
     kind: String,
+    /// The section's `remote =` value for wrappers (e.g. `base:folder`).
     backing: Option<String>,
+    /// For crypt: data encryption is on (`no_data_encryption` unset or false).
     encrypted: bool,
 }
 
@@ -26,21 +30,32 @@ mod placement_tests {
     }
 }
 #[derive(Debug, Clone, Default)]
+/// Sanitized view of the rclone config (from `config dump`) plus the
+/// user-declared domain identities. Built by `RcloneAdmin::catalog`; used for
+/// placement, capacity budgets, usage and encryption checks.
 pub(crate) struct RemoteCatalog {
+    /// Config sections by name.
     entries: BTreeMap<String, Entry>,
+    /// Declared capacity/failure identities from `provider_domains.json`.
     domains: super::domains::DomainStore,
 }
 #[derive(Debug, Clone)]
+/// Where one remote's quota is queried and which domains it belongs to.
 pub(crate) struct CapacityBinding {
+    /// Address passed to `rclone about` (account root for whole-account backends).
     pub(crate) target: String,
+    /// Capacity domain; undeclared backends share `unverified-accounts`.
     pub(crate) domain: Option<CapacityDomainId>,
     // Config section identity alone cannot prove an independent outage domain.
+    /// Declared outage domain, if any.
     pub(crate) failure_domain: Option<FailureDomainId>,
 }
 impl RemoteCatalog {
+    /// Replaces the declared domain identities (loaded by `RcloneAdmin::catalog`).
     pub(crate) fn set_domains(&mut self, domains: super::domains::DomainStore) {
         self.domains = domains;
     }
+    /// Whether the backing section of `raw` has a declared identity.
     pub(crate) fn identity_declared(&self, raw: &str) -> bool {
         self.placement_target(raw)
             .is_ok_and(|name| self.domains.remotes.contains_key(&name))
@@ -81,6 +96,8 @@ impl RemoteCatalog {
             }
         }
     }
+    /// Builds the catalog from rclone `config dump` JSON; sections without a
+    /// `type` are skipped. Domains start empty.
     pub(crate) fn parse(value: &Value) -> Result<Self> {
         let object = value
             .as_object()
@@ -156,6 +173,8 @@ impl RemoteCatalog {
             .collect()
     }
 
+    /// Names of concrete (non-wrapper, non-aggregate) sections, without colon.
+    /// Used by limits view, keep-alive and usage refresh.
     pub(crate) fn backing_remotes(&self) -> Vec<String> {
         self.entries
             .iter()
@@ -168,6 +187,7 @@ impl RemoteCatalog {
             .map(|(n, _)| n.clone())
             .collect()
     }
+    /// Encrypted crypt remotes as `name:` addresses.
     pub(crate) fn crypt_remotes(&self) -> Vec<String> {
         self.entries
             .iter()
@@ -175,6 +195,7 @@ impl RemoteCatalog {
             .map(|(n, _)| format!("{n}:"))
             .collect()
     }
+    /// Concrete sections as `name:` addresses with the configured remote root applied.
     pub(crate) fn physical_remotes(&self) -> Result<Vec<String>> {
         self.entries
             .iter()
@@ -187,9 +208,12 @@ impl RemoteCatalog {
             .map(|(n, _)| crate::remote_root::apply_remote_root(&format!("{n}:")))
             .collect()
     }
+    /// Capacity binding of address `raw`, following wrapper chains; errors on
+    /// cycles, unknown sections, aggregates and unresolved alias scopes.
     pub(crate) fn capacity(&self, raw: &str) -> Result<CapacityBinding> {
         self.resolve(raw, &mut BTreeSet::new())
     }
+    /// Recursive step of [`Self::capacity`]; `visited` detects alias cycles.
     fn resolve(&self, raw: &str, visited: &mut BTreeSet<String>) -> Result<CapacityBinding> {
         let parsed = super::super::reference::LegacyAddress::parse(raw)
             .map_err(|_| anyhow!("invalid legacy capacity address"))?;
@@ -242,6 +266,7 @@ impl RemoteCatalog {
             }
         }
     }
+    /// Distinct quota targets of `remotes`, sorted; used by the GUI usage refresh.
     pub(crate) fn capacity_remotes(&self, remotes: &[String]) -> Result<Vec<String>> {
         let mut seen = BTreeSet::new();
         let mut targets = BTreeSet::new();

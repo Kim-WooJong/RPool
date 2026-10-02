@@ -9,34 +9,53 @@
 use crate::mount::metadata_browse::{generation_roots, Snapshot};
 use crate::prelude::*;
 
+/// Cache file format version (also part of the scope hash).
 const FORMAT: u32 = 1;
 
+/// A cache file as read back (validated by `load_in`).
 #[derive(Deserialize)]
 struct Stored {
+    /// File format version.
     format: u32,
+    /// Pool the file belongs to.
     pool: String,
+    /// Scope hash of pool, replica roots and native crypt (see `scope`).
     scope: String,
+    /// Metadata generation (epoch) the snapshot was listed from.
     epoch: Option<String>,
+    /// When it was saved (Unix seconds).
     saved_unix: u64,
+    /// Validated events and checkpoint state.
     snapshot: Snapshot,
 }
+/// The same layout borrowed, as written by `save_in`.
 #[derive(Serialize)]
 struct Storing<'a> {
+    /// File format version.
     format: u32,
+    /// Pool name.
     pool: &'a str,
+    /// Scope hash.
     scope: String,
+    /// Metadata generation.
     epoch: Option<&'a str>,
+    /// Save time (Unix seconds).
     saved_unix: u64,
+    /// Snapshot being saved.
     snapshot: &'a Snapshot,
 }
 
 /// A usable cache file.
 pub(crate) struct Cached {
+    /// Metadata generation of the snapshot (`None`: base root).
     pub epoch: Option<String>,
+    /// Save time (Unix seconds).
     pub saved_unix: u64,
+    /// Validated metadata snapshot.
     pub snapshot: Snapshot,
 }
 
+/// Cache file of `pool` in `dir`: first 32 hex chars of BLAKE3(pool name).
 fn file(dir: &Path, pool: &str) -> PathBuf {
     let name = blake3::hash(pool.as_bytes()).to_hex();
     dir.join(format!("{}.json", &name[..32]))
@@ -57,10 +76,13 @@ fn scope(pool: &str, policy: &PoolDefinition, epoch: Option<&str>) -> Result<Str
         .to_string())
 }
 
+/// The pool's cache file from the Library cache dir if it is still valid
+/// for the current pool settings; `None` otherwise. Used by `browse`.
 pub(crate) fn load(pool: &str, policy: &PoolDefinition) -> Option<Cached> {
     load_in(&crate::config::library_cache_dir().ok()?, pool, policy)
 }
 
+/// [`load`] in `dir`; an unusable file is logged and ignored.
 fn load_in(dir: &Path, pool: &str, policy: &PoolDefinition) -> Option<Cached> {
     let path = file(dir, pool);
     if !path.is_file() {
@@ -105,6 +127,7 @@ pub(crate) fn save(
     )
 }
 
+/// [`save`] in `dir`.
 fn save_in(
     dir: &Path,
     pool: &str,

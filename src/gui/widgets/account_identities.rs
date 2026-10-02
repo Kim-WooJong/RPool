@@ -7,15 +7,20 @@ use crate::pool::capacity::BackingRemote;
 use crate::storage::admin::domains::{DomainIdentity, DomainStore};
 use eframe::egui;
 
+/// Editable capacity/outage identity of one backing remote.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct IdentityRow {
+    /// Backing remote name.
     pub(crate) remote: String,
     /// rclone backend type, shown for orientation and used by Suggest.
     pub(crate) kind: String,
+    /// Capacity group: remotes with the same value share one quota.
     pub(crate) capacity: String,
+    /// Outage group: remotes with the same value can fail together.
     pub(crate) failure: String,
 }
 impl IdentityRow {
+    /// Both groups are filled in.
     fn complete(&self) -> bool {
         !self.capacity.trim().is_empty() && !self.failure.trim().is_empty()
     }
@@ -83,9 +88,12 @@ pub(crate) fn merged(mut store: DomainStore, rows: &[IdentityRow]) -> anyhow::Re
     Ok(store)
 }
 
+/// Result of one [`editor`] frame.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum EditorAction {
+    /// Nothing to do.
     None,
+    /// The user clicked "Save identities"; the caller merges and saves the rows.
     Save,
 }
 

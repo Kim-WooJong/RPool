@@ -1,7 +1,10 @@
+//! `rpool inventory info`: shows one inventory entry.
 use crate::inventory::load_inventory;
 use crate::presentation::format_bytes;
 use anyhow::Result;
 
+/// Prints the inventory entry of `archive_id` (name, size, hashes, coding,
+/// remotes) as text or JSON; errors when the id is not indexed.
 pub(crate) fn run(archive_id: &str, json: bool) -> Result<()> {
     let store = load_inventory()?;
     let entry = store

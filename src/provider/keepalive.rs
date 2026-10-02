@@ -10,14 +10,19 @@ use crate::storage::traits::OperationContext;
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 
+/// Upper bound for each single keep-alive rclone call.
 const CALL_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// Result of one keep-alive attempt, printed by the CLI and shown in the GUI.
 pub(crate) struct KeepaliveOutcome {
+    /// Account (remote name without the trailing colon) that was contacted.
     pub account: String,
+    /// Whether the call succeeded (and activity was recorded in the ledger).
     pub ok: bool,
     /// `about` or `list`.
     pub method: Option<&'static str>,
+    /// rclone error text when the call failed; `None` on success.
     pub error: Option<String>,
 }
 

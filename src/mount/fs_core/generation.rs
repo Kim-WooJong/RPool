@@ -15,16 +15,22 @@ use crate::mount::native_ancestry::Ancestry;
 use crate::mount::virtual_drive::{Revision, VirtualDrive};
 use crate::prelude::*;
 
+/// Baseline copy step in bytes (1 MiB).
 const COPY_CHUNK: usize = 1024 * 1024;
 
+/// The shared unsealed image of one file; held in its [`Slot`](super::slot::Slot).
 pub(super) struct Generation {
+    /// Begun write intent; its id names the spool file.
     pub(super) intent: Intent,
+    /// Open spool image file.
     file: File,
+    /// Current image length in bytes.
     pub(super) size: u64,
     /// Bumped by every change to the image, all made under the slot lock.
     pub(super) version: u64,
     /// `(version, size, hash)` of a flushed, hashed image (`FsCore::prehash`).
     hashed: Option<(u64, u64, String)>,
+    /// Local lease that keeps the intent's spool from cleanup while the generation exists.
     _lease: Arc<()>,
 }
 impl Generation {
@@ -59,6 +65,8 @@ impl Generation {
         }
         Self::open_spool(drive, intent, visible, keep)
     }
+    /// Creates the spool file for `intent` (cloned where possible, else empty) and fills its
+    /// baseline from `visible`; on failure the unsealed intent is discarded.
     fn open_spool(
         drive: &VirtualDrive,
         intent: Intent,
@@ -125,6 +133,7 @@ impl Generation {
         }
         Ok(())
     }
+    /// Copies the first `end` bytes of `revision` into the image in `COPY_CHUNK` steps.
     fn copy_baseline(&mut self, drive: &VirtualDrive, revision: &Revision, end: u64) -> Result<()> {
         let mut offset = 0;
         while offset < end {
@@ -138,6 +147,7 @@ impl Generation {
         }
         Ok(())
     }
+    /// Writes `bytes` at `offset` through the drive's spool budget accounting.
     pub(super) fn write_at(
         &mut self,
         drive: &VirtualDrive,
@@ -150,12 +160,14 @@ impl Generation {
         self.size = self.file.metadata()?.len();
         result
     }
+    /// Resizes the image to `len` bytes.
     pub(super) fn truncate(&mut self, drive: &VirtualDrive, len: u64) -> Result<()> {
         self.version += 1;
         drive.resize_spool(&self.file, len)?;
         self.size = len;
         Ok(())
     }
+    /// Reads up to `count` bytes at `offset`; empty at or past the end.
     pub(super) fn read_at(&mut self, offset: u64, count: usize) -> Result<Vec<u8>> {
         if offset >= self.size {
             return Ok(vec![]);

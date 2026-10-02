@@ -9,6 +9,7 @@ use crate::gui::widgets::{status_badge, StatusTone};
 use crate::migration::model::MigrationStatus;
 use eframe::egui;
 
+/// Label and tone of a migration's state (discarded, complete, in progress, not started).
 pub(super) fn state_label(status: &MigrationStatus) -> (&'static str, StatusTone) {
     if status.abandoned {
         (tr("Discarded"), StatusTone::Neutral)
@@ -21,6 +22,7 @@ pub(super) fn state_label(status: &MigrationStatus) -> (&'static str, StatusTone
     }
 }
 
+/// "done/total switched" progress text of a migration.
 pub(super) fn progress_text(status: &MigrationStatus) -> String {
     trf(
         "{done}/{total} switched",
@@ -28,10 +30,13 @@ pub(super) fn progress_text(status: &MigrationStatus) -> String {
     )
 }
 
+/// True when the running task is this window's run of migration `id`.
 fn our_run_active(state: &GuiState, task: &TaskRunner, id: &str) -> bool {
     task.is_running() && state.migration.watched == Some(Watched::Run(id.to_string()))
 }
 
+/// Renders step 3 for the active migration: state badge, progress, and the
+/// run / pause / resume controls.
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     let Some(id) = state.migration.active_id.clone() else {
         state.migration.reset_to_plan();

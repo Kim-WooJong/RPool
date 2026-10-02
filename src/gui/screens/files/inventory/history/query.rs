@@ -12,7 +12,10 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 /// stays on screen while it refreshes.
 #[derive(Debug)]
 pub(crate) struct Fetch<T> {
+    /// Last finished result: the parsed value, or a user-facing error text.
+    /// `None` until the first query completes.
     pub(crate) value: Option<Result<T, String>>,
+    /// Receiver of the query still running, if any.
     pending: Option<Receiver<Result<T, String>>>,
     /// Asked to reload on the next frame (after a change).
     pub(crate) stale: bool,
@@ -29,6 +32,7 @@ impl<T> Default for Fetch<T> {
 }
 
 impl<T: DeserializeOwned + Send + 'static> Fetch<T> {
+    /// A fetch that already holds `value` (after a change returned new data, and in tests).
     pub(crate) fn ready(value: T) -> Self {
         Self {
             value: Some(Ok(value)),
@@ -36,6 +40,7 @@ impl<T: DeserializeOwned + Send + 'static> Fetch<T> {
         }
     }
 
+    /// Whether a query is still running.
     pub(crate) fn is_loading(&self) -> bool {
         self.pending.is_some()
     }
@@ -50,6 +55,8 @@ impl<T: DeserializeOwned + Send + 'static> Fetch<T> {
         self.value.as_ref().and_then(|value| value.as_ref().ok())
     }
 
+    /// Starts `rpool <args>` in the background (replacing any running query) and
+    /// clears `stale`. The old `value` stays until `poll` collects the new one.
     pub(crate) fn start(&mut self, rclone: &str, args: Vec<OsString>) {
         self.stale = false;
         self.pending = Some(spawn(rclone, args));
@@ -71,6 +78,7 @@ impl<T: DeserializeOwned + Send + 'static> Fetch<T> {
     }
 }
 
+/// Runs the query on a new thread; the receiver gets its single result.
 fn spawn<T: DeserializeOwned + Send + 'static>(
     rclone: &str,
     args: Vec<OsString>,
@@ -89,6 +97,9 @@ fn run<T: DeserializeOwned>(_rclone: &str, _args: Vec<OsString>) -> Result<T, St
     Err("queries do not run in tests".into())
 }
 
+/// Runs the current executable as `rpool --rclone <rclone> <args>` (no console
+/// window on Windows) and parses its stdout; on failure returns the last
+/// stderr line as the error.
 #[cfg(not(test))]
 fn run<T: DeserializeOwned>(rclone: &str, args: Vec<OsString>) -> Result<T, String> {
     use super::parse;

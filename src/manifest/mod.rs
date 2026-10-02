@@ -1,11 +1,24 @@
+//! Archive manifests: the JSON description of an archive's shards, coding and
+//! placement. Loading, validation, fingerprints, replication to every used
+//! remote, replica verification and recovery from remote replicas.
+
+/// Content-root checksums (v1, v2).
 mod content_root;
+/// Fingerprint of a manifest for replica comparison.
 mod fingerprint;
+/// Loading from a local file or remote.
 mod load;
+/// Shard queries (data shards, group count).
 mod query;
+/// Recovering a manifest from remote replicas.
 mod recover;
+/// Verifying remote manifest replicas.
 mod replica_verify;
+/// Writing manifest replicas to remotes.
 mod replicate;
+/// Which remotes a manifest is stored on and published to.
 mod targets;
+/// Structural and checksum validation.
 mod validate;
 
 pub(crate) use content_root::{content_root_v1, content_root_v2};

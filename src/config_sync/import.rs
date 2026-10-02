@@ -1,3 +1,6 @@
+//! `rpool import` implementation: validates the artifact tree, applies the
+//! portable RPool settings and restores crypt secrets transactionally, rolling
+//! the settings back if the crypt restore fails. Entry point [`import_package`].
 use super::age_vault::{AgeDecrypt, AgeEncrypt};
 use super::artifact::ArtifactPaths;
 use super::crypt_restore::{preflight_crypt_vault, restore_crypt_vault};
@@ -13,19 +16,29 @@ use crate::utils::read_json;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
+/// Portable settings ready to write, with the previous local state kept for rollback.
 pub(crate) struct PreparedPortableImport {
+    /// Pool store before the import.
     previous_pools: PoolStore,
+    /// Remote-root store before the import.
     previous_roots: RemoteRootStore,
+    /// GUI settings before the import.
     previous_gui: GuiSettings,
+    /// Account limits before the import.
     previous_limits: LimitsStore,
+    /// Pool store from the bundle.
     next_pools: PoolStore,
+    /// Remote-root store from the bundle.
     next_roots: RemoteRootStore,
+    /// Local GUI settings with the portable fields replaced from the bundle.
     next_gui: GuiSettings,
     /// `None`: the bundle carries no limits; local ones stay.
     next_limits: Option<LimitsStore>,
 }
 
 impl PreparedPortableImport {
+    /// Writes the new pool, remote-root, GUI and (if present) limits stores; on any
+    /// failure restores the previous ones and returns the error.
     pub(crate) fn apply(&self) -> Result<()> {
         let applied = (|| -> Result<()> {
             save_pool_store(&self.next_pools)?;
@@ -45,6 +58,7 @@ impl PreparedPortableImport {
         Ok(())
     }
 
+    /// Writes back the previous stores (limits only if the import replaced them).
     pub(crate) fn rollback(&self) -> Result<()> {
         save_pool_store(&self.previous_pools)?;
         save_remote_root_store(&self.previous_roots)?;
@@ -56,6 +70,8 @@ impl PreparedPortableImport {
     }
 }
 
+/// Validates `bundle` and snapshots the current local stores into a
+/// [`PreparedPortableImport`]; nothing is written yet.
 pub(crate) fn prepare_portable_import(bundle: &PortableConfig) -> Result<PreparedPortableImport> {
     super::validate_bundle(bundle)?;
     let previous_pools = load_pool_store()?;
@@ -89,22 +105,37 @@ pub(crate) fn prepare_portable_import(bundle: &PortableConfig) -> Result<Prepare
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What happened to crypt secrets during an import.
 pub(crate) enum PackageCryptOutcome {
+    /// The bundle has no crypt remotes.
     NotPresent,
+    /// The target rclone config already held exactly these secrets.
     AlreadyExact,
+    /// Secrets were restored and verified (or, on a dry run, would be).
     Restored,
+    /// Restored, but removing the transaction's recovery material is still pending.
     RestoredWithCleanupPending,
 }
 
+/// Result of [`import_package`], printed by `commands::config_sync::import`.
 pub(crate) struct PackageImportOutcome {
+    /// Canonical artifact root.
     pub(crate) artifact_root: PathBuf,
+    /// Imported portable config file.
     pub(crate) portable_path: PathBuf,
+    /// Number of crypt remotes in the bundle.
     pub(crate) crypt_remotes: usize,
+    /// Crypt secret restore outcome.
     pub(crate) crypt: PackageCryptOutcome,
+    /// Nothing was changed (validation only).
     pub(crate) dry_run: bool,
 }
 
 #[allow(clippy::too_many_arguments)] // established internal API; a params struct would only add indirection
+/// Validates the artifact and its vault binding, preflights the crypt restore
+/// against the target rclone.conf, then (unless `dry_run`) applies the portable
+/// settings and restores crypt secrets via the config transaction. An age
+/// identity outside the artifact is required when crypt remotes exist.
 pub(crate) fn import_package(
     artifact_root: &Path,
     rclone: &Path,

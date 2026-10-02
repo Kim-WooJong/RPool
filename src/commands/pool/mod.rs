@@ -1,10 +1,17 @@
+//! CLI handlers for `rpool pool`. Each child exposes `run`, re-exported under
+//! the subcommand name; `migrate_history` labels migrations for `rpool history`.
+/// `pool browse`: read-only listing of a pool's drive from cloud metadata.
 mod browse;
 mod compact;
+/// `pool list` handler.
 mod list;
 mod migrate;
 mod migrate_retire;
+/// `pool remove` handler.
 mod remove;
+/// `pool set` handler.
 mod set;
+/// `pool show` handler.
 mod show;
 
 pub(crate) use browse::run as browse;

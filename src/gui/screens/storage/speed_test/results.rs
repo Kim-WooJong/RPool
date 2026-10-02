@@ -8,15 +8,21 @@ use eframe::egui;
 
 /// Width of the "Upload" / "Download" labels in front of the bars.
 const LABEL_WIDTH: f32 = 96.0;
+/// Widest a speed bar gets, in points.
 const MAX_BAR_WIDTH: f32 = 420.0;
 
 /// "Apply" clicked on a tuning recommendation.
 pub(crate) struct ApplyTuning {
+    /// Account whose limit to set.
     pub(crate) account: String,
+    /// Uploads or downloads limit.
     pub(crate) kind: TuneKind,
+    /// Recommended number of simultaneous shard transfers.
     pub(crate) value: usize,
 }
 
+/// Draws a report: mode, pool estimate, one block per remote and leftover
+/// folders; returns a clicked tuning "Apply". Called by `speed_test::body`.
 pub(crate) fn show(ui: &mut egui::Ui, view: &ReportView) -> Option<ApplyTuning> {
     ui.separator();
     ui.horizontal_wrapped(|ui| {
@@ -42,6 +48,7 @@ pub(crate) fn show(ui: &mut egui::Ui, view: &ReportView) -> Option<ApplyTuning> 
     apply
 }
 
+/// Full-width frame with `colors` (fill, text) around `text`.
 fn tinted(ui: &mut egui::Ui, colors: (egui::Color32, egui::Color32), text: &str) {
     egui::Frame::new()
         .fill(colors.0)
@@ -53,6 +60,7 @@ fn tinted(ui: &mut egui::Ui, colors: (egui::Color32, egui::Color32), text: &str)
         });
 }
 
+/// Expected pool upload/download speed and which remote limits it.
 fn estimate(ui: &mut egui::Ui, view: &ReportView) {
     let Some(estimate) = &view.estimate else {
         return;
@@ -80,6 +88,7 @@ fn estimate(ui: &mut egui::Ui, view: &ReportView) {
 
 /// From this width upload and download bars share one line.
 const SIDE_BY_SIDE_WIDTH: f32 = 760.0;
+/// Space between the upload and download bars when side by side.
 const BAR_GAP: f32 = 16.0;
 
 /// Room after each bar for the tag, kept on every row so bars line up.
@@ -162,6 +171,8 @@ fn readable_on(fill: egui::Color32) -> egui::Color32 {
     }
 }
 
+/// Upload and download bars of one remote, side by side on wide cards,
+/// stacked otherwise.
 fn speed_bars(ui: &mut egui::Ui, row: &RemoteRow) {
     if ui.available_width() >= SIDE_BY_SIDE_WIDTH {
         ui.horizontal(|ui| {
@@ -223,6 +234,8 @@ fn speed_bars(ui: &mut egui::Ui, row: &RemoteRow) {
     }
 }
 
+/// One remote's block: name, status, timings, speed bars and tuning results
+/// (bottlenecks outlined); returns a clicked "Apply".
 fn remote_row(ui: &mut egui::Ui, row: &RemoteRow) -> Option<ApplyTuning> {
     let mut apply = None;
     let p = theme::pal(ui);
@@ -376,6 +389,7 @@ fn tuning_line(ui: &mut egui::Ui, tuning: &TuningView) -> Option<ApplyTuning> {
     apply
 }
 
+/// Warning listing test folders that could not be deleted.
 fn leftovers(ui: &mut egui::Ui, leftovers: &[String]) {
     if leftovers.is_empty() {
         return;

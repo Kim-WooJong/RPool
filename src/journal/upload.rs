@@ -1,13 +1,19 @@
+//! Upload journal: the shards an upload has already stored, tied to the exact
+//! upload plan by a fingerprint.
+
 use crate::prelude::*;
 use crate::storage::{reader::is_recoverable_loss, writer::StorageWriter};
 use crate::utils::hash_file_range;
 use crate::utils::{now_unix, read_json, save_json_atomic};
 
+/// BLAKE3 hash of the serialized plan; a journal only applies to this plan.
 pub(crate) fn upload_plan_fingerprint(plan: &UploadPlan) -> Result<String> {
     let bytes = serde_json::to_vec(plan)?;
     Ok(blake3::hash(&bytes).to_hex().to_string())
 }
 
+/// Loads the journal at `path`, failing if it was made for another plan, or
+/// creates and saves an empty one.
 pub(crate) fn load_or_create_upload_journal(
     path: &Path,
     plan: &UploadPlan,
@@ -34,6 +40,9 @@ pub(crate) fn load_or_create_upload_journal(
     Ok(journal)
 }
 
+/// Drops journal entries that no longer match the plan, parity shards (always
+/// regenerated), data whose source bytes changed and objects missing on the
+/// remote. Returns how many entries were dropped. Used before resuming.
 pub(crate) fn validate_upload_journal(
     storage: &StorageWriter,
     source: &Path,
@@ -83,6 +92,7 @@ pub(crate) fn validate_upload_journal(
     Ok(removed.len())
 }
 
+/// Records a stored shard and saves the journal immediately.
 pub(crate) fn record_upload_shard(
     path: &Path,
     journal: &Arc<Mutex<UploadJournal>>,

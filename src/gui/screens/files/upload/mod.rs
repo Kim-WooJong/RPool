@@ -1,11 +1,24 @@
+//! Files › Upload: queue local files and upload them one after another to a
+//! storage pool (or a manual one-off set of crypt remotes) with `rpool put`.
+//! Entry points `show` (the page) and `poll_batch` (called by the app each frame).
+
+/// Advanced section: target mode, policy override, archive ID.
 mod advanced;
+/// Running the queue one `rpool put` at a time.
 mod batch;
+/// Source-file queue and drop zone.
 mod file_queue;
+/// Manual one-off upload policy fields.
 mod manual_options;
+/// Building the `rpool put` command line of one file.
 mod start;
+/// `UploadForm` and queue item types.
 mod state;
+/// Preflight summary card.
 mod summary;
+/// Pool picker and manual destination controls.
 mod target;
+/// Preflight checks (`UploadPreflight`).
 mod validation;
 
 pub(crate) use state::UploadForm;
@@ -16,6 +29,9 @@ use crate::gui::task::TaskRunner;
 use crate::gui::widgets::{section_header, toolbar};
 use eframe::egui;
 
+/// Draws the Upload page: queue pane, target/options pane, preflight summary
+/// and the start button (enabled only when the preflight is ready). Called by
+/// `files::show`.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     section_header(
         ui,
@@ -129,6 +145,8 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     });
 }
 
+/// Advances a running upload batch; see `batch::poll_batch`. Called by the app
+/// every frame, whatever page is shown.
 pub(crate) fn poll_batch(state: &mut GuiState, task: &mut TaskRunner) {
     batch::poll_batch(state, task);
 }

@@ -11,13 +11,17 @@ use crate::prelude::*;
 /// Admitted growth after which the next admission rescans anyway.
 const RESCAN_AFTER: u64 = 1024 * 1024 * 1024;
 
+/// Running spool byte count guarded by `VirtualDrive::spool_writes`.
 #[derive(Default)]
 pub(crate) struct SpoolMeter {
+    /// Spool bytes as last scanned plus admitted growth; `None` before the first scan.
     known: Option<u64>,
+    /// Growth admitted since the last scan (rescan after `RESCAN_AFTER`).
     since_scan: u64,
 }
 
 impl SpoolMeter {
+    /// Replaces the count with a fresh `scan` result.
     fn rescan(&mut self, scan: &dyn Fn() -> Result<u64>) -> Result<u64> {
         let bytes = scan()?;
         self.known = Some(bytes);

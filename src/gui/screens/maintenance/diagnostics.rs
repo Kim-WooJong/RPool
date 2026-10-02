@@ -1,3 +1,6 @@
+//! Maintenance › Diagnostics: runs the doctor checks (`crate::doctor`) on a
+//! background thread and lists each result with its status.
+
 use crate::doctor::{run_checks, Diagnostic};
 use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
@@ -5,14 +8,19 @@ use crate::gui::task::TaskRunner;
 use crate::gui::widgets::{section_header, status_badge, StatusTone};
 use eframe::egui;
 
+/// State of the Diagnostics tab, in `GuiState::system`.
 #[derive(Debug, Default)]
 pub(crate) struct SystemForm {
+    /// Results of the last completed run.
     pub(crate) reports: Vec<Diagnostic>,
+    /// Shown when the check thread ended without a result.
     pub(crate) error: Option<String>,
     /// Checks run off the UI thread: probing rclone can take seconds.
     pending: Option<std::sync::mpsc::Receiver<Vec<Diagnostic>>>,
 }
 
+/// Starts the checks on a new thread: full checks with `rclone`, or local
+/// checks only (no rclone, no providers) with `None`.
 fn start(form: &mut SystemForm, rclone: Option<String>) {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -26,6 +34,8 @@ fn start(form: &mut SystemForm, rclone: Option<String>) {
     form.error = None;
 }
 
+/// Draws the Diagnostics tab and collects a finished run. Called by
+/// `maintenance::show`.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, _task: &mut TaskRunner) {
     crate::gui::theme::page_body(ui, "health-diagnostics", |ui| {
         section_header(

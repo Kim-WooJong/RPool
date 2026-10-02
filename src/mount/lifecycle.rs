@@ -7,14 +7,22 @@ use std::sync::{
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+/// Stop request of a mount process: set by the optional stop file (polled every 50 ms by a
+/// watcher thread) or by [`cancel`](Self::cancel). Created by `virtual_drive::run` and
+/// `pool_transition`.
 pub(super) struct StopControl {
+    /// Shared stop flag; also installed as the process-wide storage cancellation flag.
     pub flag: Arc<AtomicBool>,
+    /// Ends the watcher thread when dropped or signalled.
     done: mpsc::Sender<()>,
+    /// Stop-file watcher thread, joined on drop.
     watcher: Option<JoinHandle<()>>,
+    /// Keeps the process-wide cancellation scope installed for this lifetime.
     _scope: crate::storage::traits::ProcessCancellationGuard,
 }
 
 impl StopControl {
+    /// Installs the cancellation scope and starts watching `path` (no watcher check when `None`).
     pub fn new(path: Option<PathBuf>) -> anyhow::Result<Self> {
         let flag = Arc::new(AtomicBool::new(false));
         let scope = crate::storage::traits::ProcessCancellationGuard::install(flag.clone())?;
@@ -37,9 +45,11 @@ impl StopControl {
             _scope: scope,
         })
     }
+    /// True once a stop was requested.
     pub fn requested(&self) -> bool {
         self.flag.load(Ordering::Acquire)
     }
+    /// Requests a stop (cancels in-flight storage work).
     pub fn cancel(&self) {
         self.flag.store(true, Ordering::Release);
     }

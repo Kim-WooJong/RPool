@@ -1,3 +1,6 @@
+//! Files › Restore: download and rebuild one archive from its manifest with
+//! `rpool get`, run as a background task.
+
 use crate::gui::i18n::tr;
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
@@ -5,13 +8,19 @@ use crate::gui::widgets::{local_file_field, output_file_field};
 use eframe::egui;
 use std::ffi::OsString;
 
+/// Inputs of the Restore form, in `GuiState::restore` (also prefilled by the
+/// Library's Restore action).
 #[derive(Debug, Default)]
 pub(crate) struct RestoreForm {
+    /// Manifest: a local file or a remote manifest path.
     pub(crate) manifest: String,
+    /// Local output file to write the restored data to.
     pub(crate) output: String,
+    /// Validation or start error shown above the button.
     pub(crate) error: Option<String>,
 }
 
+/// Draws the Restore form and starts the restore on click. Called by `files::show`.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     ui.heading(tr("Restore"));
     ui.label(tr("Restore from a local manifest or type a remote manifest path directly. Reed-Solomon recovery is automatic when possible."));
@@ -40,6 +49,8 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     }
 }
 
+/// Validates the form and starts `rpool get <manifest> <output> --workers N
+/// --retries N` with the settings' worker and retry counts.
 fn start_restore(state: &GuiState, task: &mut TaskRunner) -> Result<(), String> {
     if state.restore.manifest.trim().is_empty() {
         return Err(tr("Select or enter a manifest first.").to_string());

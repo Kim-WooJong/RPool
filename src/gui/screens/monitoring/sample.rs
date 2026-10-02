@@ -9,6 +9,7 @@ use crate::monitor::model::*;
 use std::sync::Arc;
 use std::time::Instant;
 
+/// An idle `RemoteTraffic` of `name` on `backend`; callers fill in the traffic.
 fn remote(name: &str, backend: &str) -> RemoteTraffic {
     RemoteTraffic {
         remote: name.into(),
@@ -32,6 +33,7 @@ fn remote(name: &str, backend: &str) -> RemoteTraffic {
     }
 }
 
+/// A registry entry of a fake mount of `pool` at `mountpoint` via `frontend`.
 pub(crate) fn entry(id: &str, pool: &str, mountpoint: &str, frontend: &str) -> MountEntry {
     MountEntry {
         id: id.into(),
@@ -170,6 +172,8 @@ pub(crate) fn history(remotes: &[&str], now: u64) -> Vec<HistoryPoint> {
     points
 }
 
+/// A `FixedSource` with the two sample mounts, their statuses at `now` and
+/// their minute history.
 pub(crate) fn source(now: u64) -> FixedSource {
     let family = family_status(now);
     let photos = photos_status(now);

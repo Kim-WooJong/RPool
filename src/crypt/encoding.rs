@@ -5,6 +5,8 @@ use anyhow::{bail, Result};
 pub(super) use data_encoding::BASE64URL_NOPAD as BASE64_URL_NOPAD;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Encoding of encrypted name bytes into a path segment (`filename_encoding`).
+/// Parsed by `CryptConfig::from_section` and stored in `Cipher`.
 pub(crate) enum NameEncoding {
     /// rclone default: base32hex, lower case, no padding.
     Base32,
@@ -16,6 +18,7 @@ pub(crate) enum NameEncoding {
 }
 
 impl NameEncoding {
+    /// Encode encrypted name bytes as text; used by `Cipher::encrypt_segment`.
     pub(super) fn encode(self, bytes: &[u8]) -> String {
         match self {
             Self::Base32 => data_encoding::BASE32HEX_NOPAD
@@ -26,6 +29,8 @@ impl NameEncoding {
         }
     }
 
+    /// Decode a name segment back to bytes; errors on malformed input. Used by
+    /// `Cipher::decrypt_segment`.
     pub(super) fn decode(self, text: &str) -> Result<Vec<u8>> {
         match self {
             Self::Base32 => {

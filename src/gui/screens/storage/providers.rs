@@ -1,3 +1,7 @@
+//! Storage › Providers: connect cloud accounts (rclone config wizard), set
+//! up crypt remotes automatically or by hand, check provider health, and the
+//! provider cards with usage, limits, keep-alive and name encoding. Also
+//! hosts the drain card shown under Account changes.
 use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
@@ -19,41 +23,67 @@ pub(crate) use name_encoding::{combo as encoding_combo, index_of as encoding_ind
 #[cfg(any(test, debug_assertions))]
 pub(crate) mod sample;
 
+/// State of the Providers tab, held in `GuiState::providers`.
 #[derive(Debug, Default)]
 pub(crate) struct ProviderForm {
+    /// External rclone config wizard in progress; buttons stay disabled until it closes.
     pub(crate) connection: Option<crate::provider::onboarding::ConnectionSetup>,
+    /// Base providers that still lack a crypt remote (from the usage refresh in `gui::app`).
     pub(crate) missing_encryption: Vec<String>,
+    /// Whether `missing_encryption` comes from a completed discovery.
     pub(crate) discovery_known: bool,
+    /// The last automatic encryption run failed or could not start.
     pub(crate) encryption_failed: bool,
+    /// A provider refresh was requested; `gui::app` takes and handles it.
     pub(crate) refresh_requested: bool,
+    /// The "New encrypted provider" dialog is open.
     pub(crate) setup_open: bool,
+    /// Name of the crypt remote to create (`--name`).
     pub(crate) crypt_name: String,
+    /// Non-crypt remote the new crypt wraps (`--provider`).
     pub(crate) backing_provider: String,
+    /// Index into the entropy choices 256 / 128 / 512 / 1024 bits.
     pub(crate) entropy_index: usize,
+    /// Index into the filename encryption modes standard / obfuscate / off.
     pub(crate) filename_index: usize,
     /// Index into `FILENAME_ENCODINGS`.
     pub(crate) encoding_index: usize,
+    /// Leave directory names unencrypted (`--directory-encryption=false`).
     pub(crate) disable_directory_encryption: bool,
+    /// "I understand that losing these keys…" confirmation; enables key generation.
     pub(crate) backup_acknowledged: bool,
+    /// Result of the last connect / encryption action, shown in the connect card and dialog.
     pub(crate) setup_notice: Option<String>,
+    /// Health check scope: a pool name, or empty for crypt remotes (`--pool`).
     pub(crate) health_pool: String,
     /// Specific crypt remotes to check when no pool is chosen (`--remote`).
     pub(crate) health_remotes: Vec<String>,
+    /// Drain: manifest file or remote path.
     pub(crate) manifest: String,
+    /// Drain: crypt remote to move shards off (`--from`).
     pub(crate) from: String,
+    /// Drain: crypt remote to move shards to (`--to`).
     pub(crate) to: String,
+    /// Drain: optional output manifest (`--output`).
     pub(crate) output: String,
+    /// Drain: preview only (`--dry-run`).
     pub(crate) dry_run: bool,
+    /// Drain: delete old shards after verification (`--delete-source`).
     pub(crate) delete_source: bool,
+    /// Drain: allow weaker failure-domain safety (`--allow-risky`).
     pub(crate) allow_risky: bool,
+    /// Start error of the last health check or drain.
     pub(crate) error: Option<String>,
     /// Account limits shown on the cards.
     pub(crate) limits: limits_cache::LimitsCache,
+    /// State of the per-account "Limits…" dialog.
     pub(crate) limits_editor: limits_dialog::LimitsEditor,
+    /// State of the "Name encoding" dialog.
     pub(crate) name_encoding: name_encoding::Editor,
 }
 
 impl ProviderForm {
+    /// Resets the encryption dialog choices to the Settings › Encryption defaults.
     fn apply_defaults(&mut self, defaults: &crate::config_sync::provision::EncryptionDefaults) {
         self.entropy_index = [256, 128, 512, 1024]
             .iter()
@@ -69,6 +99,8 @@ impl ProviderForm {
     }
 }
 
+/// Encryption status text of a provider card (unknown, configured, running,
+/// failed or pending); used by `model::cards`.
 fn encryption_status(known: bool, missing: bool, running: bool, failed: bool) -> &'static str {
     if !known {
         tr("Encryption status unknown")
@@ -83,6 +115,9 @@ fn encryption_status(known: bool, missing: bool, running: bool, failed: bool) ->
     }
 }
 
+/// Starts `rpool provider ensure-encryption` with the encryption defaults,
+/// creating crypt remotes for base providers that lack one. Called by
+/// `gui::app` after discovery and by "Retry automatic encryption".
 pub(crate) fn start_automatic_encryption(
     state: &GuiState,
     task: &mut TaskRunner,
@@ -104,6 +139,8 @@ pub(crate) fn start_automatic_encryption(
     )
 }
 
+/// Renders the Providers tab (`storage::show`) and its dialogs; refreshes
+/// the limits cache when due.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     limits_cache::refresh(state);
     theme::page_body(ui, "providers", |ui| {
@@ -135,6 +172,8 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     }
 }
 
+/// "Connect & encrypt" card: opens the rclone wizard, the manual encryption
+/// dialog, or retries automatic encryption.
 fn connect_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     let idle = !task.is_running() && state.providers.connection.is_none();
     theme::card_section(
@@ -185,6 +224,8 @@ fn connect_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) 
     );
 }
 
+/// "Connected providers" card: provider cards in a responsive grid, and the
+/// handling of a card's button (encryption, limits, name encoding, keep-alive).
 fn list_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     let count = state.backing_remotes.len();
     let mut refresh = false;
@@ -291,6 +332,7 @@ fn list_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     }
 }
 
+/// Argv of `rpool provider keepalive --remote <account>`.
 fn keepalive_args(account: &str) -> Vec<OsString> {
     vec![
         OsString::from("provider"),
@@ -300,6 +342,7 @@ fn keepalive_args(account: &str) -> Vec<OsString> {
     ]
 }
 
+/// Starts the keep-alive task for one account.
 fn start_keepalive(state: &GuiState, task: &mut TaskRunner, account: &str) -> Result<(), String> {
     task.start_rpool(
         "Keep account alive",
@@ -308,6 +351,8 @@ fn start_keepalive(state: &GuiState, task: &mut TaskRunner, account: &str) -> Re
     )
 }
 
+/// "Health monitor" card: scope (crypt remotes or a pool), optional remote
+/// selection, and "Check health".
 fn health_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     theme::card_section(
         ui,
@@ -403,6 +448,7 @@ pub(crate) fn drain_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut Tas
     });
 }
 
+/// Starts the provider health task.
 fn start_health(state: &GuiState, task: &mut TaskRunner) -> Result<(), String> {
     task.start_rpool(
         "Provider health",
@@ -411,6 +457,8 @@ fn start_health(state: &GuiState, task: &mut TaskRunner) -> Result<(), String> {
     )
 }
 
+/// Argv of `rpool provider health` for the chosen pool or ticked remotes
+/// (none ticked = all), with this PC's worker count.
 fn health_args(state: &GuiState) -> Vec<OsString> {
     let mut args = vec![
         OsString::from("provider"),
@@ -430,6 +478,7 @@ fn health_args(state: &GuiState) -> Vec<OsString> {
     args
 }
 
+/// Validates the drain inputs and starts `rpool provider drain`.
 fn start_drain(state: &GuiState, task: &mut TaskRunner) -> Result<(), String> {
     let manifest = state.providers.manifest.trim();
     let from = state.providers.from.trim();
@@ -466,6 +515,8 @@ fn start_drain(state: &GuiState, task: &mut TaskRunner) -> Result<(), String> {
     task.start_rpool("Provider drain", &state.settings.rclone, args)
 }
 
+/// "New encrypted provider" dialog: backing provider, name and key options;
+/// requires the backup acknowledgement before creating.
 fn encryption_dialog(ctx: &egui::Context, state: &mut GuiState, task: &mut TaskRunner) {
     if !state.providers.setup_open {
         return;
@@ -522,6 +573,7 @@ fn encryption_dialog(ctx: &egui::Context, state: &mut GuiState, task: &mut TaskR
     state.providers.setup_open = open;
 }
 
+/// Starts `rpool provider encrypt` with the dialog's choices.
 fn start_encryption(state: &GuiState, task: &mut TaskRunner) -> Result<(), String> {
     let form = &state.providers;
     if form.crypt_name.trim().is_empty() || form.backing_provider.trim().is_empty() {

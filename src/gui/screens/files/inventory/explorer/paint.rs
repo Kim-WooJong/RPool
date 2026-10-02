@@ -2,6 +2,7 @@
 
 use eframe::egui;
 
+/// Horizontal padding inside a cell, in points.
 const PAD: f32 = 6.0;
 
 /// Paints `text` in the column `[left, left + width)` of `row`, cut with

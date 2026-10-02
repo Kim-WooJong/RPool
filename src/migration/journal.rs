@@ -52,11 +52,14 @@ use crate::storage::{
 use crate::utils::remote_join;
 use std::sync::Arc;
 
+/// Object name of the frozen plan.
 const PLAN: &str = "plan.json";
+/// Directory of the progress records.
 const RECORDS: &str = "records";
 /// Cleanup (phase 4 `retire`) records: a sibling of `records/`, so the
 /// migration fold and older binaries never see them.
 pub(crate) const RETIRE: &str = "retire";
+/// Tag hashed with the pool name into the pool-sync scope (shared with pool sync).
 const SCOPE_TAG: &str = "rpool-pool-sync-v6";
 
 /// Write-once storage for the journals of one pool (one replica, or the
@@ -83,10 +86,16 @@ pub(crate) trait JournalStore: Send + Sync {
     }
 }
 
+/// The cloud journal of one migration of one pool: replicated cloud stores
+/// plus an optional local cache. Opened by `pool migrate` plan/run/status/adopt.
 pub(crate) struct Journal {
+    /// Pool name.
     pool: String,
+    /// Migration id.
     migration_id: String,
+    /// One store per pool remote; at least one.
     cloud: Vec<Arc<dyn JournalStore>>,
+    /// Local mirror, if the config directory is available.
     cache: Option<Arc<dyn JournalStore>>,
 }
 
@@ -118,6 +127,7 @@ impl Journal {
         })
     }
 
+    /// Cloud stores followed by the cache, in that order.
     fn all(&self) -> Vec<&Arc<dyn JournalStore>> {
         self.cloud.iter().chain(self.cache.iter()).collect()
     }
@@ -180,6 +190,9 @@ impl Journal {
         Ok(())
     }
 
+    /// Reads the plan from every store. `Ok(None)` when no copy exists and some
+    /// cloud replica was reachable; errors when copies disagree or nothing could
+    /// be read.
     pub(crate) fn load_plan(&self) -> Result<Option<Plan>> {
         let id = &self.migration_id;
         let mut found: Option<(Value, Plan)> = None;
@@ -375,6 +388,7 @@ impl Journal {
         Ok(copies)
     }
 
+    /// Id of this migration.
     pub(crate) fn migration_id(&self) -> &str {
         &self.migration_id
     }
@@ -563,6 +577,8 @@ pub(crate) fn roots(pool: &str, policy: &PoolDefinition) -> Result<Vec<String>> 
 /// Cloud replicas and the optional local cache.
 pub(crate) type Stores = (Vec<Arc<dyn JournalStore>>, Option<Arc<dyn JournalStore>>);
 
+/// Cloud stores for the saved policy of `pool` plus the local cache
+/// (`<config>/migrations/<pool>`); a missing config dir only warns.
 fn stores(rclone: &str, pool: &str) -> Result<Stores> {
     crate::pool::validate_pool_name(pool)?;
     let store = crate::pool::load_pool_store()?;
@@ -599,6 +615,7 @@ pub(crate) fn cloud_stores(
         .collect()
 }
 
+/// Accepts 1–128 ASCII letters, digits, `-`, `_`, `.`, not starting with a dot.
 pub(crate) fn validate_migration_id(id: &str) -> Result<()> {
     if id.is_empty()
         || id.len() > 128
@@ -663,6 +680,7 @@ pub(crate) fn list_ids(
     Ok(ids)
 }
 
+/// Relative path of record `id` in `dir`.
 fn object_path(dir: &str, id: &str) -> String {
     format!("{dir}/{id}.json")
 }
@@ -672,6 +690,7 @@ fn record_path(id: &str) -> String {
     object_path(RECORDS, id)
 }
 
+/// A record id is a 64-digit lowercase hex BLAKE3.
 fn valid_record_id(id: &str) -> bool {
     id.len() == 64
         && id
@@ -679,6 +698,8 @@ fn valid_record_id(id: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+/// Parses a record, skipping (with a warning) bytes that do not match their
+/// content address or do not parse.
 fn decode_record<T: serde::de::DeserializeOwned>(
     id: &str,
     bytes: &[u8],
@@ -732,16 +753,19 @@ const _: () = {
     send_sync::<Journal>();
 };
 
+/// Prints a `[warning]` line about the journal to stderr.
 fn warn(message: &str) {
     eprintln!("[warning] migration journal: {message}");
 }
 
+/// Prints one warning per failed replica.
 fn warn_failures(what: &str, failures: &[String]) {
     for failure in failures {
         warn(&format!("{what}: {failure}"));
     }
 }
 
+/// Whether `error` is a storage "not found" error.
 fn not_found(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<StorageError>()
@@ -750,20 +774,27 @@ fn not_found(error: &anyhow::Error) -> bool {
 
 /// One replica: `<scope root>` on a crypt remote.
 pub(crate) struct CloudStore {
+    /// rclone executable.
     rclone: String,
+    /// Journal scope root, `remote:path` without a trailing slash.
     root: String,
+    /// The pool uses RPool's native crypt for writes.
     native_crypt: bool,
 }
 
+/// One entry of `rclone lsjson` output.
 #[derive(Deserialize)]
 struct Listed {
+    /// Path relative to the listed directory.
     #[serde(rename = "Path")]
     path: String,
+    /// Entry is a directory.
     #[serde(rename = "IsDir")]
     is_dir: bool,
 }
 
 impl CloudStore {
+    /// Validates `root` (`remote:path`, no `..`, control chars or extra colons).
     pub(crate) fn new(rclone: &str, root: &str, native_crypt: bool) -> Result<Self> {
         // Same syntax rules as the pool-sync roots.
         let Some((remote, path)) = root.split_once(':') else {
@@ -787,9 +818,11 @@ impl CloudStore {
             native_crypt,
         })
     }
+    /// Writer for this pool's crypt mode.
     fn writer(&self) -> StorageWriter {
         StorageWriter::for_pool(&self.rclone, self.native_crypt)
     }
+    /// Full address of `rel` within `migration`.
     fn address(&self, migration: &str, rel: &str) -> String {
         remote_join(&self.root, &format!("{migration}/{rel}"))
     }
@@ -891,15 +924,18 @@ impl JournalStore for CloudStore {
 
 /// Local mirror: `<config dir>/migrations/<pool>/`.
 pub(crate) struct LocalStore {
+    /// Directory holding one subdirectory per migration id.
     root: PathBuf,
 }
 
 impl LocalStore {
+    /// Mirror rooted at `root`.
     pub(crate) fn new(root: PathBuf) -> Self {
         Self { root }
     }
 }
 
+/// Creates `path` recursively, owner-only (0700) on Unix.
 fn private_dirs(path: &Path) -> Result<()> {
     let mut builder = std::fs::DirBuilder::new();
     builder.recursive(true);

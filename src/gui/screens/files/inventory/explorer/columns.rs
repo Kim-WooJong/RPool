@@ -2,20 +2,30 @@
 
 /// Below this list width the Type column is hidden.
 pub(crate) const TYPE_MIN_WIDTH: f32 = 700.0;
+/// Fixed width of the Size column, in points.
 const SIZE_WIDTH: f32 = 96.0;
+/// Fixed width of the Type column when shown, in points.
 const TYPE_WIDTH: f32 = 84.0;
+/// Lower bound of the Name column; the list may overflow rather than go narrower.
 const MIN_NAME_WIDTH: f32 = 120.0;
 
+/// Column widths (points) of the List view for one frame, from `Columns::for_width`.
+/// Used by `list::show` for the header and every row.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Columns {
+    /// Name column width: whatever is left after the fixed columns.
     pub(crate) name: f32,
     /// The containing folder of drive-wide search results.
     pub(crate) folder: Option<f32>,
+    /// Size column width (always shown).
     pub(crate) size: f32,
+    /// Type column width; `None` when the list is narrower than `TYPE_MIN_WIDTH`.
     pub(crate) kind: Option<f32>,
 }
 
 impl Columns {
+    /// Splits `width` into columns: Type only from `TYPE_MIN_WIDTH`, and with
+    /// `with_folder` (drive-wide search) 40% of the free width goes to Folder.
     pub(crate) fn for_width(width: f32, with_folder: bool) -> Self {
         let kind = (width >= TYPE_MIN_WIDTH).then_some(TYPE_WIDTH);
         let rest = (width - SIZE_WIDTH - kind.unwrap_or(0.0)).max(MIN_NAME_WIDTH);

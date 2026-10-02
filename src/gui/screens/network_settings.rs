@@ -9,15 +9,21 @@ use crate::storage::account::bandwidth::Timetable;
 use crate::storage::account::limits::DEFAULT_KEEPALIVE_DAYS;
 use eframe::egui;
 
+/// Edit buffer for the Network settings tab, held in `GuiState::network`.
+/// Loaded lazily from `account_limits.json` on first show.
 #[derive(Debug, Default)]
 pub(crate) struct NetworkForm {
+    /// Set once `load` ran, so the store is read only on the first frame.
     loaded: bool,
+    /// Bandwidth timetable text in rclone `--bwlimit` syntax; empty or `off` = no limit.
     pub(crate) timetable: String,
+    /// Keep-alive interval for idle mount accounts, in days; 0 = never.
     pub(crate) keepalive_days: u32,
     /// Simultaneous shard uploads per account by default; 0 = built-in 16.
     pub(crate) default_uploads: u32,
     /// Simultaneous shard downloads per account by default; 0 = built-in 16.
     pub(crate) default_downloads: u32,
+    /// Result of the last load/save (saved path or error), shown next to the Save button.
     pub(crate) notice: Option<String>,
 }
 
@@ -50,6 +56,8 @@ pub(crate) fn preview(text: &str, now: u64, offset: Option<i64>) -> Result<Strin
     Ok(line)
 }
 
+/// Human-readable form of a timetable rate: one value when up and down
+/// match, otherwise "up · down"; `None` means unlimited.
 fn describe(rate: crate::storage::account::bandwidth::Rate) -> String {
     let one = |r: Option<u64>| match r {
         Some(bytes) => format!("{}/s", crate::presentation::format_bytes(bytes)),
@@ -65,6 +73,8 @@ fn describe(rate: crate::storage::account::bandwidth::Rate) -> String {
     }
 }
 
+/// Fills the form from the stored account limits (skipped in tests); a load
+/// error goes to `notice` and leaves the defaults in place.
 fn load(form: &mut NetworkForm) {
     form.loaded = true;
     form.keepalive_days = DEFAULT_KEEPALIVE_DAYS;
@@ -82,6 +92,9 @@ fn load(form: &mut NetworkForm) {
     }
 }
 
+/// Writes the bandwidth, keep-alive and per-account transfer defaults back
+/// into `account_limits.json`; 0 transfer defaults are stored as `None`.
+/// Returns the saved path. Validates the timetable via `set_bandwidth`.
 fn save(form: &NetworkForm) -> Result<std::path::PathBuf, String> {
     let mut store = crate::storage::account::store::load_limits().map_err(|e| format!("{e:#}"))?;
     crate::storage::account::edit::set_bandwidth(&mut store, &form.timetable)
@@ -113,6 +126,8 @@ fn transfers(ui: &mut egui::Ui, form: &mut NetworkForm, workers: &mut usize) {
         });
 }
 
+/// Renders the Network tab; called by `screens::settings::show`. Save writes
+/// the GUI settings (worker count) first, then the account limits.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let form = &mut state.network;
     if !form.loaded {

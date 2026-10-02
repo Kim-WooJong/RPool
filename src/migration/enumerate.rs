@@ -18,6 +18,7 @@ pub(crate) enum RemoteListing {
 }
 
 impl RemoteListing {
+    /// The listed files, or `None` when the remote is not configured or failed.
     pub(crate) fn files(&self) -> Option<&BTreeMap<String, u64>> {
         match self {
             Self::Listed(files) => Some(files),
@@ -40,6 +41,7 @@ pub(crate) struct CopyFeatures {
 pub(crate) trait Cloud: Sync {
     /// Configured rclone remote names (without `:`); None when unknown.
     fn configured(&self) -> Option<BTreeSet<String>>;
+    /// Recursive listing of the remote root (`rclone lsjson -R` in production).
     fn list(&self, remote: &str) -> RemoteListing;
     /// Reads a small metadata object (`remote:path`) or local file.
     fn read(&self, address: &str) -> Result<Vec<u8>>;
@@ -102,6 +104,7 @@ pub(crate) fn manifest_ids(files: &BTreeMap<String, u64>) -> Vec<(String, u64)> 
         .collect()
 }
 
+/// Whether `address` lies under one of the `target` remotes.
 fn on_remotes(target: &BTreeSet<String>, address: &str) -> bool {
     target
         .iter()
@@ -117,29 +120,42 @@ pub(crate) fn in_pool(entry: &InventoryEntry, target: &BTreeSet<String>) -> bool
 /// A manifest chosen for one archive.
 #[derive(Debug, Clone)]
 pub(crate) struct Loaded {
+    /// The parsed and validated manifest.
     pub manifest: Manifest,
+    /// Where it was read from (local path or remote address).
     pub source: String,
+    /// Manifest fingerprint, to detect differing replicas.
     pub fingerprint: String,
 }
 
 /// An archive of the pool.
 #[derive(Debug, Clone)]
 pub(crate) enum Found {
+    /// A valid manifest was found (the newest when replicas differ).
     Loaded(Loaded),
     /// No valid manifest could be read; known fields for the entry.
     Unreadable {
+        /// Archive id.
         archive_id: String,
+        /// Original file name, from the inventory (may be empty).
         original_name: String,
+        /// Original size from the inventory, in bytes (0 when unknown).
         size: u64,
+        /// Inventory manifest source, else the first replica address, else empty.
         source: String,
+        /// Why no candidate was usable (every read/validation error).
         detail: String,
     },
 }
 
+/// Result of [`enumerate`]: the archives found and notes for the plan.
 #[derive(Debug, Default)]
 pub(crate) struct Enumerated {
+    /// One entry per archive of the pool.
     pub found: Vec<Found>,
+    /// Warnings (differing or unreadable replicas).
     pub notes: Vec<String>,
+    /// Drive payload archives (`virtual-*`) skipped; the drive part handles them.
     pub drive_skipped: usize,
 }
 
@@ -150,7 +166,9 @@ struct Sources {
     inventory: Option<String>,
     /// Replica address -> listed size.
     replicas: BTreeMap<String, u64>,
+    /// Original name from the inventory.
     name: String,
+    /// Original size from the inventory, in bytes.
     size: u64,
 }
 
@@ -221,6 +239,8 @@ pub(crate) fn enumerate(
     out
 }
 
+/// Reads, parses and validates the manifest at `address`, checking it
+/// belongs to archive `id`.
 fn load_one(cloud: &dyn Cloud, id: &str, address: &str) -> Result<Loaded> {
     let bytes = cloud.read(address)?;
     let manifest: Manifest = serde_json::from_slice(&bytes).context("invalid rpool manifest")?;

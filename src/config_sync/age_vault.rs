@@ -1,3 +1,7 @@
+//! Encrypted secret vault I/O through the external `age` tool: encrypts crypt
+//! secret bundles and config snapshots to a recipient, and decrypts them with an
+//! identity file that must live outside the portable artifact. Used by
+//! `config_sync::export`, `import`, `crypt_restore` and the import transaction.
 use super::secret_process::{execute, Output, MAX_SECRET_BYTES};
 use crate::models::secrets::SecretBundle;
 use crate::models::sensitive::SensitiveBytes;
@@ -9,18 +13,28 @@ use std::process::Command;
 
 /// Encryption has no identity/private-key argument.
 pub(crate) struct AgeEncrypt<'a> {
+    /// `age` executable name or path.
     pub(crate) executable: &'a Path,
+    /// age public recipient the output is encrypted to.
     pub(crate) recipient: &'a str,
 }
 
+/// Decryption settings: `age` executable, identity file and the artifact root
+/// the identity must stay outside of.
 pub(crate) struct AgeDecrypt<'a> {
+    /// `age` executable name or path.
     pub(crate) executable: &'a Path,
+    /// age identity (private key) file; checked by [`checked_identity_path`].
     pub(crate) identity: &'a Path,
     /// B7 must supply the actual portable package/project root.
     pub(crate) artifact_root: &'a Path,
 }
 
 impl AgeEncrypt<'_> {
+    /// Streams `writer`'s plaintext into `age --encrypt` and atomically replaces
+    /// `output` with the ciphertext (temp file in the same directory, header check
+    /// for binary age format, fsync of file and directory). Refuses a symlink or
+    /// non-file destination.
     fn write<W>(&self, output: &Path, writer: W) -> Result<()>
     where
         W: FnOnce(&mut std::process::ChildStdin) -> Result<()> + Send,
@@ -79,6 +93,8 @@ impl AgeEncrypt<'_> {
         Ok(())
     }
 
+    /// Validates and encrypts a crypt [`SecretBundle`] (JSON) to `output`. Used by
+    /// export and crypt secret generation.
     pub(crate) fn write_bundle(&self, output: &Path, bundle: &SecretBundle) -> Result<()> {
         bundle.validate()?;
         self.write(output, |stdin| {
@@ -87,6 +103,7 @@ impl AgeEncrypt<'_> {
         })
     }
 
+    /// Encrypts a raw rclone config snapshot for the import transaction's recovery copy.
     pub(super) fn write_snapshot(&self, output: &Path, config_bytes: &[u8]) -> Result<()> {
         self.write(output, |stdin| {
             stdin
@@ -96,6 +113,8 @@ impl AgeEncrypt<'_> {
     }
 }
 
+/// Canonical identity path; errors unless it is a file outside `artifact_root`
+/// (so a private key is never shipped inside the portable package).
 pub(super) fn checked_identity_path(identity: &Path, artifact_root: &Path) -> Result<PathBuf> {
     let identity = identity
         .canonicalize()
@@ -110,6 +129,8 @@ pub(super) fn checked_identity_path(identity: &Path, artifact_root: &Path) -> Re
 }
 
 impl AgeDecrypt<'_> {
+    /// Decrypts `input` (a regular file, at most twice the secret size limit) with
+    /// `age --decrypt`; bytes are released only after age exits successfully.
     pub(super) fn read_bytes(&self, input: &Path) -> Result<SensitiveBytes> {
         let identity = checked_identity_path(self.identity, self.artifact_root)?;
         let meta =
@@ -130,6 +151,7 @@ impl AgeDecrypt<'_> {
         execute(&mut command, |_| Ok(()), Output::Memory(MAX_SECRET_BYTES))
     }
 
+    /// Decrypts and validates a crypt [`SecretBundle`]. Used by `crypt_restore`.
     pub(crate) fn read_bundle(&self, input: &Path) -> Result<SecretBundle> {
         let raw = self.read_bytes(input)?;
         let bundle: SecretBundle =
@@ -139,6 +161,7 @@ impl AgeDecrypt<'_> {
     }
 }
 
+/// fsyncs a directory on Unix so a rename inside it is durable; a no-op elsewhere.
 pub(super) fn sync_directory(path: &Path) -> Result<()> {
     #[cfg(unix)]
     File::open(path)

@@ -60,6 +60,8 @@ impl VirtualDrive {
         })
     }
 
+    /// Opens (or initializes, when empty) the workspace at `root` for `pool`
+    /// with the binding's epoch. Used by `run` and pool transitions.
     pub(crate) fn open(
         rclone: &str,
         pool: &str,
@@ -85,6 +87,9 @@ impl VirtualDrive {
         Self::open_internal(rclone, pool, root, worker, cache_limit, Some(epoch))
     }
 
+    /// Shared opener: validates or writes the `virtual.json` binding, takes the
+    /// workspace lock, loads the namespace and cache, and resolves the effective
+    /// pool layout. A changed pool membership is refused (use a transition).
     pub(super) fn open_internal(
         rclone: &str,
         pool: &str,

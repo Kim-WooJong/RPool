@@ -2,16 +2,28 @@
 
 use super::*;
 
+/// One open DAV file. Read handles serve a pinned `revision`; write handles own an intent and
+/// its spool file, sealed on `flush`.
 pub(super) struct Handle {
+    /// Keeps the intent's local lease alive while the handle is open (write handles only).
     pub(super) _write_lease: Option<Arc<()>>,
+    /// Drive that serves reads and seals writes.
     pub(super) drive: Arc<VirtualDrive>,
+    /// Revision read from (and, for writes, the visible one the write descends from).
     pub(super) revision: Option<Revision>,
+    /// Write intent; `None` for read-only handles.
     pub(super) intent: Option<Intent>,
+    /// Spool file being written; `None` for read-only handles.
     pub(super) file: Option<File>,
+    /// Read position in `revision` (bytes); writes use the spool file's own position.
     pub(super) offset: u64,
+    /// Request body length from the open options, checked against `received` before sealing.
     pub(super) expected: Option<u64>,
+    /// Body bytes written through this handle.
     pub(super) received: u64,
+    /// Intent already sealed; further writes are refused.
     pub(super) sealed: bool,
+    /// Write counters shared with the server.
     pub(super) write_stats: Arc<WriteStats>,
 }
 

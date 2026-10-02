@@ -6,11 +6,15 @@
 //! extra full-file hashing before the first shard leaves.
 use crate::prelude::*;
 use crate::utils::hash_file_range;
+/// The file an upload's shards are cut from, with its fixed size. Built by
+/// `commands::put` (snapshot for user files, sealed for drive spool images).
 pub(crate) struct UploadSource {
     /// Owned snapshot directory (kept alive, removed on drop), or None for a
     /// sealed source used in place.
     _owner: Option<tempfile::TempDir>,
+    /// File the shards are read from (snapshot copy or the sealed original).
     path: PathBuf,
+    /// Byte length, checked against the file when created.
     size: u64,
 }
 impl UploadSource {
@@ -25,6 +29,8 @@ impl UploadSource {
             size,
         })
     }
+    /// Copies a user file into an owned temporary snapshot, verifying by BLAKE3 that
+    /// neither the source nor the copy changed during the copy.
     pub(crate) fn capture(source: &Path, size: u64) -> Result<Self> {
         if fs::metadata(source)?.len() != size {
             bail!("source size changed");
@@ -51,9 +57,11 @@ impl UploadSource {
             size,
         })
     }
+    /// Path to read shards from.
     pub(crate) fn path(&self) -> PathBuf {
         self.path.clone()
     }
+    /// Total bytes of the source.
     pub(crate) fn size(&self) -> u64 {
         self.size
     }

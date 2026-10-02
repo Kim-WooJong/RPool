@@ -14,12 +14,17 @@ use eframe::egui;
 /// A button the user clicked on a card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CardAction {
+    /// Set up a crypt remote for this provider by hand.
     SetupEncryption,
+    /// Open the account's "Limits…" editor.
     EditLimits,
+    /// Make one cheap call to keep an idle account alive.
     KeepAlive,
+    /// Open the "Name encoding" dialog for this provider's crypts.
     NameEncoding,
 }
 
+/// Text colour of a limits line tone.
 fn tone_color(ui: &egui::Ui, tone: Tone) -> egui::Color32 {
     let p = theme::pal(ui);
     match tone {

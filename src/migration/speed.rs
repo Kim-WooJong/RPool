@@ -40,6 +40,7 @@ use std::time::{Duration, Instant};
 #[path = "speed_tests.rs"]
 mod tests;
 
+/// Bytes per MiB, for MiB/s rates.
 const MIB: f64 = 1024.0 * 1024.0;
 /// Slow bound of the ETA: retries, crypt overhead, verification stalls.
 pub(crate) const ETA_SAFETY_FACTOR: f64 = 1.5;
@@ -47,9 +48,13 @@ pub(crate) const ETA_SAFETY_FACTOR: f64 = 1.5;
 pub(crate) const BENCH_DIR: &str = ".rpool-sync/bench";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Single-stream speeds of one remote from [`measure`].
 pub(crate) struct RemoteSpeed {
+    /// Measured remote (`name:path`).
     pub remote: String,
+    /// Single-stream upload speed in MiB/s; `None` when it failed.
     pub upload_mib_s: Option<f64>,
+    /// Single-stream download speed in MiB/s; `None` when it failed.
     pub download_mib_s: Option<f64>,
     /// Why a measurement is missing.
     #[serde(default)]
@@ -57,22 +62,30 @@ pub(crate) struct RemoteSpeed {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Result of [`measure`], shown by `pool migrate` and the GUI migration
+/// screen and used as the ETA bandwidth.
 pub(crate) struct SpeedReport {
+    /// Per-remote results in input order.
     pub remotes: Vec<RemoteSpeed>,
     /// Aggregate speeds with `workers` parallel transfers, MiB/s.
     pub upload_mib_s: Option<f64>,
+    /// Aggregate download speed, MiB/s; `None` when no remote succeeded.
     pub download_mib_s: Option<f64>,
 }
 
 /// One remote's benchmark state across the phases.
 struct Probe {
+    /// Remote under test.
     remote: String,
     /// Bench object address; None when the root could not be resolved.
     address: Option<String>,
+    /// Upload time of the sample; `None` until it succeeded.
     upload: Option<Duration>,
+    /// Full readback time; `None` until it succeeded.
     download: Option<Duration>,
     /// Whether a write was attempted (so the object may exist).
     written: bool,
+    /// Errors of every phase, joined into `RemoteSpeed::error`.
     errors: Vec<String>,
 }
 
@@ -213,6 +226,7 @@ pub(crate) fn measure(
     })
 }
 
+/// Fresh bench object address `<root>/.rpool-sync/bench/<32 hex>.bin`.
 fn bench_address(remote: &str) -> Result<String> {
     let root = crate::remote_root::apply_remote_root(remote)?;
     let mut id = [0u8; 16];
@@ -267,11 +281,15 @@ fn run_phase(
 
 /// Streams readback into a hash, refusing more bytes than were uploaded.
 struct VerifySink {
+    /// BLAKE3 of the bytes read back so far.
     hasher: Hasher,
+    /// Bytes read back so far.
     count: u64,
+    /// Uploaded sample size; more bytes are an error.
     limit: u64,
 }
 impl VerifySink {
+    /// Empty sink accepting at most `limit` bytes.
     fn new(limit: u64) -> Self {
         Self {
             hasher: Hasher::new(),
@@ -297,10 +315,13 @@ impl Write for VerifySink {
     }
 }
 
+/// Rate in MiB/s; elapsed time is floored at 1 ms.
 fn mib_per_s(bytes: u64, elapsed: Duration) -> f64 {
     bytes as f64 / MIB / elapsed.as_secs_f64().max(1e-3)
 }
 
+/// Observed phase throughput (successes x sample over wall time); `None`
+/// when nothing succeeded.
 fn phase_rate(sample_bytes: u64, successes: usize, wall: Duration) -> Option<f64> {
     (successes > 0).then(|| mib_per_s(sample_bytes * successes as u64, wall))
 }
@@ -394,6 +415,8 @@ pub(crate) fn format_estimate(estimate: Option<(f64, f64)>) -> String {
     )
 }
 
+/// Converts seconds to a whole count of min (< 90 min), h (< 48 h) or d,
+/// rounded down or up, at least 1.
 fn in_unit(seconds: f64, round_up: bool) -> (u64, &'static str) {
     let (scale, unit) = if seconds < 90.0 * 60.0 {
         (60.0, "min")

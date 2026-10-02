@@ -10,9 +10,13 @@
 //! grace re-checks every reference and deletes only what is still
 //! unreferenced; unreadable sources postpone everything; mass-delete guard
 //! (`execute`). `live`: the cloud side.
+/// Plans and runs one cleanup over a `CleanupIo`.
 pub(crate) mod execute;
+/// Cloud implementation of `CleanupIo`.
 pub(crate) mod live;
+/// Mark/deletion journal records.
 pub(crate) mod records;
+/// Decides which archives are unreferenced.
 pub(crate) mod select;
 
 #[cfg(test)]
@@ -26,8 +30,11 @@ use std::sync::atomic::AtomicBool;
 /// What a cleanup run may do.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Request {
+    /// Mark and delete (default: preview only).
     pub confirm: bool,
+    /// Delete past the mass-delete guard.
     pub force: bool,
+    /// Drop pending marks.
     pub cancel: bool,
 }
 
@@ -42,6 +49,8 @@ pub(crate) fn run(
     run_with(rclone, pool, local, request, None)
 }
 
+/// `run` with an optional stop flag (set by the mount on shutdown); loads the
+/// pool's retention and cleanup settings.
 fn run_with(
     rclone: &str,
     pool: &str,

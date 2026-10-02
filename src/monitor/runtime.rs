@@ -12,9 +12,13 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+/// Sampling interval of the monitor thread.
 const TICK: Duration = Duration::from_secs(1);
+/// Stop-flag polling step while waiting for the next tick.
 const STEP: Duration = Duration::from_millis(100);
+/// Seconds between history prunes.
 const PRUNE_EVERY: u64 = 3600;
+/// Seconds between retries of the backend type lookup.
 const BACKEND_RETRY: u64 = 60;
 
 /// Last successful metadata publish of this process's mount (0 = never).
@@ -24,6 +28,7 @@ static LAST_SYNC: AtomicU64 = AtomicU64::new(0);
 pub(crate) fn note_sync() {
     LAST_SYNC.fetch_max(traffic::now_unix(), Ordering::Relaxed);
 }
+/// Last metadata publish time, or `None` before the first one.
 fn last_sync() -> Option<u64> {
     Some(LAST_SYNC.load(Ordering::Relaxed)).filter(|at| *at != 0)
 }
@@ -44,6 +49,7 @@ pub(crate) fn note_metadata(alert: Option<super::model::Alert>) {
         };
     }
 }
+/// Current metadata-compaction alert, if any.
 fn metadata_alert() -> Option<super::model::Alert> {
     METADATA_ALERT.lock().ok().and_then(|a| a.clone())
 }
@@ -53,22 +59,30 @@ pub(crate) type QueueFn = Box<dyn Fn() -> Vec<PendingItem> + Send>;
 
 /// What a mount tells its monitor.
 pub(crate) struct Spec {
+    /// Pool name.
     pub pool: String,
+    /// Workspace folder (status and history live under `.rpool/`).
     pub workspace: PathBuf,
+    /// Drive letter or mount path.
     pub mountpoint: String,
     /// `fuse`, `winfsp` or `dav`.
     pub frontend: String,
     /// Pool remote addresses, as in the pool definition.
     pub remotes: Vec<String>,
+    /// rclone binary path (for backend type lookup).
     pub rclone: String,
 }
 
 /// Running monitor; stops, writes the last history and removes the status
 /// file and registry entry when dropped.
 pub(crate) struct MountMonitor {
+    /// Set to ask the thread to stop.
     stop: Arc<AtomicBool>,
+    /// Monitor thread; `None` when it could not be spawned.
     thread: Option<JoinHandle<()>>,
+    /// Status file removed on drop.
     status: PathBuf,
+    /// Registry entry file removed on drop; `None` when registration failed.
     entry: Option<PathBuf>,
 }
 
@@ -98,6 +112,8 @@ impl MountMonitor {
         Self::start_with(spec, workspace, started, queue, entry, TICK)
     }
 
+    /// Spawns the monitor thread with an explicit registry entry and tick
+    /// (used by `start` and by tests).
     pub(crate) fn start_with(
         spec: Spec,
         workspace: PathBuf,
@@ -136,6 +152,8 @@ impl Drop for MountMonitor {
     }
 }
 
+/// Bottom backend type of each remote from `rclone config dump` (20 s
+/// deadline); `None` when the dump fails.
 fn backends(rclone: &str, remotes: &[String]) -> Option<Vec<Option<String>>> {
     use crate::storage::traits::OperationContext;
     let context = crate::storage::rclone::RcloneContext::inherited(rclone);
@@ -149,6 +167,7 @@ fn backends(rclone: &str, remotes: &[String]) -> Option<Vec<Option<String>>> {
     )
 }
 
+/// Modification time of `path`, Unix seconds.
 fn mtime(path: &Path) -> Option<u64> {
     let modified = std::fs::metadata(path).ok()?.modified().ok()?;
     modified
@@ -157,6 +176,8 @@ fn mtime(path: &Path) -> Option<u64> {
         .map(|d| d.as_secs())
 }
 
+/// Monitor loop: per tick, samples traffic and queue, writes the status file
+/// and history, prunes old history hourly; flushes history on stop.
 fn run(
     spec: Spec,
     workspace: &Path,

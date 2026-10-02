@@ -14,62 +14,98 @@ use std::time::Duration;
 /// matching the full variant (retry policy, repair policy, resume policy).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum StorageErrorKind {
+    /// Object or path does not exist (confirmed, not guessed).
     NotFound,
+    /// Target already exists (e.g. create-if-absent failed).
     AlreadyExists,
+    /// Access refused by the backend.
     PermissionDenied,
+    /// Credentials missing, expired or rejected.
     Authentication,
+    /// Remote administratively excluded from reads.
     ReadExcluded,
+    /// Provider throttling (HTTP 429 or equivalent).
     RateLimited,
+    /// Operation exceeded its deadline.
     Timeout,
+    /// Cancelled by the user or a shutdown signal.
     Cancelled,
+    /// Bad caller input, including bounded-output overflow.
     InvalidInput,
+    /// Operation not provided by this backend.
     Unsupported,
+    /// Conditional update/delete precondition did not hold.
     PreconditionFailed,
+    /// Content hash/size did not match expectations.
     CorruptData,
+    /// Retriable I/O or network failure.
     TransientIo,
+    /// Remote write may or may not have committed; never retry blindly.
     UnknownOutcome,
+    /// Anything not covered above.
     Other,
 }
 
 /// Typed storage error. Carries only non-secret, non-command detail.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum StorageError {
+    /// Object or path does not exist.
     NotFound {
+        /// Path that was looked up.
         path: String,
     },
+    /// Target already exists.
     AlreadyExists {
+        /// Path that already exists.
         path: String,
     },
+    /// Access refused for this path.
     PermissionDenied {
+        /// Path that was refused.
         path: String,
     },
+    /// Credentials missing, expired or rejected.
     Authentication {
+        /// Sanitized description (no secrets).
         detail: String,
     },
     /// Explicit administrative exclusion for a read-only recovery operation.
     /// This is not evidence that an object is absent or safe to overwrite.
     ReadExcluded {
+        /// Remote name that was excluded.
         remote: String,
     },
+    /// Provider throttling.
     RateLimited {
+        /// Server-suggested wait before retrying, if provided.
         retry_after: Option<Duration>,
+        /// Sanitized description.
         detail: String,
     },
+    /// Operation exceeded its deadline.
     Timeout {
+        /// Sanitized description.
         detail: String,
     },
+    /// Cancelled by the user or a shutdown signal.
     Cancelled {
+        /// What was cancelled.
         detail: String,
     },
+    /// Bad caller input.
     InvalidInput {
+        /// What was invalid.
         detail: String,
     },
     /// Bounded subprocess output exceeded its limit. Callers may retry with a
     /// narrower read, but must not treat other invalid input as this condition.
     OutputBoundsViolated,
+    /// Operation not provided by this backend.
     Unsupported {
+        /// Name of the unsupported operation.
         operation: String,
     },
+    /// Conditional update/delete precondition did not hold.
     #[cfg_attr(
         not(test),
         expect(
@@ -78,26 +114,36 @@ pub(crate) enum StorageError {
         )
     )]
     PreconditionFailed {
+        /// Sanitized description.
         detail: String,
     },
+    /// Content did not match expectations.
     CorruptData {
+        /// Observed value (e.g. hash or size).
         found: String,
+        /// Expected value.
         expected: String,
     },
+    /// Retriable I/O or network failure.
     TransientIo {
+        /// Sanitized description.
         detail: String,
     },
     /// A remote write whose response was lost. This is NOT "nothing happened":
     /// the write may already have committed. It must not be retried blindly.
     UnknownOutcome {
+        /// Sanitized description of the lost response.
         detail: String,
     },
+    /// Unclassified failure.
     Other {
+        /// Sanitized description.
         detail: String,
     },
 }
 
 impl StorageError {
+    /// Stable kind used for policy decisions; `OutputBoundsViolated` maps to `InvalidInput`.
     pub(crate) fn kind(&self) -> StorageErrorKind {
         match self {
             Self::NotFound { .. } => StorageErrorKind::NotFound,
@@ -130,6 +176,7 @@ impl StorageError {
         )
     }
 
+    /// Server-suggested retry delay; only `RateLimited` carries one.
     pub(crate) fn retry_after(&self) -> Option<Duration> {
         match self {
             Self::RateLimited { retry_after, .. } => *retry_after,
@@ -137,22 +184,26 @@ impl StorageError {
         }
     }
 
+    /// Convenience constructor for `NotFound`.
     pub(crate) fn not_found(path: impl Into<String>) -> Self {
         Self::NotFound { path: path.into() }
     }
 
+    /// Convenience constructor for `Unsupported`.
     pub(crate) fn unsupported(operation: impl Into<String>) -> Self {
         Self::Unsupported {
             operation: operation.into(),
         }
     }
 
+    /// Convenience constructor for `InvalidInput`.
     pub(crate) fn invalid_input(detail: impl Into<String>) -> Self {
         Self::InvalidInput {
             detail: detail.into(),
         }
     }
 
+    /// Convenience constructor for `UnknownOutcome`.
     pub(crate) fn unknown_outcome(detail: impl Into<String>) -> Self {
         Self::UnknownOutcome {
             detail: detail.into(),

@@ -7,6 +7,9 @@ use crate::gui::screens::files::inventory::drive_state::DriveTree;
 use crate::presentation::format_bytes;
 use eframe::egui;
 
+/// Draws the details line: the selected entry's path, size/item count and type
+/// (plus "Show in folder" for drive-wide search and a Versions… button for files),
+/// then the `summary` text. Called by `explorer::show` below the list.
 pub(crate) fn show(
     ui: &mut egui::Ui,
     tree: &DriveTree,

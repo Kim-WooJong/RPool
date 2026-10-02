@@ -7,6 +7,7 @@ use super::collect::{
 use super::redact::RULES;
 use super::Collected;
 
+/// File name of the manifest inside the bundle (written first).
 pub(crate) const NAME: &str = "manifest.txt";
 
 /// Never put in a bundle, whatever the configuration.
@@ -19,6 +20,8 @@ const NEVER_INCLUDED: &[&str] = &[
     "speed test results: RPool does not store them (run a speed test again and copy its report)",
 ];
 
+/// Render `manifest.txt`: included files with sizes, skipped files, the
+/// never-included list, the size limits and the redaction rules.
 pub(crate) fn render(collected: &Collected, now_unix: u64) -> String {
     let mut out = String::new();
     out.push_str(&format!(

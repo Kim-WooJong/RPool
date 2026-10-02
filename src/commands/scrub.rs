@@ -1,3 +1,5 @@
+//! `rpool scrub`: scans every shard of an archive for missing objects, size
+//! errors and (unless `--quick`) BLAKE3 corruption, optionally followed by a repair.
 use crate::maintenance::{
     repair_manifest_with_storage, save_integrity_snapshot, scan_manifest_with_storage,
 };
@@ -6,6 +8,7 @@ use crate::prelude::*;
 use crate::storage::writer::StorageWriter;
 
 #[allow(clippy::too_many_arguments)]
+/// CLI entry for `rpool scrub` through rclone. Called by `application::dispatch`.
 pub(crate) fn scrub(
     rclone: &str,
     manifest_src: &str,
@@ -29,6 +32,10 @@ pub(crate) fn scrub(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Scrub with a caller-supplied [`StorageWriter`]: scans, saves an integrity
+/// snapshot (unless `dry_run`), prints the report and, with `repair`, repairs
+/// recoverable shards and rescans. Fails when bad shards remain or repair is
+/// refused (provider errors or unrecoverable groups).
 pub(crate) fn scrub_with_storage(
     storage: &StorageWriter,
     manifest_src: &str,
@@ -97,6 +104,7 @@ pub(crate) fn scrub_with_storage(
     Ok(())
 }
 
+/// Prints the scrub summary plus every non-healthy group and shard.
 fn print_report(report: &ScrubReport) {
     println!("archive_id={}", report.archive_id);
     println!("mode={}", report.mode);

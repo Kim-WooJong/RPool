@@ -2,12 +2,18 @@
 
 use super::*;
 
+/// In-memory output buffer that errors with [`AdminOutputCap`] instead of growing past `limit`.
+/// Collects admin/listing output and `read_all_raw` results.
 pub(super) struct BoundedVec {
+    /// Bytes collected so far.
     pub(super) bytes: Vec<u8>,
+    /// Maximum bytes accepted.
     pub(super) limit: usize,
 }
 
 #[derive(Debug)]
+/// Marker error carried inside the `io::Error` of a [`BoundedVec`] overflow;
+/// `process::sink_error` maps it to `OutputBoundsViolated`.
 pub(super) struct AdminOutputCap;
 
 impl std::fmt::Display for AdminOutputCap {
@@ -18,8 +24,12 @@ impl std::fmt::Display for AdminOutputCap {
 
 impl std::error::Error for AdminOutputCap {}
 
+/// Write adapter that rejects any byte beyond the requested read range, so a
+/// misbehaving rclone cannot write more than asked into the caller's sink.
 pub(super) struct RangeSink<'a> {
+    /// The caller's destination.
     pub(super) sink: &'a mut dyn Write,
+    /// Bytes still allowed; `u64::MAX` for an unbounded read.
     pub(super) remaining: u64,
 }
 
@@ -55,7 +65,9 @@ impl Write for BoundedVec {
 
 /// Counts the bytes rclone read from an upload source.
 pub(super) struct Counted<'a> {
+    /// The wrapped upload source.
     pub(super) inner: &'a mut dyn Read,
+    /// Total bytes read from it so far.
     pub(super) bytes: u64,
 }
 

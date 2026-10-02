@@ -1,3 +1,5 @@
+//! `rpool status`: per-remote shard availability and per-group Reed-Solomon
+//! recoverability of one archive, optionally with provider quota.
 use crate::manifest::{
     coding_group_count, data_shards, load_manifest_with_storage, validate_manifest,
 };
@@ -8,6 +10,7 @@ use crate::storage::admin::{collect_quota_reports, BackendAdmin, RcloneAdmin};
 use crate::storage::reader::StorageReader;
 use crate::utils::ensure_positive;
 
+/// CLI entry for `rpool status` through rclone. Called by `application::dispatch`.
 pub(crate) fn status(
     rclone: &str,
     manifest_src: &str,
@@ -23,6 +26,8 @@ pub(crate) fn status(
     )
 }
 
+/// Status with a caller-supplied reader; quota is read through rclone at
+/// `admin_rclone` when `show_usage` is set.
 pub(crate) fn status_with_storage(
     reader: &StorageReader,
     admin_rclone: &str,
@@ -38,6 +43,9 @@ pub(crate) fn status_with_storage(
         workers,
     )
 }
+/// Probes every shard (size only) with `workers` threads and prints archive,
+/// coding/recoverability, single-provider safety and per-remote counts; with an
+/// `admin`, also the quota table of the involved remotes.
 pub(crate) fn status_with_services(
     reader: &StorageReader,
     admin: Option<&dyn BackendAdmin>,

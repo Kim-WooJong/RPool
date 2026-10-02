@@ -1,3 +1,4 @@
+//! `rpool usage`: total/used/free space of cloud remotes.
 use crate::manifest::{load_manifest, validate_manifest};
 use crate::pool::resolve_target_remotes;
 use crate::prelude::*;
@@ -5,6 +6,9 @@ use crate::presentation::print_usage_table;
 use crate::storage::admin::{collect_quota_reports, BackendAdmin, RcloneAdmin};
 use crate::utils::ensure_positive;
 
+/// Collects quota reports for the given remotes, a pool's remotes and/or a
+/// manifest's remotes (default: every physical remote), resolved to their
+/// capacity remotes, and prints a table or JSON. Called by `application::dispatch`.
 pub(crate) fn usage(
     rclone: &str,
     remotes: Vec<String>,

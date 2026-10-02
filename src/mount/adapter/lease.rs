@@ -3,27 +3,50 @@
 use super::*;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+/// Identity of a workspace's native mount, persisted as `.rpool/mount-identity.json`.
+/// A restart with different values is refused so pending VFS writes stay with their cache.
 pub(super) struct MountIdentity {
+    /// Record format version (currently 1).
     pub(super) version: u32,
+    /// Canonical anchor directory inside the workspace (see `MountConfig::anchor_dir`).
     pub(super) source: PathBuf,
+    /// Canonical rclone VFS cache directory.
     pub(super) cache: PathBuf,
+    /// Mount target: canonical directory, or upper-cased drive letter on Windows.
     pub(super) target: PathBuf,
+    /// rclone `--vfs-cache-mode` in use (always `"full"`).
     pub(super) cache_mode: String,
     #[serde(default)]
+    /// BLAKE3 of the WebDAV URL and bearer token; `None` in records written before it existed.
     pub(super) backend_identity: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "state", rename_all = "kebab-case")]
+/// Durable state of the owned rclone process in `.rpool/mount-process.json`.
+/// Anything but a clean, confirmed exit blocks the next start (see [`MountLease::prepare`]).
 pub(super) enum LeaseState {
+    /// Recorded just before spawning; outcome unknown if still present on the next start.
     Launching,
-    Running { pid: u32 },
-    ShutdownUncertain { pid: u32 },
+    /// rclone child `pid` was spawned and recorded.
+    Running {
+        /// Process id of the spawned rclone child.
+        pid: u32,
+    },
+    /// rclone child `pid` exited (or was left alive) without a confirmed graceful macOS NFS unmount.
+    ShutdownUncertain {
+        /// Process id of the rclone child whose exit was not confirmed.
+        pid: u32,
+    },
 }
 
+/// Exclusive per-workspace mount lease: holds `.rpool/mount-process.lock` and points at the
+/// lease record. Owned by `MountProcess`.
 pub(super) struct MountLease {
+    /// Lease record path (`.rpool/mount-process.json`).
     pub(super) path: PathBuf,
     // Serializes adapter startup even if a caller accidentally omits Workspace ownership.
+    /// Locked `mount-process.lock` file handle; unlocked on drop.
     pub(super) _lock: std::fs::File,
 }
 
@@ -38,6 +61,8 @@ impl Drop for MountLease {
 }
 
 impl MountLease {
+    /// Locks the workspace's mount lease, refuses if a previous mount may still be live or
+    /// uncertain, and checks or creates `mount-identity.json`. Called by `MountProcess::start`.
     pub(super) fn prepare(
         source: &Path,
         cache: &Path,
@@ -115,10 +140,12 @@ impl MountLease {
         Ok(lease)
     }
 
+    /// Durably writes `state` to the lease record.
     pub(super) fn record(&self, state: &LeaseState) -> Result<()> {
         durable_json(&self.path, state)
     }
 
+    /// Removes the lease record (missing is fine) and syncs its directory.
     pub(super) fn clear(&self) -> Result<()> {
         match std::fs::remove_file(&self.path) {
             Ok(()) => sync_metadata_directory(self.path.parent().context("lease parent missing")?),
@@ -127,6 +154,7 @@ impl MountLease {
         }
     }
 
+    /// Clears the lease unless macOS still lists a mount at `target`.
     pub(super) fn clear_if_unmounted(&self, target: &Path) -> Result<()> {
         #[cfg(target_os = "macos")]
         if macos_mount_attached(target)? {
@@ -142,6 +170,7 @@ impl MountLease {
 }
 
 #[cfg(target_os = "macos")]
+/// True if the macOS mount table (read without waiting on NFS servers) has a mount at `target`.
 pub(super) fn macos_mount_attached(target: &Path) -> Result<bool> {
     use std::os::unix::ffi::OsStrExt;
 
@@ -196,6 +225,7 @@ mod mount_table_tests {
     }
 }
 
+/// Fails if `path` exists but is a symlink or not a regular file; missing is fine.
 pub(super) fn reject_link(path: &Path) -> Result<()> {
     match std::fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
@@ -207,6 +237,7 @@ pub(super) fn reject_link(path: &Path) -> Result<()> {
     }
 }
 
+/// Atomically writes pretty JSON via a synced temp file in the same directory, then syncs it.
 pub(super) fn durable_json(path: &Path, value: &impl serde::Serialize) -> Result<()> {
     let parent = path.parent().context("mount metadata parent missing")?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
@@ -216,6 +247,7 @@ pub(super) fn durable_json(path: &Path, value: &impl serde::Serialize) -> Result
     sync_metadata_directory(parent)
 }
 
+/// fsyncs a directory so renames/removals in it are durable (no-op off Unix).
 pub(super) fn sync_metadata_directory(path: &Path) -> Result<()> {
     #[cfg(unix)]
     std::fs::File::open(path)?.sync_all()?;

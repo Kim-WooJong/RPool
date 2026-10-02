@@ -3,12 +3,17 @@
 use crate::prelude::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Session-local identity of a file (not an inode number, not persisted).
 pub(crate) struct FileId(pub(crate) u64);
 
 #[derive(Default)]
+/// Path ↔ [`FileId`] table of one `FsCore`.
 pub(super) struct IdTable {
+    /// Last id handed out (ids are never reused).
     next: u64,
+    /// Id of each linked path.
     by_path: BTreeMap<String, FileId>,
+    /// Path of each linked id.
     paths: BTreeMap<FileId, String>,
 }
 impl IdTable {
@@ -23,6 +28,7 @@ impl IdTable {
         self.paths.insert(id, path.into());
         id
     }
+    /// Id of `path` without allocating one.
     pub(super) fn get(&self, path: &str) -> Option<FileId> {
         self.by_path.get(path).copied()
     }
@@ -30,6 +36,7 @@ impl IdTable {
     pub(super) fn path(&self, id: FileId) -> Option<String> {
         self.paths.get(&id).cloned()
     }
+    /// Detaches `path` from its id and returns the id; the id stays valid for open handles.
     pub(super) fn unlink(&mut self, path: &str) -> Option<FileId> {
         let id = self.by_path.remove(path)?;
         self.paths.remove(&id);

@@ -14,21 +14,29 @@ use std::time::{Duration, Instant};
 
 /// Further small operations whose median is `latency_ms`.
 const LATENCY_SAMPLES: usize = 3;
+/// Time limit for each small metadata operation (probe, free-space check).
 const SMALL_OP: Duration = Duration::from_secs(120);
 
 /// Result of one remote: its report row and the test folders where
 /// something may be left.
 pub(crate) struct RemoteOutcome {
+    /// Report row of this remote.
     pub speed: RemoteSpeed,
+    /// Test folders that could not be removed (reported as leftovers).
     pub leftover: Vec<String>,
 }
 
 /// Inputs shared by every remote of one run.
 pub(crate) struct Run<'a> {
+    /// Runtime (rclone context, write path, stop flag).
     pub engine: &'a Engine,
+    /// Volume and options of the test.
     pub plan: &'a TestPlan,
+    /// Key of the deterministic test data stream (see `stream`).
     pub seed: [u8; 32],
+    /// Random id of the run; the test folder is `<remote>/.rpool-speedtest/<run_id>`.
     pub run_id: String,
+    /// rclone config dump, used to find the backend type and account; `None` if unavailable.
     pub config: Option<&'a serde_json::Value>,
     /// For the "remaining at most" bound.
     pub budget: super::remaining::Budget,
@@ -61,10 +69,12 @@ fn probe(run: &Run<'_>, address: &str) -> Result<Duration, StorageError> {
     }
 }
 
+/// Duration in whole milliseconds, saturating.
 fn millis(d: Duration) -> u64 {
     u64::try_from(d.as_millis()).unwrap_or(u64::MAX)
 }
 
+/// Middle value after sorting (upper median for even counts); `None` if empty.
 fn median(mut values: Vec<u64>) -> Option<u64> {
     values.sort_unstable();
     values.get(values.len() / 2).copied()
@@ -205,6 +215,7 @@ pub(crate) fn test(run: &Run<'_>, at: &Position<'_>) -> RemoteOutcome {
     RemoteOutcome { speed, leftover }
 }
 
+/// Fails with `cancelled` once the user stopped the test.
 fn stop_check(engine: &Engine) -> Result<(), String> {
     if engine.cancelled() {
         Err("cancelled".into())
@@ -213,6 +224,7 @@ fn stop_check(engine: &Engine) -> Result<(), String> {
     }
 }
 
+/// One-line error for a failed step, or `cancelled` after a stop.
 fn op_error(engine: &Engine, what: &str, error: StorageError) -> String {
     if engine.cancelled() {
         "cancelled".into()

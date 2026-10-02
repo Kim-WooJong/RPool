@@ -7,19 +7,25 @@
 //! end retention protection; they never delete data themselves.
 use crate::prelude::*;
 
+/// Mark format version; marks of other formats are ignored.
 pub(crate) const FORMAT: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// One published purge mark.
 pub(crate) struct Mark {
+    /// Always `FORMAT`.
     pub format: u32,
     /// `purge` (the only kind of format 1).
     pub kind: String,
     /// Deletion revisions (trash entry ids) purged by this mark.
     pub ids: BTreeSet<String>,
+    /// PC/worker that published the mark.
     pub worker: String,
+    /// Publication time (unix seconds).
     pub unix: u64,
 }
 impl Mark {
+    /// A purge mark for trash entry `ids`.
     pub(crate) fn purge(ids: BTreeSet<String>, worker: &str, unix: u64) -> Self {
         Self {
             format: FORMAT,
@@ -29,6 +35,7 @@ impl Mark {
             unix,
         }
     }
+    /// Serialize the mark; returns `(blake3 id, bytes)`.
     pub(crate) fn encode(&self) -> Result<(String, Vec<u8>)> {
         let bytes = serde_json::to_vec(self)?;
         Ok((blake3::hash(&bytes).to_hex().to_string(), bytes))
@@ -39,6 +46,7 @@ impl Mark {
 pub(crate) trait MarkStore {
     /// Every mark: id -> verified bytes.
     fn all(&self) -> Result<BTreeMap<String, Vec<u8>>>;
+    /// Store `bytes` under `id` (idempotent: same bytes, same id).
     fn publish(&self, id: &str, bytes: &[u8]) -> Result<()>;
 }
 
@@ -75,6 +83,7 @@ pub(crate) fn publish(stores: &[&dyn MarkStore], mark: &Mark) -> Result<String> 
 /// Real replicas: `SharedTransport` at `<root>/history`.
 pub(crate) struct Remote(crate::mount::history_bridge::Transport);
 impl Remote {
+    /// One store per metadata root (`<root>/history`), with native crypt if the pool uses it.
     pub(crate) fn open(rclone: &str, roots: &[String], native_crypt: bool) -> Result<Vec<Self>> {
         roots
             .iter()

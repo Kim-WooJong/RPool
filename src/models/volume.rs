@@ -22,10 +22,12 @@ pub(crate) struct Generation(u64);
     )
 )]
 impl Generation {
+    /// Wraps a raw counter value.
     pub(crate) fn new(value: u64) -> Self {
         Self(value)
     }
 
+    /// The raw counter value.
     pub(crate) fn value(&self) -> u64 {
         self.0
     }
@@ -36,6 +38,9 @@ impl Generation {
     }
 }
 
+/// Defines a validated string id newtype (`new` checks it with
+/// `validate_identifier`, `as_str` reads it); optional reason text marks it
+/// as reserved for future use.
 macro_rules! string_id {
     ($name:ident, $label:literal $(, $future:literal)?) => {
         #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]

@@ -1,3 +1,5 @@
+//! Recovery of a lost local manifest from its remote replicas.
+
 use crate::manifest::validate_manifest;
 use crate::models::Manifest;
 use crate::storage::reader::StorageReader;
@@ -6,6 +8,9 @@ use anyhow::{bail, Result};
 use std::io::Write;
 use std::path::Path;
 
+/// Tries `<remote>/<archive_id>/manifest.json` on each remote in order and
+/// writes the first valid one with a matching archive id to `output`
+/// (atomically). Returns the object used; fails listing every error.
 pub(crate) fn recover_manifest_with_storage(
     reader: &StorageReader,
     archive_id: &str,

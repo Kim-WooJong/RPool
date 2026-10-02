@@ -1,7 +1,12 @@
+//! Resolves the list of target remotes for commands that operate on a pool
+//! or an explicit `--remote` list (usage, verify, recover, replicate, health).
 use crate::pool::{load_pool_store, validate_pool};
 use crate::remote_root::apply_remote_roots;
 use anyhow::{bail, Result};
 
+/// Returns the remotes (with remote roots applied) for a named pool or the
+/// explicit list; `--pool` and `--remote` are mutually exclusive. The pool is
+/// validated first. Used by `commands::usage`, manifest ops and provider health.
 pub(crate) fn resolve_target_remotes(
     pool_name: Option<&str>,
     explicit: Vec<String>,

@@ -1,9 +1,13 @@
+//! Shrinking the task history.
+
 use crate::config::history_path;
 use crate::history::load_history;
 use anyhow::Result;
 use std::fs;
 use std::io::Write;
 
+/// Rewrites the history file keeping only the newest `keep` records; returns
+/// how many were removed. Used by `rpool history prune`.
 pub(crate) fn prune_history(keep: usize) -> Result<usize> {
     let records = load_history()?;
     let removed = records.len().saturating_sub(keep);

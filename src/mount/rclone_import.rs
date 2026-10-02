@@ -3,40 +3,55 @@
 //! only listed and read. Runs offline under the workspace lock; the local
 //! spool is drained by syncing between batches, and an append-only journal
 //! makes an interrupted import resume without duplicates.
+//!
+//! Entry points: `run` (`rpool mount --import-from`) and `import` (the
+//! testable core over a [`Source`]).
 use super::namespace::{valid_path, Intent};
 use super::virtual_drive::VirtualDrive;
 use crate::prelude::*;
 use crate::storage::traits::OperationContext;
 
+/// One entry of `rclone lsjson --recursive` output for the import source.
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct Listed {
+    /// Path relative to the source base (`/`-separated).
     #[serde(rename = "Path")]
     pub path: String,
+    /// Size in bytes; negative when rclone does not know it.
     #[serde(rename = "Size", default)]
     pub size: i64,
+    /// Directory entry (recreated as an explicit drive directory).
     #[serde(rename = "IsDir", default)]
     pub is_dir: bool,
+    /// rclone modification time (recorded in the journal, not applied).
     #[serde(rename = "ModTime", default)]
     pub mod_time: String,
 }
 
 /// What the importer reads. `RcloneSource` in production; tests use memory.
 pub(crate) trait Source {
+    /// Every entry under the source, recursively.
     fn list(&self) -> Result<Vec<Listed>>;
+    /// Streams the file at `rel` into `sink` and returns the bytes read.
     fn read(&self, rel: &str, sink: &mut dyn Write) -> Result<u64>;
 }
 
+/// [`Source`] over a real rclone `remote:path`.
 pub(crate) struct RcloneSource {
+    /// rclone invocation context (inherits the configured environment).
     context: crate::storage::rclone::RcloneContext,
+    /// Source base, e.g. `remote:` or `remote:folder`.
     base: String,
 }
 impl RcloneSource {
+    /// Source rooted at `base` using the `rclone` binary.
     pub(crate) fn new(rclone: &str, base: &str) -> Self {
         Self {
             context: crate::storage::rclone::RcloneContext::inherited(rclone),
             base: base.into(),
         }
     }
+    /// Full rclone address of `rel` under the base.
     fn address(&self, rel: &str) -> String {
         if self.base.ends_with(':') {
             format!("{}{rel}", self.base)
@@ -62,6 +77,8 @@ impl Source for RcloneSource {
     }
 }
 
+/// What to do when the destination path already exists in the drive
+/// (`--import-conflict`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum OnConflict {
@@ -72,38 +89,57 @@ pub(crate) enum OnConflict {
     Rename,
 }
 
+/// Settings of one import run, built from `MountArgs` by `run`.
 pub(crate) struct Options {
+    /// rclone source (`remote:path`).
     pub source: String,
     /// Drive folder to import into; empty for the root.
     pub destination: String,
+    /// Upload (sync) after this many imported bytes (from `--import-batch-gib`).
     pub batch_bytes: u64,
+    /// Conflict policy for existing drive paths.
     pub on_conflict: OnConflict,
 }
 
+/// One journal line (JSONL); the last record per source path wins on resume.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "kebab-case")]
 enum Record {
     /// Written before copying, so a crash can discard or adopt the intent.
     Begun {
+        /// Source path relative to the base.
         rel: String,
+        /// Destination intent created for the copy.
         intent: Intent,
     },
+    /// Copied and sealed into the spool at `target`.
     Sealed {
+        /// Source path relative to the base.
         rel: String,
+        /// Drive path written (may be an `(imported N)` name).
         target: String,
+        /// Bytes copied.
         size: u64,
+        /// Source modification time from the listing.
         mod_time: String,
     },
+    /// Not imported, for a stable reason (invalid name, too large, exists).
     Skipped {
+        /// Source path relative to the base.
         rel: String,
+        /// Human-readable reason, shown in the status and summary.
         reason: String,
     },
+    /// Copy failed; retried on the next run.
     Failed {
+        /// Source path relative to the base.
         rel: String,
+        /// Error text.
         reason: String,
     },
 }
 impl Record {
+    /// Source path the record belongs to.
     fn rel(&self) -> &str {
         match self {
             Self::Begun { rel, .. }
@@ -117,23 +153,38 @@ impl Record {
 /// Progress for the GUI, next to the mount status file.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Status {
+    /// rclone source being imported.
     pub source: String,
+    /// Drive folder being imported into (empty: root).
     pub destination: String,
+    /// "listing", "copying", "syncing" or "done".
     pub phase: String,
+    /// Files in the source listing.
     pub files_total: usize,
+    /// Files processed so far (imported, skipped or failed).
     pub files_done: usize,
+    /// Listed bytes of all files.
     pub bytes_total: u64,
+    /// Listed bytes of processed files.
     pub bytes_done: u64,
+    /// Files imported (sealed) so far, including earlier runs.
     pub imported: usize,
+    /// `(source path, reason)` of skipped files.
     pub skipped: Vec<(String, String)>,
+    /// `(source path, reason)` of failed files.
     pub failed: Vec<(String, String)>,
 }
 
+/// Append-only import journal (see [`journal_path`]).
 struct Journal {
+    /// Journal opened for appending.
     file: File,
+    /// Latest record per source path, replayed at open.
     last: BTreeMap<String, Record>,
 }
 impl Journal {
+    /// Opens (creating if needed) the journal at `path` and replays its valid
+    /// lines; a torn final line is ignored.
     fn open(path: &Path) -> Result<Self> {
         fs::create_dir_all(path.parent().context("journal parent")?)?;
         let mut last = BTreeMap::new();
@@ -149,6 +200,7 @@ impl Journal {
         let file = OpenOptions::new().create(true).append(true).open(path)?;
         Ok(Self { file, last })
     }
+    /// Appends `record` as one fsynced line and updates `last`.
     fn append(&mut self, record: Record) -> Result<()> {
         let mut line = serde_json::to_vec(&record)?;
         line.push(b'\n');
@@ -159,6 +211,7 @@ impl Journal {
     }
 }
 
+/// `dir/rel`, or `rel` when `dir` is the root (empty).
 fn join(dir: &str, rel: &str) -> String {
     if dir.is_empty() {
         rel.into()
@@ -167,6 +220,7 @@ fn join(dir: &str, rel: &str) -> String {
     }
 }
 
+/// `path` renamed to `name (imported n).ext` (keeping the extension).
 fn imported_name(path: &str, n: usize) -> String {
     let (dir, name) = match path.rsplit_once('/') {
         Some((d, n)) => (Some(d), n),
@@ -179,8 +233,12 @@ fn imported_name(path: &str, n: usize) -> String {
     dir.map_or(named.clone(), |d| format!("{d}/{named}"))
 }
 
+/// `Write` adapter copying the source stream into a spool image through
+/// `VirtualDrive::write_spool_bytes` (spool accounting and limits).
 struct SpoolSink<'a> {
+    /// Drive owning the spool.
     drive: &'a VirtualDrive,
+    /// Spool image file of the intent.
     file: File,
 }
 impl Write for SpoolSink<'_> {
@@ -278,6 +336,9 @@ pub(crate) fn import(
     Ok(progress)
 }
 
+/// Imports one listed file: resumes or adopts a journaled one, skips per
+/// name/size/conflict rules, else begins an intent, copies, seals and
+/// journals it. Syncs first when the spool would overflow.
 fn import_one(
     drive: &VirtualDrive,
     source: &dyn Source,

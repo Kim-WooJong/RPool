@@ -5,6 +5,8 @@ use super::plan::World;
 use crate::migration::model::{Plan, Record};
 use crate::prelude::*;
 
+/// Everything `execute::retire` needs from the outside world; implemented by
+/// `live::LiveIo` in production and by fakes in tests.
 pub(crate) trait RetireIo {
     /// The frozen migration plan.
     fn plan(&self) -> Result<Plan>;
@@ -20,15 +22,19 @@ pub(crate) trait RetireIo {
     fn delete(&self, address: &str) -> Result<()>;
     /// Drops `archive_id` from this PC's inventory (when indexed).
     fn forget(&self, archive_id: &str) -> Result<()>;
+    /// Current Unix time in seconds.
     fn now(&self) -> u64 {
         crate::utils::now_unix()
     }
+    /// Fresh random id for a new fossil (12 random bytes as hex).
     fn new_id(&self) -> Result<String> {
         crate::migration::execute::random_hex(12)
     }
+    /// Identifier of this PC written into records.
     fn pc_id(&self) -> String {
         crate::migration::execute::pc_id()
     }
+    /// Prints one progress/action line (stdout by default).
     fn say(&self, line: &str) {
         println!("{line}");
     }

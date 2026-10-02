@@ -13,14 +13,17 @@ use super::model::{Retention, TrashEntry};
 use super::restore::{unique_name, Action};
 use crate::prelude::*;
 
+/// Id prefix of folder entries (`dir:/Docs`).
 pub(crate) const DIR_PREFIX: &str = "dir:";
 
 /// One trashed file: entry plus the revision whose bytes come back.
 #[derive(Debug, Clone)]
 pub(crate) struct Trashed {
+    /// The listed trash entry.
     pub entry: TrashEntry,
     /// Namespace path (no leading `/`).
     pub path: String,
+    /// Revision whose bytes a restore brings back (`History::last_content` of the deletion).
     pub bytes_rev: String,
 }
 
@@ -89,6 +92,8 @@ pub(crate) fn list(history: &History, retention: &Retention, now: u64) -> Result
     Ok(entries)
 }
 
+/// Folder entries: the top-most folders that no longer exist and held at
+/// least two trashed files, with aggregated size, time, author and expiry.
 fn folders(files: &[Trashed], current: &BTreeMap<String, String>) -> Vec<TrashEntry> {
     let mut dirs: BTreeMap<String, Vec<&Trashed>> = BTreeMap::new();
     for item in files {
@@ -236,6 +241,8 @@ pub(crate) fn restore_actions(
     Ok(actions)
 }
 
+/// Add a `Put` restoring `item` at `target` (or a `(restored)` name when
+/// taken), unless its bytes are already being restored.
 fn push_restore(
     actions: &mut Vec<Action>,
     taken: &mut Vec<String>,

@@ -1,3 +1,7 @@
+//! Core `rpool doctor` checks: config directory, rclone version and remotes,
+//! remote-root overrides, pools, inventory, history and the scrub snapshot.
+//! `run_checks` is used by `commands::doctor`, the GUI diagnostics screen and
+//! the diagnostics bundle.
 use crate::config::{
     app_config_dir, history_path, integrity_snapshot_path, inventory_path, pools_path,
     remote_roots_path,
@@ -11,17 +15,24 @@ use crate::storage::admin::{BackendAdmin, RcloneAdmin, ToolDiagnostics};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
+/// One doctor result row; serialized into `rpool doctor --json` and `doctor.json`.
 pub(crate) struct Diagnostic {
+    /// Check identifier, e.g. `pools` or `rclone-version`.
     pub(crate) check: String,
+    /// `ok`, `info`, `warn` or `fail`.
     pub(crate) status: String,
+    /// Human-readable detail.
     pub(crate) message: String,
 }
 
+/// Run every check against the given rclone executable.
 pub(crate) fn run_checks(rclone: &str) -> Vec<Diagnostic> {
     let adapter = RcloneAdmin::inherited(rclone);
     run_checks_with(Some(&adapter), Some(&adapter))
 }
 
+/// Run the checks with optional backends; `None` skips the rclone version
+/// and/or remote discovery (used for `--local-only` bundles and tests).
 pub(crate) fn run_checks_with(
     admin: Option<&dyn BackendAdmin>,
     tools: Option<&dyn ToolDiagnostics>,
@@ -65,6 +76,7 @@ pub(crate) fn run_checks_with(
     out
 }
 
+/// Report the RPool config directory, or that it is created on first write.
 fn check_config_dir(out: &mut Vec<Diagnostic>) {
     match app_config_dir() {
         Ok(path) if path.exists() => out.push(ok("config-directory", path.display().to_string())),
@@ -76,6 +88,7 @@ fn check_config_dir(out: &mut Vec<Diagnostic>) {
     }
 }
 
+/// Report the rclone version plus the supported-version row (`rclone-support`).
 fn check_rclone(tools: &dyn ToolDiagnostics, out: &mut Vec<Diagnostic>) {
     match tools.version() {
         Ok(version) => {
@@ -87,6 +100,7 @@ fn check_rclone(tools: &dyn ToolDiagnostics, out: &mut Vec<Diagnostic>) {
     }
 }
 
+/// Validate `remote_roots.json` and warn about overrides for unknown remotes.
 fn check_remote_roots(configured_remotes: Option<&[String]>, out: &mut Vec<Diagnostic>) {
     match remote_roots_path() {
         Ok(path) if !path.exists() => {
@@ -130,6 +144,8 @@ fn check_remote_roots(configured_remotes: Option<&[String]>, out: &mut Vec<Diagn
     }
 }
 
+/// Validate `pools.json`: invalid definitions or non-crypt targets fail;
+/// remotes missing from rclone's config warn.
 fn check_pools(
     admin: Option<&dyn BackendAdmin>,
     configured_remotes: Option<&[String]>,
@@ -203,6 +219,7 @@ fn check_pools(
     }
 }
 
+/// Report whether the archive inventory loads and how many entries it has.
 fn check_inventory(out: &mut Vec<Diagnostic>) {
     match inventory_path() {
         Ok(path) if !path.exists() => out.push(info("inventory", "inventory not created yet")),
@@ -217,6 +234,7 @@ fn check_inventory(out: &mut Vec<Diagnostic>) {
     }
 }
 
+/// Report whether the operation history loads.
 fn check_history(out: &mut Vec<Diagnostic>) {
     match history_path() {
         Ok(path) if !path.exists() => out.push(info("history", "history not created yet")),
@@ -231,6 +249,7 @@ fn check_history(out: &mut Vec<Diagnostic>) {
     }
 }
 
+/// Summarize the latest integrity (scrub) snapshot, if any.
 fn check_integrity_snapshot(out: &mut Vec<Diagnostic>) {
     match integrity_snapshot_path() {
         Ok(path) if !path.exists() => {
@@ -255,6 +274,7 @@ fn check_integrity_snapshot(out: &mut Vec<Diagnostic>) {
     }
 }
 
+/// `remote:path` -> `remote:` (the form rclone's remote listing uses).
 fn remote_root(remote: &str) -> String {
     match remote.find(':') {
         Some(index) => remote[..=index].to_string(),
@@ -262,6 +282,7 @@ fn remote_root(remote: &str) -> String {
     }
 }
 
+/// An `ok` row.
 fn ok(check: impl Into<String>, message: impl Into<String>) -> Diagnostic {
     Diagnostic {
         check: check.into(),
@@ -270,6 +291,7 @@ fn ok(check: impl Into<String>, message: impl Into<String>) -> Diagnostic {
     }
 }
 
+/// An `info` row.
 fn info(check: impl Into<String>, message: impl Into<String>) -> Diagnostic {
     Diagnostic {
         check: check.into(),
@@ -278,6 +300,7 @@ fn info(check: impl Into<String>, message: impl Into<String>) -> Diagnostic {
     }
 }
 
+/// A `warn` row.
 fn warn(check: impl Into<String>, message: impl Into<String>) -> Diagnostic {
     Diagnostic {
         check: check.into(),
@@ -286,6 +309,7 @@ fn warn(check: impl Into<String>, message: impl Into<String>) -> Diagnostic {
     }
 }
 
+/// A `fail` row.
 fn fail(check: impl Into<String>, message: impl Into<String>) -> Diagnostic {
     Diagnostic {
         check: check.into(),

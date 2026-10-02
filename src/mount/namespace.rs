@@ -1,4 +1,9 @@
 //! Metadata-only namespace. Cache absence is never interpreted as deletion.
+//!
+//! Holds `Namespace` (the workspace's events, pending write intents and
+//! directories), its durable checkpoint + journal persistence (`load`/`save`),
+//! and the shared helpers `durable_json`/`durable_bytes`, `random_id` and
+//! `valid_path` used across `mount`.
 use super::shared_model::{self, Content, Event, Resolved};
 use crate::prelude::*;
 pub(crate) use shared::Shared;
@@ -7,15 +12,28 @@ mod journal;
 mod shared;
 mod validation;
 
+/// A local write or deletion recorded in the namespace but not yet
+/// committed as an event. Created by `VirtualDrive` writes/deletes, persisted
+/// as `spool/<id>/intent.json`, and committed by sync via [`Namespace::commit`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Intent {
+    /// Random 64-hex identity (also the spool directory name for writes).
     pub id: String,
+    /// Visible drive path the intent applies to.
     pub path: String,
+    /// Path the committed event is recorded under: the parent revision's event
+    /// path (continuing that file's history), else `path` itself.
     pub event_path: String,
+    /// Event ids this intent descends from (the ancestry captured at edit time).
     pub parents: Vec<String>,
+    /// Spool image id for a write (equals `id`); `None` for a deletion.
     pub spool: Option<String>,
+    /// Sealed size of the spool image in bytes (0 until sealed).
     pub size: u64,
+    /// Hex BLAKE3 of the sealed spool image (empty until sealed).
     pub hash: String,
+    /// Earlier local intent this one must follow; its committed event becomes
+    /// the parent instead of `parents`.
     pub depends_on: Option<String>,
 }
 /// The workspace namespace. `version` is 6 (pool sync) for every opened
@@ -28,22 +46,34 @@ pub(crate) struct Intent {
 /// when the journal has grown to the checkpoint's size.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Namespace {
+    /// Format version: 6 (pool sync) or 3 (local-only test fixture).
     pub version: u32,
+    /// Save counter, incremented by every `save`; journal replay needs
+    /// consecutive generations.
     pub generation: u64,
+    /// Random identity of this workspace's device, written into its events.
     pub device: String,
+    /// Worker (PC) name, written into events; reset to the caller's name on load.
     pub worker: String,
+    /// Every known event by content id (local and pulled from the pool).
     pub events: Shared<BTreeMap<String, Event>>,
+    /// Event ids already published to the pool-sync metadata.
     pub published: Shared<BTreeSet<String>>,
+    /// Uncommitted local intents, in commit order.
     pub pending: Vec<Intent>,
+    /// Committed intent id -> event id it produced (commit receipts).
     pub committed_intents: Shared<BTreeMap<String, String>>,
+    /// Explicitly created (possibly empty) directories.
     pub directories: Shared<BTreeSet<String>>,
     /// Conservative edit ancestry: listing never advances a writer's baseline.
     pub bases: Shared<BTreeMap<String, Vec<String>>>,
     /// What is on disk for this namespace, if it was loaded or saved.
     #[serde(skip)]
     durable: Option<Arc<Durable>>,
+    /// Cached projection of `events` (see [`Namespace::projected`]).
     #[serde(skip)]
     projection: ProjectionCache,
+    /// Cached validation results keyed by the collections they checked.
     #[serde(skip)]
     checks: validation::CheckCache,
 }
@@ -51,10 +81,15 @@ pub(crate) struct Namespace {
 /// The persisted state a save extends: the checkpoint, the journal's valid
 /// end, and the namespace they hold (sharing collections with the live one).
 struct Durable {
+    /// Workspace directory holding the files.
     dir: PathBuf,
+    /// Hash of the checkpoint (`namespace.json`) the journal extends.
     checkpoint: String,
+    /// Checkpoint file size in bytes; bounds the journal before compaction.
     checkpoint_len: u64,
+    /// Valid end of the journal (length and record count).
     tail: journal::Tail,
+    /// The namespace as persisted, the base for the next delta.
     saved: Namespace,
 }
 
@@ -67,11 +102,14 @@ impl std::fmt::Debug for Durable {
     }
 }
 
+/// Shared resolved view: visible path -> resolved revision.
 pub(crate) type Projected = Arc<BTreeMap<String, Resolved>>;
 
 /// [`Namespace::resolved`] of one exact event map (see [`Shared::is`]).
 #[derive(Default)]
 struct ProjectionCache(Mutex<Option<ProjectionKeyed>>);
+/// Cache key and value: the event map it was computed from (weak), the
+/// namespace version, and the projection.
 type ProjectionKeyed = (std::sync::Weak<BTreeMap<String, Event>>, u32, Projected);
 
 impl Clone for ProjectionCache {
@@ -93,6 +131,7 @@ impl std::fmt::Debug for ProjectionCache {
 const ENVELOPE_V2: &[u8] = br#"{"format":2,"blake3":""#;
 /// The envelope every earlier version wrote; still loaded.
 const ENVELOPE_V1: &[u8] = br#"{"hash":""#;
+/// Key between the hash and the payload in a canonical envelope.
 const PAYLOAD_KEY: &[u8] = br#"","payload":"#;
 /// The journal size at which a save compacts instead: the checkpoint's size,
 /// so compaction rewrites at most as many bytes as the records it folds.
@@ -106,9 +145,12 @@ fn journal_limit(checkpoint_len: u64) -> u64 {
 /// Bounds replay work at load.
 const MAX_JOURNAL_RECORDS: u64 = 20_000;
 
+/// The original (v1) checkpoint layout, parsed when bytes are not canonical.
 #[derive(Serialize, Deserialize)]
 struct Envelope {
+    /// Hex BLAKE3 of the serialized payload.
     hash: String,
+    /// The namespace itself.
     payload: Namespace,
 }
 
@@ -172,11 +214,16 @@ fn checkpoint_identity(dir: &Path) -> Result<Option<String>> {
         .map(String::from))
 }
 
+/// New random 64-hex id (BLAKE3 of 24 random bytes). Used for intent,
+/// epoch, worker and temporary-directory names.
 pub(crate) fn random_id() -> Result<String> {
     let mut bytes = [0u8; 24];
     getrandom::fill(&mut bytes).map_err(|e| anyhow!("random identity: {e}"))?;
     Ok(blake3::hash(&bytes).to_hex().to_string())
 }
+/// Checks that `path` is a valid relative namespace path (no leading `/`,
+/// no `\`, plus the portable event path rules). Used by rename, history and
+/// validation.
 pub(crate) fn valid_path(path: &str) -> Result<()> {
     if path.is_empty() || path.starts_with('/') || path.contains('\\') {
         bail!("invalid namespace path");
@@ -192,13 +239,15 @@ pub(crate) fn valid_path(path: &str) -> Result<()> {
     }
     .validate()
 }
+/// Writes `value` as JSON to `path` crash-safely via [`durable_bytes`]. Used
+/// for intents, upload plans, caches and receipts.
 pub(crate) fn durable_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     // Serialize in memory: `to_writer` on the unbuffered temporary issued one
     // write call per JSON token (seconds for a multi-megabyte namespace).
     durable_bytes(path, &serde_json::to_vec(value)?)
 }
-/// [`durable_json`] for already serialized bytes: temporary, flush, crash
-/// point, atomic replace, directory flush.
+/// Removes `path` and flushes its directory (Unix); already absent is
+/// success. Used to drop stale journals.
 fn remove_if_present(path: &Path) -> Result<()> {
     match fs::remove_file(path) {
         Ok(()) => {
@@ -210,6 +259,8 @@ fn remove_if_present(path: &Path) -> Result<()> {
         Err(e) => Err(e).with_context(|| format!("remove {}", path.display())),
     }
 }
+/// Writes `bytes` to `path` crash-safely: temporary, flush, crash point,
+/// atomic replace, directory flush.
 pub(crate) fn durable_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
     let dir = path.parent().context("state parent missing")?;
     let mut temp = tempfile::NamedTempFile::new_in(dir)?;
@@ -236,6 +287,8 @@ pub(crate) fn resolve_events(
     }
 }
 impl Namespace {
+    /// Empty version-3 namespace with a fresh device id for `worker`; `load`
+    /// creates and saves one when `dir` has no checkpoint.
     pub(crate) fn create(worker: &str) -> Result<Self> {
         valid_path(worker)?;
         Ok(Self {
@@ -254,6 +307,9 @@ impl Namespace {
             checks: Default::default(),
         })
     }
+    /// Checks the invariants `load` and `save` rely on: version, paths, event
+    /// references, intent identities and dependencies, and no file/directory
+    /// path conflicts among committed files plus pending writes.
     pub(crate) fn validate(&self) -> Result<()> {
         if !matches!(self.version, 3 | 6) {
             bail!("unsupported virtual namespace version");
@@ -421,6 +477,9 @@ impl Namespace {
         }
         self.checkpoint(dir)
     }
+    /// Appends the delta since `base` as one journal record. `Ok(None)` means a
+    /// full checkpoint is needed instead (no change, non-consecutive generation,
+    /// journal too large, or the checkpoint changed on disk).
     fn append(&self, dir: &Path, base: &Durable) -> Result<Option<Durable>> {
         // Replay requires consecutive generations.
         if base.tail.records >= MAX_JOURNAL_RECORDS
@@ -514,6 +573,8 @@ impl Namespace {
             .as_ref()
             .is_some_and(|(key, version, _)| *version == self.version && self.events.is(key))
     }
+    /// The cached projection for the current events and version, computed via
+    /// [`resolve_events`] on a miss.
     fn resolved_shared(&self) -> Result<Projected> {
         let mut cache = self.projection.0.lock().unwrap_or_else(|p| p.into_inner());
         if let Some((key, version, projected)) = &*cache {
@@ -525,9 +586,12 @@ impl Namespace {
         *cache = Some((self.events.downgrade(), self.version, projected.clone()));
         Ok(projected)
     }
+    /// Owned copy of the visible files (path -> resolved revision).
     pub(crate) fn resolved(&self) -> Result<BTreeMap<String, Resolved>> {
         Ok((*self.resolved_shared()?).clone())
     }
+    /// Total size in bytes of the committed visible files (excludes pending
+    /// intents). Reported as committed usage by `virtual_drive::capacity`.
     pub(crate) fn logical_used(&self) -> Result<u64> {
         self.resolved_shared()?
             .values()
@@ -536,6 +600,8 @@ impl Namespace {
                 sum.checked_add(c.size).context("logical usage overflow")
             })
     }
+    /// Visible logical usage in bytes: committed files with pending writes
+    /// and deletions applied. Used by `virtual_drive::capacity`.
     pub(crate) fn visible_logical_used(&self) -> Result<u64> {
         let resolved = self.resolved_shared()?;
         let mut sizes: BTreeMap<&str, u64> = resolved
@@ -580,6 +646,8 @@ impl Namespace {
         }
         Ok(ordered)
     }
+    /// Adds validated events (from pool sync or history) to `events`; ids must
+    /// match content, known ids are skipped, and the result must still reduce.
     pub(crate) fn ingest(&mut self, events: BTreeMap<String, Event>) -> Result<()> {
         let mut next = self.events.clone();
         for (id, event) in events {
@@ -598,6 +666,9 @@ impl Namespace {
         self.events = next;
         Ok(())
     }
+    /// Ancestry for a new write to `path`: the recorded base if any, else the
+    /// current visible revision, else the unreferenced heads at that path.
+    /// Recorded in `bases`. Called by `VirtualDrive` writes.
     pub(crate) fn base(&mut self, path: &str) -> Result<Vec<String>> {
         valid_path(path)?;
         if let Some(base) = self.bases.get(path) {
@@ -678,6 +749,9 @@ impl Namespace {
         }
         Ok(())
     }
+    /// Commits `intent` as a new event (with `content` for a write, `None` for a
+    /// deletion), removes it from `pending`, records the receipt and returns the
+    /// event id. Called by sync after upload and by `settle_deletions`.
     pub(crate) fn commit(&mut self, intent: &Intent, content: Option<Content>) -> Result<String> {
         let event = Event {
             version: 1,

@@ -12,6 +12,9 @@ use anyhow::{anyhow, bail, Result};
 /// Sample size of the optional speed benchmark.
 const SPEED_SAMPLE_BYTES: u64 = 8 * 1024 * 1024;
 
+/// Executes one `rpool pool migrate` subcommand, delegating to `migration::*`
+/// (plan/run/status/adopt) and `migrate_retire` (retire/restore).
+/// Called via `commands::pool::migrate` from `application::dispatch`.
 pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
     match args.command {
         MigrateCommands::Plan {
@@ -157,8 +160,10 @@ pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
 #[derive(serde::Serialize)]
 struct StatusRow<'a> {
     #[serde(flatten)]
+    /// Archive migration status, flattened into the row.
     status: &'a MigrationStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Drive part of the same migration, when the pool has a drive.
     drive: Option<DriveStatus>,
 }
 
@@ -166,11 +171,16 @@ struct StatusRow<'a> {
 #[derive(serde::Serialize)]
 struct PlanJson<'a> {
     #[serde(flatten)]
+    /// The archive migration plan, flattened into the output.
     plan: &'a Plan,
     #[serde(skip_serializing_if = "Option::is_none")]
+    /// Drive part of the plan, when the pool has a drive.
     drive: Option<&'a DrivePlan>,
 }
 
+/// `migrate adopt`: publishes the migrated drive as a new generation and, with
+/// `workspace`, switches that local workspace (backup + export of local-only
+/// changes), printing the next steps.
 fn adopt(
     rclone: &str,
     pool: &str,
@@ -237,6 +247,7 @@ pub(crate) fn history_label(args: &MigrateArgs) -> (String, Option<String>) {
     (format!("pool-migrate-{op}"), Some(target))
 }
 
+/// Status of one migration from the cloud journal; errors if `id` is unknown.
 fn one_status(rclone: &str, pool: &str, id: &str) -> Result<MigrationStatus> {
     status::status(rclone, pool, Some(id))?
         .into_iter()
@@ -245,6 +256,9 @@ fn one_status(rclone: &str, pool: &str, id: &str) -> Result<MigrationStatus> {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// `migrate plan`: validates the given rates (or measures them with
+/// `--measure-speed`), creates and publishes the plan with its drive part and
+/// prints it as JSON or text with the next command.
 fn plan(
     rclone: &str,
     pool: &str,
@@ -320,6 +334,7 @@ fn plan(
     Ok(())
 }
 
+/// Prints the drive part of a plan: counts, transfer volume, ETA, quota and notes.
 fn print_drive_plan(drive: &DrivePlan) {
     let c = &drive.counts;
     println!(
@@ -362,6 +377,7 @@ fn print_drive_plan(drive: &DrivePlan) {
     }
 }
 
+/// Prints the drive part of a migration status and, when ready, the adopt command.
 fn print_drive_status(pool: &str, d: &DriveStatus) {
     let state = match (&d.adopted, d.ready, d.frozen) {
         (Some(_), _, _) => "adopted",
@@ -395,10 +411,12 @@ fn print_drive_status(pool: &str, d: &DriveStatus) {
     }
 }
 
+/// Formats an optional MiB/s rate with one decimal, or `unknown`.
 fn fmt_rate(rate: Option<f64>) -> String {
     rate.map_or_else(|| "unknown".into(), |r| format!("{r:.1}"))
 }
 
+/// Prints an archive migration plan: counts, transfer volume, ETA, quota and notes.
 fn print_plan(plan: &Plan) {
     let c = &plan.counts;
     println!("migration_id={}", plan.migration_id);
@@ -440,6 +458,7 @@ fn print_plan(plan: &Plan) {
     }
 }
 
+/// Prints the summary lines of one migration status.
 fn print_status(s: &MigrationStatus) {
     println!(
         "migration_id={} pool={} created_unix={} created_by={} state={}",
@@ -467,6 +486,7 @@ fn print_status(s: &MigrationStatus) {
     );
 }
 
+/// Prints unrecoverable files with their groups and missing shards, and the count on stderr.
 fn print_lost(lost: &[LostFile]) {
     if lost.is_empty() {
         println!("no unrecoverable files");

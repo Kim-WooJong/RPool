@@ -13,12 +13,21 @@ use crate::mount::history_bridge::{self as bridge, VirtualDrive};
 use crate::prelude::*;
 use crate::storage::reader::StorageReader;
 
+/// Cloud `CleanupIo` for one pool: metadata replicas of the newest drive
+/// generation hold the journal; deletion goes through the pool's storage.
+/// Opened by `cleanup::run_with`.
 pub(crate) struct LiveIo<'a> {
+    /// rclone executable.
     rclone: String,
+    /// Pool name.
     pool: String,
+    /// Saved pool definition (remotes, native crypt flag).
     policy: PoolDefinition,
+    /// Metadata replica stores of the newest generation.
     stores: Vec<marks::Remote>,
+    /// This PC's open drive, if the run comes from a mount.
     local: Option<&'a VirtualDrive>,
+    /// Worker name recorded in published records.
     worker: String,
     /// Seconds added to the clock (tests run "days later").
     pub(crate) clock_offset: u64,
@@ -27,6 +36,8 @@ pub(crate) struct LiveIo<'a> {
 }
 
 impl<'a> LiveIo<'a> {
+    /// Open the pool's newest drive generation; fails if the pool has no online
+    /// drive (pool-sync metadata) yet.
     pub(crate) fn open(rclone: &str, pool: &str, local: Option<&'a VirtualDrive>) -> Result<Self> {
         let policy = super::super::load::pool_definition(pool)?;
         let generation = super::super::load::generation(rclone, pool)?
@@ -45,6 +56,7 @@ impl<'a> LiveIo<'a> {
         })
     }
 
+    /// The replica stores as trait objects.
     fn stores(&self) -> Vec<&dyn MarkStore> {
         self.stores.iter().map(|s| s as _).collect()
     }
@@ -80,6 +92,9 @@ impl CleanupIo for LiveIo<'_> {
     }
 }
 
+/// Fresh read-only observation: every generation's history (with times and
+/// purge marks), this PC's drive, kept contents, and all migration reference
+/// sources. Unreadable sources are listed in `World::uncertain`.
 fn observe(io: &LiveIo<'_>) -> Result<World> {
     let now = io.now();
     let (rclone, pool, policy) = (io.rclone.as_str(), io.pool.as_str(), &io.policy);

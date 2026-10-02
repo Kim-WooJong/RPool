@@ -3,6 +3,10 @@
 use super::*;
 
 impl RcloneContext {
+    /// Runs `rclone <args>` and returns its stdout, bounded by `ADMIN_LIMIT`.
+    /// When `args` contain `-- <address>`, the call takes that remote's permit,
+    /// per-account flags and traffic metering. Used for `about`, `config dump`,
+    /// keepalive probes and doctor bundles.
     pub(crate) fn capture(
         &self,
         ctx: &OperationContext,
@@ -80,6 +84,8 @@ impl RcloneContext {
         result?;
         Ok(sink.bytes)
     }
+    /// Parsed `rclone config dump`; errors unless it is a JSON object. Contains
+    /// secrets, so callers must never log or copy its values.
     pub(crate) fn config_dump(&self, ctx: &OperationContext) -> Result<Value, StorageError> {
         let bytes = self.capture(ctx, &["config", "dump"])?;
         let value: Value =
@@ -89,6 +95,9 @@ impl RcloneContext {
         }
         Ok(value)
     }
+    /// Write gate for the rclone route: `destination` must name a configured
+    /// `crypt` remote with data encryption enabled, and no policy-changing env
+    /// override may be present. Called by `storage::writer` before writes.
     pub(crate) fn ensure_crypt(
         &self,
         ctx: &OperationContext,

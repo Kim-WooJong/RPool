@@ -5,6 +5,7 @@
 use super::bandwidth::Timetable;
 use crate::prelude::*;
 
+/// Format version of `account_limits.json`; other versions fail validation.
 pub(crate) const LIMITS_VERSION: u32 = 1;
 /// Google Drive: 750 GB uploaded (and copied) per user per 24 h.
 pub(crate) const DRIVE_DAILY_UPLOAD: u64 = 750_000_000_000;
@@ -17,16 +18,21 @@ pub(crate) const DEFAULT_KEEPALIVE_DAYS: u32 = 7;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// An account's own daily upload budget, overriding the backend default.
 pub(crate) enum DailyUpload {
     /// No daily budget, also for backends that have a default.
     Unlimited,
+    /// Budget in bytes per rolling 24 h (must be positive).
     Bytes(u64),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// One account's own limit overrides in `account_limits.json`; `None`
+/// fields fall back to backend defaults (see [`LimitsStore::effective`]).
 pub(crate) struct AccountLimits {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Own daily upload budget; `None` = backend default.
     pub daily_upload: Option<DailyUpload>,
     /// Timetable or rate in `--bwlimit` syntax for this account only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -49,11 +55,13 @@ pub(crate) struct AccountLimits {
 }
 
 impl AccountLimits {
+    /// Whether no override is set, so the entry can be dropped from the store.
     pub(crate) fn is_empty(&self) -> bool {
         self == &Self::default()
     }
 }
 
+/// Serde default for [`LimitsStore::keepalive_days`].
 fn default_keepalive_days() -> u32 {
     DEFAULT_KEEPALIVE_DAYS
 }
@@ -63,7 +71,10 @@ pub(crate) const MAX_UPLOADS: u32 = 256;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Contents of `account_limits.json`: global settings and per-account
+/// overrides. Loaded by `store::load_limits`, edited via `edit`, cached in `runtime::settings`.
 pub(crate) struct LimitsStore {
+    /// File format version, [`LIMITS_VERSION`].
     pub version: u32,
     /// Global timetable in `--bwlimit` syntax; `None` = unlimited.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -98,6 +109,8 @@ impl Default for LimitsStore {
 }
 
 impl LimitsStore {
+    /// Checks version, timetables, concurrency ranges, account names and
+    /// per-account values; called before every save and after every load.
     pub(crate) fn validate(&self) -> Result<()> {
         if self.version != LIMITS_VERSION {
             bail!("unsupported account limits version {}", self.version);
@@ -135,6 +148,7 @@ impl LimitsStore {
         }
         Ok(())
     }
+    /// The account's own overrides; a trailing `:` in `name` is ignored.
     pub(crate) fn account(&self, name: &str) -> Option<&AccountLimits> {
         self.accounts.get(name.trim_end_matches(':'))
     }
@@ -167,13 +181,21 @@ impl LimitsStore {
 /// What applies to one account after defaults.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Effective {
+    /// Daily upload budget in bytes; `None` = unlimited.
     pub daily_upload: Option<u64>,
+    /// The budget comes from the backend default, not an own setting.
     pub daily_upload_is_default: bool,
+    /// Account-only `--bwlimit` timetable text, if set.
     pub bwlimit: Option<String>,
+    /// Account-only rclone `--tpslimit`, if set.
     pub tpslimit: Option<f64>,
+    /// Own simultaneous upload cap; `None` = default.
     pub max_uploads: Option<u32>,
+    /// Own simultaneous download cap; `None` = default.
     pub max_downloads: Option<u32>,
+    /// Inactivity warning threshold in days; `None` = no warning.
     pub inactivity_warn_days: Option<u32>,
+    /// The threshold comes from the backend default, not an own setting.
     pub inactivity_is_default: bool,
 }
 

@@ -26,6 +26,9 @@ use crate::gui::theme;
 use eframe::egui;
 use state::Step;
 
+/// Migration wizard card on the Account changes section: polls background
+/// work and the watched task, refreshes the status list, shows the steps bar
+/// and the current step (plus existing migrations on the plan step).
 pub(crate) fn card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     let form = &mut state.migration;
     if form.pool.is_empty() {
@@ -72,6 +75,7 @@ pub(crate) fn card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     );
 }
 
+/// Numbered step strip "1. Plan › 2. Review › …" with the current step highlighted.
 fn steps_bar(ui: &mut egui::Ui, step: Step) {
     let p = theme::pal(ui);
     ui.horizontal_wrapped(|ui| {

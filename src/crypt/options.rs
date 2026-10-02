@@ -6,9 +6,13 @@ use anyhow::{anyhow, bail, Result};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// `filename_encryption` setting of a crypt remote.
 pub(crate) enum NameMode {
+    /// Encrypt each name segment with EME (rclone default).
     Standard,
+    /// Reversible character rotation; names remain readable in shape.
     Obfuscate,
+    /// No name encryption; only `suffix` is appended.
     Off,
 }
 
@@ -22,19 +26,26 @@ const IGNORED_KEYS: &[&str] = &[
 ];
 
 #[derive(Debug)]
+/// One crypt remote's settings, parsed from its `rclone config dump` section
+/// by `from_section` and turned into keys by `Cipher::new`.
 pub(crate) struct CryptConfig {
     /// The crypt remote's base (`remote =`), e.g. `box:archive`.
     pub(crate) remote: String,
+    /// Revealed (un-obscured) `password`; never empty.
     pub(crate) password: SensitiveString,
     /// `password2` (salt); empty means rclone's built-in default salt.
     pub(crate) salt: SensitiveString,
+    /// `filename_encryption` mode (default `standard`).
     pub(crate) name_mode: NameMode,
+    /// `directory_name_encryption` (default true).
     pub(crate) directory_name_encryption: bool,
+    /// `filename_encoding` (default base32).
     pub(crate) name_encoding: NameEncoding,
     /// File suffix used with `filename_encryption = off` (`None` for `suffix = none`).
     pub(crate) suffix: Option<String>,
 }
 
+/// Parse an optional boolean option (`true`/`1`/`false`/`0`); any other value is refused.
 fn boolean(section: &BTreeMap<String, String>, key: &str, default: bool) -> Result<bool> {
     match section.get(key).map(String::as_str) {
         None => Ok(default),

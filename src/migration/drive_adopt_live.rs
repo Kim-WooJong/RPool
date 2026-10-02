@@ -13,15 +13,22 @@ use super::plan::{list_all, PlanOptions, RcloneCloud};
 use crate::mount::drive_generation_write::{CloudSink, Sink};
 use crate::prelude::*;
 
+/// [`AdoptIo`] over rclone, created by `drive_adopt::adopt`.
 pub(crate) struct LiveAdopt<'a> {
+    /// rclone executable.
     rclone: &'a str,
+    /// The migration's cloud journal.
     journal: &'a Journal,
+    /// The migration plan (pool and target policy).
     plan: &'a Plan,
+    /// Run options for the catch-up run.
     options: &'a RunOptions,
+    /// The pool's drive in the cloud, read as the adoption source.
     source: CloudDrive,
 }
 
 impl<'a> LiveAdopt<'a> {
+    /// Binds the adoption to `plan`'s pool and target remotes.
     pub(crate) fn new(
         rclone: &'a str,
         journal: &'a Journal,

@@ -3,6 +3,7 @@
 use super::clock::format_local;
 use crate::gui::i18n::{relative_age_at, tr, trf};
 
+/// Seconds per day.
 const DAY: u64 = 86_400;
 
 /// When a trashed entry leaves the trash: "in 3 days", "today", "expired",

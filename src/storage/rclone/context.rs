@@ -3,6 +3,8 @@
 use super::*;
 
 impl RcloneContext {
+    /// Context for `executable` with `config`, snapshotting the current process
+    /// environment. The read daemon is disabled under `cfg(test)`.
     pub(crate) fn new(executable: PathBuf, config: ConfigSelection) -> Self {
         Self {
             executable,
@@ -24,6 +26,8 @@ impl RcloneContext {
             _ => name.to_owned(),
         })
     }
+    /// Starts a traffic op for `address`; uploads/downloads are also paced by the
+    /// global and (if it has a bandwidth limit) per-account pacer keys.
     pub(super) fn op(&self, address: &str, direction: traffic::Direction) -> traffic::Op {
         let op = traffic::Op::begin(self.meter_name(address).as_deref(), direction);
         let upload = match direction {
@@ -81,6 +85,7 @@ impl RcloneContext {
         };
         format!("{:?}|{:?}", self.executable, config)
     }
+    /// Context using the rclone config selected by the environment (no `--config`).
     pub(crate) fn inherited(executable: &str) -> Self {
         Self::new(executable.into(), ConfigSelection::Inherited)
     }
@@ -154,8 +159,11 @@ impl RcloneContext {
 /// Which concurrency cap a call runs under (for splitting `--tpslimit`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum TpsLane {
+    /// Shard upload; capped by the account's upload concurrency.
     Upload,
+    /// Shard download; capped by the account's download concurrency.
     Download,
+    /// Any other call (listing, about, admin); capped by the general cap.
     Other,
 }
 

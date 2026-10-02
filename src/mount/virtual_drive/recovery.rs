@@ -2,6 +2,7 @@
 
 use super::*;
 
+/// Fails unless `path` is a real directory (not a symlink).
 pub(super) fn checked_directory(path: &Path) -> Result<()> {
     let m = fs::symlink_metadata(path)?;
     if !m.is_dir() || m.file_type().is_symlink() {
@@ -10,6 +11,9 @@ pub(super) fn checked_directory(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Copies every spool image of the stopped workspace at `root` into
+/// `recovered-writes/` as `<id>.sealed.bin` (matches its intent record) or
+/// `<id>.partial.bin`, plus the intent JSON. Returns the written paths.
 pub(crate) fn recover_spool(root: &Path) -> Result<Vec<PathBuf>> {
     checked_directory(root)?;
     crate::mount::adapter::preflight_virtual(root)?;

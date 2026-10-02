@@ -1,8 +1,18 @@
+//! Maintenance › Integrity: choose an archive, see the last integrity snapshot,
+//! run a scrub (`rpool scrub`) and repair recoverable Reed-Solomon groups
+//! (`rpool repair`).
+
+/// Repair card: group selection and `rpool repair`.
 mod repair;
+/// Shard issues of the last snapshot.
 mod result;
+/// Scrub card: quick or full check and `rpool scrub`.
 mod scrub;
+/// `IntegrityForm`: inputs and the loaded snapshot.
 mod state;
+/// Last integrity result card.
 mod summary;
+/// Archive / manifest picker.
 mod target;
 
 pub(crate) use state::IntegrityForm;
@@ -14,6 +24,8 @@ use crate::gui::theme;
 use crate::gui::widgets::section_header;
 use eframe::egui;
 
+/// Draws the Integrity tab (target, summary, scrub, repair, issues and
+/// messages). Called by `maintenance::show`.
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
     theme::page_body(ui, "health-integrity", |ui| {
         section_header(

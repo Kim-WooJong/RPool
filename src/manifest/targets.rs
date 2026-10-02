@@ -1,6 +1,9 @@
+//! Which remotes hold or should hold a manifest's replicas.
+
 use crate::models::Manifest;
 use std::collections::BTreeSet;
 
+/// The distinct remotes that store at least one shard, sorted.
 pub(crate) fn manifest_remotes(manifest: &Manifest) -> Vec<String> {
     let mut remotes = BTreeSet::new();
     for shard in &manifest.shards {

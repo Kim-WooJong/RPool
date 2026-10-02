@@ -1,4 +1,4 @@
-//! Step 4: the files that cannot be recovered (list only; `pool migrate lost`).
+//! Step 5: the files that cannot be recovered (list only; `pool migrate lost`).
 use super::state::{short_id, Step};
 use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
@@ -7,6 +7,7 @@ use crate::migration::model::{GroupLoss, LostFile, MissingReason};
 use crate::presentation::format_bytes;
 use eframe::egui;
 
+/// English label of a missing-shard reason; used in the copied lost-file list.
 pub(crate) fn reason_label(reason: MissingReason) -> &'static str {
     match reason {
         MissingReason::RemoteRemoved => "account removed",
@@ -99,6 +100,8 @@ pub(crate) fn copy_text(files: &[LostFile]) -> String {
     out
 }
 
+/// Renders the lost-files step: the unrecoverable files of the active
+/// migration, "Copy list" and Back (to review or run).
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let files = state.migration.active_lost();
     let id = state.migration.active_id.clone().unwrap_or_default();

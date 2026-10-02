@@ -1,7 +1,9 @@
+//! `rpool inventory list`: lists every indexed archive.
 use crate::inventory::load_inventory;
 use crate::presentation::format_bytes;
 use anyhow::Result;
 
+/// Prints the whole inventory as JSON, or one summary line per archive.
 pub(crate) fn run(json: bool) -> Result<()> {
     let store = load_inventory()?;
     if json {

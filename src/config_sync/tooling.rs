@@ -1,3 +1,5 @@
+//! External tool helpers for export/import: locating the active rclone config
+//! and deriving an age recipient from an identity file.
 use super::age_vault::checked_identity_path;
 use super::secret_process::{execute, Output};
 use anyhow::{anyhow, bail, Result};
@@ -5,8 +7,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+/// Maximum output accepted from `rclone config file`.
 const MAX_TOOL_OUTPUT: usize = 64 * 1024;
 
+/// Canonical path of a config that must be a regular non-symlink file.
 fn regular_config(path: &Path) -> Result<PathBuf> {
     let meta =
         fs::symlink_metadata(path).map_err(|_| anyhow!("rclone configuration file is missing"))?;
@@ -17,6 +21,8 @@ fn regular_config(path: &Path) -> Result<PathBuf> {
         .map_err(|_| anyhow!("cannot resolve rclone configuration path"))
 }
 
+/// The rclone config to use: `explicit` if given, else the file reported by
+/// `rclone config file`; it must already exist as a regular file.
 pub(crate) fn resolve_rclone_config(executable: &Path, explicit: Option<&Path>) -> Result<PathBuf> {
     if let Some(path) = explicit {
         return regular_config(path);
@@ -35,6 +41,7 @@ pub(crate) fn resolve_rclone_config(executable: &Path, explicit: Option<&Path>) 
     regular_config(&candidate)
 }
 
+/// Takes the last non-empty line of `rclone config file` output as the path.
 fn parse_rclone_config_file_output(raw: &[u8]) -> Result<PathBuf> {
     let text = std::str::from_utf8(raw)
         .map_err(|_| anyhow!("rclone configuration path response is not UTF-8"))?;
@@ -47,6 +54,8 @@ fn parse_rclone_config_file_output(raw: &[u8]) -> Result<PathBuf> {
     Ok(PathBuf::from(candidate))
 }
 
+/// Public recipient of `identity` via `age-keygen -y`; the identity must be a
+/// file outside `artifact_root`. Used by import when `--age-recipient` is omitted.
 pub(crate) fn derive_age_recipient(
     age_keygen: &Path,
     identity: &Path,

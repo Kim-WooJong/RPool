@@ -156,6 +156,9 @@ pub(crate) fn op(command: &DriveCommands, now: u64) -> Result<Option<(Op, DriveT
     }))
 }
 
+/// Entry point of `rpool drive …`: retention is handled locally; every other
+/// command is dispatched (mount, workspace or cloud) and printed as text or
+/// JSON (`--json`). Notes go to stderr.
 pub(crate) fn run(rclone: &str, args: DriveArgs) -> Result<()> {
     if let DriveCommands::Retention(RetentionArgs { command }) = &args.command {
         return retention(command);
@@ -173,6 +176,8 @@ pub(crate) fn run(rclone: &str, args: DriveArgs) -> Result<()> {
     print_text(&op, value)
 }
 
+/// `rpool drive retention show|set`: update/load the pool's retention and
+/// cleanup settings and print them.
 fn retention(command: &RetentionCommands) -> Result<()> {
     let (value, json) = match command {
         RetentionCommands::Show { pool, json } => (super::retention::load(pool)?, *json),
@@ -227,10 +232,12 @@ fn retention(command: &RetentionCommands) -> Result<()> {
     Ok(())
 }
 
+/// A unix time for display, or "unknown time".
 fn when(time: Option<u64>) -> String {
     time.map_or_else(|| "unknown time".into(), super::time_arg::format)
 }
 
+/// Print a dispatched op's JSON result as human-readable text.
 fn print_text(op: &Op, value: Value) -> Result<()> {
     let bytes = crate::presentation::format_bytes;
     match op {
@@ -343,6 +350,7 @@ fn print_text(op: &Op, value: Value) -> Result<()> {
     Ok(())
 }
 
+/// Print a cleanup report as text (totals, accounts, next deletion, guard).
 fn print_cleanup(report: &CleanupReport) {
     let bytes = crate::presentation::format_bytes;
     let line = |label: &str, t: &CleanupTotals| {
