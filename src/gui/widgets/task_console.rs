@@ -66,15 +66,64 @@ pub(crate) fn task_console(ui: &mut egui::Ui, task: &mut TaskRunner, full: bool)
                 ui.label(egui::RichText::new(tr("No operations yet")).strong());
                 ui.label(egui::RichText::new(tr("Start an operation from Drive, Files, Storage or Health. Output appears here.")).weak());
             } else {
+                let dark = ui.visuals().dark_mode;
                 for line in task.logs() {
-                    let prefix = match line.kind {
-                        LogKind::Stdout => "OUT",
-                        LogKind::Stderr => "ERR",
-                        LogKind::System => "SYS",
-                    };
-                    ui.monospace(format!("[{prefix}] {}", line.text));
+                    let text = egui::RichText::new(format!(
+                        "[{}] {}",
+                        prefix(line.kind),
+                        line.text
+                    ))
+                    .monospace();
+                    ui.label(if is_error_line(&line.text) {
+                        text.color(crate::gui::theme::error_colors(dark).1)
+                    } else {
+                        text
+                    });
                 }
             }
         });
     toggle
+}
+
+/// `OUT` = the result on stdout, `LOG` = progress, status and errors on
+/// stderr (a stream, not a verdict), `SYS` = the GUI's own lines.
+fn prefix(kind: LogKind) -> &'static str {
+    match kind {
+        LogKind::Stdout => "OUT",
+        LogKind::Stderr => "LOG",
+        LogKind::System => "SYS",
+    }
+}
+
+/// A line that reports a failure, shown in the error color: `Error: …`,
+/// `… failed: …`, `FAILED`, `[ERROR]`.
+fn is_error_line(text: &str) -> bool {
+    let line = text.trim_start();
+    let lower = line.to_ascii_lowercase();
+    lower.starts_with("error")
+        || lower.starts_with("[error")
+        || line.contains("FAILED")
+        || lower.contains(": failed")
+        || lower.contains("failed:")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progress_on_stderr_is_a_log_line_not_an_error() {
+        assert_eq!(prefix(LogKind::Stderr), "LOG");
+        assert!(!is_error_line(
+            "Testing filen_1_crypt: (3/6): uploading 0/2 files, 57.1/128.0 MiB"
+        ));
+        assert!(!is_error_line("Tested koofr_1_crypt: (4/6): ok"));
+        assert!(is_error_line("Error: some accounts did not answer"));
+        assert!(is_error_line(
+            "Tested filen_1_crypt: (3/6): failed: upload: rclone rate limited"
+        ));
+        assert!(is_error_line(
+            "filen_1                  FAILED: rate limited"
+        ));
+    }
 }
