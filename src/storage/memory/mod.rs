@@ -226,6 +226,7 @@ impl StorageBackend for MemoryBackend {
             size,
             version: Some(version),
             hash_verified: false,
+            stored_hash: None,
         })
     }
 

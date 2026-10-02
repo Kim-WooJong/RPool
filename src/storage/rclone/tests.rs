@@ -197,7 +197,8 @@ fn disabled_malformed_override_and_conditional_writes_fail_closed() {
                 None,
                 &WriteOptions {
                     overwrite: false,
-                    expected_version: None
+                    expected_version: None,
+                    defer_hash_check: false,
                 }
             )
             .unwrap_err()

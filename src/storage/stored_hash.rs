@@ -100,6 +100,17 @@ impl StreamHash {
     }
 }
 
+/// What the provider must report for one uploaded object (deferred check).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Expected {
+    /// The object's address on the provider (the crypt's base remote).
+    pub(crate) address: String,
+    pub(crate) kind: String,
+    pub(crate) size: u64,
+    /// Lower-case hex.
+    pub(crate) value: String,
+}
+
 /// `read` passes the bytes through and hashes them.
 pub(crate) struct Hashing<'a> {
     pub(crate) inner: &'a mut dyn std::io::Read,

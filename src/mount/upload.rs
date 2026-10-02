@@ -172,13 +172,8 @@ pub(super) fn upload_eligible_tracked(
         Some(pool.into()),
     )?;
     let path = append_suffix(&staged, ".rpool.json");
-    // put read every shard back already; this re-check only stats objects it
-    // proved in this process and fully reads anything else.
-    crate::commands::reverify_with_storage(
-        &crate::storage::reader::StorageReader::rclone(rclone),
-        &path.to_string_lossy(),
-        policy.workers,
-    )?;
+    // put proved every shard before writing this manifest (provider hash or
+    // full readback, see storage::upload_session), so no second pass here.
     let manifest: Manifest = read_json(&path)?;
     let publication =
         crate::manifest::publication_remotes(&manifest, &status.eligible, policy.placement);

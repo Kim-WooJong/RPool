@@ -84,6 +84,10 @@ pub(crate) struct WriteOptions {
     pub(crate) overwrite: bool,
     /// Conditional update: only write if the current version matches.
     pub(crate) expected_version: Option<String>,
+    /// Hash the stored bytes but leave the provider check to the caller, who
+    /// checks a whole archive with one listing per account
+    /// (`WriteReceipt::stored_hash`).
+    pub(crate) defer_hash_check: bool,
 }
 
 impl Default for WriteOptions {
@@ -91,6 +95,7 @@ impl Default for WriteOptions {
         Self {
             overwrite: true,
             expected_version: None,
+            defer_hash_check: false,
         }
     }
 }
@@ -102,6 +107,8 @@ pub(crate) struct WriteReceipt {
     /// The provider reported the hash of exactly the bytes sent, so the
     /// object need not be read back to prove it was stored intact.
     pub(crate) hash_verified: bool,
+    /// With `WriteOptions::defer_hash_check`: what the provider must report.
+    pub(crate) stored_hash: Option<crate::storage::stored_hash::Expected>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -37,12 +37,15 @@ fn full_readback_forced() -> bool {
 pub(crate) struct StorageWriter {
     reader: StorageReader,
     native: Option<NativeCrypt>,
+    /// Set by `put` for one archive upload (`upload_session`).
+    pub(super) session: Mutex<Option<super::upload_session::UploadSession>>,
 }
 impl StorageWriter {
     pub(crate) fn rclone(executable: &str) -> Self {
         Self {
             reader: StorageReader::rclone(executable),
             native: None,
+            session: Mutex::new(None),
         }
     }
     /// Writer for a pool: native crypt writes when the pool opts in.
@@ -56,6 +59,7 @@ impl StorageWriter {
         Self {
             reader: StorageReader::with_rclone_context(context.clone()),
             native: Some(NativeCrypt::new(context)),
+            session: Mutex::new(None),
         }
     }
     #[cfg(test)]
@@ -63,6 +67,7 @@ impl StorageWriter {
         Self {
             reader,
             native: None,
+            session: Mutex::new(None),
         }
     }
     #[cfg(test)]
@@ -121,7 +126,10 @@ impl StorageWriter {
         {
             bail!("source content changed before upload");
         }
-        if self.reusable(shard)? {
+        let (fresh, defer) = self.session_mode();
+        // A first attempt at a fresh archive cannot find its own objects, so
+        // the probe is skipped; resumed uploads still reuse verified ones.
+        if !fresh && self.reusable(shard)? {
             return Ok(());
         }
         // The object is about to be replaced: its new readback is always full.
@@ -136,18 +144,23 @@ impl StorageWriter {
         };
         for attempt in 1..=retries.max(1) {
             let mut input = File::open(&staged)?;
-            match backend.write(
-                self.reader.operation_context(),
-                &key,
-                &mut input,
-                &WriteOptions::default(),
-            ) {
+            let options = WriteOptions {
+                defer_hash_check: defer && self.native.is_some() && !full_readback_forced(),
+                ..WriteOptions::default()
+            };
+            match backend.write(self.reader.operation_context(), &key, &mut input, &options) {
                 Ok(receipt) => {
                     if receipt.size != shard.size || input.stream_position()? != shard.size {
                         return Err(StorageError::unknown_outcome(
                             "write receipt/source consumption mismatch",
                         )
                         .into());
+                    }
+                    if let Some(expected) = receipt.stored_hash {
+                        // Checked with the rest of the archive (one listing
+                        // per account) when the session finishes.
+                        self.defer_check(shard.clone(), expected);
+                        return Ok(());
                     }
                     // Readback failure never restarts the mutation in this call.
                     if receipt.hash_verified && !full_readback_forced() {

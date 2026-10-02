@@ -17,6 +17,7 @@ mod limit;
 mod pacer;
 mod process;
 mod stall;
+mod stored_check;
 #[cfg(test)]
 #[path = "stored_hash_rclone_tests.rs"]
 mod stored_hash_rclone_tests;

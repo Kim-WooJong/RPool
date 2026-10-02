@@ -97,14 +97,24 @@ impl RcloneContext {
         }
         op.finish(&result);
         let size = result?;
-        let hash_verified = match hashing.hash {
-            Some(hash) => self.stored_hash_matches(ctx, address, size, hash),
-            None => false,
+        let (hash_verified, stored_hash) = match hashing.hash {
+            Some(hash) if options.defer_hash_check => (
+                false,
+                Some(crate::storage::stored_hash::Expected {
+                    address: address.to_owned(),
+                    kind: hash.kind().to_owned(),
+                    size,
+                    value: hash.finish(),
+                }),
+            ),
+            Some(hash) => (self.stored_hash_matches(ctx, address, size, hash), None),
+            None => (false, None),
         };
         Ok(WriteReceipt {
             size,
             version: None,
             hash_verified,
+            stored_hash,
         })
     }
     /// Hash kinds the provider behind `address` reports, cached per remote;

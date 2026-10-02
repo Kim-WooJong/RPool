@@ -311,6 +311,7 @@ fn inner_faults_propagate_with_their_meaning() {
     let create = WriteOptions {
         overwrite: false,
         expected_version: None,
+        defer_hash_check: false,
     };
     assert_eq!(
         crypt

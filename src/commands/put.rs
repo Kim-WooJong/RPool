@@ -153,6 +153,8 @@ pub(crate) fn put_with_storage(
         warn_plan_failure_domains(&plan, coding);
     }
 
+    // No journal yet: nothing of this archive was written by an earlier try.
+    let fresh = !journal_path.exists();
     let mut upload_journal = load_or_create_upload_journal(&journal_path, &plan)?;
     let invalidated = validate_upload_journal(storage, &snapshot_path, &plan, &mut upload_journal)?;
     if invalidated > 0 {
@@ -202,7 +204,8 @@ pub(crate) fn put_with_storage(
     // (`transfer_budget`); a plain `put` has none and is unchanged.
     let budget = crate::storage::transfer_budget::current();
     let slot = || budget.as_deref().map(|b| b.acquire());
-    scheduler::run(
+    storage.begin_upload_session(fresh);
+    let run = scheduler::run(
         jobs,
         workers,
         retries,
@@ -277,7 +280,28 @@ pub(crate) fn put_with_storage(
             }
             Ok(more)
         },
-    )?;
+    );
+    // Provider hashes of the whole archive, one listing per account.
+    let unproven = storage.finish_upload_session();
+    run?;
+    if !unproven.is_empty() {
+        // Their journal entries would let a retry skip them: drop those so
+        // the next attempt uploads them again.
+        let mut journal = shared_journal.lock().expect("upload journal poisoned");
+        for shard in &unproven {
+            journal.completed.remove(&shard.index);
+        }
+        save_json_atomic(&journal_path, &*journal)?;
+        bail!(
+            "{} uploaded shard(s) could not be verified ({}); they will be uploaded again",
+            unproven.len(),
+            unproven
+                .iter()
+                .map(|s| s.object.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
     let mut shards: Vec<Shard> = shared_journal
         .lock()
         .expect("upload journal poisoned")

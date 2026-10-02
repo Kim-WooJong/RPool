@@ -127,7 +127,9 @@ fn native_pool_writes_are_credited_to_the_crypt_remote_and_monitored() {
     assert_eq!(t.sent_bytes, 100_000 + 32 + 2 * 16);
     assert_eq!(t.acked_bytes, t.sent_bytes);
     assert_eq!(t.verified_bytes, 100_000);
-    assert!(t.received_bytes >= 100_000, "readback counted: {t:?}");
+    // The local base reports a hash of the stored ciphertext, so the upload
+    // is proven without reading it back: only metadata is received.
+    assert!(t.received_bytes < 100_000, "no readback expected: {t:?}");
     assert_eq!(t.failed_ops, 0);
     assert!(t.ok_ops >= 3, "{t:?}");
     assert_eq!(snapshot("trafficnat_base"), traffic::Traffic::default());

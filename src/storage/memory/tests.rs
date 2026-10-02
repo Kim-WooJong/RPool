@@ -136,6 +136,7 @@ fn conditional_create_update_and_exhaustion_preserve_data() {
     let create = WriteOptions {
         overwrite: false,
         expected_version: None,
+        defer_hash_check: false,
     };
     let first = memory
         .write(&ctx, &key(), &mut Cursor::new(b"one"), &create)
@@ -150,6 +151,7 @@ fn conditional_create_update_and_exhaustion_preserve_data() {
     let update = WriteOptions {
         overwrite: true,
         expected_version: first.version,
+        defer_hash_check: false,
     };
     memory
         .write(&ctx, &key(), &mut Cursor::new(b"two"), &update)
@@ -164,6 +166,7 @@ fn conditional_create_update_and_exhaustion_preserve_data() {
     let invalid = WriteOptions {
         overwrite: false,
         expected_version: Some("1".into()),
+        defer_hash_check: false,
     };
     assert_eq!(
         memory
@@ -226,6 +229,7 @@ fn competing_cas_is_checked_at_commit() {
                 &WriteOptions {
                     overwrite: true,
                     expected_version,
+                    defer_hash_check: false,
                 },
             )
         }));

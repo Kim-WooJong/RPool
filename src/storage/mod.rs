@@ -17,6 +17,7 @@ pub(crate) mod source;
 pub(crate) mod stored_hash;
 pub(crate) mod traits;
 pub(crate) mod transfer_budget;
+pub(crate) mod upload_session;
 pub(crate) mod verified;
 pub(crate) mod writer;
 
