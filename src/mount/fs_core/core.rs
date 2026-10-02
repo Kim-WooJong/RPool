@@ -1,20 +1,51 @@
 //! `FsCore`: open, read, write, truncate and release over shared generations.
 //!
-//! Lock order: `namespace` → one generation slot → drive locks. The id, handle
-//! and slot-map locks are leaves: never lock a slot while holding one of them.
-//! A seal's fsync and full hash (`prehash`) run with none of these locks held,
-//! so a large file's close never blocks lookups, listings or namespace changes.
+//! Lock order: one slot's start lock → `namespace` → one generation slot →
+//! drive locks. The id, handle, slot-map and slot-summary locks are leaves:
+//! never lock a slot while holding one of them. A seal's fsync and full hash
+//! (`prehash`) and a new generation's baseline copy (`mutate`) run with no
+//! namespace or generation lock held, so a large file's close or first write
+//! never blocks lookups, listings or namespace changes.
 use super::error::{FsError, FsResult};
 use super::generation::Generation;
 use super::handles::{Handle, HandleId, HandleTable, View};
 use super::identity::{FileId, IdTable};
+use super::slot::Slot;
 use crate::mount::namespace::valid_path;
 use crate::mount::native_ancestry::Ancestry;
 use crate::mount::virtual_drive::{Revision, VirtualDrive};
 use crate::prelude::*;
 use std::sync::RwLock;
 
-pub(super) type Slot = Arc<Mutex<Option<Generation>>>;
+/// Failed unlocked baseline copies (raced by a rename, delete or new base)
+/// before a start copies under the locks, which always completes.
+const UNLOCKED_STARTS: usize = 3;
+
+/// What a new generation starts from; equal plans start equal generations.
+struct Plan {
+    path: String,
+    base: Option<Revision>,
+    ancestry: Option<Ancestry>,
+}
+impl Plan {
+    fn copies(&self, keep: u64) -> bool {
+        self.base.as_ref().is_some_and(|b| keep.min(b.size()) > 0)
+    }
+    fn same(&self, other: &Plan) -> bool {
+        self.path == other.path
+            && self.base.as_ref().map(Revision::id) == other.base.as_ref().map(Revision::id)
+            && self.ancestry == other.ancestry
+    }
+    fn start(&self, drive: &VirtualDrive, keep: u64) -> Result<Generation> {
+        Generation::start(
+            drive,
+            &self.path,
+            self.base.as_ref(),
+            keep,
+            self.ancestry.as_ref(),
+        )
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Access {
@@ -114,8 +145,7 @@ impl FsCore {
     pub(super) fn unsealed_size(&self, file: FileId) -> FsResult<Option<(u64, String)>> {
         let slot = lock(&self.slots)?.get(&file).cloned();
         let Some(slot) = slot else { return Ok(None) };
-        let generation = lock(&slot)?;
-        Ok(generation.as_ref().map(|g| (g.size, g.intent.id.clone())))
+        slot.summary()
     }
 
     pub(crate) fn open(
@@ -162,7 +192,7 @@ impl FsCore {
         };
         if write && (truncate || !exists) {
             let slot = self.slot(file)?;
-            let mut generation = lock(&slot)?;
+            let mut generation = slot.lock()?;
             match generation.as_mut() {
                 Some(g) => g.truncate(&self.drive, 0)?,
                 None => {
@@ -206,7 +236,7 @@ impl FsCore {
         };
         let slot = lock(&self.slots)?.get(&handle.file).cloned();
         if let Some(slot) = slot {
-            if let Some(generation) = lock(&slot)?.as_mut() {
+            if let Some(generation) = slot.lock()?.as_mut() {
                 return Ok(generation.read_at(offset, count)?);
             }
         }
@@ -257,50 +287,102 @@ impl FsCore {
     }
 
     /// Runs `change` on the file's generation, starting one with the first
-    /// `keep` bytes of the file's current revision when there is none. The
-    /// revision is read under the slot lock, after any concurrent seal.
+    /// `keep` bytes of the file's current revision when there is none.
+    ///
+    /// The baseline copy of a new generation runs holding only this file's
+    /// start lock, so other files' operations proceed (same-file writers wait
+    /// on the start lock). The prepared generation is installed only if,
+    /// under the locks again, nothing changed what it would start from (a
+    /// rename, delete, new revision or concurrent truncating open); otherwise
+    /// it is discarded and the start is planned again.
     fn mutate(
         &self,
         handle: HandleId,
         keep: u64,
         change: impl FnOnce(&mut Generation, &VirtualDrive) -> Result<()>,
     ) -> FsResult<()> {
-        let _namespace = self.shared()?;
         let file = lock(&self.handles)?.get(handle)?.file;
-        let slot = self.slot(file)?;
-        let mut generation = lock(&slot)?;
-        // Re-read under the slot lock: a concurrent seal has finished rebasing.
+        let mut change = Some(change);
+        let mut apply = |generation: &mut Generation| -> FsResult<()> {
+            let change = change.take().expect("a mutation applies once");
+            Ok(change(generation, &self.drive)?)
+        };
+        let mut attempts = 0;
+        loop {
+            let slot = self.slot(file)?;
+            let _starting = slot.starting()?;
+            // While started, the slot cannot be dropped (`SlotCell::idle`).
+            if !Arc::ptr_eq(&slot, &self.slot(file)?) {
+                continue;
+            }
+            let plan = {
+                let _namespace = self.shared()?;
+                let mut generation = slot.lock()?;
+                // Re-read under the slot lock: a concurrent seal has finished rebasing.
+                let handle = self.writer(handle)?;
+                if let Some(generation) = generation.as_mut() {
+                    return apply(generation);
+                }
+                let plan = self.plan(file, &handle, keep)?;
+                if !plan.copies(keep) || attempts >= UNLOCKED_STARTS {
+                    let generation = generation.insert(plan.start(&self.drive, keep)?);
+                    return apply(generation);
+                }
+                plan
+            };
+            // The slow part, holding only the start lock.
+            let prepared = plan.start(&self.drive, keep)?;
+            let stale = {
+                let _namespace = self.shared()?;
+                let mut generation = slot.lock()?;
+                let current = generation.is_none()
+                    && self
+                        .writer(handle)
+                        .and_then(|h| self.plan(file, &h, keep))
+                        .is_ok_and(|now| now.same(&plan));
+                if current {
+                    let generation = generation.insert(prepared);
+                    return apply(generation);
+                }
+                prepared
+            };
+            // Never acknowledged; the next round reports any lasting error.
+            let _ = stale.discard(&self.drive);
+            attempts += 1;
+        }
+    }
+    /// The handle, which must be a write handle.
+    fn writer(&self, handle: HandleId) -> FsResult<Handle> {
         let handle = lock(&self.handles)?.get(handle)?;
         if !handle.write {
             return Err(FsError::ReadOnly);
         }
-        if generation.is_none() {
-            let path = lock(&self.ids)?.path(file).ok_or(FsError::Stale)?;
-            let (base, ancestry) = if self.peer {
-                // The bytes kept and the recorded ancestry are the same revision.
-                let base = match &handle.view {
-                    View::Attached { base } => base.clone(),
-                    View::Snapshot(revision) => Some(revision.clone()),
-                };
-                if keep > 0 {
-                    let ancestry = base.as_ref().map(Ancestry::of).unwrap_or(Ancestry::Default);
-                    (base, Some(ancestry))
-                } else {
-                    (self.visible(&path)?, Some(self.read_ancestry(file, &path)?))
-                }
-            } else {
-                (self.visible(&path)?, None)
+        Ok(handle)
+    }
+    /// What a new generation of `file` starts from, for a change keeping the
+    /// first `keep` bytes.
+    fn plan(&self, file: FileId, handle: &Handle, keep: u64) -> FsResult<Plan> {
+        let path = lock(&self.ids)?.path(file).ok_or(FsError::Stale)?;
+        let (base, ancestry) = if self.peer {
+            // The bytes kept and the recorded ancestry are the same revision.
+            let base = match &handle.view {
+                View::Attached { base } => base.clone(),
+                View::Snapshot(revision) => Some(revision.clone()),
             };
-            *generation = Some(Generation::start(
-                &self.drive,
-                &path,
-                base.as_ref(),
-                keep,
-                ancestry.as_ref(),
-            )?);
-        }
-        let generation = generation.as_mut().expect("generation started above");
-        Ok(change(generation, &self.drive)?)
+            if keep > 0 {
+                let ancestry = base.as_ref().map(Ancestry::of).unwrap_or(Ancestry::Default);
+                (base, Some(ancestry))
+            } else {
+                (self.visible(&path)?, Some(self.read_ancestry(file, &path)?))
+            }
+        } else {
+            (self.visible(&path)?, None)
+        };
+        Ok(Plan {
+            path,
+            base,
+            ancestry,
+        })
     }
 
     /// Writes all of `bytes` or fails. As with POSIX, a failed write may leave
@@ -357,10 +439,7 @@ impl FsCore {
         }
         if !remaining {
             let mut slots = lock(&self.slots)?;
-            if slots
-                .get(&released.file)
-                .is_some_and(|slot| slot.try_lock().is_ok_and(|g| g.is_none()))
-            {
+            if slots.get(&released.file).is_some_and(|slot| slot.idle()) {
                 slots.remove(&released.file);
             }
         }
@@ -378,14 +457,15 @@ impl FsCore {
                 // generation; its spool stays on disk for recovery.
                 let slot = lock(&self.slots)?.get(&file).cloned();
                 if let Some(slot) = slot {
-                    drop(lock(&slot)?.take());
+                    drop(slot.lock()?.take());
                 }
             }
             return sealed;
         }
         let slot = lock(&self.slots)?.get(&file).cloned();
         if let Some(slot) = slot {
-            if let Some(generation) = lock(&slot)?.take() {
+            let taken = slot.lock()?.take();
+            if let Some(generation) = taken {
                 generation.discard(&self.drive)?;
             }
         }

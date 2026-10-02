@@ -6,6 +6,10 @@
 //! hashes with no lock held and caches the result here, keyed by `version`;
 //! `seal` then only records the intent. Any write or truncate bumps `version`,
 //! which makes a cached hash stale, and `seal` falls back to hashing itself.
+//!
+//! Starting a generation copies (or clones, see `clone`) the kept baseline,
+//! which can be the whole file. The core runs `start` holding only the file's
+//! slot start lock (see `slot`), never the namespace or generation locks.
 use crate::mount::namespace::Intent;
 use crate::mount::native_ancestry::Ancestry;
 use crate::mount::virtual_drive::{Revision, VirtualDrive};
@@ -61,16 +65,36 @@ impl Generation {
         visible: Option<&Revision>,
         keep: u64,
     ) -> Result<Self> {
-        let file = OpenOptions::new()
-            .create_new(true)
-            .read(true)
-            .write(true)
-            .open(drive.spool_path(&intent));
-        let file = match file {
-            Ok(file) => file,
+        let end = visible.map_or(0, |revision| keep.min(revision.size()));
+        let target = drive.spool_path(&intent);
+        #[cfg(test)]
+        if end > 0 {
+            baseline_hook::run(&intent.path);
+        }
+        // A local sealed image is cloned copy-on-write where the filesystem
+        // can; anything else (and a failed clone) is copied below.
+        let cloned = match visible {
+            Some(Revision::Local { path, size, .. }) if end > 0 => {
+                super::clone::clone_image(drive, path, &target, *size)
+            }
+            _ => Ok(None),
+        };
+        let file = match cloned {
+            Ok(Some(file)) => Ok((file, true)),
+            Ok(None) => OpenOptions::new()
+                .create_new(true)
+                .read(true)
+                .write(true)
+                .open(&target)
+                .map(|file| (file, false))
+                .map_err(Into::into),
+            Err(error) => Err(error),
+        };
+        let (file, cloned) = match file {
+            Ok(opened) => opened,
             Err(error) => {
                 let _ = drive.discard_unsealed(&intent);
-                return Err(error.into());
+                return Err(error);
             }
         };
         let mut generation = Self {
@@ -81,21 +105,27 @@ impl Generation {
             version: 0,
             hashed: None,
         };
-        if let Some(revision) = visible {
-            if let Err(error) = generation.copy_baseline(drive, revision, keep) {
-                let _ = generation.discard(drive);
-                return Err(error);
-            }
+        let baseline = match visible {
+            Some(_) if cloned => generation.trim_clone(drive, end),
+            Some(revision) => generation.copy_baseline(drive, revision, end),
+            None => Ok(()),
+        };
+        if let Err(error) = baseline {
+            let _ = generation.discard(drive);
+            return Err(error);
         }
         Ok(generation)
     }
-    fn copy_baseline(
-        &mut self,
-        drive: &VirtualDrive,
-        revision: &Revision,
-        keep: u64,
-    ) -> Result<()> {
-        let end = keep.min(revision.size());
+    /// A clone holds the whole revision; keep only its first `end` bytes.
+    fn trim_clone(&mut self, drive: &VirtualDrive, end: u64) -> Result<()> {
+        self.version += 1;
+        self.size = self.file.metadata()?.len();
+        if end < self.size {
+            self.truncate(drive, end)?;
+        }
+        Ok(())
+    }
+    fn copy_baseline(&mut self, drive: &VirtualDrive, revision: &Revision, end: u64) -> Result<()> {
         let mut offset = 0;
         while offset < end {
             let count = ((end - offset) as usize).min(COPY_CHUNK);
@@ -167,5 +197,30 @@ impl Generation {
         let Self { intent, file, .. } = self;
         drop(file);
         drive.discard_unsealed(&intent)
+    }
+}
+
+/// Test hook run on the starting thread just before a generation copies (or
+/// clones) its baseline, with exactly the locks a baseline copy holds.
+#[cfg(test)]
+pub(super) mod baseline_hook {
+    use std::cell::RefCell;
+    type Hook = Box<dyn FnMut(&str)>;
+    thread_local! {
+        static HOOK: RefCell<Option<Hook>> = RefCell::new(None);
+    }
+    /// Install `hook` (given the file's path) for starts on this thread.
+    pub(crate) fn set(hook: impl FnMut(&str) + 'static) {
+        HOOK.with(|h| *h.borrow_mut() = Some(Box::new(hook)));
+    }
+    pub(crate) fn clear() {
+        HOOK.with(|h| *h.borrow_mut() = None);
+    }
+    pub(super) fn run(path: &str) {
+        HOOK.with(|h| {
+            if let Some(hook) = h.borrow_mut().as_mut() {
+                hook(path);
+            }
+        });
     }
 }

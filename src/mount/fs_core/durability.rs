@@ -44,12 +44,12 @@ impl FsCore {
         }
         let slot = lock(&self.slots)?.get(&file).cloned();
         let Some(slot) = slot else { return Ok(()) };
-        let (intent, version) = match lock(&slot)?.as_ref() {
+        let (intent, version) = match slot.lock()?.as_ref() {
             Some(g) if !g.hashed() => (g.intent.clone(), g.version),
             _ => return Ok(()),
         };
         let (size, hash) = self.drive.hash_spool(&intent)?;
-        if let Some(g) = lock(&slot)?.as_mut() {
+        if let Some(g) = slot.lock()?.as_mut() {
             // A write meanwhile bumped the version; `seal_file` then re-hashes.
             if g.intent.id == intent.id {
                 g.set_hashed(version, size, hash);
@@ -63,7 +63,7 @@ impl FsCore {
     pub(super) fn seal_file(&self, file: FileId) -> FsResult<()> {
         let slot = lock(&self.slots)?.get(&file).cloned();
         let Some(slot) = slot else { return Ok(()) };
-        let mut generation = lock(&slot)?;
+        let mut generation = slot.lock()?;
         let Some(current) = generation.as_ref() else {
             return Ok(());
         };

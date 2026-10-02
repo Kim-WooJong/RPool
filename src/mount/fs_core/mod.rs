@@ -17,6 +17,7 @@
     not(test),
     allow(dead_code, reason = "each OS builds only its own native frontend")
 )]
+mod clone;
 mod core;
 #[cfg(test)]
 mod crash_tests;
@@ -30,6 +31,9 @@ mod namespace_ops;
 mod peer_tests;
 #[cfg(test)]
 mod seal_tests;
+mod slot;
+#[cfg(test)]
+mod start_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
