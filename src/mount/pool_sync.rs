@@ -75,18 +75,46 @@ pub(crate) fn list_unseen(stores: &[&dyn EventStore], known: &BTreeSet<String>) 
     if stores.is_empty() {
         bail!("metadata destinations missing");
     }
+    // Lazy: an unreachable replica stops the listing before the next one.
+    merge_unseen(stores.iter().map(|store| store.unseen(known)), known)
+}
+/// [`list_unseen`] with every replica listed at the same time.
+pub(crate) fn list_unseen_parallel(
+    stores: &[&(dyn EventStore + Sync)],
+    known: &BTreeSet<String>,
+) -> Result<Unseen> {
+    if stores.is_empty() {
+        bail!("metadata destinations missing");
+    }
+    let listings: Vec<_> = std::thread::scope(|scope| {
+        let jobs: Vec<_> = stores
+            .iter()
+            .map(|store| scope.spawn(move || store.unseen(known)))
+            .collect();
+        jobs.into_iter()
+            .map(|job| {
+                job.join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect()
+    });
+    merge_unseen(listings, known)
+}
+/// Merges per-replica listings in replica order (the first replica listing a
+/// record serves it).
+fn merge_unseen(
+    listings: impl IntoIterator<Item = Result<Vec<(String, u64)>>>,
+    known: &BTreeSet<String>,
+) -> Result<Unseen> {
     let gate = super::metadata_checkpoint_model::Family::v6().gate_id();
     let mut result = Unseen {
         entries: BTreeMap::new(),
         gate: false,
     };
     let mut bytes = 0u64;
-    for (index, store) in stores.iter().enumerate() {
+    for (index, listing) in listings.into_iter().enumerate() {
         // List every configured replica. An outage is an error, never an empty namespace.
-        for (id, size) in store
-            .unseen(known)
-            .context("Pool metadata read failed; keep the workspace")?
-        {
+        for (id, size) in listing.context("Pool metadata read failed; keep the workspace")? {
             if id == gate {
                 result.gate = true;
                 continue;

@@ -72,6 +72,13 @@ pub(crate) fn account_usage_path() -> Result<PathBuf> {
     Ok(app_config_dir()?.join("account_usage.json"))
 }
 
+/// Machine-local Library cache: validated drive metadata per pool, so the
+/// Library lists a pool that is not mounted here at once and refreshes it
+/// incrementally. Safe to delete at any time.
+pub(crate) fn library_cache_dir() -> Result<PathBuf> {
+    Ok(app_config_dir()?.join("library-cache"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

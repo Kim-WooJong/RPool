@@ -496,3 +496,80 @@ fn config_defaults_and_validation() {
     );
     assert!(serde_json::from_str::<Config>(r#"{"unknown": 1}"#).is_err());
 }
+
+/// The Library's incremental read over the fakes: like `bootstrap`, from a
+/// snapshot.
+fn browse_refresh(
+    fakes: &[Fake],
+    prior: super::metadata_browse::Snapshot,
+) -> Result<super::metadata_browse::Outcome> {
+    let stores: Vec<&dyn EventStore> = fakes.iter().map(|f| &f.events as _).collect();
+    let listed = list_unseen(&stores, &BTreeSet::new())?;
+    let read = |unseen: &super::pool_sync::Unseen, skip: &dyn Fn(&str) -> bool| {
+        read_unseen(&stores, unseen, skip)
+    };
+    super::metadata_browse::refresh_with(&listed, &replicas(fakes), prior, &read)
+}
+
+#[test]
+fn library_snapshot_reads_only_new_records_and_survives_deletion() {
+    let fakes = [Fake::default(), Fake::default()];
+    add(&fakes, 0..20);
+    let reads = |fakes: &[Fake]| fakes.iter().map(Fake::reads).sum::<usize>();
+    let first = browse_refresh(&fakes, Default::default()).unwrap();
+    assert_eq!(first.snapshot.events.len(), 20);
+    assert!(first.full && first.changed);
+    // Unchanged cloud: listing only, nothing read, nothing to save.
+    let before = reads(&fakes);
+    let same = browse_refresh(&fakes, first.snapshot.clone()).unwrap();
+    assert_eq!(reads(&fakes), before);
+    assert!(!same.changed && !same.full);
+    // New uploads: only they are read.
+    add(&fakes, 20..23);
+    let before = reads(&fakes);
+    let newer = browse_refresh(&fakes, same.snapshot).unwrap();
+    assert_eq!(reads(&fakes) - before, 3);
+    assert_eq!(newer.snapshot.events.len(), 23);
+    assert!(newer.changed && !newer.full);
+    // Checkpoint, gate and deletion of covered records: the snapshot stays
+    // usable and agrees with a fresh PC.
+    let mut cache = Cache::default();
+    run(&fakes, &mut cache, T0, false, false);
+    enable_gate(&Family::v6(), &replicas(&fakes)).unwrap();
+    run(&fakes, &mut cache, T0, false, false);
+    let grace = Config::default().grace_seconds();
+    add(&fakes, 23..25);
+    assert!(run(&fakes, &mut cache, T0 + grace, false, false).deleted > 0);
+    let after = browse_refresh(&fakes, newer.snapshot).unwrap();
+    assert!(!after.full);
+    let (fresh, _) = bootstrap(&fakes).unwrap();
+    assert_eq!(
+        after.snapshot.events.keys().collect::<Vec<_>>(),
+        fresh.keys().collect::<Vec<_>>()
+    );
+    assert_eq!(after.snapshot.events.len(), 25);
+    // The saved checkpoint state is reused: no chunk is read again.
+    let chunk_reads = |fakes: &[Fake]| fakes.iter().map(|f| f.chunks.reads.get()).sum::<usize>();
+    let before = chunk_reads(&fakes);
+    let again = browse_refresh(&fakes, after.snapshot.clone()).unwrap();
+    assert_eq!(chunk_reads(&fakes), before);
+    assert!(!again.changed);
+    super::metadata_browse::Snapshot::validated(again.snapshot).unwrap();
+}
+
+#[test]
+fn library_snapshot_of_a_replaced_namespace_is_discarded() {
+    let old = [Fake::default()];
+    add(&old, 0..5);
+    let snapshot = browse_refresh(&old, Default::default()).unwrap().snapshot;
+    // Same place, different records (pool recreated): cached ones vanished.
+    let new = [Fake::default()];
+    add(&new, 5..7);
+    let outcome = browse_refresh(&new, snapshot).unwrap();
+    assert!(outcome.full);
+    assert_eq!(outcome.snapshot.events.len(), 2);
+    assert!(!outcome.snapshot.events.contains_key(&event(0).0));
+    // An unreachable replica is an error, never an empty or stale result.
+    new[0].events.fail.set(true);
+    assert!(browse_refresh(&new, outcome.snapshot).is_err());
+}

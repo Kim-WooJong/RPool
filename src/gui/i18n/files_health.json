@@ -1163,5 +1163,40 @@
   "ko": "상위 폴더로 (Backspace)",
   "ja": "1 つ上のフォルダへ (Backspace)",
   "zh": "上一级文件夹 (Backspace)"
+ },
+ "Updated {age} ago": {
+  "ko": "{age} 전에 업데이트했어요",
+  "ja": "{age}前に更新",
+  "zh": "{age}前更新"
+ },
+ "Saved listing from {age} ago; refreshing…": {
+  "ko": "{age} 전에 저장한 목록이에요. 새로 읽는 중이에요…",
+  "ja": "{age}前に保存した一覧です。再読み込み中…",
+  "zh": "{age}前保存的列表；正在刷新…"
+ },
+ "Saved listing from {age} ago": {
+  "ko": "{age} 전에 저장한 목록이에요",
+  "ja": "{age}前に保存した一覧です",
+  "zh": "{age}前保存的列表"
+ },
+ "Refresh failed; showing the last listing: {error}": {
+  "ko": "새로 읽지 못해서 마지막 목록을 보여 드려요: {error}",
+  "ja": "再読み込みに失敗したため、前回の一覧を表示しています: {error}",
+  "zh": "刷新失败；显示上次的列表：{error}"
+ },
+ "{n} s": {
+  "ko": "{n}초",
+  "ja": "{n}秒",
+  "zh": "{n} 秒"
+ },
+ "{n} h": {
+  "ko": "{n}시간",
+  "ja": "{n}時間",
+  "zh": "{n} 小时"
+ },
+ "{n} d": {
+  "ko": "{n}일",
+  "ja": "{n}日",
+  "zh": "{n} 天"
  }
 }

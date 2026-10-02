@@ -21,7 +21,8 @@ pub(crate) fn toolbar(ui: &mut egui::Ui, form: &mut DriveForm, rclone: &str) {
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(100));
     }
-    if form.needs_mounted_refresh() {
+    // Mounted here: every few seconds; otherwise every half minute.
+    if form.needs_refresh() {
         form.start(rclone);
     }
     if form.needs_load() || !form.is_loading() && std::mem::take(&mut form.history.refresh_drive) {
@@ -93,8 +94,11 @@ pub(crate) fn toolbar(ui: &mut egui::Ui, form: &mut DriveForm, rclone: &str) {
     ui.selectable_value(view, ViewMode::Icons, format!("▦ {}", tr("Icons")));
     if loading {
         ui.spinner();
-        ui.label(tr("Loading…"));
-        return;
+        // A listing already shown stays; the spinner says it is re-read.
+        if !matches!(form.current(), Some(DriveLoad::Ready(_))) {
+            ui.label(tr("Loading…"));
+            return;
+        }
     }
     match form.current() {
         Some(DriveLoad::Ready(tree)) if tree.mode == "none" => {
@@ -133,6 +137,7 @@ pub(crate) fn body(ui: &mut egui::Ui, form: &mut DriveForm, task: &mut TaskRunne
     }
     let mut retry = false;
     let loading = form.is_loading();
+    let freshness = form.freshness();
     let parts = form.parts();
     let tree = match parts.load {
         Some(DriveLoad::Ready(tree)) => Some(tree),
@@ -157,6 +162,7 @@ pub(crate) fn body(ui: &mut egui::Ui, form: &mut DriveForm, task: &mut TaskRunne
                 ui,
                 parts.pool,
                 tree,
+                freshness.as_deref(),
                 parts.explorer,
                 parts.query,
                 parts.history,
@@ -181,12 +187,16 @@ fn drive_view(
     ui: &mut egui::Ui,
     pool: &str,
     tree: &DriveTree,
+    freshness: Option<&str>,
     explorer: &mut ExplorerState,
     query: &mut String,
     history: &mut HistoryForm,
     task: &mut TaskRunner,
     rclone: &str,
 ) {
+    if let Some(freshness) = freshness {
+        ui.add(egui::Label::new(egui::RichText::new(freshness).small().weak()).wrap());
+    }
     if tree.mode == "none" {
         theme::hint(
             ui,

@@ -18,6 +18,7 @@ mod incremental;
 pub(crate) mod layout_refresh;
 mod lifecycle;
 mod maintenance;
+pub(crate) mod metadata_browse;
 mod metadata_cache;
 mod metadata_checkpoint;
 mod metadata_checkpoint_model;

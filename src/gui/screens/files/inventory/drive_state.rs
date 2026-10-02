@@ -214,6 +214,33 @@ pub(crate) struct DriveParts<'a> {
     pub(crate) history: &'a mut HistoryForm,
 }
 
+/// Where the shown listing of a pool came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Source {
+    /// The workspace of a drive mounted on this PC.
+    Mounted,
+    /// The pool's cloud metadata.
+    Cloud,
+    /// This PC's Library cache, saved at this Unix time (may be out of date).
+    Cache(u64),
+}
+
+/// When a pool's listing arrived, from where, and whether the latest
+/// refresh failed (the previous listing is then kept).
+#[derive(Debug, Clone)]
+struct Freshness {
+    at: std::time::Instant,
+    source: Source,
+    error: Option<String>,
+}
+
+/// What the background listing thread reports.
+enum Message {
+    /// The cached listing, before the cloud is read.
+    Cached(PoolBrowse, u64),
+    Done(BrowseResult),
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct DriveForm {
     /// The pool being browsed; empty until one is picked (no "All pools").
@@ -225,20 +252,22 @@ pub(crate) struct DriveForm {
     pub(crate) history: HistoryForm,
     results: BTreeMap<String, DriveLoad>,
     /// Listing runs off the UI thread: reading cloud metadata takes seconds.
-    pending: Option<(String, Receiver<BrowseResult>)>,
-    /// When each pool's listing arrived and whether it came from a drive
-    /// mounted on this PC (cheap to re-read, so it is kept current).
-    loaded: BTreeMap<String, (std::time::Instant, bool)>,
+    pending: Option<(String, Receiver<Message>)>,
+    loaded: BTreeMap<String, Freshness>,
 }
 
 /// How often the listing of a pool mounted on this PC is re-read.
 pub(crate) const MOUNTED_REFRESH: std::time::Duration = std::time::Duration::from_secs(3);
+/// How often the listing of a pool that is not mounted here is re-read from
+/// the cloud while the Library is shown (incremental: new records only).
+pub(crate) const CLOUD_REFRESH: std::time::Duration = std::time::Duration::from_secs(30);
 
 impl DriveForm {
     /// Keeps the selection valid for the current pools: preselects the only
     /// pool, clears a removed one, and forgets listings of removed pools.
     pub(crate) fn sync_pools(&mut self, pools: &[String]) {
         self.results.retain(|pool, _| pools.contains(pool));
+        self.loaded.retain(|pool, _| pools.contains(pool));
         if !pools.contains(&self.pool) {
             let only = if pools.len() == 1 {
                 pools[0].clone()
@@ -284,60 +313,178 @@ impl DriveForm {
         !self.pool.is_empty() && !self.results.contains_key(&self.pool) && !self.is_loading()
     }
 
-    /// A listing read from this PC's mounted drive that is older than
-    /// [`MOUNTED_REFRESH`]: re-read so new saves show up without a refresh.
-    pub(crate) fn needs_mounted_refresh(&self) -> bool {
+    /// A shown listing that is due for a background re-read: every
+    /// [`MOUNTED_REFRESH`] for a drive mounted here, every [`CLOUD_REFRESH`]
+    /// otherwise, so new saves and uploads show up without a refresh.
+    pub(crate) fn needs_refresh(&self) -> bool {
         !self.is_loading()
-            && self
-                .loaded
-                .get(&self.pool)
-                .is_some_and(|(at, mounted)| *mounted && at.elapsed() >= MOUNTED_REFRESH)
+            && matches!(self.current(), Some(DriveLoad::Ready(_)))
+            && self.loaded.get(&self.pool).is_some_and(|f| {
+                let every = match f.source {
+                    Source::Mounted => MOUNTED_REFRESH,
+                    Source::Cloud | Source::Cache(_) => CLOUD_REFRESH,
+                };
+                f.at.elapsed() >= every
+            })
     }
 
     /// Lists the selected pool on a background thread, replacing any
-    /// listing still running for another pool.
+    /// listing still running for another pool. Without a listing yet, the
+    /// cached one (if any) is shown first, until the cloud has been read.
     pub(crate) fn start(&mut self, rclone: &str) {
         if self.pool.is_empty() {
             return;
         }
+        let cached_first = !self.results.contains_key(&self.pool);
         let (tx, rx) = std::sync::mpsc::channel();
         let (rclone, pool) = (rclone.to_string(), self.pool.clone());
         std::thread::spawn(move || {
+            if cached_first {
+                if let Some((browse, saved)) = crate::pool::browse::browse_cached(&pool) {
+                    let _ = tx.send(Message::Cached(browse, saved));
+                }
+            }
             let result =
                 crate::pool::browse::browse(&rclone, &pool).map_err(|error| format!("{error:#}"));
-            let _ = tx.send(result);
+            let _ = tx.send(Message::Done(result));
         });
         self.pending = Some((self.pool.clone(), rx));
     }
 
-    /// Collects a finished listing. Returns true while one is still running.
+    /// Collects a finished listing (and an earlier cached one). Returns true
+    /// while one is still running.
     pub(crate) fn poll(&mut self) -> bool {
-        let Some((pool, rx)) = &self.pending else {
-            return false;
-        };
-        let result = match rx.try_recv() {
-            Ok(result) => result,
-            Err(TryRecvError::Empty) => return true,
-            Err(TryRecvError::Disconnected) => Err(crate::gui::i18n::tr(
-                "Listing stopped unexpectedly; refresh to try again.",
-            )
-            .to_string()),
-        };
-        let pool = pool.clone();
-        self.pending = None;
-        self.apply(pool, result);
-        false
+        loop {
+            let Some((pool, rx)) = &self.pending else {
+                return false;
+            };
+            let pool = pool.clone();
+            match rx.try_recv() {
+                Ok(Message::Cached(browse, saved)) => self.apply_cached(pool, browse, saved),
+                Ok(Message::Done(result)) => {
+                    self.pending = None;
+                    self.apply(pool, result);
+                    return false;
+                }
+                Err(TryRecvError::Empty) => return true,
+                Err(TryRecvError::Disconnected) => {
+                    self.pending = None;
+                    let error =
+                        crate::gui::i18n::tr("Listing stopped unexpectedly; refresh to try again.");
+                    self.apply(pool, Err(error.to_string()));
+                    return false;
+                }
+            }
+        }
     }
 
+    /// Shows a cached listing until the cloud listing arrives; never
+    /// replaces a listing already shown.
+    pub(crate) fn apply_cached(&mut self, pool: String, browse: PoolBrowse, saved_unix: u64) {
+        if self.results.contains_key(&pool) {
+            return;
+        }
+        self.loaded.insert(
+            pool.clone(),
+            Freshness {
+                at: std::time::Instant::now(),
+                source: Source::Cache(saved_unix),
+                error: None,
+            },
+        );
+        self.results
+            .insert(pool, DriveLoad::Ready(DriveTree::build(browse)));
+    }
+
+    /// A finished listing. A failed refresh keeps the listing shown (marked
+    /// as not current) instead of replacing it with the error.
     pub(crate) fn apply(&mut self, pool: String, result: BrowseResult) {
-        let mounted = result.as_ref().is_ok_and(|b| b.mode == "v6-mounted");
-        self.loaded
-            .insert(pool.clone(), (std::time::Instant::now(), mounted));
-        let load = match result {
-            Ok(browse) => DriveLoad::Ready(DriveTree::build(browse)),
-            Err(error) => DriveLoad::Failed(error),
-        };
-        self.results.insert(pool, load);
+        let now = std::time::Instant::now();
+        match result {
+            Ok(browse) => {
+                let source = if browse.mode == "v6-mounted" {
+                    Source::Mounted
+                } else {
+                    Source::Cloud
+                };
+                self.loaded.insert(
+                    pool.clone(),
+                    Freshness {
+                        at: now,
+                        source,
+                        error: None,
+                    },
+                );
+                self.results
+                    .insert(pool, DriveLoad::Ready(DriveTree::build(browse)));
+            }
+            Err(error) => {
+                if matches!(self.results.get(&pool), Some(DriveLoad::Ready(_))) {
+                    if let Some(freshness) = self.loaded.get_mut(&pool) {
+                        freshness.at = now;
+                        freshness.error = Some(error);
+                        return;
+                    }
+                }
+                self.loaded.insert(
+                    pool.clone(),
+                    Freshness {
+                        at: now,
+                        source: Source::Cloud,
+                        error: Some(error.clone()),
+                    },
+                );
+                self.results.insert(pool, DriveLoad::Failed(error));
+            }
+        }
+    }
+
+    /// One line on how current the shown listing is; `None` for a drive
+    /// mounted here (always current) or when nothing is shown.
+    pub(crate) fn freshness(&self) -> Option<String> {
+        use crate::gui::i18n::trf;
+        if !matches!(self.current(), Some(DriveLoad::Ready(_))) {
+            return None;
+        }
+        let freshness = self.loaded.get(&self.pool)?;
+        let loading = self.is_loading();
+        match (&freshness.error, freshness.source) {
+            (Some(error), _) if !loading => Some(trf(
+                "Refresh failed; showing the last listing: {error}",
+                &[("error", error)],
+            )),
+            (_, Source::Cache(saved)) => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(saved);
+                let age = age_label(now.saturating_sub(saved));
+                Some(if loading {
+                    trf(
+                        "Saved listing from {age} ago; refreshing…",
+                        &[("age", &age)],
+                    )
+                } else {
+                    trf("Saved listing from {age} ago", &[("age", &age)])
+                })
+            }
+            (_, Source::Mounted) => None,
+            (_, Source::Cloud) => {
+                let age = age_label(freshness.at.elapsed().as_secs());
+                Some(trf("Updated {age} ago", &[("age", &age)]))
+            }
+        }
+    }
+}
+
+/// "12 s", "5 min", "3 h", "2 d".
+fn age_label(seconds: u64) -> String {
+    use crate::gui::i18n::trf;
+    match seconds {
+        0..60 => trf("{n} s", &[("n", &seconds)]),
+        60..3_600 => trf("{n} min", &[("n", &(seconds / 60))]),
+        3_600..86_400 => trf("{n} h", &[("n", &(seconds / 3_600))]),
+        _ => trf("{n} d", &[("n", &(seconds / 86_400))]),
     }
 }
 
@@ -465,6 +612,46 @@ mod tests {
         assert_eq!(form.pool, "a");
         form.select("b".into());
         assert!(form.current().is_none());
+    }
+
+    #[test]
+    fn cached_listing_shows_first_and_a_failed_refresh_keeps_it() {
+        let mut form = DriveForm::default();
+        form.sync_pools(&["family".to_string()]);
+        form.apply_cached("family".into(), sample(), 0);
+        assert!(!form.needs_load());
+        assert!(matches!(form.current(), Some(DriveLoad::Ready(tree)) if tree.files == 5));
+        assert!(form.freshness().unwrap().contains("Saved listing"));
+        // The cloud listing replaces it; a cached one never replaces a shown one.
+        let mut newer = sample();
+        newer.entries.truncate(3);
+        form.apply("family".into(), Ok(newer.clone()));
+        form.apply_cached("family".into(), sample(), 0);
+        assert!(matches!(form.current(), Some(DriveLoad::Ready(tree)) if tree.files == 1));
+        assert!(form.freshness().unwrap().starts_with("Updated"));
+        assert!(!form.needs_refresh(), "fresh listings are not re-read");
+        // A failed background refresh keeps the listing and says so.
+        form.apply("family".into(), Err("offline".into()));
+        assert!(matches!(form.current(), Some(DriveLoad::Ready(tree)) if tree.files == 1));
+        assert!(form.freshness().unwrap().contains("offline"));
+        // Due again after the interval (cloud) — mounted ones much sooner.
+        form.loaded.get_mut("family").unwrap().at -= CLOUD_REFRESH;
+        assert!(form.needs_refresh());
+        let mut mounted = newer;
+        mounted.mode = "v6-mounted".into();
+        form.apply("family".into(), Ok(mounted));
+        assert_eq!(form.freshness(), None);
+        assert!(!form.needs_refresh());
+        form.loaded.get_mut("family").unwrap().at -= MOUNTED_REFRESH;
+        assert!(form.needs_refresh());
+    }
+
+    #[test]
+    fn age_labels() {
+        assert_eq!(age_label(5), "5 s");
+        assert_eq!(age_label(125), "2 min");
+        assert_eq!(age_label(7_300), "2 h");
+        assert_eq!(age_label(200_000), "2 d");
     }
 
     #[test]
