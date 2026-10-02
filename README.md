@@ -497,8 +497,17 @@ Details: [docs/CRYPT_SECRET_PORTABILITY.md](docs/CRYPT_SECRET_PORTABILITY.md).
 ## GUI
 
 `rpool` with no subcommand (or `rpool gui`) opens the native console. Global
-options still apply, for example `rpool --rclone C:\Tools\rclone.exe`. On
-Windows the GUI runs as a detached no-console child.
+options still apply, for example `rpool --rclone C:\Tools\rclone.exe`.
+
+- **No console window on Windows**: `rpool.exe` is also the CLI, so Windows
+  gives it a console; double-clicked, the GUI releases that console at start
+  (it may flash briefly; started from a terminal it stays for the logs).
+  `rpool-gui.exe`, built next to `rpool.exe`, starts the GUI with no window
+  at all; use it for shortcuts. Every rclone and task process already runs
+  without a window.
+- **Old options are tidied**: at start the GUI removes options earlier
+  versions no longer use from its settings and the pool definitions, and
+  keeps the previous file as `<name>.bak`.
 
 - **Overview**: capacity, files, health, pools, warnings, recent jobs.
 - **Files**: Library (file-explorer view of the drive, Trash, Versions,

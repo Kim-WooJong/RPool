@@ -1,6 +1,6 @@
 [package]
 name = "rpool"
-version = "2.6.1"
+version = "2.7.0"
 edition = "2021"
 description = "Parallel sharded storage with Reed-Solomon erasure coding over rclone remotes"
 license = "MIT"
@@ -13,6 +13,11 @@ resolver = "2"
 [[bin]]
 name = "rpool"
 path = "src/main.rs"
+
+# Starts the GUI without a console window (Windows GUI subsystem launcher).
+[[bin]]
+name = "rpool-gui"
+path = "src/launcher/main.rs"
 
 [features]
 # `winfsp` only pulls in Windows-only dependencies, so it is a no-op elsewhere.

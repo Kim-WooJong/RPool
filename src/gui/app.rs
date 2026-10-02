@@ -37,6 +37,8 @@ impl EncryptionSetup {
 }
 
 pub(crate) fn launch(startup_rclone: &str) -> Result<()> {
+    super::config_tidy::run();
+    super::console::release_own_console();
     let startup_rclone = startup_rclone.to_string();
     let native_options = eframe::NativeOptions {
         // Select explicitly: enabling another backend later must not silently change this.

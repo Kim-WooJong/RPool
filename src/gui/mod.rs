@@ -1,4 +1,6 @@
 mod app;
+mod config_tidy;
+mod console;
 pub(crate) mod i18n;
 #[cfg(test)]
 mod layout_tests;
