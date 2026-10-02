@@ -19,6 +19,7 @@ const DROPBOX_WRITES: usize = 1;
 enum Lane {
     Any,
     Write,
+    Read,
 }
 
 struct Semaphore {
@@ -147,6 +148,22 @@ pub(super) fn acquire_write(
     match own {
         Some(cap) => acquire_lane(Lane::Write, &format!("{base}\u{0}{cap}"), cap, ctx),
         None => acquire_lane(Lane::Write, base, write_limit(dropbox), ctx),
+    }
+}
+
+/// One slot of the read cap of the storage namespace `base`: `own` is the
+/// account's configured cap (provider limits), else the general cap.
+pub(super) fn acquire_read(
+    base: &str,
+    own: Option<usize>,
+    ctx: &OperationContext,
+) -> Result<Permit, StorageError> {
+    if uncapped() {
+        return Ok(Permit(None));
+    }
+    match own {
+        Some(cap) => acquire_lane(Lane::Read, &format!("{base}\u{0}{cap}"), cap, ctx),
+        None => acquire_lane(Lane::Read, base, general_limit(), ctx),
     }
 }
 

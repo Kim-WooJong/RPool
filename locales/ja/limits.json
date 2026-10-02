@@ -13,7 +13,6 @@
   "Backend default ({limit})": "バックエンドの既定値（{limit}）",
   "Backend default (none)": "バックエンドの既定値（なし）",
   "Bandwidth for this account": "このアカウントの帯域幅",
-  "Bandwidth limits for every RPool transfer on this computer. Off by default.": "このコンピューターでのすべての RPool 転送に対する帯域幅制限です。既定ではオフです。",
   "Bandwidth timetable": "帯域幅タイムテーブル",
   "Bandwidth: {error}": "帯域幅: {error}",
   "Daily upload limit (rolling 24 h)": "1日のアップロード上限（直近24時間）",
@@ -31,7 +30,6 @@
   "Limits…": "上限…",
   "local time unknown, using UTC": "現地時刻が不明なため UTC を使用",
   "Measured from this computer's successful calls. Providers decide what counts as activity; RPool cannot guarantee that API access keeps an account.": "このコンピューターで成功した呼び出しから測定します。何をアクティビティとみなすかはプロバイダーが決めるため、API アクセスでアカウントが維持されることを RPool は保証できません。",
-  "Network": "ネットワーク",
   "Never warn": "警告しない",
   "No activity from this computer yet": "このコンピューターからのアクティビティはまだありません",
   "No bandwidth limit.": "帯域幅制限はありません。",
@@ -52,6 +50,15 @@
   "Upload limit": "アップロード上限",
   "Uploaded (24 h): {used} of {limit}": "アップロード（24時間）: {limit} 中 {used}",
   "When the limit is reached, uploads to this account wait and resume by themselves; nothing is lost. Counted per computer.": "上限に達すると、このアカウントへのアップロードは待機し、自動で再開します。データは失われません。コンピューターごとに集計します。",
-  "Simultaneous shard uploads per account": "アカウントごとの同時シャードアップロード",
-  "Default for every account; an account's own value (Providers › Limits) wins. 0 = built-in 16. Dropbox stays at 1 unless set on its card. One shard is one upload request: RPool turns off chunk fan-out inside rclone.": "すべてのアカウントの既定値です。アカウント個別の値(Providers › Limits)が優先されます。0 = 組み込みの 16。Dropbox はカードで設定しない限り 1 です。1 シャードが 1 回のアップロード要求です。RPool は rclone 内部のチャンク並列送信をオフにします。"
+  "Shard transfers": "シャード転送",
+  "Counted in shards: one shard is one request (RPool turns off chunk fan-out inside rclone).": "シャード単位で数えます。1 シャードが 1 回の要求です(RPool は rclone 内部のチャンク並列送信をオフにします)。",
+  "Shard transfers (workers)": "シャード同時転送 (workers)",
+  "Shards this PC transfers at once, uploads and downloads, shared by all files: drive, restore, verify, scrub, repair, drain and health checks.": "この PC がアップロードとダウンロードを合わせて同時に転送するシャード数です。ドライブ、復元、検証、scrub、repair、drain、ヘルスチェックで共有します。",
+  "Upload default per account": "アカウントごとのアップロード既定値",
+  "Simultaneous shard uploads to one account unless its card (Providers › Limits) sets its own. 0 = built-in 16. Dropbox stays at 1 unless set on its card.": "1 つのアカウントへ同時にアップロードするシャード数です。アカウントのカード(Providers › Limits)に値があればそれが優先されます。0 = 組み込みの 16。Dropbox はカードで設定しない限り 1 です。",
+  "Download default per account": "アカウントごとのダウンロード既定値",
+  "Simultaneous shard downloads from one account unless its card (Providers › Limits) sets its own. 0 = built-in 16.": "1 つのアカウントから同時にダウンロードするシャード数です。アカウントのカード(Providers › Limits)に値があればそれが優先されます。0 = 組み込みの 16。",
+  "Network & transfers": "ネットワークと転送",
+  "Bandwidth limits and how many shards move at once, for every RPool transfer on this computer.": "このコンピューターのすべての RPool 転送に適用される帯域制限と、同時に転送するシャード数です。",
+  "Network": "ネットワーク"
 }

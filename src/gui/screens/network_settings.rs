@@ -16,6 +16,8 @@ pub(crate) struct NetworkForm {
     pub(crate) keepalive_days: u32,
     /// Simultaneous shard uploads per account by default; 0 = built-in 16.
     pub(crate) default_uploads: u32,
+    /// Simultaneous shard downloads per account by default; 0 = built-in 16.
+    pub(crate) default_downloads: u32,
     pub(crate) notice: Option<String>,
 }
 
@@ -74,6 +76,7 @@ fn load(form: &mut NetworkForm) {
             form.timetable = store.bandwidth.unwrap_or_default();
             form.keepalive_days = store.keepalive_days;
             form.default_uploads = store.default_max_uploads.unwrap_or(0);
+            form.default_downloads = store.default_max_downloads.unwrap_or(0);
         }
         Err(error) => form.notice = Some(format!("{error:#}")),
     }
@@ -85,7 +88,29 @@ fn save(form: &NetworkForm) -> Result<std::path::PathBuf, String> {
         .map_err(|e| format!("{e:#}"))?;
     store.keepalive_days = form.keepalive_days;
     store.default_max_uploads = (form.default_uploads > 0).then_some(form.default_uploads);
+    store.default_max_downloads = (form.default_downloads > 0).then_some(form.default_downloads);
     crate::storage::account::store::save_limits(&store).map_err(|e| format!("{e:#}"))
+}
+
+/// Shard concurrency: this PC's total, and the per-account defaults.
+fn transfers(ui: &mut egui::Ui, form: &mut NetworkForm, workers: &mut usize) {
+    use crate::storage::account::limits::MAX_UPLOADS;
+    ui.strong(tr("Shard transfers"));
+    theme::hint(ui, tr("Counted in shards: one shard is one request (RPool turns off chunk fan-out inside rclone)."));
+    egui::Grid::new("network-transfers")
+        .num_columns(2)
+        .spacing([16.0, 8.0])
+        .show(ui, |ui| {
+            ui.label(tr("Shard transfers (workers)")).on_hover_text(tr("Shards this PC transfers at once, uploads and downloads, shared by all files: drive, restore, verify, scrub, repair, drain and health checks."));
+            ui.add(egui::DragValue::new(workers).range(1..=256));
+            ui.end_row();
+            ui.label(tr("Upload default per account")).on_hover_text(tr("Simultaneous shard uploads to one account unless its card (Providers › Limits) sets its own. 0 = built-in 16. Dropbox stays at 1 unless set on its card."));
+            ui.add(egui::DragValue::new(&mut form.default_uploads).range(0..=MAX_UPLOADS));
+            ui.end_row();
+            ui.label(tr("Download default per account")).on_hover_text(tr("Simultaneous shard downloads from one account unless its card (Providers › Limits) sets its own. 0 = built-in 16."));
+            ui.add(egui::DragValue::new(&mut form.default_downloads).range(0..=MAX_UPLOADS));
+            ui.end_row();
+        });
 }
 
 pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
@@ -95,9 +120,9 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     }
     theme::card_section(
         ui,
-        tr("Network"),
+        tr("Network & transfers"),
         Some(tr(
-            "Bandwidth limits for every RPool transfer on this computer. Off by default.",
+            "Bandwidth limits and how many shards move at once, for every RPool transfer on this computer.",
         )),
         |_| {},
         |ui| {
@@ -122,24 +147,19 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
                 }
             }
             ui.add_space(6.0);
+            transfers(ui, form, &mut state.settings.workers);
+            ui.add_space(6.0);
             ui.horizontal_wrapped(|ui| {
                 ui.label(tr("Keep idle accounts alive after"));
                 ui.add(egui::DragValue::new(&mut form.keepalive_days).range(0..=3650));
                 ui.label(tr("days (0 = never)"));
             });
             theme::hint(ui, tr("A mount makes one cheap authenticated call to each of its accounts when it was idle that long. Providers decide what counts as activity."));
-            ui.add_space(6.0);
-            ui.horizontal_wrapped(|ui| {
-                ui.label(tr("Simultaneous shard uploads per account"));
-                ui.add(
-                    egui::DragValue::new(&mut form.default_uploads)
-                        .range(0..=crate::storage::account::limits::MAX_UPLOADS),
-                );
-            });
-            theme::hint(ui, tr("Default for every account; an account's own value (Providers › Limits) wins. 0 = built-in 16. Dropbox stays at 1 unless set on its card. One shard is one upload request: RPool turns off chunk fan-out inside rclone."));
+
             ui.horizontal_wrapped(|ui| {
                 if theme::primary_button(ui, check.is_ok(), tr("Save network settings")).clicked() {
-                    form.notice = Some(match save(form) {
+                    let saved = crate::gui::settings::save(&state.settings).map(|_| ());
+                    form.notice = Some(match saved.and_then(|()| save(form)) {
                         Ok(path) => trf("Saved to {path}", &[("path", &path.display())]),
                         Err(error) => error,
                     });

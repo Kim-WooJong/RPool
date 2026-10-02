@@ -24,6 +24,8 @@ pub(crate) struct LimitEdit {
     pub tpslimit: Option<f64>,
     /// `0` = backend default.
     pub max_uploads: Option<u32>,
+    /// `0` = the default.
+    pub max_downloads: Option<u32>,
     /// `0` = never warn.
     pub inactivity_warn_days: Option<u32>,
 }
@@ -72,6 +74,15 @@ pub(crate) fn apply(store: &mut LimitsStore, account: &str, edit: &LimitEdit) ->
         }
         limits.max_uploads = (uploads > 0).then_some(uploads);
     }
+    if let Some(downloads) = edit.max_downloads {
+        if downloads > super::limits::MAX_UPLOADS {
+            bail!(
+                "at most {} simultaneous downloads per account",
+                super::limits::MAX_UPLOADS
+            );
+        }
+        limits.max_downloads = (downloads > 0).then_some(downloads);
+    }
     if limits.is_empty() {
         store.accounts.remove(account);
     } else {
@@ -104,6 +115,7 @@ mod tests {
             bwlimit: Some("10M:off".into()),
             tpslimit: Some(4.0),
             max_uploads: Some(3),
+            max_downloads: Some(5),
             inactivity_warn_days: Some(0),
         };
         apply(&mut store, "gd:", &edit).unwrap();
@@ -111,7 +123,7 @@ mod tests {
         assert_eq!(gd.daily_upload, Some(DailyUpload::Bytes(3 << 29)));
         assert_eq!(gd.bwlimit.as_deref(), Some("10M:off"));
         assert_eq!((gd.tpslimit, gd.inactivity_warn_days), (Some(4.0), Some(0)));
-        assert_eq!(gd.max_uploads, Some(3));
+        assert_eq!((gd.max_uploads, gd.max_downloads), (Some(3), Some(5)));
         apply(
             &mut store,
             "gd",
@@ -135,6 +147,7 @@ mod tests {
                 bwlimit: Some("off".into()),
                 tpslimit: Some(0.0),
                 max_uploads: Some(0),
+                max_downloads: Some(0),
                 ..Default::default()
             },
         )

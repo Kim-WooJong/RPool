@@ -345,7 +345,7 @@ real-cloud numbers are in the CHANGELOG.
 
 ```text
 rpool provider health [--pool P] [--json]
-rpool provider limits show|set|reset|bandwidth|keepalive-days|default-uploads ...
+rpool provider limits show|set|reset|bandwidth|keepalive-days|default-uploads|default-downloads ...
 rpool provider keepalive ...
 rpool provider ensure-encryption | encrypt --name N --provider P ...
 rpool provider drain FILE.rpool.json --from old-crypt:rpool --to new-crypt:rpool [--dry-run] [--delete-source] [--allow-risky]
@@ -359,18 +359,21 @@ rpool remote-root list | set REMOTE PATH | remove REMOTE
   uploads to that account wait instead of failing. Last activity per account
   with inactivity warnings, a bandwidth timetable in rclone syntax
   (`"08:00,512k 18:00,30M"`, `UP:DOWN`) and per-account `--tpslimit`.
-- **Concurrency is counted in shards.** One shard upload is one upload
-  request: RPool sets rclone's per-file chunk concurrency to 1 for its uploads
+- **Concurrency is counted in shards.** One shard transfer is one request:
+  RPool sets rclone's per-file chunk concurrency to 1 for its uploads
   (`RCLONE_CONFIG_<ACCOUNT>_UPLOAD_CONCURRENCY=1`, overriding rclone.conf;
-  e.g. Filen's default of 16), so nothing multiplies the counts below.
-  - `default-uploads N` (GUI: Settings › Network): simultaneous shard uploads
-    per account for accounts without their own value (`0` = built-in 16;
-    Dropbox stays 1).
-  - `set --remote R --max-uploads N` (GUI: provider card › Limits): this
-    account's own value, which wins (`0` = the default above).
-  - The drive's shard transfers of this PC are a drive option
-    (`mount --workers N`, GUI: Drive › Cache & pending writes); without it the
-    pool's saved `workers` apply. Changing it keeps started uploads resumable.
+  e.g. Filen's default of 16), and reads stream each shard in one request,
+  so nothing multiplies the counts below. GUI: Settings › Network & transfers
+  holds the first three, the provider card's Limits the per-account values.
+  - Shard transfers (`--workers`): shards this PC moves at once, uploads and
+    downloads, shared by all files (GUI setting, passed to the drive as
+    `mount --workers`; without it the pool's saved `workers` apply).
+    Changing it keeps started uploads resumable.
+  - `default-uploads N` / `default-downloads N`: simultaneous shard uploads /
+    downloads per account for accounts without their own value (`0` =
+    built-in 16; Dropbox uploads stay 1).
+  - `set --remote R --max-uploads N --max-downloads N`: one account's own
+    values, which win (`0` = the default).
 - **keepalive** makes one cheap authenticated call per account and records it
   as activity; mounts do it automatically after `keepalive-days`. Providers
   decide what counts as activity.

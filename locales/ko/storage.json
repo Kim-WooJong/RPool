@@ -357,5 +357,7 @@
   "Simultaneous shard uploads of {account} set to {n}.": "{account}의 동시 샤드 업로드를 {n}개로 설정했어요.",
   "Sets the Simultaneous shard uploads of {account} to {n}.": "{account}의 동시 샤드 업로드를 {n}개로 설정해요.",
   "Simultaneous shard uploads": "동시 샤드 업로드",
-  "How many shards are uploaded to this account at once; each is one upload request. 0 = the default from Settings › Network (Dropbox 1). Lower it for providers that answer \"too many requests\", e.g. Filen.": "이 계정에 한 번에 올리는 샤드 수예요. 샤드 하나가 업로드 요청 하나예요. 0 = 설정 › 네트워크의 기본값(Dropbox는 1). Filen처럼 \"too many requests\"가 나오는 곳은 낮춰 주세요."
+  "How many shards are uploaded to this account at once; each is one upload request. 0 = the default from Settings › Network (Dropbox 1). Lower it for providers that answer \"too many requests\", e.g. Filen.": "이 계정에 한 번에 올리는 샤드 수예요. 샤드 하나가 업로드 요청 하나예요. 0 = 설정 › 네트워크의 기본값(Dropbox는 1). Filen처럼 \"too many requests\"가 나오는 곳은 낮춰 주세요.",
+  "Simultaneous shard downloads": "동시 샤드 다운로드",
+  "How many shards are read from this account at once. 0 = the default from Settings › Network.": "이 계정에서 한 번에 읽는 샤드 수예요. 0 = 설정 › 네트워크의 기본값."
 }

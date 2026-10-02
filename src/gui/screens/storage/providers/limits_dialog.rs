@@ -30,6 +30,8 @@ pub(crate) struct LimitsEditor {
     pub(crate) tpslimit: f64,
     /// 0 = backend default.
     pub(crate) max_uploads: u32,
+    /// 0 = the default.
+    pub(crate) max_downloads: u32,
     pub(crate) warn: Mode,
     pub(crate) warn_days: u32,
     pub(crate) notice: Option<String>,
@@ -60,6 +62,7 @@ impl LimitsEditor {
             bwlimit: own.bwlimit.unwrap_or_default(),
             tpslimit: own.tpslimit.unwrap_or(0.0),
             max_uploads: own.max_uploads.unwrap_or(0),
+            max_downloads: own.max_downloads.unwrap_or(0),
             warn,
             warn_days,
             notice: None,
@@ -87,6 +90,7 @@ impl LimitsEditor {
             bwlimit: Some(bwlimit.to_owned()),
             tpslimit: Some(self.tpslimit),
             max_uploads: Some(self.max_uploads),
+            max_downloads: Some(self.max_downloads),
             inactivity_warn_days: match self.warn {
                 Mode::Default => None,
                 Mode::Off => Some(0),
@@ -157,6 +161,11 @@ pub(crate) fn show(ctx: &egui::Context, editor: &mut LimitsEditor) -> bool {
                     ui.add(egui::DragValue::new(&mut editor.max_uploads).range(0..=256));
                 });
                 theme::hint(ui, tr("How many shards are uploaded to this account at once; each is one upload request. 0 = the default from Settings › Network (Dropbox 1). Lower it for providers that answer \"too many requests\", e.g. Filen."));
+                ui.horizontal(|ui| {
+                    ui.label(tr("Simultaneous shard downloads"));
+                    ui.add(egui::DragValue::new(&mut editor.max_downloads).range(0..=256));
+                });
+                theme::hint(ui, tr("How many shards are read from this account at once. 0 = the default from Settings › Network."));
                 ui.separator();
                 ui.strong(tr("Inactivity warning"));
                 let default_warn = match default_inactivity_days(&editor.kind) {
@@ -224,6 +233,7 @@ mod tests {
                 bwlimit: Some("1M".into()),
                 tpslimit: Some(2.0),
                 max_uploads: None,
+                max_downloads: None,
                 inactivity_warn_days: Some(0),
             },
         );

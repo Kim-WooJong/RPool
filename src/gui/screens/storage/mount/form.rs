@@ -20,8 +20,8 @@ pub(crate) struct MountForm {
     pub(super) manifest_input: String,
     pub(super) interval_seconds: u64,
     pub(super) upload_files: u64,
-    /// Shard transfers of this PC (`--workers`); 0 = not chosen yet (the
-    /// pool's saved value applies).
+    /// Shard transfers of this PC (`--workers`), copied from Settings before
+    /// each start; 0 = the pool's saved value.
     pub(super) workers: u64,
     pub(super) cache_gib: u64,
     pub(super) vfs_cache_gib: u64,
@@ -136,7 +136,6 @@ impl MountForm {
             manifests: self.manifests.clone(),
             interval_seconds: self.interval_seconds,
             upload_files: self.upload_files,
-            workers: (self.workers > 0).then_some(self.workers),
             cache: self.cache_settings(),
             frontend: self.frontend,
             native_read_only: self.native_read_only,
@@ -177,7 +176,6 @@ impl MountForm {
         self.manifests = profile.manifests;
         self.interval_seconds = profile.interval_seconds;
         self.upload_files = profile.upload_files;
-        self.workers = profile.workers.unwrap_or(0);
         self.frontend = profile.frontend;
         self.native_read_only = profile.native_read_only;
         self.cache_gib = profile.cache.shard_gib;

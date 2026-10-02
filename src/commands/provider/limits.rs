@@ -22,6 +22,7 @@ pub(crate) fn run(rclone: &str, command: LimitsCommands) -> Result<()> {
             bwlimit,
             tpslimit,
             max_uploads,
+            max_downloads,
             inactivity_warn_days,
         } => {
             let daily = match (daily_upload_gib, no_daily_limit, default_daily_limit) {
@@ -35,6 +36,7 @@ pub(crate) fn run(rclone: &str, command: LimitsCommands) -> Result<()> {
                 bwlimit,
                 tpslimit,
                 max_uploads,
+                max_downloads,
                 inactivity_warn_days,
             };
             if change == LimitEdit::default() {
@@ -77,6 +79,13 @@ pub(crate) fn run(rclone: &str, command: LimitsCommands) -> Result<()> {
             println!("{}", default_uploads_line(&store));
             Ok(())
         }
+        LimitsCommands::DefaultDownloads { downloads } => {
+            let mut store = load_limits()?;
+            store.default_max_downloads = (downloads > 0).then_some(downloads);
+            save_limits(&store)?;
+            println!("{}", default_downloads_line(&store));
+            Ok(())
+        }
         LimitsCommands::KeepaliveDays { days } => {
             let mut store = load_limits()?;
             store.keepalive_days = days;
@@ -97,6 +106,15 @@ fn default_uploads_line(store: &crate::storage::account::limits::LimitsStore) ->
             "Simultaneous shard uploads per account: {n} by default (Dropbox 1; accounts may set their own)"
         ),
         None => "Simultaneous shard uploads per account: 16 by default (built in; Dropbox 1)".into(),
+    }
+}
+
+fn default_downloads_line(store: &crate::storage::account::limits::LimitsStore) -> String {
+    match store.default_max_downloads {
+        Some(n) => format!(
+            "Simultaneous shard downloads per account: {n} by default (accounts may set their own)"
+        ),
+        None => "Simultaneous shard downloads per account: 16 by default (built in)".into(),
     }
 }
 
@@ -150,6 +168,7 @@ fn show(rclone: &str, json: bool) -> Result<()> {
             "bandwidth": store.bandwidth,
             "keepalive_days": store.keepalive_days,
             "default_max_uploads": store.default_max_uploads,
+            "default_max_downloads": store.default_max_downloads,
             "accounts": rows,
         });
         println!("{}", serde_json::to_string_pretty(&value)?);
@@ -179,12 +198,16 @@ fn show(rclone: &str, json: bool) -> Result<()> {
         if let Some(n) = row.max_uploads {
             extra.push(format!("max uploads {n}"));
         }
+        if let Some(n) = row.max_downloads {
+            extra.push(format!("max downloads {n}"));
+        }
         if !extra.is_empty() {
             println!("{:<22} {}", "", extra.join(" · "));
         }
     }
     println!();
     println!("{}", default_uploads_line(&store));
+    println!("{}", default_downloads_line(&store));
     print_bandwidth(store.bandwidth.as_deref())?;
     println!(
         "Uploads are counted per computer; other computers and tools using the same account are not included. \
@@ -253,6 +276,7 @@ mod tests {
             bwlimit: None,
             tpslimit: None,
             max_uploads: None,
+            max_downloads: None,
         }
     }
 

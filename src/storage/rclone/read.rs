@@ -107,7 +107,7 @@ impl RcloneContext {
         let mut op = None;
         if let Some(daemon) = self.daemon_for(address) {
             let outcome = {
-                let _permit = permit(ctx, address)?;
+                let _permit = self.read_permit(ctx, address)?;
                 let op = op.insert(self.op(address, traffic::Direction::Download));
                 let mut metered = traffic::Metered {
                     sink: &mut bounded,
@@ -157,7 +157,7 @@ impl RcloneContext {
             args.extend(["--count".into(), count.to_string().into()]);
         }
         args.extend(["--".into(), address.into()]);
-        let _permit = permit(ctx, address)?;
+        let _permit = self.read_permit(ctx, address)?;
         let op = op.unwrap_or_else(|| self.op(address, traffic::Direction::Download));
         let result = process::run_metered(
             &mut self.command_for(address, &args),

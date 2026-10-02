@@ -237,6 +237,19 @@ impl RcloneContext {
         let cap = crate::storage::account::runtime::settings().upload_cap(base, dropbox);
         Ok((None, Some(limit::acquire_write(base, dropbox, cap, ctx)?)))
     }
+    /// One slot for a data read: the account's read cap (its own value,
+    /// else the default), or the general cap when the account is unknown.
+    pub(super) fn read_permit(
+        &self,
+        ctx: &OperationContext,
+        address: &str,
+    ) -> Result<Option<limit::Permit>, StorageError> {
+        let Some((base, _)) = self.write_lane(ctx, address) else {
+            return permit(ctx, address);
+        };
+        let cap = crate::storage::account::runtime::settings().download_cap(&base);
+        limit::acquire_read(&base, cap, ctx).map(Some)
+    }
     /// (bottom remote of the crypt/alias chain, its backend type), cached per
     /// config selection and remote name. Unresolvable -> the addressed name.
     pub(super) fn write_lane(

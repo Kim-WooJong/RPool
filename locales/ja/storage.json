@@ -357,5 +357,7 @@
   "Simultaneous shard uploads of {account} set to {n}.": "{account} の同時シャードアップロード数を {n} に設定しました。",
   "Sets the Simultaneous shard uploads of {account} to {n}.": "{account} の同時シャードアップロード数を {n} に設定します。",
   "Simultaneous shard uploads": "同時シャードアップロード",
-  "How many shards are uploaded to this account at once; each is one upload request. 0 = the default from Settings › Network (Dropbox 1). Lower it for providers that answer \"too many requests\", e.g. Filen.": "このアカウントに同時にアップロードするシャード数です。1 シャードが 1 回のアップロード要求です。0 = 設定 › ネットワークの既定値(Dropbox は 1)。Filen など \"too many requests\" を返すプロバイダーでは下げてください。"
+  "How many shards are uploaded to this account at once; each is one upload request. 0 = the default from Settings › Network (Dropbox 1). Lower it for providers that answer \"too many requests\", e.g. Filen.": "このアカウントに同時にアップロードするシャード数です。1 シャードが 1 回のアップロード要求です。0 = 設定 › ネットワークの既定値(Dropbox は 1)。Filen など \"too many requests\" を返すプロバイダーでは下げてください。",
+  "Simultaneous shard downloads": "同時シャードダウンロード",
+  "How many shards are read from this account at once. 0 = the default from Settings › Network.": "このアカウントから同時に読み込むシャード数です。0 = 設定 › ネットワークの既定値。"
 }

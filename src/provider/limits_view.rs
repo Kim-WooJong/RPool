@@ -45,6 +45,8 @@ pub(crate) struct AccountStatus {
     pub tpslimit: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_uploads: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_downloads: Option<u32>,
 }
 
 impl AccountStatus {
@@ -119,6 +121,7 @@ pub(crate) fn build(
                 bwlimit: effective.bwlimit,
                 tpslimit: effective.tpslimit,
                 max_uploads: effective.max_uploads,
+                max_downloads: effective.max_downloads,
             }
         })
         .collect()

@@ -14,6 +14,8 @@ pub(super) fn run(
     settings: &mut GuiSettings,
     action: impl FnOnce(&mut MountForm, &str) -> Result<(), String>,
 ) {
+    // Shard transfers are a setting of this PC (Settings › Network).
+    form.workers = settings.workers.clamp(1, 256) as u64;
     let result = form
         .save_mount_settings(settings)
         .and_then(|()| action(form, &settings.rclone));

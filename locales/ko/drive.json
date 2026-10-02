@@ -196,7 +196,5 @@
   "Native macFUSE (macOS)": "네이티브 macFUSE(macOS)",
   "macFUSE not installed — install macFUSE for the native drive (then restart RPool); WebDAV is used meanwhile.": "macFUSE가 설치되지 않았어요 — 네이티브 드라이브를 쓰려면 macFUSE를 설치하고 RPool을 다시 시작하세요. 그동안은 WebDAV를 사용해요.",
   "Download macFUSE": "macFUSE 다운로드",
-  "Shard transfers (workers)": "샤드 동시 전송 (workers)",
-  "Shards this PC uploads and downloads at once for the drive, shared by all files. Each account's Simultaneous shard uploads (Providers › Limits) still caps its share.": "이 PC가 드라이브에서 한 번에 올리고 받는 샤드 수예요. 모든 파일이 나눠 써요. 계정별 몫은 계정의 동시 샤드 업로드(Providers › Limits)가 따로 제한해요.",
-  "Files uploaded at the same time. All of them share the shard transfers.": "동시에 올리는 파일 수예요. 모든 파일이 샤드 동시 전송을 나눠 써요."
+  "Files uploaded at the same time. All of them share the shard transfers (Settings › Network).": "동시에 올리는 파일 수예요. 모든 파일이 샤드 동시 전송(설정 › 네트워크)을 나눠 써요."
 }

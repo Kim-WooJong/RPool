@@ -39,6 +39,10 @@ pub(crate) struct AccountLimits {
     /// per-remote cap).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_uploads: Option<u32>,
+    /// Shard reads from this account at the same time (all of this PC's
+    /// reads together). None = the default (`default_max_downloads`, else 16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_downloads: Option<u32>,
     /// `0` = no inactivity warning.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inactivity_warn_days: Option<u32>,
@@ -71,6 +75,10 @@ pub(crate) struct LimitsStore {
     /// own value; `None` = built-in default (16). Dropbox keeps 1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_max_uploads: Option<u32>,
+    /// Simultaneous shard reads per account for accounts without their own
+    /// value; `None` = built-in default (16).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_max_downloads: Option<u32>,
     /// Keyed by account (bottom remote name, no colon).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub accounts: BTreeMap<String, AccountLimits>,
@@ -83,6 +91,7 @@ impl Default for LimitsStore {
             bandwidth: None,
             keepalive_days: DEFAULT_KEEPALIVE_DAYS,
             default_max_uploads: None,
+            default_max_downloads: None,
             accounts: BTreeMap::new(),
         }
     }
@@ -101,6 +110,12 @@ impl LimitsStore {
             .is_some_and(|n| !(1..=MAX_UPLOADS).contains(&n))
         {
             bail!("default simultaneous uploads must be between 1 and {MAX_UPLOADS}");
+        }
+        if self
+            .default_max_downloads
+            .is_some_and(|n| !(1..=MAX_UPLOADS).contains(&n))
+        {
+            bail!("default simultaneous downloads must be between 1 and {MAX_UPLOADS}");
         }
         for (name, limits) in &self.accounts {
             if name.is_empty() || name.contains([':', '/', '\\']) {
@@ -138,6 +153,7 @@ impl LimitsStore {
             bwlimit: own.bwlimit.clone(),
             tpslimit: own.tpslimit,
             max_uploads: own.max_uploads,
+            max_downloads: own.max_downloads,
             inactivity_warn_days: match own.inactivity_warn_days {
                 Some(0) => None,
                 Some(days) => Some(days),
@@ -156,6 +172,7 @@ pub(crate) struct Effective {
     pub bwlimit: Option<String>,
     pub tpslimit: Option<f64>,
     pub max_uploads: Option<u32>,
+    pub max_downloads: Option<u32>,
     pub inactivity_warn_days: Option<u32>,
     pub inactivity_is_default: bool,
 }

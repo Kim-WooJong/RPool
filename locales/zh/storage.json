@@ -357,5 +357,7 @@
   "Simultaneous shard uploads of {account} set to {n}.": "已将 {account} 的同时分片上传数设为 {n}。",
   "Sets the Simultaneous shard uploads of {account} to {n}.": "将 {account} 的同时分片上传数设为 {n}。",
   "Simultaneous shard uploads": "同时分片上传",
-  "How many shards are uploaded to this account at once; each is one upload request. 0 = the default from Settings › Network (Dropbox 1). Lower it for providers that answer \"too many requests\", e.g. Filen.": "同时上传到此账户的分片数；每个分片是一次上传请求。0 = 设置 › 网络中的默认值（Dropbox 为 1）。对于返回 \"too many requests\" 的服务（如 Filen）请调低。"
+  "How many shards are uploaded to this account at once; each is one upload request. 0 = the default from Settings › Network (Dropbox 1). Lower it for providers that answer \"too many requests\", e.g. Filen.": "同时上传到此账户的分片数；每个分片是一次上传请求。0 = 设置 › 网络中的默认值（Dropbox 为 1）。对于返回 \"too many requests\" 的服务（如 Filen）请调低。",
+  "Simultaneous shard downloads": "同时分片下载",
+  "How many shards are read from this account at once. 0 = the default from Settings › Network.": "同时从此账户读取的分片数。0 = 设置 › 网络中的默认值。"
 }

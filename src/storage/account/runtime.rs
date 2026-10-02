@@ -72,6 +72,15 @@ impl Settings {
             .and_then(|limits| limits.max_uploads)
             .map(|n| n as usize)
     }
+    /// The read cap that applies to `account`: its own value, else the
+    /// global default, else `None` for the built-in default.
+    pub(crate) fn download_cap(&self, account: &str) -> Option<usize> {
+        self.store
+            .account(account)
+            .and_then(|limits| limits.max_downloads)
+            .or(self.store.default_max_downloads)
+            .map(|n| n as usize)
+    }
     /// The cap that applies to `account`: its own value, else the global
     /// default (not for Dropbox, which rejects concurrent writes), else
     /// `None` for the built-in backend default.

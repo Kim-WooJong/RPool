@@ -40,6 +40,10 @@ pub(crate) enum LimitsCommands {
         /// rate-limit.
         #[arg(long)]
         max_uploads: Option<u32>,
+        /// Simultaneous shard downloads from this account (`0` = the default
+        /// of `default-downloads`).
+        #[arg(long)]
+        max_downloads: Option<u32>,
         /// Warn after this many days without activity (`0` = never warn).
         #[arg(long)]
         inactivity_warn_days: Option<u32>,
@@ -63,6 +67,12 @@ pub(crate) enum LimitsCommands {
     DefaultUploads {
         #[arg(value_parser = clap::value_parser!(u32).range(0..=256))]
         uploads: u32,
+    },
+    /// Simultaneous shard downloads per account for accounts without their
+    /// own value (`0` = built-in 16).
+    DefaultDownloads {
+        #[arg(value_parser = clap::value_parser!(u32).range(0..=256))]
+        downloads: u32,
     },
 }
 
@@ -155,6 +165,10 @@ mod tests {
             LimitsCommands::DefaultUploads { uploads: 8 }
         ));
         assert!(limits(&["default-uploads", "257"]).is_err());
+        assert!(matches!(
+            limits(&["default-downloads", "0"]).unwrap(),
+            LimitsCommands::DefaultDownloads { downloads: 0 }
+        ));
         assert!(matches!(
             limits(&["reset", "--remote", "gd"]).unwrap(),
             LimitsCommands::Reset { .. }

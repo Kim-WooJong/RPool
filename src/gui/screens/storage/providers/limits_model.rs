@@ -144,6 +144,7 @@ mod tests {
             bwlimit: None,
             tpslimit: None,
             max_uploads: None,
+            max_downloads: None,
         }
     }
 

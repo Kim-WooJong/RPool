@@ -60,10 +60,6 @@ pub(crate) struct MountProfile {
     pub(crate) interval_seconds: u64,
     /// Files uploaded at the same time (`--upload-files`).
     pub(crate) upload_files: u64,
-    /// Shard transfers of this PC for the drive (`--workers`); `None` = the
-    /// pool's saved value.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) workers: Option<u64>,
     pub(crate) cache: MountCacheSettings,
     /// Filesystem frontend.
     pub(crate) frontend: crate::cli::Frontend,
@@ -83,7 +79,6 @@ impl Default for MountProfile {
             manifests: Default::default(),
             interval_seconds: 30,
             upload_files: DEFAULT_UPLOAD_FILES,
-            workers: None,
             cache: Default::default(),
             frontend: Default::default(),
             native_read_only: Default::default(),
@@ -144,7 +139,6 @@ pub(crate) fn load(startup_rclone: &str) -> GuiSettings {
         }
         profile.interval_seconds = profile.interval_seconds.clamp(2, 86400);
         profile.upload_files = profile.upload_files.clamp(1, 64);
-        profile.workers = profile.workers.map(|n| n.clamp(1, 256));
     }
     if startup_rclone != "rclone" {
         settings.rclone = startup_rclone.to_string();

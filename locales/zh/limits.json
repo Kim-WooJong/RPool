@@ -13,7 +13,6 @@
   "Backend default ({limit})": "后端默认值（{limit}）",
   "Backend default (none)": "后端默认值（无）",
   "Bandwidth for this account": "此账户的带宽",
-  "Bandwidth limits for every RPool transfer on this computer. Off by default.": "限制此电脑上所有 RPool 传输的带宽。默认关闭。",
   "Bandwidth timetable": "带宽时间表",
   "Bandwidth: {error}": "带宽：{error}",
   "Daily upload limit (rolling 24 h)": "每日上传限额（滚动 24 小时）",
@@ -31,7 +30,6 @@
   "Limits…": "限制…",
   "local time unknown, using UTC": "无法确定本地时间，使用 UTC",
   "Measured from this computer's successful calls. Providers decide what counts as activity; RPool cannot guarantee that API access keeps an account.": "根据此电脑上成功的调用统计。什么算作活动由提供商决定；RPool 无法保证 API 访问能保住账户。",
-  "Network": "网络",
   "Never warn": "从不警告",
   "No activity from this computer yet": "此电脑尚无活动记录",
   "No bandwidth limit.": "无带宽限制。",
@@ -52,6 +50,15 @@
   "Upload limit": "上传限额",
   "Uploaded (24 h): {used} of {limit}": "已上传（24 小时）：{used} / {limit}",
   "When the limit is reached, uploads to this account wait and resume by themselves; nothing is lost. Counted per computer.": "达到限额后，上传到此账户会等待并自动恢复，不会丢失数据。按每台电脑统计。",
-  "Simultaneous shard uploads per account": "每个账户的同时分片上传数",
-  "Default for every account; an account's own value (Providers › Limits) wins. 0 = built-in 16. Dropbox stays at 1 unless set on its card. One shard is one upload request: RPool turns off chunk fan-out inside rclone.": "所有账户的默认值；账户自己的值（Providers › Limits）优先。0 = 内置默认 16。Dropbox 除非在其卡片上设置，否则保持 1。一个分片就是一次上传请求：RPool 会关闭 rclone 内部的分块并行发送。"
+  "Shard transfers": "分片传输",
+  "Counted in shards: one shard is one request (RPool turns off chunk fan-out inside rclone).": "以分片计数：一个分片就是一次请求（RPool 会关闭 rclone 内部的分块并行发送）。",
+  "Shard transfers (workers)": "分片同时传输 (workers)",
+  "Shards this PC transfers at once, uploads and downloads, shared by all files: drive, restore, verify, scrub, repair, drain and health checks.": "此电脑同时传输（上传和下载合计）的分片数，由驱动器、恢复、校验、scrub、repair、drain 和健康检查共享。",
+  "Upload default per account": "每个账户的上传默认值",
+  "Simultaneous shard uploads to one account unless its card (Providers › Limits) sets its own. 0 = built-in 16. Dropbox stays at 1 unless set on its card.": "同时上传到一个账户的分片数，除非其卡片（Providers › Limits）另有设置。0 = 内置 16。Dropbox 除非在卡片上设置，否则保持 1。",
+  "Download default per account": "每个账户的下载默认值",
+  "Simultaneous shard downloads from one account unless its card (Providers › Limits) sets its own. 0 = built-in 16.": "从一个账户同时下载的分片数，除非其卡片（Providers › Limits）另有设置。0 = 内置 16。",
+  "Network & transfers": "网络与传输",
+  "Bandwidth limits and how many shards move at once, for every RPool transfer on this computer.": "此电脑上所有 RPool 传输的带宽限制以及同时传输的分片数。",
+  "Network": "网络"
 }
