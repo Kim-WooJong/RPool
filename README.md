@@ -191,23 +191,30 @@ macOS/Linux stops promptly and still deletes the test files; leftovers are
 listed. Data is streamed, never staged locally.
 
 `--tune-uploads` (GUI: "Find the best number of simultaneous shard uploads")
-then uploads shards (the pool's shard size; 64 MiB without a pool) to every
-remote that passed at 1, 2, 4, … 32 at once, each level in its own folder,
-deleted right after. Every level is **time-boxed**: the first 5 s are
-discarded (process start, TLS, first answer), the bytes moved in the next
-15 s give the rate, then the level's transfers stop (a level that finishes
-earlier is rated on all its bytes). So one direction takes at most about
-2 minutes per remote whatever the shard size or speed. The process caps are
-lifted meanwhile, so throttling (a rate that stops rising) or refused
-concurrent writes (an error) show; stopped transfers are not errors.
-Climbing stops at the first error or after two levels without a 10% gain.
-The recommendation is the smallest tested count within 10% of the best
-rate; the table prints the `provider limits set --max-uploads` command, and
-the GUI's Apply sets the account's Simultaneous shard uploads.
-`--tune-downloads` (GUI: "Find the best number of simultaneous shard
-downloads") writes a read set of 4 shards per remote and reads it back,
-verified, at the same time-boxed levels; its recommendation is applied as
-`--max-downloads` / Simultaneous shard downloads.
+then uploads **1 MiB shards** (or the pool's shard size when smaller) to
+every remote that passed at 1, 2, 4, … 32 at once, each level in its own
+folder, deleted right after. Small shards on purpose: the simultaneous
+count an account needs is `c*(s) = B·(L/s + 1/b)` (B its bandwidth, L the
+fixed cost per request, b one stream's rate), largest for small shards
+where L dominates. A count that suits them also suits large shards, which a
+lower count already fills with bandwidth, so a higher cap costs them
+nothing; the count measured with 64 MiB shards would starve many small
+files. Every level is **time-boxed**: the first 5 s are discarded (process
+start, TLS, first answer), the bytes moved in the next 15 s give the rate;
+then no further shard starts, but the ones in flight finish, so every
+started upload also commits and a provider that rejects concurrent commits
+(Dropbox) still shows an error. A level that finishes earlier is rated on
+all its bytes. The process caps are lifted meanwhile, so throttling (a rate
+that stops rising) or refused concurrent writes (an error) show; shards
+left unstarted are not errors. Climbing stops at the first error or after
+two levels without a 10% gain. The recommendation is the smallest tested
+count within 10% of the best rate; the table prints the
+`provider limits set --max-uploads` command, and the GUI's Apply sets the
+account's Simultaneous shard uploads. `--tune-downloads` (GUI: "Find the
+best number of simultaneous shard downloads") writes a read set of 16 such
+shards per remote and reads it back, verified, at the same time-boxed
+levels; its recommendation is applied as `--max-downloads` / Simultaneous
+shard downloads.
 
 ### Object size limits and native crypt
 

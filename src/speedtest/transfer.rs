@@ -61,7 +61,7 @@ fn run<T: Send>(
         for _ in 0..running.load(Ordering::Relaxed) {
             scope.spawn(|| {
                 loop {
-                    if failed.load(Ordering::Acquire) || engine.cancelled() {
+                    if failed.load(Ordering::Acquire) || engine.cancelled() || engine.draining() {
                         break;
                     }
                     let index = next.fetch_add(1, Ordering::Relaxed);

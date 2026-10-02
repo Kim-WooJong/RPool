@@ -156,9 +156,9 @@ fn plan_controls(ui: &mut egui::Ui, form: &mut SpeedTestForm, enabled: bool, sha
             }
         });
         ui.checkbox(&mut form.tune_downloads, tr("Find the best number of simultaneous shard downloads"))
-            .on_hover_text(trf("After the test, writes 4 shards of {shard} to each account and reads them back at 1, 2, 4, … 32 at once, then recommends its Simultaneous shard downloads. Each step runs at most 20 s (5 s warm-up, 15 s measured): about 2 minutes per account at most.", &[("shard", &binary_size(shard))]));
+            .on_hover_text(trf("After the test, writes 4 shards of {shard} to each account and reads them back at 1, 2, 4, … 32 at once, then recommends its Simultaneous shard downloads. Each step measures 20 s (5 s warm-up, 15 s measured), then lets the shards in flight finish so every upload also commits.", &[("shard", &binary_size(shard.min(crate::speedtest::TUNE_SHARD_BYTES)))]));
         ui.checkbox(&mut form.tune_uploads, tr("Find the best number of simultaneous shard uploads"))
-            .on_hover_text(trf("After the test, uploads shards of {shard} to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous shard uploads. Each step runs at most 20 s (5 s warm-up, 15 s measured): about 2 minutes per account at most.", &[("shard", &binary_size(shard))]));
+            .on_hover_text(trf("After the test, uploads shards of {shard} to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous shard uploads. Each step measures 20 s (5 s warm-up, 15 s measured), then lets the shards in flight finish so every upload also commits.", &[("shard", &binary_size(shard.min(crate::speedtest::TUNE_SHARD_BYTES)))]));
     });
 }
 

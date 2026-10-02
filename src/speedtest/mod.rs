@@ -34,3 +34,4 @@ mod integration_tests;
 
 pub(crate) use command::{run_pool, run_remotes};
 pub(crate) use remote::backend_type;
+pub(crate) use tune::TUNE_SHARD_BYTES;

@@ -29,7 +29,7 @@ pub(crate) fn run_pool(rclone: &str, name: &str, size: SpeedTestSizeArgs) -> Res
         bail!("pool {name} has no remotes");
     }
     let mut plan = TestPlan::new(&size, Some(pool.workers))?;
-    plan.shard_bytes = pool.shard_bytes()?.get();
+    plan.shard_bytes = pool.shard_bytes()?.get().min(plan.shard_bytes);
     let engine = Engine::new(
         RcloneContext::inherited(rclone),
         pool.native_crypt,

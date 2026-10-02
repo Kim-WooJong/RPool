@@ -1,15 +1,20 @@
 //! `--tune-uploads` / `--tune-downloads`: the best number of simultaneous
 //! shard uploads / downloads per account.
 //!
-//! The unit is the shard: after a remote passed the normal test, files of
-//! the pool's shard size are uploaded at 1, 2, 4, … [`LEVELS`] at once (one
-//! file per upload slot, at least two), each level in its own folder that is
-//! deleted right after, exactly like shard uploads (one request each, no
-//! chunk fan-out in rclone). Both process caps are lifted meanwhile, so the
-//! account's own behavior shows: throttling as a rate that stops rising, a
-//! provider that refuses concurrent writes as an error. Downloads first
-//! upload a read set of [`READ_SET`] shards and read it (cycling, verified)
-//! at the same levels.
+//! The unit is one small shard ([`TUNE_SHARD_BYTES`], or the pool's shard
+//! size when smaller), one request each (no chunk fan-out in rclone). The
+//! count a remote needs is largest for small shards, where the per-request
+//! overhead dominates; it also suits large shards, which a lower count
+//! already fills with bandwidth (and a higher cap costs them nothing).
+//!
+//! After a remote passed the normal test, such shards are uploaded at 1, 2,
+//! 4, … [`LEVELS`] at once, each level in its own folder that is deleted
+//! right after. Downloads first upload a read set of [`READ_SET`] shards and
+//! read it (cycling, verified) at the same levels. Each level is time-boxed
+//! (see [`timed`]). Both process caps are lifted meanwhile, so the account's
+//! own behavior shows: throttling as a rate that stops rising, a provider
+//! that refuses concurrent writes as an error.
+//!
 //! Climbing stops at the first error, or after two levels in a row that
 //! are not [`GAIN`] faster than the best so far. The recommendation is the
 //! smallest tested count within [`ENOUGH`] of the best rate: more uploads
@@ -28,8 +33,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub(crate) const LEVELS: [usize; 6] = [1, 2, 4, 8, 16, 32];
-/// Work per upload slot: enough that a fast account still fills the
-/// measuring window (a level ends at the window anyway).
+/// Size of one tuning request (when the pool's shards are not smaller).
+pub(crate) const TUNE_SHARD_BYTES: u64 = 1024 * 1024;
+/// Shards queued per slot: enough that a fast account still fills the
+/// measuring window; the ones not started when it ends are never written.
+#[cfg(not(test))]
+const FILES_PER_SLOT: usize = 64;
+/// Local test remotes are fast: keep the bytes a window writes small.
+#[cfg(test)]
 const FILES_PER_SLOT: usize = 3;
 const MIN_FILES: usize = 2;
 /// Discarded start of every level: process start, TLS, the provider's
@@ -54,19 +65,23 @@ fn files_at(level: usize) -> usize {
     (level * FILES_PER_SLOT).max(MIN_FILES)
 }
 
-/// Bytes the tuning of one remote moves at most (progress bar share).
+/// Progress bar share of one level (or of writing the read set): tuning
+/// moves an unknown number of bytes, so the bar advances per step instead.
+pub(crate) const STEP_BYTES: u64 = 16 * 1024 * 1024;
+
+/// The bar share of one remote's tuning: one step per level (plus the read
+/// set). Levels skipped by an early stop are settled by the caller.
 pub(crate) fn expected_bytes(plan: &TestPlan) -> u64 {
-    let levels: u64 = LEVELS
-        .iter()
-        .map(|&level| files_at(level) as u64 * plan.shard_bytes)
-        .sum();
+    let levels = LEVELS.len() as u64;
     let uploads = if plan.tune_uploads { levels } else { 0 };
-    let downloads = if plan.tune_downloads {
-        READ_SET as u64 * plan.shard_bytes + levels
-    } else {
-        0
-    };
-    uploads + downloads
+    let downloads = if plan.tune_downloads { levels + 1 } else { 0 };
+    (uploads + downloads) * STEP_BYTES
+}
+
+/// One step of the bar done.
+fn step_done(outcome: &mut TuneOutcome) {
+    super::progress::settle(STEP_BYTES, 0);
+    outcome.reported += STEP_BYTES;
 }
 
 /// Whether another level should run after `steps`.
@@ -115,7 +130,7 @@ pub(crate) struct TuneOutcome {
 }
 
 /// Shards uploaded once and read back at every download level.
-const READ_SET: usize = 4;
+const READ_SET: usize = 16;
 
 /// Runs the requested tunings on one remote; never fails the remote.
 pub(crate) fn run(
@@ -154,27 +169,30 @@ struct Measured {
     /// None when the level failed.
     rate: Option<f64>,
     error: Option<String>,
-    reported: u64,
 }
 
 /// Runs one level with both process caps lifted: after [`WARM_UP`] the
-/// bytes moved during [`WINDOW`] give the rate, then the level's own
-/// transfers stop (a level that finishes earlier is rated on all of its
-/// bytes). Stopped transfers are not errors; anything else that failed is.
+/// bytes moved during [`WINDOW`] give the rate. Then no further file starts
+/// but the ones in flight finish, so every started upload also commits (a
+/// provider that rejects concurrent commits, e.g. Dropbox, shows as an error
+/// even with shards too large for the window). A level that finishes
+/// earlier is rated on all of its bytes.
 fn timed<T: Send>(
     run: &Run<'_>,
     files: &[TestFile],
     go: impl FnOnce(&super::engine::Engine, &Transfer) -> Phase<T>,
 ) -> Measured {
     let stop = Arc::new(AtomicBool::new(false));
-    let engine = run.engine.scoped(stop.clone());
-    let progress = Transfer::new();
+    let drain = Arc::new(AtomicBool::new(false));
+    let engine = run.engine.scoped(stop.clone(), drain.clone());
+    let progress = Transfer::silent();
     let finished = AtomicBool::new(false);
     let started = Instant::now();
     let moved = || progress.moved.load(Ordering::Relaxed);
     let (phase, window) = std::thread::scope(|scope| {
         let watcher = scope.spawn(|| {
             let mut warm = None;
+            let mut window = None;
             while !finished.load(Ordering::Acquire) {
                 if run.engine.cancelled() {
                     stop.store(true, Ordering::Release);
@@ -183,13 +201,13 @@ fn timed<T: Send>(
                 if warm.is_none() && at >= WARM_UP {
                     warm = Some((at, moved()));
                 }
-                if at >= WARM_UP + WINDOW {
-                    stop.store(true, Ordering::Release);
-                    return warm.map(|start| (start, (at, moved())));
+                if window.is_none() && at >= WARM_UP + WINDOW {
+                    drain.store(true, Ordering::Release);
+                    window = warm.map(|start| (start, (at, moved())));
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
-            None
+            window
         });
         let phase = {
             let _uncapped = crate::storage::rclone::uncap_for_speed_test();
@@ -201,11 +219,7 @@ fn timed<T: Send>(
     let error = if run.engine.cancelled() {
         Some("cancelled".to_owned())
     } else {
-        // Transfers the window stopped report "cancelled"; they are expected.
-        phase.results.iter().find_map(|r| match r {
-            Some(Err(e)) if e != "cancelled" => Some(e.clone()),
-            _ => None,
-        })
+        phase.error().map(str::to_owned)
     };
     let rate = match (&error, window) {
         (Some(_), _) => None,
@@ -215,11 +229,7 @@ fn timed<T: Send>(
         }
         (None, None) => None,
     };
-    Measured {
-        rate,
-        error,
-        reported: progress.reported(),
-    }
+    Measured { rate, error }
 }
 
 /// `count` shard files under `dir` (named by index).
@@ -265,7 +275,7 @@ fn upload_levels(
         let measured = timed(run, &files, |engine, progress| {
             transfer::upload_into(engine, at, &files, level, &seed, &attempted, progress)
         });
-        outcome.reported += measured.reported;
+        step_done(outcome);
         tuning.steps.push(TuningStep {
             parallel: level,
             files: files.len(),
@@ -294,18 +304,19 @@ fn download_levels(
     let set = shard_files(run, &dir, READ_SET);
     let attempted: Vec<AtomicBool> = set.iter().map(|_| AtomicBool::new(false)).collect();
     at.status("tuning downloads: writing the read set");
-    let (written, progress) = {
+    let written = {
         let _uncapped = crate::storage::rclone::uncap_for_speed_test();
-        transfer::upload(
+        transfer::upload_into(
             engine,
             at,
             &set,
             READ_SET,
             &level_seed(&run.seed, "tune-read"),
             &attempted,
+            &Transfer::silent(),
         )
     };
-    outcome.reported += progress.reported();
+    step_done(outcome);
     if let Some(error) = cancelled_or(engine, written.error()).or_else(|| {
         (!written.complete()).then(|| "not every read-set shard was written".to_owned())
     }) {
@@ -332,7 +343,7 @@ fn download_levels(
             let measured = timed(run, &reads, |engine, progress| {
                 transfer::download_into(engine, at, &reads, level, &expected, progress)
             });
-            outcome.reported += measured.reported;
+            step_done(outcome);
             tuning.steps.push(TuningStep {
                 parallel: level,
                 files: count,
@@ -430,15 +441,14 @@ mod tests {
             parallel: 1,
             tune_uploads: false,
             tune_downloads: false,
-            shard_bytes: 64 * MIB,
+            shard_bytes: MIB,
         };
         assert_eq!(expected_bytes(&plan), 0);
         plan.tune_uploads = true;
-        // 3 + 6 + 12 + 24 + 48 + 96 shards of 64 MiB (an upper bound: each
-        // level stops after its window).
-        assert_eq!(expected_bytes(&plan), 189 * 64 * MIB);
+        // One bar step per level.
+        assert_eq!(expected_bytes(&plan), 6 * STEP_BYTES);
         plan.tune_downloads = true;
-        // Plus the read set of 4 and the same number of reads.
-        assert_eq!(expected_bytes(&plan), (189 + 4 + 189) * 64 * MIB);
+        // Plus the download levels and the read set.
+        assert_eq!(expected_bytes(&plan), 13 * STEP_BYTES);
     }
 }

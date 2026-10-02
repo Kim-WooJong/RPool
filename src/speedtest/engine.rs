@@ -13,6 +13,9 @@ pub(crate) struct Engine {
     /// to the crypt remote's base, exactly like `put`.
     pub native: Option<NativeCrypt>,
     pub cancel: Arc<AtomicBool>,
+    /// Set: start no further file, finish the ones in flight (a timed tuning
+    /// level at its end, so every started upload also commits).
+    pub drain: Arc<AtomicBool>,
 }
 
 impl Engine {
@@ -22,11 +25,12 @@ impl Engine {
             context,
             native,
             cancel,
+            drain: Arc::new(AtomicBool::new(false)),
         }
     }
-    /// The same remotes and write path with its own stop flag (a timed
-    /// tuning level stops only its own transfers).
-    pub(crate) fn scoped(&self, cancel: Arc<AtomicBool>) -> Self {
+    /// The same remotes and write path with its own stop and drain flags (a
+    /// timed tuning level ends only its own transfers).
+    pub(crate) fn scoped(&self, cancel: Arc<AtomicBool>, drain: Arc<AtomicBool>) -> Self {
         Self {
             context: self.context.clone(),
             native: self
@@ -34,7 +38,11 @@ impl Engine {
                 .as_ref()
                 .map(|_| NativeCrypt::new(self.context.clone())),
             cancel,
+            drain,
         }
+    }
+    pub(crate) fn draining(&self) -> bool {
+        self.drain.load(Ordering::Acquire)
     }
     pub(crate) fn cancelled(&self) -> bool {
         self.cancel.load(Ordering::Acquire)

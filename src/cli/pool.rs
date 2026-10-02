@@ -135,15 +135,14 @@ pub(crate) struct SpeedTestSizeArgs {
     /// overhead. Each file must be at least 4 KiB.
     #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..=4096))]
     pub files: Option<u64>,
-    /// After the test, upload shards (the pool's shard size; 64 MiB without
-    /// a pool) at 1, 2, 4, … 32 at once per remote and recommend each
-    /// account's simultaneous shard uploads (up to 64 shards per remote;
-    /// climbing usually stops earlier).
+    /// After the test, upload 1 MiB shards (or the pool's shard size when
+    /// smaller) at 1, 2, 4, … 32 at once per remote, about 20 s per step, and
+    /// recommend each account's simultaneous shard uploads.
     #[arg(long)]
     pub tune_uploads: bool,
-    /// After the test, read shards back at 1, 2, 4, … 32 at once per remote
-    /// (from a read set of 4 uploaded shards) and recommend each account's
-    /// simultaneous shard downloads.
+    /// After the test, read 1 MiB shards back at 1, 2, 4, … 32 at once per
+    /// remote (from a read set of 16 uploaded shards), about 20 s per step,
+    /// and recommend each account's simultaneous shard downloads.
     #[arg(long)]
     pub tune_downloads: bool,
     /// Print one JSON report instead of the table.

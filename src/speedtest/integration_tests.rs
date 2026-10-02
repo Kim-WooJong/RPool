@@ -207,7 +207,7 @@ fn tuning_climbs_recommends_and_cleans_up_both_directions() {
 
 #[test]
 #[ignore = "requires rclone"]
-fn timed_levels_stop_mid_transfer_and_still_clean_up() {
+fn timed_levels_drain_at_the_window_and_clean_up() {
     let fixture = Fixture::new(1);
     let remotes = remotes(1);
     let mut plan = plan(1, None, Some(2));
@@ -215,7 +215,8 @@ fn timed_levels_stop_mid_transfer_and_still_clean_up() {
     plan.tune_downloads = true;
     plan.shard_bytes = 1 << 20;
     // 512 KiB/s per rclone process: a level's work (3+ shards per slot)
-    // outlasts its window, so every level is cut off by time.
+    // outlasts its window, so every level ends by time: no new shard
+    // starts, the ones in flight finish (and commit).
     let mut engine = fixture.engine(false);
     engine
         .context
@@ -227,7 +228,7 @@ fn timed_levels_stop_mid_transfer_and_still_clean_up() {
         let tuning = tuning.as_ref().expect("tuned");
         assert_eq!(tuning.error, None, "{tuning:?}");
         assert!(!tuning.steps.is_empty());
-        // Stopped transfers are not failures; every level has a rate.
+        // Shards left unstarted are not failures; every level has a rate.
         assert!(
             tuning
                 .steps

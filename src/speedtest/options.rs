@@ -25,8 +25,9 @@ pub(crate) struct TestPlan {
     pub tune_uploads: bool,
     /// `--tune-downloads`: also find the best number of simultaneous reads.
     pub tune_downloads: bool,
-    /// Size of one tuning upload: the pool's shard size (default 64 MiB
-    /// without a pool), so a count of uploads is a count of shards.
+    /// Size of one tuning upload or read: 1 MiB, or the pool's shard size
+    /// when smaller. Small shards need the most concurrency (per-request
+    /// overhead dominates), so a count that suits them suits every size.
     pub shard_bytes: u64,
 }
 
@@ -64,7 +65,7 @@ impl TestPlan {
             parallel,
             tune_uploads: args.tune_uploads,
             tune_downloads: args.tune_downloads,
-            shard_bytes: crate::config::constants::DEFAULT_SHARD_MIB * MIB,
+            shard_bytes: super::tune::TUNE_SHARD_BYTES,
         })
     }
 

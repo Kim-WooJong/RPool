@@ -88,6 +88,8 @@ pub(crate) struct Transfer {
     pub files_done: AtomicUsize,
     /// Bytes already reported through the protocol.
     reported: AtomicU64,
+    /// Moves bytes without reporting them (tuning reports whole levels).
+    silent: bool,
 }
 
 impl Transfer {
@@ -96,10 +98,21 @@ impl Transfer {
             moved: AtomicU64::new(0),
             files_done: AtomicUsize::new(0),
             reported: AtomicU64::new(0),
+            silent: false,
+        }
+    }
+    /// A transfer that never reports bytes through the protocol.
+    pub(crate) fn silent() -> Self {
+        Self {
+            silent: true,
+            ..Self::new()
         }
     }
     /// Reports bytes moved since the last call.
     fn flush_bytes(&self) {
+        if self.silent {
+            return;
+        }
         let moved = self.moved.load(Ordering::Relaxed);
         let before = self.reported.swap(moved, Ordering::Relaxed);
         if moved > before {
