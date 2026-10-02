@@ -35,8 +35,9 @@ pub(crate) enum LimitsCommands {
         /// rclone `--tpslimit` for this account (`0` clears).
         #[arg(long)]
         tpslimit: Option<f64>,
-        /// Simultaneous uploads to this account (`0` = backend default;
-        /// Dropbox defaults to 1). Lower it for providers that rate-limit.
+        /// Simultaneous shard uploads to this account (`0` = the default of
+        /// `default-uploads`; Dropbox 1). Lower it for providers that
+        /// rate-limit.
         #[arg(long)]
         max_uploads: Option<u32>,
         /// Warn after this many days without activity (`0` = never warn).
@@ -57,6 +58,12 @@ pub(crate) enum LimitsCommands {
     /// Days without activity after which a mount keeps its accounts alive
     /// automatically (`0` = never).
     KeepaliveDays { days: u32 },
+    /// Simultaneous shard uploads per account for accounts without their
+    /// own value (`0` = built-in 16). Dropbox stays at 1 unless set itself.
+    DefaultUploads {
+        #[arg(value_parser = clap::value_parser!(u32).range(0..=256))]
+        uploads: u32,
+    },
 }
 
 #[cfg(test)]
@@ -143,6 +150,11 @@ mod tests {
             limits(&["keepalive-days", "0"]).unwrap(),
             LimitsCommands::KeepaliveDays { days: 0 }
         ));
+        assert!(matches!(
+            limits(&["default-uploads", "8"]).unwrap(),
+            LimitsCommands::DefaultUploads { uploads: 8 }
+        ));
+        assert!(limits(&["default-uploads", "257"]).is_err());
         assert!(matches!(
             limits(&["reset", "--remote", "gd"]).unwrap(),
             LimitsCommands::Reset { .. }

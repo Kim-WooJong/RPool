@@ -52,6 +52,10 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         None => VirtualDrive::open(rclone, &args.pool, &args.workspace, worker, cache_limit)?,
     };
     durable_json(&drive.root.join("pool-worker.json"), &worker)?;
+    if let Some(workers) = args.workers {
+        // An execution knob of this PC; the pool keeps its layout.
+        drive.policy.workers = usize::try_from(workers).unwrap_or(usize::MAX);
+    }
     drive.spool_limit = args
         .spool_gib
         .checked_mul(1073741824)

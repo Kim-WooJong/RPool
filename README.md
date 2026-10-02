@@ -190,15 +190,16 @@ little free space fails before writing. Ctrl-C (or the GUI's Stop) on
 macOS/Linux stops promptly and still deletes the test files; leftovers are
 listed. Data is streamed, never staged locally.
 
-`--tune-uploads` (GUI: "Find the best number of simultaneous uploads") then
-uploads 1 MiB files to every remote that passed at 1, 2, 4, … 32 at once (two
-files per upload, at least four; each level in its own folder, deleted right
-after; at most 128 MiB per remote). The process caps are lifted meanwhile, so
+`--tune-uploads` (GUI: "Find the best number of simultaneous shard uploads")
+then uploads shards (the pool's shard size; 64 MiB without a pool) to every
+remote that passed at 1, 2, 4, … 32 at once (one per upload, at least two;
+each level in its own folder, deleted right after; at most 64 shards per
+remote, usually far fewer). The process caps are lifted meanwhile, so
 throttling (a rate that stops rising) or refused concurrent writes (an error)
 show. Climbing stops at the first error or after two levels without a 10%
 gain. The recommendation is the smallest tested count within 10% of the best
 rate; the table prints the `provider limits set --max-uploads` command, and
-the GUI's Apply sets the account's Simultaneous uploads limit.
+the GUI's Apply sets the account's Simultaneous shard uploads.
 
 ### Object size limits and native crypt
 
@@ -344,7 +345,7 @@ real-cloud numbers are in the CHANGELOG.
 
 ```text
 rpool provider health [--pool P] [--json]
-rpool provider limits show|set|reset|bandwidth|keepalive-days ...
+rpool provider limits show|set|reset|bandwidth|keepalive-days|default-uploads ...
 rpool provider keepalive ...
 rpool provider ensure-encryption | encrypt --name N --provider P ...
 rpool provider drain FILE.rpool.json --from old-crypt:rpool --to new-crypt:rpool [--dry-run] [--delete-source] [--allow-risky]
@@ -358,6 +359,18 @@ rpool remote-root list | set REMOTE PATH | remove REMOTE
   uploads to that account wait instead of failing. Last activity per account
   with inactivity warnings, a bandwidth timetable in rclone syntax
   (`"08:00,512k 18:00,30M"`, `UP:DOWN`) and per-account `--tpslimit`.
+- **Concurrency is counted in shards.** One shard upload is one upload
+  request: RPool sets rclone's per-file chunk concurrency to 1 for its uploads
+  (`RCLONE_CONFIG_<ACCOUNT>_UPLOAD_CONCURRENCY=1`, overriding rclone.conf;
+  e.g. Filen's default of 16), so nothing multiplies the counts below.
+  - `default-uploads N` (GUI: Settings › Network): simultaneous shard uploads
+    per account for accounts without their own value (`0` = built-in 16;
+    Dropbox stays 1).
+  - `set --remote R --max-uploads N` (GUI: provider card › Limits): this
+    account's own value, which wins (`0` = the default above).
+  - The drive's shard transfers of this PC are a drive option
+    (`mount --workers N`, GUI: Drive › Cache & pending writes); without it the
+    pool's saved `workers` apply. Changing it keeps started uploads resumable.
 - **keepalive** makes one cheap authenticated call per account and records it
   as activity; mounts do it automatically after `keepalive-days`. Providers
   decide what counts as activity.

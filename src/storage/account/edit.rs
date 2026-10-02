@@ -64,8 +64,11 @@ pub(crate) fn apply(store: &mut LimitsStore, account: &str, edit: &LimitEdit) ->
         limits.inactivity_warn_days = Some(days);
     }
     if let Some(uploads) = edit.max_uploads {
-        if uploads > 256 {
-            bail!("at most 256 simultaneous uploads per account");
+        if uploads > super::limits::MAX_UPLOADS {
+            bail!(
+                "at most {} simultaneous uploads per account",
+                super::limits::MAX_UPLOADS
+            );
         }
         limits.max_uploads = (uploads > 0).then_some(uploads);
     }

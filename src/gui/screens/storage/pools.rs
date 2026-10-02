@@ -250,10 +250,6 @@ fn policy_card(ui: &mut egui::Ui, state: &mut GuiState, task: &TaskRunner) {
                     ui.checkbox(&mut state.pools.native_crypt, tr("Encrypt in RPool"));
                     ui.end_row();
 
-                    ui.label(tr("Workers"));
-                    ui.add(egui::DragValue::new(&mut state.pools.workers).range(1..=256));
-                    ui.end_row();
-
                     ui.label(tr("Retries"));
                     ui.add(egui::DragValue::new(&mut state.pools.retries).range(0..=100));
                     ui.end_row();

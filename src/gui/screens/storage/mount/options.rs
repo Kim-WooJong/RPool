@@ -34,7 +34,10 @@ fn cache(ui: &mut egui::Ui, form: &mut MountForm) {
                 ui.label(tr("Background interval")).on_hover_text(tr("How often other PCs' changes are fetched. Saved files start uploading at once. Capacity is measured at least every 60 s regardless."));
                 ui.add(egui::DragValue::new(&mut form.interval_seconds).range(2..=86400).suffix(" s"));
                 ui.end_row();
-                ui.label(tr("Parallel uploads")).on_hover_text(tr("Files uploaded at the same time. All of them share the pool's shard workers."));
+                ui.label(tr("Shard transfers (workers)")).on_hover_text(tr("Shards this PC uploads and downloads at once for the drive, shared by all files. Each account's Simultaneous shard uploads (Providers › Limits) still caps its share."));
+                ui.add(egui::DragValue::new(&mut form.workers).range(1..=256));
+                ui.end_row();
+                ui.label(tr("Parallel uploads")).on_hover_text(tr("Files uploaded at the same time. All of them share the shard transfers."));
                 ui.add(egui::DragValue::new(&mut form.upload_files).range(1..=64));
                 ui.end_row();
             });
@@ -109,6 +112,14 @@ fn frontend(ui: &mut egui::Ui, form: &mut MountForm) {
 
 pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
     let (form, settings) = (&mut state.mount, &mut state.settings);
+    if form.workers == 0 {
+        // Not chosen on this PC yet: start from the pool's saved value.
+        form.workers = state
+            .pool_definitions
+            .get(&form.pool)
+            .map_or(settings.workers, |pool| pool.workers)
+            .clamp(1, 256) as u64;
+    }
     ui.add_enabled_ui(!form.session.runner.is_running(), |ui| {
         theme::two_up(ui, form, cache, frontend);
         ui.horizontal_wrapped(|ui| {

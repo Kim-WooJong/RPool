@@ -193,8 +193,10 @@
   "Apply pool changes needs no listed archive imports; remove them first.": "“应用存储池更改”要求未列出待导入的归档；请先将其移除。",
   "How often other PCs' changes are fetched. Saved files start uploading at once. Capacity is measured at least every 60 s regardless.": "获取其他电脑更改的频率。已保存的文件会立即开始上传。无论如何，容量至少每 60 秒测量一次。",
   "Parallel uploads": "并行上传",
-  "Files uploaded at the same time. All of them share the pool's shard workers.": "同时上传的文件数。所有文件共享存储池的分片工作线程。",
   "Native macFUSE (macOS)": "原生 macFUSE（macOS）",
   "macFUSE not installed — install macFUSE for the native drive (then restart RPool); WebDAV is used meanwhile.": "未安装 macFUSE — 如需原生驱动器请安装 macFUSE（然后重启 RPool）；在此期间使用 WebDAV。",
-  "Download macFUSE": "下载 macFUSE"
+  "Download macFUSE": "下载 macFUSE",
+  "Shard transfers (workers)": "分片同时传输 (workers)",
+  "Shards this PC uploads and downloads at once for the drive, shared by all files. Each account's Simultaneous shard uploads (Providers › Limits) still caps its share.": "此电脑为该驱动器同时上传和下载的分片数，由所有文件共享。每个账户的份额仍受其同时分片上传数（Providers › Limits）限制。",
+  "Files uploaded at the same time. All of them share the shard transfers.": "同时上传的文件数。所有文件共享分片同时传输数。"
 }

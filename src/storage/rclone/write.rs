@@ -79,12 +79,15 @@ impl RcloneContext {
             bytes: 0,
         };
         // A stalled transfer is killed and reported as a retriable timeout.
-        let result = process::run_upload(
-            &mut self.command_for(address, &args),
-            ctx,
-            &mut counted,
-            Some(&op),
-        );
+        let mut command = self.command_for(address, &args);
+        if let Some((base, _)) = &account {
+            // One shard is one upload: no chunk fan-out inside rclone, so
+            // the account's simultaneous uploads are its requests in flight.
+            // Remote-specific variables override rclone.conf; backends
+            // without this option ignore it.
+            command.env(chunk_concurrency_variable(base), "1");
+        }
+        let result = process::run_upload(&mut command, ctx, &mut counted, Some(&op));
         if let Some((name, _)) = &account {
             // Bytes that reached rclone count, whatever the outcome.
             crate::storage::account::runtime::record_upload(name, counted.bytes);
@@ -225,15 +228,14 @@ impl RcloneContext {
         address: &str,
     ) -> Result<(Option<limit::Permit>, Option<limit::Permit>), StorageError> {
         let lane = self.write_lane(ctx, address);
-        let general = permit(ctx, address)?;
-        let write = match &lane {
-            Some((base, kind)) => {
-                let own = crate::storage::account::runtime::settings().max_uploads(base);
-                Some(limit::acquire_write(base, kind == "dropbox", own, ctx)?)
-            }
-            None => None,
+        let Some((base, kind)) = &lane else {
+            return Ok((permit(ctx, address)?, None));
         };
-        Ok((general, write))
+        // The account's write cap is the only cap on its mutations, so a
+        // value above the general per-remote cap really applies.
+        let dropbox = kind == "dropbox";
+        let cap = crate::storage::account::runtime::settings().upload_cap(base, dropbox);
+        Ok((None, Some(limit::acquire_write(base, dropbox, cap, ctx)?)))
     }
     /// (bottom remote of the crypt/alias chain, its backend type), cached per
     /// config selection and remote name. Unresolvable -> the addressed name.
@@ -364,4 +366,25 @@ type HashKindCache = std::collections::HashMap<String, Option<Vec<String>>>;
 fn stored_hash_cache() -> &'static std::sync::Mutex<HashKindCache> {
     static CACHE: std::sync::OnceLock<std::sync::Mutex<HashKindCache>> = std::sync::OnceLock::new();
     CACHE.get_or_init(Default::default)
+}
+
+/// `RCLONE_CONFIG_<REMOTE>_UPLOAD_CONCURRENCY`: rclone upper-cases the
+/// remote name as is (symbols included).
+pub(super) fn chunk_concurrency_variable(remote: &str) -> String {
+    format!("RCLONE_CONFIG_{}_UPLOAD_CONCURRENCY", remote.to_uppercase())
+}
+
+#[cfg(test)]
+mod chunk_tests {
+    #[test]
+    fn chunk_concurrency_variable_names_the_remote() {
+        assert_eq!(
+            super::chunk_concurrency_variable("filen_1"),
+            "RCLONE_CONFIG_FILEN_1_UPLOAD_CONCURRENCY"
+        );
+        assert_eq!(
+            super::chunk_concurrency_variable("my-remote.x"),
+            "RCLONE_CONFIG_MY-REMOTE.X_UPLOAD_CONCURRENCY"
+        );
+    }
 }

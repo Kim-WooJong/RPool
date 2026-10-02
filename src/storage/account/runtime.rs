@@ -72,6 +72,17 @@ impl Settings {
             .and_then(|limits| limits.max_uploads)
             .map(|n| n as usize)
     }
+    /// The cap that applies to `account`: its own value, else the global
+    /// default (not for Dropbox, which rejects concurrent writes), else
+    /// `None` for the built-in backend default.
+    pub(crate) fn upload_cap(&self, account: &str, dropbox: bool) -> Option<usize> {
+        self.max_uploads(account).or_else(|| {
+            self.store
+                .default_max_uploads
+                .filter(|_| !dropbox)
+                .map(|n| n as usize)
+        })
+    }
     pub(crate) fn tpslimit(&self, account: &str) -> Option<f64> {
         self.store
             .account(account)

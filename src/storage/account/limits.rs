@@ -54,6 +54,9 @@ fn default_keepalive_days() -> u32 {
     DEFAULT_KEEPALIVE_DAYS
 }
 
+/// Highest simultaneous shard uploads per account.
+pub(crate) const MAX_UPLOADS: u32 = 256;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct LimitsStore {
@@ -64,6 +67,10 @@ pub(crate) struct LimitsStore {
     /// A mount keeps its accounts alive when idle this long; `0` = never.
     #[serde(default = "default_keepalive_days")]
     pub keepalive_days: u32,
+    /// Simultaneous shard uploads per account for accounts without their
+    /// own value; `None` = built-in default (16). Dropbox keeps 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_max_uploads: Option<u32>,
     /// Keyed by account (bottom remote name, no colon).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub accounts: BTreeMap<String, AccountLimits>,
@@ -75,6 +82,7 @@ impl Default for LimitsStore {
             version: LIMITS_VERSION,
             bandwidth: None,
             keepalive_days: DEFAULT_KEEPALIVE_DAYS,
+            default_max_uploads: None,
             accounts: BTreeMap::new(),
         }
     }
@@ -87,6 +95,12 @@ impl LimitsStore {
         }
         if let Some(text) = &self.bandwidth {
             Timetable::parse(text).context("invalid bandwidth timetable")?;
+        }
+        if self
+            .default_max_uploads
+            .is_some_and(|n| !(1..=MAX_UPLOADS).contains(&n))
+        {
+            bail!("default simultaneous uploads must be between 1 and {MAX_UPLOADS}");
         }
         for (name, limits) in &self.accounts {
             if name.is_empty() || name.contains([':', '/', '\\']) {

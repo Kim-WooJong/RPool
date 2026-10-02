@@ -22,6 +22,12 @@ use plan::{
     binary_size, Plan, PlanError, Preset, LARGE_SIZES_MIB, MAX_FILES, MAX_SIZE_MIB, SMALL_COUNTS,
 };
 
+/// Most shards one account's tuning uploads (2 + 2 + 4 + 8 + 16 + 32).
+const TUNE_MAX_SHARDS: u64 = 64;
+
+/// Tuning upload size without a pool (the default shard size).
+const DEFAULT_SHARD: u64 = crate::config::constants::DEFAULT_SHARD_MIB * plan::MIB;
+
 /// Task name; identifies a finished speed test (not shown translated).
 const TASK: &str = "Speed test";
 
@@ -30,10 +36,10 @@ pub(crate) fn pool_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut Task
     let saved = [state.pools.name.trim(), state.pools.selected.as_str()]
         .into_iter()
         .find_map(|name| {
-            state
-                .pool_definitions
-                .get(name)
-                .map(|pool| (name.to_string(), pool.remotes.len()))
+            state.pool_definitions.get(name).map(|pool| {
+                let shard = pool.shard_bytes().map_or(DEFAULT_SHARD, |b| b.get());
+                (name.to_string(), pool.remotes.len(), shard)
+            })
         });
     theme::card_section(
         ui,
@@ -41,13 +47,13 @@ pub(crate) fn pool_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut Task
         Some(tr("Writes random test files to every account of this pool, reads them back and deletes them. Accounts are tested one after another.")),
         |_| {},
         |ui| {
-            let Some((name, accounts)) = saved else {
+            let Some((name, accounts, shard)) = saved else {
                 theme::hint(ui, tr("Select and load a saved pool to test its accounts."));
                 return;
             };
             ui.small(trf("Pool '{name}', {n} accounts", &[("name", &name), ("n", &accounts)]));
             let target = Target::Pool(name);
-            body(ui, &mut state.speed_test, task, &state.settings.rclone, &target, accounts);
+            body(ui, &mut state.speed_test, task, &state.settings.rclone, &target, accounts, shard);
         },
     );
 }
@@ -88,7 +94,7 @@ pub(crate) fn providers_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut
             if accounts == 0 {
                 theme::hint(ui, tr("Tick the remotes to test."));
             }
-            body(ui, form, task, &state.settings.rclone, &Target::Remotes, accounts);
+            body(ui, form, task, &state.settings.rclone, &Target::Remotes, accounts, DEFAULT_SHARD);
         },
     );
 }
@@ -103,7 +109,7 @@ fn plan_error_text(error: PlanError) -> String {
     }
 }
 
-fn plan_controls(ui: &mut egui::Ui, form: &mut SpeedTestForm, enabled: bool) {
+fn plan_controls(ui: &mut egui::Ui, form: &mut SpeedTestForm, enabled: bool, shard: u64) {
     ui.add_enabled_ui(enabled, |ui| {
         ui.horizontal_wrapped(|ui| {
             for (preset, label) in [
@@ -151,8 +157,8 @@ fn plan_controls(ui: &mut egui::Ui, form: &mut SpeedTestForm, enabled: bool) {
                 ui.add(egui::DragValue::new(&mut form.custom.files).range(1..=MAX_FILES));
             }
         });
-        ui.checkbox(&mut form.tune_uploads, tr("Find the best number of simultaneous uploads"))
-            .on_hover_text(tr("After the test, uploads 1 MiB files to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous uploads limit. Adds up to 128 MiB of uploads per account."));
+        ui.checkbox(&mut form.tune_uploads, tr("Find the best number of simultaneous shard uploads"))
+            .on_hover_text(trf("After the test, uploads shards of {shard} to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous shard uploads. Up to {total} more per account; climbing usually stops earlier.", &[("shard", &binary_size(shard)), ("total", &binary_size(shard * TUNE_MAX_SHARDS))]));
     });
 }
 
@@ -194,9 +200,10 @@ fn body(
     rclone: &str,
     target: &Target,
     accounts: usize,
+    shard: u64,
 ) {
     let running_here = task.is_running() && form.running.as_ref() == Some(target);
-    plan_controls(ui, form, !task.is_running());
+    plan_controls(ui, form, !task.is_running(), shard);
     let plan = form.plan().validate();
     match plan {
         Ok(plan) => summary(ui, plan, accounts),
@@ -205,7 +212,8 @@ fn body(
         }
     }
     let ready = plan.is_ok() && accounts > 0 && !task.is_running();
-    let still_large = plan.is_ok_and(Plan::needs_confirmation);
+    // Tuning uploads whole shards, often gigabytes per account.
+    let still_large = plan.is_ok_and(Plan::needs_confirmation) || form.tune_uploads;
     if form.confirming.as_ref() == Some(target) && !(ready && still_large) {
         form.confirming = None;
     }
@@ -225,7 +233,7 @@ fn body(
             }
         } else if theme::primary_button(ui, ready, tr("Run speed test")).clicked() {
             if let Ok(plan) = plan {
-                if plan.needs_confirmation() {
+                if plan.needs_confirmation() || form.tune_uploads {
                     form.confirming = Some(target.clone());
                 } else {
                     start(form, task, rclone, target, plan);
@@ -266,7 +274,7 @@ fn body(
                     view.applied(&apply.account, apply.uploads);
                 }
                 trf(
-                    "Simultaneous uploads of {account} set to {n}.",
+                    "Simultaneous shard uploads of {account} set to {n}.",
                     &[("account", &apply.account), ("n", &apply.uploads)],
                 )
             }
@@ -276,7 +284,7 @@ fn body(
     }
 }
 
-/// Sets one account's "Simultaneous uploads" limit, keeping its other limits.
+/// Sets one account's "Simultaneous shard uploads" limit, keeping its other limits.
 fn save_max_uploads(account: &str, uploads: usize) -> Result<(), String> {
     use crate::storage::account::{edit, store};
     let uploads = u32::try_from(uploads).map_err(|e| e.to_string())?;

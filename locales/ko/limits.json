@@ -51,5 +51,7 @@
   "unlimited": "무제한",
   "Upload limit": "업로드 한도",
   "Uploaded (24 h): {used} of {limit}": "업로드(24시간): {limit} 중 {used}",
-  "When the limit is reached, uploads to this account wait and resume by themselves; nothing is lost. Counted per computer.": "한도에 도달하면 이 계정으로의 업로드는 대기했다가 스스로 다시 시작돼요. 잃는 데이터는 없어요. 컴퓨터별로 집계해요."
+  "When the limit is reached, uploads to this account wait and resume by themselves; nothing is lost. Counted per computer.": "한도에 도달하면 이 계정으로의 업로드는 대기했다가 스스로 다시 시작돼요. 잃는 데이터는 없어요. 컴퓨터별로 집계해요.",
+  "Simultaneous shard uploads per account": "계정당 동시 샤드 업로드",
+  "Default for every account; an account's own value (Providers › Limits) wins. 0 = built-in 16. Dropbox stays at 1 unless set on its card. One shard is one upload request: RPool turns off chunk fan-out inside rclone.": "모든 계정의 기본값이에요. 계정 카드(Providers › Limits)에 값이 있으면 그게 우선이에요. 0 = 내장 기본값 16. Dropbox는 카드에서 따로 정하지 않으면 1이에요. 샤드 하나가 업로드 요청 하나예요. RPool이 rclone 내부의 청크 동시 전송을 꺼요."
 }

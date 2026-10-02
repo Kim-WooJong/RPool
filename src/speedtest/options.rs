@@ -23,6 +23,9 @@ pub(crate) struct TestPlan {
     pub parallel: usize,
     /// `--tune-uploads`: also find the best number of simultaneous uploads.
     pub tune_uploads: bool,
+    /// Size of one tuning upload: the pool's shard size (default 64 MiB
+    /// without a pool), so a count of uploads is a count of shards.
+    pub shard_bytes: u64,
 }
 
 impl TestPlan {
@@ -58,6 +61,7 @@ impl TestPlan {
             file_sizes,
             parallel,
             tune_uploads: args.tune_uploads,
+            shard_bytes: crate::config::constants::DEFAULT_SHARD_MIB * MIB,
         })
     }
 

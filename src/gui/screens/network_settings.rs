@@ -14,6 +14,8 @@ pub(crate) struct NetworkForm {
     loaded: bool,
     pub(crate) timetable: String,
     pub(crate) keepalive_days: u32,
+    /// Simultaneous shard uploads per account by default; 0 = built-in 16.
+    pub(crate) default_uploads: u32,
     pub(crate) notice: Option<String>,
 }
 
@@ -71,6 +73,7 @@ fn load(form: &mut NetworkForm) {
         Ok(store) => {
             form.timetable = store.bandwidth.unwrap_or_default();
             form.keepalive_days = store.keepalive_days;
+            form.default_uploads = store.default_max_uploads.unwrap_or(0);
         }
         Err(error) => form.notice = Some(format!("{error:#}")),
     }
@@ -81,6 +84,7 @@ fn save(form: &NetworkForm) -> Result<std::path::PathBuf, String> {
     crate::storage::account::edit::set_bandwidth(&mut store, &form.timetable)
         .map_err(|e| format!("{e:#}"))?;
     store.keepalive_days = form.keepalive_days;
+    store.default_max_uploads = (form.default_uploads > 0).then_some(form.default_uploads);
     crate::storage::account::store::save_limits(&store).map_err(|e| format!("{e:#}"))
 }
 
@@ -124,6 +128,15 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
                 ui.label(tr("days (0 = never)"));
             });
             theme::hint(ui, tr("A mount makes one cheap authenticated call to each of its accounts when it was idle that long. Providers decide what counts as activity."));
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(tr("Simultaneous shard uploads per account"));
+                ui.add(
+                    egui::DragValue::new(&mut form.default_uploads)
+                        .range(0..=crate::storage::account::limits::MAX_UPLOADS),
+                );
+            });
+            theme::hint(ui, tr("Default for every account; an account's own value (Providers › Limits) wins. 0 = built-in 16. Dropbox stays at 1 unless set on its card. One shard is one upload request: RPool turns off chunk fan-out inside rclone."));
             ui.horizontal_wrapped(|ui| {
                 if theme::primary_button(ui, check.is_ok(), tr("Save network settings")).clicked() {
                     form.notice = Some(match save(form) {

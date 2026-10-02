@@ -188,7 +188,7 @@ fn tuning(report: &SpeedTestReport) -> String {
         return String::new();
     };
     let mut out = format!(
-        "Simultaneous uploads ({:.0} MiB files):\n",
+        "Simultaneous shard uploads ({:.0} MiB shards):\n",
         first.file_bytes as f64 / MIB
     );
     for (remote, tuning) in &tuned {
@@ -309,7 +309,7 @@ mod tests {
     fn tuning_lines_show_levels_recommendation_and_apply_command() {
         use super::super::model::{TuningStep, UploadTuning};
         let mut report = sample();
-        assert!(!render(&report).contains("Simultaneous uploads"));
+        assert!(!render(&report).contains("Simultaneous shard uploads"));
         let step = |parallel, rate: Option<f64>, error: Option<&str>| TuningStep {
             parallel,
             files: 4,
@@ -330,7 +330,7 @@ mod tests {
         let text = render(&report);
         let remote = &report.remotes[0].remote;
         assert!(
-            text.contains("Simultaneous uploads (1 MiB files):"),
+            text.contains("Simultaneous shard uploads (1 MiB shards):"),
             "{text}"
         );
         assert!(

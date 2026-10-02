@@ -241,9 +241,15 @@ pub(crate) struct MountArgs {
     /// Delay between background sync passes.
     #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(2..=86400))]
     pub(crate) interval_seconds: u64,
-    /// Files uploaded at the same time. Uploads start as soon as a write is saved; all files share the pool's `workers` shard transfers.
+    /// Files uploaded at the same time. Uploads start as soon as a write is saved; all files share the shard transfers (`--workers`).
     #[arg(long, default_value_t = 4, value_parser = clap::value_parser!(u64).range(1..=64))]
     pub(crate) upload_files: u64,
+    /// Shards this PC transfers at once for the drive (uploads and reads),
+    /// shared by all files. A per-PC drive option; omitted = the pool's
+    /// saved `workers`. Each account's simultaneous shard uploads still cap
+    /// its share (`provider limits`).
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..=256))]
+    pub(crate) workers: Option<u64>,
     /// Request stop; online unmount retains pending data without draining cloud uploads.
     #[arg(long)]
     pub(crate) stop_file: Option<PathBuf>,
@@ -296,6 +302,18 @@ mod tests {
         let set: Vec<_> = base.into_iter().chain(["--upload-files=8"]).collect();
         assert_eq!(parse(&set).unwrap().upload_files, 8);
         for invalid in ["--upload-files=0", "--upload-files=65"] {
+            let args: Vec<_> = base.into_iter().chain([invalid]).collect();
+            assert!(parse(&args).is_err(), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn workers_are_an_optional_drive_option() {
+        let base = ["--pool=p", "--workspace=/w", "--sync-only"];
+        assert_eq!(parse(&base).unwrap().workers, None, "the pool's value");
+        let set: Vec<_> = base.into_iter().chain(["--workers=12"]).collect();
+        assert_eq!(parse(&set).unwrap().workers, Some(12));
+        for invalid in ["--workers=0", "--workers=257"] {
             let args: Vec<_> = base.into_iter().chain([invalid]).collect();
             assert!(parse(&args).is_err(), "{invalid}");
         }

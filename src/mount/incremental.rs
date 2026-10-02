@@ -49,6 +49,13 @@ fn fingerprint<T: Serialize>(value: &T) -> Result<String> {
         .to_hex()
         .to_string())
 }
+/// The policy identity of a recipe. Workers only schedule transfers (a
+/// per-PC drive option), so changing them keeps a started upload resumable.
+fn policy_fingerprint(policy: &PoolDefinition) -> Result<String> {
+    let mut identity = policy.clone();
+    identity.workers = 0;
+    fingerprint(&identity)
+}
 fn directory(path: &Path) -> Result<()> {
     if !path.exists() {
         fs::create_dir(path)?;
@@ -171,7 +178,7 @@ fn upload_with(
     }
     let source_hash = crate::utils::hash_file_range(source, 0, metadata.len())?;
     let base_hash = fingerprint(base)?;
-    let policy_hash = fingerprint(policy)?;
+    let policy_hash = policy_fingerprint(policy)?;
     let recipe: Recipe = if resumed {
         directory(&root)?;
         let r: Recipe = load_checked(&recipe_path)?;
@@ -179,7 +186,8 @@ fn upload_with(
             || r.id != id
             || r.source_hash != source_hash
             || r.base_hash != base_hash
-            || r.policy_hash != policy_hash
+            // Recipes written before 2.4.0 hashed the whole policy.
+            || (r.policy_hash != policy_hash && r.policy_hash != fingerprint(policy)?)
             || r.remotes != eligible
         {
             bail!("incremental retry identity/configuration changed; preserve staging");
@@ -560,8 +568,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(first, second);
+        // Workers may change between attempts; the rest of the policy may not.
         let mut changed = policy.clone();
-        changed.workers += 1;
+        changed.retries += 1;
         assert!(upload_with(
             &changed,
             &source,

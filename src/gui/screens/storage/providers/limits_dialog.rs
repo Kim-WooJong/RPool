@@ -153,10 +153,10 @@ pub(crate) fn show(ctx: &egui::Context, editor: &mut LimitsEditor) -> bool {
                 });
                 theme::hint(ui, tr("0 = no limit. Applied per rclone call (--tpslimit)."));
                 ui.horizontal(|ui| {
-                    ui.label(tr("Simultaneous uploads"));
+                    ui.label(tr("Simultaneous shard uploads"));
                     ui.add(egui::DragValue::new(&mut editor.max_uploads).range(0..=256));
                 });
-                theme::hint(ui, tr("How many uploads go to this account at once. 0 = default (Dropbox 1, others 16). Lower it for providers that answer \"too many requests\", e.g. Filen."));
+                theme::hint(ui, tr("How many shards are uploaded to this account at once; each is one upload request. 0 = the default from Settings › Network (Dropbox 1). Lower it for providers that answer \"too many requests\", e.g. Filen."));
                 ui.separator();
                 ui.strong(tr("Inactivity warning"));
                 let default_warn = match default_inactivity_days(&editor.kind) {

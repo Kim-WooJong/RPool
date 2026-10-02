@@ -20,6 +20,9 @@ pub(crate) struct MountForm {
     pub(super) manifest_input: String,
     pub(super) interval_seconds: u64,
     pub(super) upload_files: u64,
+    /// Shard transfers of this PC (`--workers`); 0 = not chosen yet (the
+    /// pool's saved value applies).
+    pub(super) workers: u64,
     pub(super) cache_gib: u64,
     pub(super) vfs_cache_gib: u64,
     pub(super) cache_min_free_gib: u64,
@@ -59,6 +62,7 @@ impl Default for MountForm {
             manifest_input: String::new(),
             interval_seconds: 30,
             upload_files: crate::gui::settings::DEFAULT_UPLOAD_FILES,
+            workers: 0,
             cache_gib: 10,
             vfs_cache_gib: 10,
             cache_min_free_gib: 2,
@@ -132,6 +136,7 @@ impl MountForm {
             manifests: self.manifests.clone(),
             interval_seconds: self.interval_seconds,
             upload_files: self.upload_files,
+            workers: (self.workers > 0).then_some(self.workers),
             cache: self.cache_settings(),
             frontend: self.frontend,
             native_read_only: self.native_read_only,
@@ -172,6 +177,7 @@ impl MountForm {
         self.manifests = profile.manifests;
         self.interval_seconds = profile.interval_seconds;
         self.upload_files = profile.upload_files;
+        self.workers = profile.workers.unwrap_or(0);
         self.frontend = profile.frontend;
         self.native_read_only = profile.native_read_only;
         self.cache_gib = profile.cache.shard_gib;
@@ -219,6 +225,9 @@ impl MountForm {
         args.push(format!("--spool-gib={}", self.spool_gib).into());
         args.push(format!("--cache-gib={}", self.cache_gib).into());
         args.push(format!("--upload-files={}", self.upload_files.clamp(1, 64)).into());
+        if self.workers > 0 {
+            args.push(format!("--workers={}", self.workers.clamp(1, 256)).into());
+        }
     }
 
     /// Forget the shown capacity (for example after identities changed).

@@ -51,5 +51,7 @@
   "unlimited": "無制限",
   "Upload limit": "アップロード上限",
   "Uploaded (24 h): {used} of {limit}": "アップロード（24時間）: {limit} 中 {used}",
-  "When the limit is reached, uploads to this account wait and resume by themselves; nothing is lost. Counted per computer.": "上限に達すると、このアカウントへのアップロードは待機し、自動で再開します。データは失われません。コンピューターごとに集計します。"
+  "When the limit is reached, uploads to this account wait and resume by themselves; nothing is lost. Counted per computer.": "上限に達すると、このアカウントへのアップロードは待機し、自動で再開します。データは失われません。コンピューターごとに集計します。",
+  "Simultaneous shard uploads per account": "アカウントごとの同時シャードアップロード",
+  "Default for every account; an account's own value (Providers › Limits) wins. 0 = built-in 16. Dropbox stays at 1 unless set on its card. One shard is one upload request: RPool turns off chunk fan-out inside rclone.": "すべてのアカウントの既定値です。アカウント個別の値(Providers › Limits)が優先されます。0 = 組み込みの 16。Dropbox はカードで設定しない限り 1 です。1 シャードが 1 回のアップロード要求です。RPool は rclone 内部のチャンク並列送信をオフにします。"
 }

@@ -1,18 +1,19 @@
 //! `--tune-uploads`: the best number of simultaneous uploads per account.
 //!
-//! After a remote passed the normal test, 1 MiB files are uploaded at 1, 2,
-//! 4, … [`LEVELS`] at once (two files per upload slot, at least four), each
-//! level in its own folder that is deleted right after. Both process caps
-//! are lifted meanwhile, so the account's own behavior shows: rclone retries
-//! throttled calls (HTTP 429) itself, which shows as a rate that stops
-//! rising; a provider that refuses concurrent writes shows as an error.
+//! The unit is the shard: after a remote passed the normal test, files of
+//! the pool's shard size are uploaded at 1, 2, 4, … [`LEVELS`] at once (one
+//! file per upload slot, at least two), each level in its own folder that is
+//! deleted right after, exactly like shard uploads (one request each, no
+//! chunk fan-out in rclone). Both process caps are lifted meanwhile, so the
+//! account's own behavior shows: throttling as a rate that stops rising, a
+//! provider that refuses concurrent writes as an error.
 //! Climbing stops at the first error, or after two levels in a row that
 //! are not [`GAIN`] faster than the best so far. The recommendation is the
 //! smallest tested count within [`ENOUGH`] of the best rate: more uploads
 //! than that only add load (and risk throttling) for little gain.
 use super::cleanup;
 use super::model::{TuningStep, UploadTuning};
-use super::options::{TestPlan, MIB};
+use super::options::TestPlan;
 use super::progress::Position;
 use super::remote::Run;
 use super::transfer::{self, TestFile};
@@ -20,9 +21,8 @@ use crate::utils::remote_join;
 use std::sync::atomic::AtomicBool;
 
 pub(crate) const LEVELS: [usize; 6] = [1, 2, 4, 8, 16, 32];
-pub(crate) const FILE_BYTES: u64 = MIB;
-const FILES_PER_SLOT: usize = 2;
-const MIN_FILES: usize = 4;
+const FILES_PER_SLOT: usize = 1;
+const MIN_FILES: usize = 2;
 /// A level must be this much faster than the best so far to count as a gain.
 const GAIN: f64 = 1.10;
 /// Levels without gain after which climbing stops.
@@ -41,7 +41,7 @@ pub(crate) fn expected_bytes(plan: &TestPlan) -> u64 {
     }
     LEVELS
         .iter()
-        .map(|&level| files_at(level) as u64 * FILE_BYTES)
+        .map(|&level| files_at(level) as u64 * plan.shard_bytes)
         .sum()
 }
 
@@ -112,7 +112,7 @@ pub(crate) fn run(
         let files: Vec<TestFile> = (0..files_at(level))
             .map(|i| TestFile {
                 address: remote_join(&dir, &format!("{i:04}.bin")),
-                size: FILE_BYTES,
+                size: run.plan.shard_bytes,
             })
             .collect();
         let attempted: Vec<AtomicBool> = files.iter().map(|_| AtomicBool::new(false)).collect();
@@ -151,7 +151,7 @@ pub(crate) fn run(
     TuneOutcome {
         tuning: UploadTuning {
             account,
-            file_bytes: FILE_BYTES,
+            file_bytes: run.plan.shard_bytes,
             steps,
             recommended,
             current,
@@ -236,15 +236,17 @@ mod tests {
 
     #[test]
     fn expected_bytes_cover_every_level() {
+        const MIB: u64 = 1024 * 1024;
         let mut plan = TestPlan {
             bytes_per_remote: MIB,
             file_sizes: vec![MIB],
             parallel: 1,
             tune_uploads: false,
+            shard_bytes: 64 * MIB,
         };
         assert_eq!(expected_bytes(&plan), 0);
         plan.tune_uploads = true;
-        // 4 + 4 + 8 + 16 + 32 + 64 files of 1 MiB.
-        assert_eq!(expected_bytes(&plan), 128 * MIB);
+        // 2 + 2 + 4 + 8 + 16 + 32 shards of 64 MiB.
+        assert_eq!(expected_bytes(&plan), 64 * 64 * MIB);
     }
 }

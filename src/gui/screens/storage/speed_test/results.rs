@@ -299,7 +299,7 @@ fn remote_row(ui: &mut egui::Ui, row: &RemoteRow) -> Option<ApplyUploads> {
 fn tuning_line(ui: &mut egui::Ui, tuning: &TuningView) -> Option<ApplyUploads> {
     let mut apply = None;
     ui.horizontal_wrapped(|ui| {
-        ui.label(egui::RichText::new(tr("Simultaneous uploads")).strong());
+        ui.label(egui::RichText::new(tr("Simultaneous shard uploads")).strong());
         for (text, error) in &tuning.steps {
             match error {
                 Some(error) => {
@@ -329,7 +329,7 @@ fn tuning_line(ui: &mut egui::Ui, tuning: &TuningView) -> Option<ApplyUploads> {
                     if ui
                         .button(tr("Apply"))
                         .on_hover_text(trf(
-                            "Sets the Simultaneous uploads limit of {account} to {n}.",
+                            "Sets the Simultaneous shard uploads of {account} to {n}.",
                             &[("account", account), ("n", &n)],
                         ))
                         .clicked()

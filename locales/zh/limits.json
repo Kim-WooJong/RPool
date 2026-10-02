@@ -51,5 +51,7 @@
   "unlimited": "不限",
   "Upload limit": "上传限额",
   "Uploaded (24 h): {used} of {limit}": "已上传（24 小时）：{used} / {limit}",
-  "When the limit is reached, uploads to this account wait and resume by themselves; nothing is lost. Counted per computer.": "达到限额后，上传到此账户会等待并自动恢复，不会丢失数据。按每台电脑统计。"
+  "When the limit is reached, uploads to this account wait and resume by themselves; nothing is lost. Counted per computer.": "达到限额后，上传到此账户会等待并自动恢复，不会丢失数据。按每台电脑统计。",
+  "Simultaneous shard uploads per account": "每个账户的同时分片上传数",
+  "Default for every account; an account's own value (Providers › Limits) wins. 0 = built-in 16. Dropbox stays at 1 unless set on its card. One shard is one upload request: RPool turns off chunk fan-out inside rclone.": "所有账户的默认值；账户自己的值（Providers › Limits）优先。0 = 内置默认 16。Dropbox 除非在其卡片上设置，否则保持 1。一个分片就是一次上传请求：RPool 会关闭 rclone 内部的分块并行发送。"
 }

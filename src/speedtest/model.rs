@@ -54,14 +54,14 @@ pub(crate) struct RemoteSpeed {
     pub upload_tuning: Option<UploadTuning>,
 }
 
-/// Upload rate of one account at 1, 2, 4, … simultaneous uploads of small
-/// files, and the count to use as its "Simultaneous uploads" limit.
+/// Upload rate of one account at 1, 2, 4, … simultaneous shard uploads, and
+/// the count to use as its "Simultaneous shard uploads" limit.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct UploadTuning {
     /// The account the limit belongs to (the storage remote under the crypt
     /// remote), if the rclone config resolves it.
     pub account: Option<String>,
-    /// Size of every tuning file.
+    /// Size of every tuning upload (the pool's shard size).
     pub file_bytes: u64,
     /// Levels in the order they ran; climbing stops at the first error or
     /// once more uploads stop paying off.

@@ -70,6 +70,13 @@ pub(crate) fn run(rclone: &str, command: LimitsCommands) -> Result<()> {
             }
             print_bandwidth(store.bandwidth.as_deref())
         }
+        LimitsCommands::DefaultUploads { uploads } => {
+            let mut store = load_limits()?;
+            store.default_max_uploads = (uploads > 0).then_some(uploads);
+            save_limits(&store)?;
+            println!("{}", default_uploads_line(&store));
+            Ok(())
+        }
         LimitsCommands::KeepaliveDays { days } => {
             let mut store = load_limits()?;
             store.keepalive_days = days;
@@ -81,6 +88,15 @@ pub(crate) fn run(rclone: &str, command: LimitsCommands) -> Result<()> {
             }
             Ok(())
         }
+    }
+}
+
+fn default_uploads_line(store: &crate::storage::account::limits::LimitsStore) -> String {
+    match store.default_max_uploads {
+        Some(n) => format!(
+            "Simultaneous shard uploads per account: {n} by default (Dropbox 1; accounts may set their own)"
+        ),
+        None => "Simultaneous shard uploads per account: 16 by default (built in; Dropbox 1)".into(),
     }
 }
 
@@ -133,6 +149,7 @@ fn show(rclone: &str, json: bool) -> Result<()> {
         let value = serde_json::json!({
             "bandwidth": store.bandwidth,
             "keepalive_days": store.keepalive_days,
+            "default_max_uploads": store.default_max_uploads,
             "accounts": rows,
         });
         println!("{}", serde_json::to_string_pretty(&value)?);
@@ -167,6 +184,7 @@ fn show(rclone: &str, json: bool) -> Result<()> {
         }
     }
     println!();
+    println!("{}", default_uploads_line(&store));
     print_bandwidth(store.bandwidth.as_deref())?;
     println!(
         "Uploads are counted per computer; other computers and tools using the same account are not included. \

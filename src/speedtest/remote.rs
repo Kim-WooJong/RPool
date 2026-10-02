@@ -332,6 +332,7 @@ mod tests {
             file_sizes: vec![65536, 65536],
             parallel: 2,
             tune_uploads: false,
+            shard_bytes: 64 * 65536,
         };
         assert_eq!(stored_bytes(&plan), 2 * (65536 + 32 + 16));
     }
