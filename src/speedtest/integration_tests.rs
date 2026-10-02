@@ -179,6 +179,69 @@ fn pool_of_three_local_crypt_remotes() {
 
 #[test]
 #[ignore = "requires rclone"]
+fn tuning_climbs_recommends_and_cleans_up_both_directions() {
+    let fixture = Fixture::new(1);
+    let remotes = remotes(1);
+    let mut plan = plan(1, None, Some(2));
+    plan.tune_uploads = true;
+    plan.tune_downloads = true;
+    plan.shard_bytes = 256 * 1024;
+    let report = execute(&fixture.engine(false), &rclone(), &remotes, &plan, None).unwrap();
+    assert_ok(&report);
+    let speed = &report.remotes[0];
+    for tuning in [&speed.upload_tuning, &speed.download_tuning] {
+        let tuning = tuning.as_ref().expect("tuned");
+        assert_eq!(tuning.error, None);
+        assert_eq!(tuning.file_bytes, 256 * 1024);
+        assert_eq!(tuning.account.as_deref(), Some("b1"));
+        assert!(tuning.steps.len() >= 3, "{tuning:?}");
+        assert!(tuning
+            .steps
+            .iter()
+            .all(|s| s.error.is_none() && s.bytes_per_s.is_some()));
+        let recommended = tuning.recommended.expect("recommendation");
+        assert!(tuning.steps.iter().any(|s| s.parallel == recommended));
+    }
+    assert_clean(&fixture, &report, &[1]);
+}
+
+#[test]
+#[ignore = "requires rclone"]
+fn timed_levels_stop_mid_transfer_and_still_clean_up() {
+    let fixture = Fixture::new(1);
+    let remotes = remotes(1);
+    let mut plan = plan(1, None, Some(2));
+    plan.tune_uploads = true;
+    plan.tune_downloads = true;
+    plan.shard_bytes = 1 << 20;
+    // 512 KiB/s per rclone process: a level's work (3+ shards per slot)
+    // outlasts its window, so every level is cut off by time.
+    let mut engine = fixture.engine(false);
+    engine
+        .context
+        .set_test_environment("RCLONE_BWLIMIT", "512k");
+    let report = execute(&engine, &rclone(), &remotes, &plan, None).unwrap();
+    let speed = &report.remotes[0];
+    assert!(speed.ok, "{speed:?}");
+    for tuning in [&speed.upload_tuning, &speed.download_tuning] {
+        let tuning = tuning.as_ref().expect("tuned");
+        assert_eq!(tuning.error, None, "{tuning:?}");
+        assert!(!tuning.steps.is_empty());
+        // Stopped transfers are not failures; every level has a rate.
+        assert!(
+            tuning
+                .steps
+                .iter()
+                .all(|s| s.error.is_none() && s.bytes_per_s.is_some()),
+            "{tuning:?}"
+        );
+        assert!(tuning.recommended.is_some());
+    }
+    assert_clean(&fixture, &report, &[1]);
+}
+
+#[test]
+#[ignore = "requires rclone"]
 fn broken_remote_fails_alone() {
     let fixture = Fixture::new(2);
     let remotes = vec![

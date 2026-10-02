@@ -18,14 +18,31 @@ use super::cleanup;
 use super::model::{ConcurrencyTuning, TuningStep};
 use super::options::TestPlan;
 use super::progress::Position;
+use super::progress::Transfer;
 use super::remote::Run;
+use super::transfer::Phase;
 use super::transfer::{self, TestFile};
 use crate::utils::remote_join;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 pub(crate) const LEVELS: [usize; 6] = [1, 2, 4, 8, 16, 32];
-const FILES_PER_SLOT: usize = 1;
+/// Work per upload slot: enough that a fast account still fills the
+/// measuring window (a level ends at the window anyway).
+const FILES_PER_SLOT: usize = 3;
 const MIN_FILES: usize = 2;
+/// Discarded start of every level: process start, TLS, the provider's
+/// first answer.
+#[cfg(not(test))]
+pub(crate) const WARM_UP: Duration = Duration::from_secs(5);
+#[cfg(test)]
+pub(crate) const WARM_UP: Duration = Duration::from_millis(300);
+/// Measured part of every level; the level then stops.
+#[cfg(not(test))]
+pub(crate) const WINDOW: Duration = Duration::from_secs(15);
+#[cfg(test)]
+pub(crate) const WINDOW: Duration = Duration::from_millis(900);
 /// A level must be this much faster than the best so far to count as a gain.
 const GAIN: f64 = 1.10;
 /// Levels without gain after which climbing stops.
@@ -132,6 +149,79 @@ pub(crate) fn run(
     outcome
 }
 
+/// One measured level.
+struct Measured {
+    /// None when the level failed.
+    rate: Option<f64>,
+    error: Option<String>,
+    reported: u64,
+}
+
+/// Runs one level with both process caps lifted: after [`WARM_UP`] the
+/// bytes moved during [`WINDOW`] give the rate, then the level's own
+/// transfers stop (a level that finishes earlier is rated on all of its
+/// bytes). Stopped transfers are not errors; anything else that failed is.
+fn timed<T: Send>(
+    run: &Run<'_>,
+    files: &[TestFile],
+    go: impl FnOnce(&super::engine::Engine, &Transfer) -> Phase<T>,
+) -> Measured {
+    let stop = Arc::new(AtomicBool::new(false));
+    let engine = run.engine.scoped(stop.clone());
+    let progress = Transfer::new();
+    let finished = AtomicBool::new(false);
+    let started = Instant::now();
+    let moved = || progress.moved.load(Ordering::Relaxed);
+    let (phase, window) = std::thread::scope(|scope| {
+        let watcher = scope.spawn(|| {
+            let mut warm = None;
+            while !finished.load(Ordering::Acquire) {
+                if run.engine.cancelled() {
+                    stop.store(true, Ordering::Release);
+                }
+                let at = started.elapsed();
+                if warm.is_none() && at >= WARM_UP {
+                    warm = Some((at, moved()));
+                }
+                if at >= WARM_UP + WINDOW {
+                    stop.store(true, Ordering::Release);
+                    return warm.map(|start| (start, (at, moved())));
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            None
+        });
+        let phase = {
+            let _uncapped = crate::storage::rclone::uncap_for_speed_test();
+            go(&engine, &progress)
+        };
+        finished.store(true, Ordering::Release);
+        (phase, watcher.join().unwrap_or(None))
+    });
+    let error = if run.engine.cancelled() {
+        Some("cancelled".to_owned())
+    } else {
+        // Transfers the window stopped report "cancelled"; they are expected.
+        phase.results.iter().find_map(|r| match r {
+            Some(Err(e)) if e != "cancelled" => Some(e.clone()),
+            _ => None,
+        })
+    };
+    let rate = match (&error, window) {
+        (Some(_), _) => None,
+        (None, Some(((t0, b0), (t1, b1)))) => Some(rate(b1.saturating_sub(b0), t1 - t0)),
+        (None, None) if phase.complete() => {
+            Some(rate(files.iter().map(|f| f.size).sum(), phase.wall))
+        }
+        (None, None) => None,
+    };
+    Measured {
+        rate,
+        error,
+        reported: progress.reported(),
+    }
+}
+
 /// `count` shard files under `dir` (named by index).
 fn shard_files(run: &Run<'_>, dir: &str, count: usize) -> Vec<TestFile> {
     (0..count)
@@ -170,26 +260,17 @@ fn upload_levels(
         let dir = remote_join(test_dir, &format!("{}-tune-{level:02}", run.run_id));
         let files = shard_files(run, &dir, files_at(level));
         let attempted: Vec<AtomicBool> = files.iter().map(|_| AtomicBool::new(false)).collect();
-        let (phase, progress) = {
-            let _uncapped = crate::storage::rclone::uncap_for_speed_test();
-            // Distinct contents per level: no provider-side dedupe.
-            transfer::upload(
-                engine,
-                at,
-                &files,
-                level,
-                &level_seed(&run.seed, &format!("tune-{level}")),
-                &attempted,
-            )
-        };
-        outcome.reported += progress.reported();
-        let bytes: u64 = files.iter().map(|f| f.size).sum();
-        let error = cancelled_or(engine, phase.error());
+        // Distinct contents per level: no provider-side dedupe.
+        let seed = level_seed(&run.seed, &format!("tune-{level}"));
+        let measured = timed(run, &files, |engine, progress| {
+            transfer::upload_into(engine, at, &files, level, &seed, &attempted, progress)
+        });
+        outcome.reported += measured.reported;
         tuning.steps.push(TuningStep {
             parallel: level,
             files: files.len(),
-            bytes_per_s: (error.is_none() && phase.complete()).then(|| rate(bytes, phase.wall)),
-            error,
+            bytes_per_s: measured.rate,
+            error: measured.error,
         });
         at.status("cleaning up");
         if !cleanup::remove_run(engine, &files, &attempted, level, &dir, test_dir) {
@@ -248,18 +329,15 @@ fn download_levels(
                 })
                 .collect();
             let expected: Vec<blake3::Hash> = (0..count).map(|i| digests[i % READ_SET]).collect();
-            let (phase, progress) = {
-                let _uncapped = crate::storage::rclone::uncap_for_speed_test();
-                transfer::download(engine, at, &reads, level, &expected)
-            };
-            outcome.reported += progress.reported();
-            let bytes: u64 = reads.iter().map(|f| f.size).sum();
-            let error = cancelled_or(engine, phase.error());
+            let measured = timed(run, &reads, |engine, progress| {
+                transfer::download_into(engine, at, &reads, level, &expected, progress)
+            });
+            outcome.reported += measured.reported;
             tuning.steps.push(TuningStep {
                 parallel: level,
                 files: count,
-                bytes_per_s: (error.is_none() && phase.complete()).then(|| rate(bytes, phase.wall)),
-                error,
+                bytes_per_s: measured.rate,
+                error: measured.error,
             });
         }
         tuning.recommended = recommend(&tuning.steps);
@@ -356,10 +434,11 @@ mod tests {
         };
         assert_eq!(expected_bytes(&plan), 0);
         plan.tune_uploads = true;
-        // 2 + 2 + 4 + 8 + 16 + 32 shards of 64 MiB.
-        assert_eq!(expected_bytes(&plan), 64 * 64 * MIB);
+        // 3 + 6 + 12 + 24 + 48 + 96 shards of 64 MiB (an upper bound: each
+        // level stops after its window).
+        assert_eq!(expected_bytes(&plan), 189 * 64 * MIB);
         plan.tune_downloads = true;
-        // Plus the read set of 4 and the same 64 reads.
-        assert_eq!(expected_bytes(&plan), (64 + 4 + 64) * 64 * MIB);
+        // Plus the read set of 4 and the same number of reads.
+        assert_eq!(expected_bytes(&plan), (189 + 4 + 189) * 64 * MIB);
     }
 }

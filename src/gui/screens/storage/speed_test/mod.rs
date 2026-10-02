@@ -23,9 +23,6 @@ use plan::{
 };
 use view::TuneKind;
 
-/// Most shards one account's tuning uploads (2 + 2 + 4 + 8 + 16 + 32).
-const TUNE_MAX_SHARDS: u64 = 64;
-
 /// Tuning upload size without a pool (the default shard size).
 const DEFAULT_SHARD: u64 = crate::config::constants::DEFAULT_SHARD_MIB * plan::MIB;
 
@@ -159,9 +156,9 @@ fn plan_controls(ui: &mut egui::Ui, form: &mut SpeedTestForm, enabled: bool, sha
             }
         });
         ui.checkbox(&mut form.tune_downloads, tr("Find the best number of simultaneous shard downloads"))
-            .on_hover_text(trf("After the test, writes 4 shards of {shard} to each account and reads them back at 1, 2, 4, … 32 at once, then recommends its Simultaneous shard downloads. Up to {total} more downloads per account; climbing usually stops earlier.", &[("shard", &binary_size(shard)), ("total", &binary_size(shard * TUNE_MAX_SHARDS))]));
+            .on_hover_text(trf("After the test, writes 4 shards of {shard} to each account and reads them back at 1, 2, 4, … 32 at once, then recommends its Simultaneous shard downloads. Each step runs at most 20 s (5 s warm-up, 15 s measured): about 2 minutes per account at most.", &[("shard", &binary_size(shard))]));
         ui.checkbox(&mut form.tune_uploads, tr("Find the best number of simultaneous shard uploads"))
-            .on_hover_text(trf("After the test, uploads shards of {shard} to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous shard uploads. Up to {total} more per account; climbing usually stops earlier.", &[("shard", &binary_size(shard)), ("total", &binary_size(shard * TUNE_MAX_SHARDS))]));
+            .on_hover_text(trf("After the test, uploads shards of {shard} to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous shard uploads. Each step runs at most 20 s (5 s warm-up, 15 s measured): about 2 minutes per account at most.", &[("shard", &binary_size(shard))]));
     });
 }
 

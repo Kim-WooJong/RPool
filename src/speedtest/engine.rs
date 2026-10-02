@@ -24,6 +24,18 @@ impl Engine {
             cancel,
         }
     }
+    /// The same remotes and write path with its own stop flag (a timed
+    /// tuning level stops only its own transfers).
+    pub(crate) fn scoped(&self, cancel: Arc<AtomicBool>) -> Self {
+        Self {
+            context: self.context.clone(),
+            native: self
+                .native
+                .as_ref()
+                .map(|_| NativeCrypt::new(self.context.clone())),
+            cancel,
+        }
+    }
     pub(crate) fn cancelled(&self) -> bool {
         self.cancel.load(Ordering::Acquire)
     }

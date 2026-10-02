@@ -192,18 +192,22 @@ listed. Data is streamed, never staged locally.
 
 `--tune-uploads` (GUI: "Find the best number of simultaneous shard uploads")
 then uploads shards (the pool's shard size; 64 MiB without a pool) to every
-remote that passed at 1, 2, 4, … 32 at once (one per upload, at least two;
-each level in its own folder, deleted right after; at most 64 shards per
-remote, usually far fewer). The process caps are lifted meanwhile, so
-throttling (a rate that stops rising) or refused concurrent writes (an error)
-show. Climbing stops at the first error or after two levels without a 10%
-gain. The recommendation is the smallest tested count within 10% of the best
+remote that passed at 1, 2, 4, … 32 at once, each level in its own folder,
+deleted right after. Every level is **time-boxed**: the first 5 s are
+discarded (process start, TLS, first answer), the bytes moved in the next
+15 s give the rate, then the level's transfers stop (a level that finishes
+earlier is rated on all its bytes). So one direction takes at most about
+2 minutes per remote whatever the shard size or speed. The process caps are
+lifted meanwhile, so throttling (a rate that stops rising) or refused
+concurrent writes (an error) show; stopped transfers are not errors.
+Climbing stops at the first error or after two levels without a 10% gain.
+The recommendation is the smallest tested count within 10% of the best
 rate; the table prints the `provider limits set --max-uploads` command, and
 the GUI's Apply sets the account's Simultaneous shard uploads.
 `--tune-downloads` (GUI: "Find the best number of simultaneous shard
 downloads") writes a read set of 4 shards per remote and reads it back,
-verified, at the same levels (up to 64 shard reads); its recommendation is
-applied as `--max-downloads` / Simultaneous shard downloads.
+verified, at the same time-boxed levels; its recommendation is applied as
+`--max-downloads` / Simultaneous shard downloads.
 
 ### Object size limits and native crypt
 

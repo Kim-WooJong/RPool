@@ -352,7 +352,6 @@
   "Applied": "已应用",
   "Account not found in the rclone config; set it under Limits.": "在 rclone 配置中找不到该账户，请在 Limits 中设置。",
   "Find the best number of simultaneous shard uploads": "查找最佳同时分片上传数",
-  "After the test, uploads shards of {shard} to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous shard uploads. Up to {total} more per account; climbing usually stops earlier.": "测试后，向每个账户以每次 1、2、4……32 个的方式上传 {shard} 的分片，并推荐其同时分片上传数。每个账户最多额外上传 {total}，通常会更早停止。",
   "Simultaneous shard uploads of {account} set to {n}.": "已将 {account} 的同时分片上传数设为 {n}。",
   "Sets the Simultaneous shard uploads of {account} to {n}.": "将 {account} 的同时分片上传数设为 {n}。",
   "Simultaneous shard uploads": "同时分片上传",
@@ -360,8 +359,9 @@
   "Simultaneous shard downloads": "同时分片下载",
   "How many shards are read from this account at once. 0 = the default from Settings › Network.": "同时从此账户读取的分片数。0 = 设置 › 网络中的默认值。",
   "Find the best number of simultaneous shard downloads": "查找最佳同时分片下载数",
-  "After the test, writes 4 shards of {shard} to each account and reads them back at 1, 2, 4, … 32 at once, then recommends its Simultaneous shard downloads. Up to {total} more downloads per account; climbing usually stops earlier.": "测试后，向每个账户写入 4 个 {shard} 的分片，并以每次 1、2、4……32 个的方式读回，然后推荐其同时分片下载数。每个账户最多额外下载 {total}，通常会更早停止。",
   "Simultaneous shard downloads of {account} set to {n}.": "已将 {account} 的同时分片下载数设为 {n}。",
   "Sets the Simultaneous shard downloads of {account} to {n}.": "将 {account} 的同时分片下载数设为 {n}。",
-  "No recommendation: no level succeeded.": "无推荐：没有成功的级别。"
+  "No recommendation: no level succeeded.": "无推荐：没有成功的级别。",
+  "After the test, writes 4 shards of {shard} to each account and reads them back at 1, 2, 4, … 32 at once, then recommends its Simultaneous shard downloads. Each step runs at most 20 s (5 s warm-up, 15 s measured): about 2 minutes per account at most.": "测试后，向每个账户写入 4 个 {shard} 的分片，并以每次 1、2、4……32 个的方式读回，然后推荐其同时分片下载数。每一步最多 20 秒（预热 5 秒，测量 15 秒），每个账户最多约 2 分钟。",
+  "After the test, uploads shards of {shard} to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous shard uploads. Each step runs at most 20 s (5 s warm-up, 15 s measured): about 2 minutes per account at most.": "测试后，向每个账户以每次 1、2、4……32 个的方式上传 {shard} 的分片，并推荐其同时分片上传数。每一步最多 20 秒（预热 5 秒，测量 15 秒），每个账户最多约 2 分钟。"
 }

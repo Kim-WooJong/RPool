@@ -110,13 +110,27 @@ pub(crate) fn upload(
     attempted: &[AtomicBool],
 ) -> (Phase<blake3::Hash>, Transfer) {
     let progress = Transfer::new();
-    let phase = run(
+    let phase = upload_into(engine, at, files, parallel, seed, attempted, &progress);
+    (phase, progress)
+}
+
+/// [`upload`] counting into `progress`, which the caller may watch.
+pub(crate) fn upload_into(
+    engine: &Engine,
+    at: &Position<'_>,
+    files: &[TestFile],
+    parallel: usize,
+    seed: &[u8; 32],
+    attempted: &[AtomicBool],
+    progress: &Transfer,
+) -> Phase<blake3::Hash> {
+    run(
         engine,
         at,
         "uploading",
         files,
         parallel,
-        &progress,
+        progress,
         |i, file| {
             attempted[i].store(true, Ordering::Release);
             let mut source =
@@ -149,8 +163,7 @@ pub(crate) fn upload(
                 Err(error) => Err(failure(engine, "upload", error)),
             }
         },
-    );
-    (phase, progress)
+    )
 }
 
 /// Reads every file back and compares it with its upload digest.
@@ -162,13 +175,26 @@ pub(crate) fn download(
     digests: &[blake3::Hash],
 ) -> (Phase<()>, Transfer) {
     let progress = Transfer::new();
-    let phase = run(
+    let phase = download_into(engine, at, files, parallel, digests, &progress);
+    (phase, progress)
+}
+
+/// [`download`] counting into `progress`, which the caller may watch.
+pub(crate) fn download_into(
+    engine: &Engine,
+    at: &Position<'_>,
+    files: &[TestFile],
+    parallel: usize,
+    digests: &[blake3::Hash],
+    progress: &Transfer,
+) -> Phase<()> {
+    run(
         engine,
         at,
         "downloading",
         files,
         parallel,
-        &progress,
+        progress,
         |i, file| {
             let mut sink = VerifySink::new(file.size, &progress.moved, &engine.cancel);
             let ctx = engine.transfer(file.size);
@@ -190,6 +216,5 @@ pub(crate) fn download(
                 Err(error) => Err(failure(engine, "download", error)),
             }
         },
-    );
-    (phase, progress)
+    )
 }
