@@ -49,6 +49,35 @@ pub(crate) struct RemoteSpeed {
     pub download_seconds: Option<f64>,
     /// Read-back bytes matched what was written.
     pub verified: bool,
+    /// `--tune-uploads`: upload rate by number of simultaneous uploads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upload_tuning: Option<UploadTuning>,
+}
+
+/// Upload rate of one account at 1, 2, 4, … simultaneous uploads of small
+/// files, and the count to use as its "Simultaneous uploads" limit.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct UploadTuning {
+    /// The account the limit belongs to (the storage remote under the crypt
+    /// remote), if the rclone config resolves it.
+    pub account: Option<String>,
+    /// Size of every tuning file.
+    pub file_bytes: u64,
+    /// Levels in the order they ran; climbing stops at the first error or
+    /// once more uploads stop paying off.
+    pub steps: Vec<TuningStep>,
+    /// Smallest tested count within 10% of the best rate.
+    pub recommended: Option<usize>,
+    /// The account's own limit when tested (None = backend default).
+    pub current: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TuningStep {
+    pub parallel: usize,
+    pub files: usize,
+    pub bytes_per_s: Option<f64>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

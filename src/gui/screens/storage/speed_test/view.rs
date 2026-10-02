@@ -73,6 +73,41 @@ pub(crate) struct RemoteRow {
     /// accounts different shares.
     pub(crate) limits_upload: bool,
     pub(crate) limits_download: bool,
+    pub(crate) tuning: Option<TuningView>,
+}
+
+/// `--tune-uploads` result of one account.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct TuningView {
+    pub(crate) account: Option<String>,
+    /// "1: 2.0 MB/s", "4: failed" in test order, with the failure if any.
+    pub(crate) steps: Vec<(String, Option<String>)>,
+    pub(crate) recommended: Option<usize>,
+    /// The account's own limit (None = backend default).
+    pub(crate) current: Option<usize>,
+}
+
+impl TuningView {
+    fn new(tuning: &crate::speedtest::model::UploadTuning) -> Self {
+        Self {
+            account: tuning.account.clone(),
+            steps: tuning
+                .steps
+                .iter()
+                .map(|step| match (&step.error, step.bytes_per_s) {
+                    (None, Some(rate)) => {
+                        (format!("{}: {}", step.parallel, format_speed(rate)), None)
+                    }
+                    (error, _) => (
+                        crate::gui::i18n::trf("{n}: failed", &[("n", &step.parallel)]),
+                        error.clone(),
+                    ),
+                })
+                .collect(),
+            recommended: tuning.recommended,
+            current: tuning.current,
+        }
+    }
 }
 
 impl RemoteRow {
@@ -147,6 +182,14 @@ fn bars(values: Vec<(Option<f64>, Option<f64>)>, files: usize) -> Vec<Option<Bar
 }
 
 impl ReportView {
+    /// After "Apply": every row of `account` now has its own limit `uploads`.
+    pub(crate) fn applied(&mut self, account: &str, uploads: usize) {
+        for tuning in self.rows.iter_mut().filter_map(|r| r.tuning.as_mut()) {
+            if tuning.account.as_deref() == Some(account) {
+                tuning.current = Some(uploads);
+            }
+        }
+    }
     pub(crate) fn new(report: &SpeedTestReport) -> Self {
         let uploads = bars(
             report
@@ -197,6 +240,7 @@ impl ReportView {
                 slowest_download: slowest_down == Some(i),
                 limits_upload: is(&report.bottleneck_upload, &r.remote),
                 limits_download: is(&report.bottleneck_download, &r.remote),
+                tuning: r.upload_tuning.as_ref().map(TuningView::new),
             })
             .collect();
         Self {

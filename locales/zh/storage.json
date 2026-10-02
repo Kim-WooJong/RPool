@@ -345,5 +345,17 @@
   "base32768 — short names for path-limited storage": "base32768 — 适用于路径长度受限存储的短名称",
   "base64 — shorter names, case-sensitive storage only": "base64 — 更短的名称，仅限区分大小写的存储",
   "Simultaneous uploads": "同时上传",
-  "How many uploads go to this account at once. 0 = default (Dropbox 1, others 16). Lower it for providers that answer \"too many requests\", e.g. Filen.": "同时发往此账户的上传数。0 为默认值（Dropbox 1，其他 16）。对于像 Filen 这样返回 \"too many requests\" 的提供商，请调低。"
+  "How many uploads go to this account at once. 0 = default (Dropbox 1, others 16). Lower it for providers that answer \"too many requests\", e.g. Filen.": "同时发往此账户的上传数。0 为默认值（Dropbox 1，其他 16）。对于像 Filen 这样返回 \"too many requests\" 的提供商，请调低。",
+  "Find the best number of simultaneous uploads": "查找最佳同时上传数",
+  "After the test, uploads 1 MiB files to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous uploads limit. Adds up to 128 MiB of uploads per account.": "测试后，向每个账户以每次 1、2、4……32 个的方式上传 1 MiB 文件，并推荐其同时上传数上限。每个账户最多额外上传 128 MiB。",
+  "Simultaneous uploads of {account} set to {n}.": "已将 {account} 的同时上传数设为 {n}。",
+  "{n}: failed": "{n}：失败",
+  "default": "默认",
+  "Recommended: {n}": "推荐：{n}",
+  "Current: {n}": "当前：{n}",
+  "Apply": "应用",
+  "Sets the Simultaneous uploads limit of {account} to {n}.": "将 {account} 的同时上传数上限设为 {n}。",
+  "Applied": "已应用",
+  "Account not found in the rclone config; set it under Limits.": "在 rclone 配置中找不到该账户，请在 Limits 中设置。",
+  "No recommendation: no upload level succeeded.": "无推荐：没有成功的上传级别。"
 }

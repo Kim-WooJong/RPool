@@ -170,8 +170,8 @@ every original.
 ### Storage speed test
 
 ```text
-rpool pool speed-test <POOL> [--size-mib N] [--files N] [--json]
-rpool provider speed-test --remote c1:rpool --remote c2:rpool [--size-mib N] [--files N] [--json]
+rpool pool speed-test <POOL> [--size-mib N] [--files N] [--tune-uploads] [--json]
+rpool provider speed-test --remote c1:rpool --remote c2:rpool [--size-mib N] [--files N] [--tune-uploads] [--json]
 ```
 
 Shows which account limits a pool. Each remote gets `--size-mib` (default 16,
@@ -189,6 +189,16 @@ for reads. A failed remote is reported and the test continues; a remote with too
 little free space fails before writing. Ctrl-C (or the GUI's Stop) on
 macOS/Linux stops promptly and still deletes the test files; leftovers are
 listed. Data is streamed, never staged locally.
+
+`--tune-uploads` (GUI: "Find the best number of simultaneous uploads") then
+uploads 1 MiB files to every remote that passed at 1, 2, 4, … 32 at once (two
+files per upload, at least four; each level in its own folder, deleted right
+after; at most 128 MiB per remote). The process caps are lifted meanwhile, so
+throttling (a rate that stops rising) or refused concurrent writes (an error)
+show. Climbing stops at the first error or after two levels without a 10%
+gain. The recommendation is the smallest tested count within 10% of the best
+rate; the table prints the `provider limits set --max-uploads` command, and
+the GUI's Apply sets the account's Simultaneous uploads limit.
 
 ### Object size limits and native crypt
 

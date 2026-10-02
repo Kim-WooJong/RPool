@@ -167,6 +167,7 @@ pub(crate) fn render(report: &SpeedTestReport) -> String {
     } else if report.pool.is_some() {
         out.push_str("Pool estimate: unavailable (not every remote succeeded)\n");
     }
+    out.push_str(&tuning(report));
     if !report.leftovers.is_empty() {
         out.push_str("Test folders that could not be deleted (safe to remove by hand):\n");
         for path in &report.leftovers {
@@ -174,6 +175,58 @@ pub(crate) fn render(report: &SpeedTestReport) -> String {
         }
     }
     out
+}
+
+/// The `--tune-uploads` lines: rate per level and the recommendation.
+fn tuning(report: &SpeedTestReport) -> String {
+    let tuned: Vec<_> = report
+        .remotes
+        .iter()
+        .filter_map(|r| r.upload_tuning.as_ref().map(|t| (r, t)))
+        .collect();
+    let Some((_, first)) = tuned.first() else {
+        return String::new();
+    };
+    let mut out = format!(
+        "Simultaneous uploads ({:.0} MiB files):\n",
+        first.file_bytes as f64 / MIB
+    );
+    for (remote, tuning) in &tuned {
+        let steps: Vec<String> = tuning
+            .steps
+            .iter()
+            .map(|s| match (&s.error, s.bytes_per_s) {
+                (Some(error), _) => format!("{}: failed ({error})", s.parallel),
+                (None, rate) => format!("{}: {}", s.parallel, mb_s(rate)),
+            })
+            .collect();
+        let now = tuning
+            .current
+            .map_or_else(|| "default".to_owned(), |n| n.to_string());
+        let advice = match tuning.recommended {
+            Some(n) => format!("recommended {n} (now {now})"),
+            None => format!("no recommendation (now {now})"),
+        };
+        out.push_str(&format!(
+            "  {}: {} -> {advice}\n",
+            remote.remote,
+            steps.join(", ")
+        ));
+        if let (Some(n), Some(name)) = (tuning.recommended, &remote_name(&remote.remote)) {
+            if tuning.current != Some(n) {
+                out.push_str(&format!(
+                    "    apply: rpool provider limits set --remote {name} --max-uploads {n}\n"
+                ));
+            }
+        }
+    }
+    out
+}
+
+fn remote_name(remote: &str) -> Option<String> {
+    crate::storage::rclone::remote_name(remote)
+        .ok()
+        .map(str::to_owned)
 }
 
 #[cfg(test)]
@@ -194,6 +247,7 @@ mod tests {
             upload_seconds: Some(1.0),
             download_seconds: Some(1.0),
             verified: true,
+            upload_tuning: None,
         };
         let mut failed = ok("sftp_crypt:rpool", 0.0, 0.0);
         failed.ok = false;
@@ -249,6 +303,48 @@ mod tests {
         ));
         assert!(text.contains("Pool estimate: unavailable"));
         assert!(text.contains("  sftp_crypt:rpool/.rpool-speedtest/00ff"));
+    }
+
+    #[test]
+    fn tuning_lines_show_levels_recommendation_and_apply_command() {
+        use super::super::model::{TuningStep, UploadTuning};
+        let mut report = sample();
+        assert!(!render(&report).contains("Simultaneous uploads"));
+        let step = |parallel, rate: Option<f64>, error: Option<&str>| TuningStep {
+            parallel,
+            files: 4,
+            bytes_per_s: rate,
+            error: error.map(str::to_owned),
+        };
+        report.remotes[0].upload_tuning = Some(UploadTuning {
+            account: Some("filen_1".into()),
+            file_bytes: 1024 * 1024,
+            steps: vec![
+                step(1, Some(2e6), None),
+                step(2, Some(4e6), None),
+                step(4, None, Some("rate limited")),
+            ],
+            recommended: Some(2),
+            current: None,
+        });
+        let text = render(&report);
+        let remote = &report.remotes[0].remote;
+        assert!(
+            text.contains("Simultaneous uploads (1 MiB files):"),
+            "{text}"
+        );
+        assert!(
+            text.contains(&format!(
+                "  {remote}: 1: 2.0 MB/s, 2: 4.0 MB/s, 4: failed (rate limited) -> recommended 2 (now default)"
+            )),
+            "{text}"
+        );
+        let name = remote.split(':').next().unwrap();
+        assert!(text.contains(&format!(
+            "apply: rpool provider limits set --remote {name} --max-uploads 2"
+        )));
+        report.remotes[0].upload_tuning.as_mut().unwrap().current = Some(2);
+        assert!(!render(&report).contains("apply:"), "already applied");
     }
 
     #[test]

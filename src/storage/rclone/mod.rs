@@ -53,6 +53,7 @@ mod sink;
 mod write;
 
 pub(crate) use backend::RcloneBackend;
+pub(crate) use limit::uncap_for_speed_test;
 pub(crate) use parse::{
     join_base, parse_backend_features, parse_cryptdecode, parse_object_hash, preferred_hashes,
     remote_name, write_account, write_base, BackendFeatures, CryptCopyCapabilities,

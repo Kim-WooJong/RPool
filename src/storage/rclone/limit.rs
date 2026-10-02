@@ -6,6 +6,7 @@ use super::process;
 use crate::storage::error::StorageError;
 use crate::storage::traits::OperationContext;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
 /// Concurrent rclone operations per remote name. `RPOOL_RCLONE_PER_REMOTE`.
@@ -102,8 +103,31 @@ fn acquire_lane(
     Ok(Permit(Some(semaphore)))
 }
 
+/// Set while a speed test measures uploads at a chosen concurrency: the test
+/// itself decides how many calls run, so neither cap may hide the account's
+/// real behavior (e.g. Dropbox rejecting a second write).
+static UNCAPPED: AtomicBool = AtomicBool::new(false);
+
+/// Lifts both caps of this process until dropped (speed test tuning only).
+pub(crate) struct Uncapped(());
+impl Drop for Uncapped {
+    fn drop(&mut self) {
+        UNCAPPED.store(false, Ordering::Release);
+    }
+}
+pub(crate) fn uncap_for_speed_test() -> Uncapped {
+    UNCAPPED.store(true, Ordering::Release);
+    Uncapped(())
+}
+fn uncapped() -> bool {
+    UNCAPPED.load(Ordering::Acquire)
+}
+
 /// One slot of the general per-remote cap.
 pub(super) fn acquire(remote: &str, ctx: &OperationContext) -> Result<Permit, StorageError> {
+    if uncapped() {
+        return Ok(Permit(None));
+    }
     acquire_lane(Lane::Any, remote, general_limit(), ctx)
 }
 
@@ -117,6 +141,9 @@ pub(super) fn acquire_write(
     own: Option<usize>,
     ctx: &OperationContext,
 ) -> Result<Permit, StorageError> {
+    if uncapped() {
+        return Ok(Permit(None));
+    }
     match own {
         Some(cap) => acquire_lane(Lane::Write, &format!("{base}\u{0}{cap}"), cap, ctx),
         None => acquire_lane(Lane::Write, base, write_limit(dropbox), ctx),

@@ -21,6 +21,8 @@ pub(crate) struct TestPlan {
     /// Size of every file; they add up to `bytes_per_remote`.
     pub file_sizes: Vec<u64>,
     pub parallel: usize,
+    /// `--tune-uploads`: also find the best number of simultaneous uploads.
+    pub tune_uploads: bool,
 }
 
 impl TestPlan {
@@ -55,6 +57,7 @@ impl TestPlan {
             bytes_per_remote: bytes,
             file_sizes,
             parallel,
+            tune_uploads: args.tune_uploads,
         })
     }
 
@@ -71,6 +74,7 @@ mod tests {
         SpeedTestSizeArgs {
             size_mib,
             files,
+            tune_uploads: false,
             json: false,
         }
     }

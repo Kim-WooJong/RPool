@@ -31,7 +31,8 @@ pub(crate) fn execute(
     plan: &TestPlan,
     pool: Option<PoolTarget<'_>>,
 ) -> Result<SpeedTestReport> {
-    crate::progress::start((remotes.len() as u64).saturating_mul(2 * plan.bytes_per_remote));
+    let per_remote = 2 * plan.bytes_per_remote + super::tune::expected_bytes(plan);
+    crate::progress::start((remotes.len() as u64).saturating_mul(per_remote));
     // Read daemon start-up is not any remote's cold start.
     engine.context.warm_read_daemon();
     let config = engine

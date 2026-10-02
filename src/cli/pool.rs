@@ -135,6 +135,11 @@ pub(crate) struct SpeedTestSizeArgs {
     /// overhead. Each file must be at least 4 KiB.
     #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..=4096))]
     pub files: Option<u64>,
+    /// After the test, upload 1 MiB files at 1, 2, 4, … 32 at once per remote
+    /// and recommend each account's "simultaneous uploads" limit (writes up
+    /// to 64 MiB at a time, about 128 MiB in total per remote).
+    #[arg(long)]
+    pub tune_uploads: bool,
     /// Print one JSON report instead of the table.
     #[arg(long)]
     pub json: bool,

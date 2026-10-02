@@ -16,11 +16,11 @@ use std::time::{Duration, Instant};
 const LATENCY_SAMPLES: usize = 3;
 const SMALL_OP: Duration = Duration::from_secs(120);
 
-/// Result of one remote: its report row and its run folder when something
-/// may be left there.
+/// Result of one remote: its report row and the test folders where
+/// something may be left.
 pub(crate) struct RemoteOutcome {
     pub speed: RemoteSpeed,
-    pub leftover: Option<String>,
+    pub leftover: Vec<String>,
 }
 
 /// Inputs shared by every remote of one run.
@@ -105,14 +105,20 @@ pub(crate) fn test(run: &Run<'_>, at: &Position<'_>) -> RemoteOutcome {
         upload_seconds: None,
         download_seconds: None,
         verified: false,
+        upload_tuning: None,
     };
     let root = match crate::remote_root::apply_remote_root(at.remote) {
         Ok(root) => root,
         Err(error) => {
             speed.error = Some(one_line(&format!("remote root: {error:#}")));
+            // This remote's share of the bar, tuning included.
+            progress::settle(
+                2 * run.plan.bytes_per_remote + super::tune::expected_bytes(run.plan),
+                0,
+            );
             return RemoteOutcome {
                 speed,
-                leftover: None,
+                leftover: Vec::new(),
             };
         }
     };
@@ -147,7 +153,7 @@ pub(crate) fn test(run: &Run<'_>, at: &Position<'_>) -> RemoteOutcome {
     speed.ok = error.is_none();
     speed.error = error;
 
-    let mut leftover = None;
+    let mut leftover = Vec::new();
     if attempted
         .iter()
         .any(|a| a.load(std::sync::atomic::Ordering::Acquire))
@@ -161,9 +167,22 @@ pub(crate) fn test(run: &Run<'_>, at: &Position<'_>) -> RemoteOutcome {
             &run_dir,
             &test_dir,
         ) {
-            leftover = Some(run_dir);
+            leftover.push(run_dir);
         }
     }
+    let mut tuned = 0;
+    if run.plan.tune_uploads && speed.ok && !run.engine.cancelled() {
+        let account = run.config.and_then(|config| {
+            let name = crate::storage::rclone::remote_name(at.remote).ok()?;
+            config.get(name)?;
+            Some(crate::storage::rclone::write_base(config, name).0)
+        });
+        let outcome = super::tune::run(run, at, &test_dir, account);
+        tuned = outcome.reported;
+        leftover.extend(outcome.leftover);
+        speed.upload_tuning = Some(outcome.tuning);
+    }
+    progress::settle(super::tune::expected_bytes(run.plan), tuned);
     at.done(speed.error.as_deref());
     RemoteOutcome { speed, leftover }
 }
@@ -312,6 +331,7 @@ mod tests {
             bytes_per_remote: 2 * 65536,
             file_sizes: vec![65536, 65536],
             parallel: 2,
+            tune_uploads: false,
         };
         assert_eq!(stored_bytes(&plan), 2 * (65536 + 32 + 16));
     }

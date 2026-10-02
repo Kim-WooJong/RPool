@@ -345,5 +345,17 @@
   "base32768 — short names for path-limited storage": "base32768 — パス長に制限のあるストレージ向けの短い名前",
   "base64 — shorter names, case-sensitive storage only": "base64 — より短い名前、大文字小文字を区別するストレージ専用",
   "Simultaneous uploads": "同時アップロード",
-  "How many uploads go to this account at once. 0 = default (Dropbox 1, others 16). Lower it for providers that answer \"too many requests\", e.g. Filen.": "このアカウントへ同時に送るアップロード数です。0 は既定値（Dropbox 1、その他 16）です。Filen のように \"too many requests\" で拒否するプロバイダーでは下げてください。"
+  "How many uploads go to this account at once. 0 = default (Dropbox 1, others 16). Lower it for providers that answer \"too many requests\", e.g. Filen.": "このアカウントへ同時に送るアップロード数です。0 は既定値（Dropbox 1、その他 16）です。Filen のように \"too many requests\" で拒否するプロバイダーでは下げてください。",
+  "Find the best number of simultaneous uploads": "最適な同時アップロード数を探す",
+  "After the test, uploads 1 MiB files to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous uploads limit. Adds up to 128 MiB of uploads per account.": "テスト後、各アカウントに 1 MiB のファイルを同時に 1, 2, 4, … 32 個ずつアップロードし、同時アップロード数の上限を推奨します。アカウントごとに最大 128 MiB のアップロードが追加されます。",
+  "Simultaneous uploads of {account} set to {n}.": "{account} の同時アップロード数を {n} に設定しました。",
+  "{n}: failed": "{n}: 失敗",
+  "default": "既定",
+  "Recommended: {n}": "推奨: {n}",
+  "Current: {n}": "現在: {n}",
+  "Apply": "適用",
+  "Sets the Simultaneous uploads limit of {account} to {n}.": "{account} の同時アップロード数の上限を {n} に設定します。",
+  "Applied": "適用済み",
+  "Account not found in the rclone config; set it under Limits.": "rclone の設定にアカウントが見つかりません。Limits で設定してください。",
+  "No recommendation: no upload level succeeded.": "推奨なし: 成功したアップロード段階がありません。"
 }

@@ -1,6 +1,6 @@
 //! The results list of a speed test: one block per remote, bottlenecks
 //! highlighted, the pool estimate and folders left behind.
-use super::view::{Bar, RemoteRow, ReportView};
+use super::view::{Bar, RemoteRow, ReportView, TuningView};
 use crate::gui::i18n::{tr, trf};
 use crate::gui::theme;
 use crate::gui::widgets::{capacity_bar_colored, status_badge, StatusTone};
@@ -10,7 +10,13 @@ use eframe::egui;
 const LABEL_WIDTH: f32 = 96.0;
 const MAX_BAR_WIDTH: f32 = 420.0;
 
-pub(crate) fn show(ui: &mut egui::Ui, view: &ReportView) {
+/// "Apply" clicked on a tuning recommendation.
+pub(crate) struct ApplyUploads {
+    pub(crate) account: String,
+    pub(crate) uploads: usize,
+}
+
+pub(crate) fn show(ui: &mut egui::Ui, view: &ReportView) -> Option<ApplyUploads> {
     ui.separator();
     ui.horizontal_wrapped(|ui| {
         ui.strong(tr("Last result"));
@@ -27,10 +33,12 @@ pub(crate) fn show(ui: &mut egui::Ui, view: &ReportView) {
         );
     }
     estimate(ui, view);
+    let mut apply = None;
     for row in &view.rows {
-        remote_row(ui, row);
+        apply = remote_row(ui, row).or(apply);
     }
     leftovers(ui, &view.leftovers);
+    apply
 }
 
 fn tinted(ui: &mut egui::Ui, colors: (egui::Color32, egui::Color32), text: &str) {
@@ -214,7 +222,8 @@ fn speed_bars(ui: &mut egui::Ui, row: &RemoteRow) {
     }
 }
 
-fn remote_row(ui: &mut egui::Ui, row: &RemoteRow) {
+fn remote_row(ui: &mut egui::Ui, row: &RemoteRow) -> Option<ApplyUploads> {
+    let mut apply = None;
     let p = theme::pal(ui);
     let dark = ui.visuals().dark_mode;
     let stroke = if row.is_bottleneck() {
@@ -278,8 +287,71 @@ fn remote_row(ui: &mut egui::Ui, row: &RemoteRow) {
             if let Some(error) = &row.error {
                 ui.colored_label(theme::error_colors(dark).1, error);
             }
+            if let Some(tuning) = &row.tuning {
+                apply = tuning_line(ui, tuning);
+            }
         });
     ui.add_space(4.0);
+    apply
+}
+
+/// Rate per number of simultaneous uploads, the recommendation and "Apply".
+fn tuning_line(ui: &mut egui::Ui, tuning: &TuningView) -> Option<ApplyUploads> {
+    let mut apply = None;
+    ui.horizontal_wrapped(|ui| {
+        ui.label(egui::RichText::new(tr("Simultaneous uploads")).strong());
+        for (text, error) in &tuning.steps {
+            match error {
+                Some(error) => {
+                    ui.colored_label(theme::error_colors(ui.visuals().dark_mode).1, text)
+                        .on_hover_text(error);
+                }
+                None => {
+                    ui.small(text);
+                }
+            }
+        }
+    });
+    let current = match tuning.current {
+        Some(n) => n.to_string(),
+        None => tr("default").to_string(),
+    };
+    ui.horizontal_wrapped(|ui| match tuning.recommended {
+        Some(n) => {
+            status_badge(
+                ui,
+                &trf("Recommended: {n}", &[("n", &n)]),
+                StatusTone::Success,
+            );
+            ui.small(trf("Current: {n}", &[("n", &current)]));
+            match &tuning.account {
+                Some(account) if tuning.current != Some(n) => {
+                    if ui
+                        .button(tr("Apply"))
+                        .on_hover_text(trf(
+                            "Sets the Simultaneous uploads limit of {account} to {n}.",
+                            &[("account", account), ("n", &n)],
+                        ))
+                        .clicked()
+                    {
+                        apply = Some(ApplyUploads {
+                            account: account.clone(),
+                            uploads: n,
+                        });
+                    }
+                }
+                Some(_) => {
+                    ui.small(tr("Applied"));
+                }
+                None => theme::hint(
+                    ui,
+                    tr("Account not found in the rclone config; set it under Limits."),
+                ),
+            }
+        }
+        None => theme::hint(ui, tr("No recommendation: no upload level succeeded.")),
+    });
+    apply
 }
 
 fn leftovers(ui: &mut egui::Ui, leftovers: &[String]) {

@@ -17,6 +17,8 @@ pub(crate) struct SpeedTestForm {
     pub(crate) large_mib: u64,
     pub(crate) small_count: usize,
     pub(crate) custom: Plan,
+    /// Also find each account's best number of simultaneous uploads.
+    pub(crate) tune_uploads: bool,
     /// Remotes ticked for the Providers page test.
     pub(crate) remotes: Vec<String>,
     /// A large run waiting for its confirmation click.
@@ -37,6 +39,7 @@ impl Default for SpeedTestForm {
                 size_mib: 16,
                 files: 4,
             },
+            tune_uploads: false,
             remotes: Vec::new(),
             confirming: None,
             running: None,

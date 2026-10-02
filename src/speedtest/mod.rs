@@ -12,6 +12,8 @@
 //! more (`latency_ms`), a best-effort free-space check (`rclone about`), the
 //! parallel upload, the parallel read-back with BLAKE3 comparison and the
 //! cleanup (`cleanup`). Progress: see `progress`; stop: see `cancel`.
+//! `--tune-uploads` adds a per-remote search for the best number of
+//! simultaneous uploads (`tune`).
 mod cancel;
 mod cleanup;
 mod command;
@@ -25,6 +27,7 @@ mod remote;
 mod run;
 mod stream;
 mod transfer;
+mod tune;
 
 #[cfg(all(test, unix))]
 mod integration_tests;

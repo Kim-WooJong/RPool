@@ -88,6 +88,7 @@ fn plan(size_mib: u64, files: Option<u64>, workers: Option<usize>) -> TestPlan {
     TestPlan::new(
         &SpeedTestSizeArgs {
             size_mib,
+            tune_uploads: false,
             files,
             json: false,
         },

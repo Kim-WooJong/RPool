@@ -151,6 +151,8 @@ fn plan_controls(ui: &mut egui::Ui, form: &mut SpeedTestForm, enabled: bool) {
                 ui.add(egui::DragValue::new(&mut form.custom.files).range(1..=MAX_FILES));
             }
         });
+        ui.checkbox(&mut form.tune_uploads, tr("Find the best number of simultaneous uploads"))
+            .on_hover_text(tr("After the test, uploads 1 MiB files to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous uploads limit. Adds up to 128 MiB of uploads per account."));
     });
 }
 
@@ -253,16 +255,51 @@ fn body(
     if let Some(notice) = form.notices.get(target) {
         ui.label(notice);
     }
-    if let Some(view) = form.results.get(target) {
-        results::show(ui, view);
+    let apply = form
+        .results
+        .get(target)
+        .and_then(|view| results::show(ui, view));
+    if let Some(apply) = apply {
+        let notice = match save_max_uploads(&apply.account, apply.uploads) {
+            Ok(()) => {
+                if let Some(view) = form.results.get_mut(target) {
+                    view.applied(&apply.account, apply.uploads);
+                }
+                trf(
+                    "Simultaneous uploads of {account} set to {n}.",
+                    &[("account", &apply.account), ("n", &apply.uploads)],
+                )
+            }
+            Err(error) => error,
+        };
+        form.notices.insert(target.clone(), notice);
     }
 }
 
-fn args(target: &Target, remotes: &[String], plan: Plan) -> Vec<std::ffi::OsString> {
-    match target {
+/// Sets one account's "Simultaneous uploads" limit, keeping its other limits.
+fn save_max_uploads(account: &str, uploads: usize) -> Result<(), String> {
+    use crate::storage::account::{edit, store};
+    let uploads = u32::try_from(uploads).map_err(|e| e.to_string())?;
+    let mut limits = store::load_limits().map_err(|e| format!("{e:#}"))?;
+    let change = edit::LimitEdit {
+        max_uploads: Some(uploads),
+        ..Default::default()
+    };
+    edit::apply(&mut limits, account, &change).map_err(|e| format!("{e:#}"))?;
+    store::save_limits(&limits).map_err(|e| format!("{e:#}"))?;
+    Ok(())
+}
+
+fn args(target: &Target, remotes: &[String], plan: Plan, tune: bool) -> Vec<std::ffi::OsString> {
+    let mut args = match target {
         Target::Pool(name) => plan::pool_args(name, plan),
         Target::Remotes => plan::provider_args(remotes, plan),
+    };
+    if tune {
+        // Right after `pool|provider speed-test`, before any `--`.
+        args.insert(2, "--tune-uploads".into());
     }
+    args
 }
 
 fn start(
@@ -273,7 +310,11 @@ fn start(
     plan: Plan,
 ) {
     form.confirming = None;
-    match task.start_rpool(TASK, rclone, args(target, &form.remotes, plan)) {
+    match task.start_rpool(
+        TASK,
+        rclone,
+        args(target, &form.remotes, plan, form.tune_uploads),
+    ) {
         Ok(()) => {
             form.running = Some(target.clone());
             form.notices.remove(target);

@@ -227,11 +227,16 @@ fn command_lines_always_pass_size_and_files() {
         ]
     );
     assert_eq!(
-        strings(super::args(&Target::Pool("p".into()), &remotes, large))[..2],
+        strings(super::args(
+            &Target::Pool("p".into()),
+            &remotes,
+            large,
+            false
+        ))[..2],
         ["pool", "speed-test"]
     );
     assert_eq!(
-        strings(super::args(&Target::Remotes, &remotes, large))[..2],
+        strings(super::args(&Target::Remotes, &remotes, large, false))[..2],
         ["provider", "speed-test"]
     );
 }
@@ -281,6 +286,17 @@ fn gui_command_lines_parse_with_the_cli() {
         size_mib: 4096,
         files: 1,
     };
+    match with_binary(super::args(
+        &super::Target::Pool("-odd pool".into()),
+        &[],
+        large,
+        true,
+    )) {
+        Some(Commands::Pool(PoolArgs {
+            command: PoolCommands::SpeedTest { name, size },
+        })) => assert!(name == "-odd pool" && size.tune_uploads),
+        other => panic!("unexpected {other:?}"),
+    }
     match with_binary(plan::pool_args("-odd pool", large)) {
         Some(Commands::Pool(PoolArgs {
             command: PoolCommands::SpeedTest { name, size },
