@@ -100,7 +100,7 @@ impl VirtualDrive {
     }
     /// Uploads one pending intent's spool (resumable; incremental against
     /// its captured base when possible). Deletions upload nothing.
-    fn upload_intent(&self, intent: &Intent) -> Result<Option<Content>> {
+    pub(super) fn upload_intent(&self, intent: &Intent) -> Result<Option<Content>> {
         if intent.spool.is_none() {
             return Ok(None);
         }
@@ -111,6 +111,11 @@ impl VirtualDrive {
             // shard is hashed again as it uploads.
             if fs::metadata(&source)?.len() != intent.size {
                 bail!("pending spool integrity failure");
+            }
+            if let Some(existing) = self.same_content(intent)? {
+                // A copy (or re-save) of a file the drive already stores:
+                // reference its archive instead of uploading the bytes again.
+                return Ok(Some(existing));
             }
             let upload_dir = source.parent().unwrap().join("upload");
             fs::create_dir_all(&upload_dir)?;
@@ -180,6 +185,27 @@ impl VirtualDrive {
             }
         };
         Ok(Some(content))
+    }
+    /// Content of a current cloud file with exactly the bytes of `intent`
+    /// (same BLAKE3 of the whole file, same size), if any. Only current
+    /// files count: their archives are kept by cleanup, while those of old,
+    /// unretained revisions may already be deleted. Sharing is safe because
+    /// archives are immutable: editing either file later writes a new one.
+    pub(super) fn same_content(&self, intent: &Intent) -> Result<Option<Content>> {
+        if intent.size == 0 || intent.hash.is_empty() {
+            return Ok(None);
+        }
+        Ok(self
+            .view()?
+            .into_values()
+            .find_map(|revision| match revision {
+                Revision::Cloud { content, .. }
+                    if content.size == intent.size && content.hash == intent.hash =>
+                {
+                    Some(content)
+                }
+                _ => None,
+            }))
     }
     pub(crate) fn commit_uploaded(&self, intent: &Intent, content: Option<Content>) -> Result<()> {
         let mut s = self.state.lock().unwrap();

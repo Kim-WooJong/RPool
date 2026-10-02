@@ -253,3 +253,42 @@ fn with_a_publisher_running_an_upload_pass_only_wakes_it() {
         "pass did not publish"
     );
 }
+
+#[test]
+fn a_copy_of_a_stored_file_reuses_its_archive_and_edits_stay_separate() {
+    let root = tempfile::tempdir().unwrap();
+    let drive = fixture(root.path());
+    write(&drive, "a", b"same bytes");
+    drive
+        .upload_pending_with(
+            &mut RetryBook::default(),
+            &AtomicBool::new(false),
+            &|intent| uploaded(&drive, intent, Duration::ZERO),
+        )
+        .unwrap();
+    let stored = match drive.view().unwrap().get("a").cloned() {
+        Some(Revision::Cloud { content, .. }) => content,
+        other => panic!("a is not stored: {other:?}"),
+    };
+    // A copy with identical bytes: the real uploader returns the existing
+    // archive without touching any cloud (the fixture has none).
+    let copy = write(&drive, "copy-of-a", b"same bytes");
+    let reused = drive.upload_intent(&copy).unwrap().unwrap();
+    assert_eq!(reused.manifest.archive_id, stored.manifest.archive_id);
+    drive.commit_uploaded(&copy, Some(reused)).unwrap();
+    // Editing the copy uploads new bytes; the original keeps its archive.
+    let edit = write(&drive, "copy-of-a", b"edited bytes");
+    let edited = uploaded(&drive, &edit, Duration::ZERO).unwrap();
+    drive.commit_uploaded(&edit, edited).unwrap();
+    let view = drive.view().unwrap();
+    // (The fixture's fake archives share one id, so compare their content.)
+    let hash = |p: &str| match &view[p] {
+        Revision::Cloud { content, .. } => content.hash.clone(),
+        other => panic!("{p}: {other:?}"),
+    };
+    assert_eq!(hash("a"), stored.hash);
+    assert_ne!(hash("copy-of-a"), stored.hash);
+    // Different bytes of the same size are not shared.
+    let other = write(&drive, "other", b"diff bytes");
+    assert!(drive.same_content(&other).unwrap().is_none());
+}
