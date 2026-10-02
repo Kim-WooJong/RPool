@@ -38,7 +38,7 @@ impl VirtualDrive {
         }
         Ok(Self {
             root: root.into(),
-            state: Mutex::new(state),
+            state: StateLock::new(state),
             policy: binding.policy,
             pool: binding.pool,
             rclone: rclone.into(),
@@ -212,7 +212,7 @@ impl VirtualDrive {
         }
         Ok(Self {
             root,
-            state: Mutex::new(state),
+            state: StateLock::new(state),
             policy: binding.policy,
             pool: pool.into(),
             rclone: rclone.into(),

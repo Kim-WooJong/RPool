@@ -108,7 +108,7 @@ impl FsCore {
         Ok(lock(&self.slots)?.entry(file).or_default().clone())
     }
     pub(super) fn visible(&self, path: &str) -> FsResult<Option<Revision>> {
-        Ok(self.drive.view()?.get(path).cloned())
+        Ok(self.drive.visible_revision(path)?)
     }
     /// Whether the file has unsealed writes; `None` when it has no slot.
     pub(super) fn unsealed_size(&self, file: FileId) -> FsResult<Option<(u64, String)>> {

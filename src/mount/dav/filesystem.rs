@@ -11,22 +11,22 @@ pub(super) struct VirtualFs {
 
 impl VirtualFs {
     pub(super) fn stat(&self, path: &str) -> FsResult<Meta> {
-        let view = self.drive.view().map_err(failure)?;
-        if let Some(r) = view.get(path) {
+        let view = self.drive.visible().map_err(failure)?;
+        if let Some((id, size)) = view.file(path) {
             return Ok(Meta {
-                size: r.size(),
+                size,
                 directory: false,
-                tag: r.id().into(),
+                tag: id.into(),
             });
         }
         if path.is_empty()
-            || view.keys().any(|p| p.starts_with(&format!("{path}/")))
-            || self.drive.state.lock().unwrap().directories.contains(path)
+            || view.has_descendant(&format!("{path}/"))
+            || view.directories().contains(path)
         {
             return Ok(Meta {
                 size: 0,
                 directory: true,
-                tag: format!("dir-{}", self.drive.state.lock().unwrap().generation),
+                tag: format!("dir-{}", view.generation()),
             });
         }
         Err(FsError::NotFound)
@@ -52,31 +52,24 @@ impl DavFileSystem for VirtualFs {
             } else {
                 format!("{p}/")
             };
+            let view = self.drive.visible().map_err(failure)?;
             let mut entries = BTreeMap::new();
-            for (name, r) in self.drive.view().map_err(failure)? {
-                if let Some(relative) = name.strip_prefix(&prefix) {
-                    if let Some((child, _)) = relative.split_once('/') {
-                        entries.insert(
-                            child.to_owned(),
-                            Meta {
-                                size: 0,
-                                directory: true,
-                                tag: format!("dir-{child}"),
-                            },
-                        );
-                    } else {
-                        entries.insert(
-                            relative.to_owned(),
-                            Meta {
-                                size: r.size(),
-                                directory: false,
-                                tag: r.id().into(),
-                            },
-                        );
-                    }
-                }
+            for (child, file) in view.children(&prefix) {
+                let meta = match file {
+                    Some((id, size)) => Meta {
+                        size,
+                        directory: false,
+                        tag: id.into(),
+                    },
+                    None => Meta {
+                        size: 0,
+                        directory: true,
+                        tag: format!("dir-{child}"),
+                    },
+                };
+                entries.insert(child, meta);
             }
-            for name in &self.drive.state.lock().unwrap().directories {
+            for name in view.directories() {
                 if let Some(relative) = name.strip_prefix(&prefix) {
                     let child = relative.split('/').next().unwrap_or("");
                     if !child.is_empty() {
@@ -108,7 +101,7 @@ impl DavFileSystem for VirtualFs {
             let drive = self.drive.clone();
             let stats = self.write_stats.clone();
             tokio::task::spawn_blocking(move || {
-                let revision = drive.view().map_err(failure)?.get(&p).cloned();
+                let revision = drive.visible_revision(&p).map_err(failure)?;
                 if options.create_new && revision.is_some() {
                     return Err(FsError::Exists);
                 }
@@ -243,13 +236,7 @@ impl DavFileSystem for VirtualFs {
             // properties become its synthetic 1 PiB Statfs fallback. Advertise
             // only confirmed namespace usage and zero *additional* writable
             // bytes while cloud capacity is unverified, not an invented quota.
-            let used = self
-                .drive
-                .state
-                .lock()
-                .map_err(|_| failure("namespace lock poisoned while reading quota"))?
-                .visible_logical_used()
-                .map_err(failure)?;
+            let used = self.drive.visible_used().map_err(failure)?;
             if !self.quota_unavailable.swap(true, Ordering::AcqRel) {
                 eprintln!("Virtual drive capacity unavailable or stale: Explorer shows 0 additional free bytes until verification succeeds. This does not mean the cloud pool is full; existing reads remain available.");
             }

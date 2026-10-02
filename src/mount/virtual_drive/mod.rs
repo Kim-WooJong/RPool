@@ -11,6 +11,7 @@ mod read;
 mod recovery;
 mod rename;
 mod run;
+mod state_lock;
 mod sync;
 mod upload_queue;
 mod upload_retry;
@@ -18,14 +19,20 @@ pub(crate) mod upload_round;
 #[cfg(test)]
 mod upload_tests;
 mod upload_wake;
+mod visible;
+#[cfg(test)]
+mod visible_tests;
 mod write;
 
 pub(crate) use open::FORMAT_VERSION;
 use recovery::checked_directory;
 pub(crate) use recovery::recover_spool;
 pub(crate) use run::run;
+pub(crate) use state_lock::StateLock;
 pub(crate) use upload_retry::RetryBook;
 pub(crate) use upload_wake::UploadControl;
+#[allow(unused_imports, reason = "API for the frontends that adopt the core")]
+pub(crate) use visible::VisibleView;
 
 fn validate_workspace_epoch(epoch: &str) -> Result<()> {
     if epoch.len() != 64
@@ -81,7 +88,8 @@ impl Revision {
 }
 pub(crate) struct VirtualDrive {
     pub root: PathBuf,
-    pub state: Mutex<Namespace>,
+    /// The namespace; every mutable access invalidates the visible cache.
+    pub state: StateLock,
     pub policy: PoolDefinition,
     pub pool: String,
     pub rclone: String,
@@ -126,7 +134,7 @@ pub(crate) fn fixture_reopen(root: &Path) -> VirtualDrive {
 fn fixture_with(root: &Path, state: Namespace) -> VirtualDrive {
     VirtualDrive {
         root: root.into(),
-        state: Mutex::new(state),
+        state: StateLock::new(state),
         policy: PoolDefinition::default(),
         pool: "test".into(),
         rclone: "nonexistent-rclone".into(),

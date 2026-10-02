@@ -2,6 +2,7 @@
 use super::core::{checked, lock, Attr, FsCore};
 use super::error::{FsError, FsResult};
 use super::identity::FileId;
+use crate::mount::virtual_drive::VisibleView;
 use crate::prelude::*;
 
 impl FsCore {
@@ -19,49 +20,54 @@ impl FsCore {
         }
         Ok(result)
     }
-    /// Every file path with its attributes.
-    fn files(&self) -> FsResult<BTreeMap<String, Attr>> {
-        let mut files = BTreeMap::new();
-        for (path, revision) in self.drive.view()? {
-            let id = lock(&self.ids)?.get(&path);
-            files.insert(
-                path,
-                Attr {
-                    id,
-                    size: revision.size(),
-                    directory: false,
-                    tag: revision.id().into(),
-                },
-            );
+    /// The file at `path` as this core sees it: an unsealed generation, else
+    /// the visible revision.
+    fn file_attr(
+        &self,
+        view: &VisibleView,
+        unsealed: &BTreeMap<String, (FileId, u64, String)>,
+        path: &str,
+    ) -> FsResult<Option<Attr>> {
+        if let Some((id, size, tag)) = unsealed.get(path) {
+            return Ok(Some(Attr {
+                id: Some(*id),
+                size: *size,
+                directory: false,
+                tag: tag.clone(),
+            }));
         }
-        for (path, (id, size, tag)) in self.unsealed()? {
-            files.insert(
-                path,
-                Attr {
-                    id: Some(id),
-                    size,
-                    directory: false,
-                    tag,
-                },
-            );
-        }
-        Ok(files)
+        let Some((tag, size)) = view.file(path) else {
+            return Ok(None);
+        };
+        Ok(Some(Attr {
+            id: lock(&self.ids)?.get(path),
+            size,
+            directory: false,
+            tag: tag.into(),
+        }))
     }
-    fn is_directory(&self, path: &str, files: &BTreeMap<String, Attr>) -> FsResult<bool> {
+    fn is_directory(
+        &self,
+        view: &VisibleView,
+        unsealed: &BTreeMap<String, (FileId, u64, String)>,
+        path: &str,
+    ) -> bool {
         if path.is_empty() {
-            return Ok(true);
+            return true;
         }
         let prefix = format!("{path}/");
-        Ok(files.keys().any(|p| p.starts_with(&prefix))
-            || lock(&self.drive.state)?.directories.contains(path))
+        view.has_descendant(&prefix)
+            || unsealed.keys().any(|p| p.starts_with(&prefix))
+            || view.directories().contains(path)
     }
 
     pub(crate) fn lookup(&self, path: &str) -> FsResult<Attr> {
-        let files = self.files()?;
-        if let Some(attr) = files.get(path) {
-            return Ok(attr.clone());
+        let view = self.drive.visible()?;
+        let unsealed = self.unsealed()?;
+        if let Some(attr) = self.file_attr(&view, &unsealed, path)? {
+            return Ok(attr);
         }
-        if self.is_directory(path, &files)? {
+        if self.is_directory(&view, &unsealed, path) {
             return Ok(Attr {
                 id: None,
                 size: 0,
@@ -73,11 +79,12 @@ impl FsCore {
     }
 
     pub(crate) fn readdir(&self, directory: &str) -> FsResult<Vec<(String, Attr)>> {
-        let files = self.files()?;
-        if files.contains_key(directory) {
+        let view = self.drive.visible()?;
+        let unsealed = self.unsealed()?;
+        if self.file_attr(&view, &unsealed, directory)?.is_some() {
             return Err(FsError::NotDir);
         }
-        if !self.is_directory(directory, &files)? {
+        if !self.is_directory(&view, &unsealed, directory) {
             return Err(FsError::NotFound);
         }
         let prefix = if directory.is_empty() {
@@ -91,16 +98,43 @@ impl FsCore {
             directory: true,
             tag: String::new(),
         };
+        // As in a full listing, a subdirectory wins over a same-named file.
         let mut entries = BTreeMap::new();
-        for (path, attr) in &files {
-            if let Some(relative) = path.strip_prefix(&prefix) {
-                match relative.split_once('/') {
-                    Some((child, _)) => entries.insert(child.to_owned(), folder.clone()),
-                    None => entries.insert(relative.to_owned(), attr.clone()),
-                };
+        for (child, file) in view.children(&prefix) {
+            let attr = match file {
+                None => folder.clone(),
+                Some(_) => {
+                    let path = format!("{prefix}{child}");
+                    match self.file_attr(&view, &unsealed, &path)? {
+                        Some(attr) => attr,
+                        None => continue,
+                    }
+                }
+            };
+            entries.insert(child, attr);
+        }
+        for (path, (id, size, tag)) in &unsealed {
+            let Some(relative) = path.strip_prefix(&prefix) else {
+                continue;
+            };
+            match relative.split_once('/') {
+                Some((child, _)) => {
+                    entries.insert(child.to_owned(), folder.clone());
+                }
+                None => {
+                    if !entries.get(relative).is_some_and(|a| a.directory) {
+                        let attr = Attr {
+                            id: Some(*id),
+                            size: *size,
+                            directory: false,
+                            tag: tag.clone(),
+                        };
+                        entries.insert(relative.to_owned(), attr);
+                    }
+                }
             }
         }
-        for name in lock(&self.drive.state)?.directories.iter() {
+        for name in view.directories() {
             if let Some(relative) = name.strip_prefix(&prefix) {
                 let child = relative.split('/').next().unwrap_or(relative);
                 if !child.is_empty() {

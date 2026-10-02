@@ -12,64 +12,11 @@ impl VirtualDrive {
         leases.insert(id.into(), Arc::downgrade(&lease));
         lease
     }
+    /// Every visible file with its revision. Prefer [`Self::visible`] or
+    /// [`Self::visible_revision`]: this clones the whole namespace.
     pub(crate) fn view(&self) -> Result<BTreeMap<String, Revision>> {
-        let s = self
-            .state
-            .lock()
-            .map_err(|_| anyhow!("namespace lock poisoned"))?;
-        let mut result = BTreeMap::new();
-        for (path, resolved) in s.resolved()? {
-            if let Some(content) = resolved.event.content {
-                result.insert(
-                    path,
-                    Revision::Cloud {
-                        id: resolved.event_id,
-                        content,
-                    },
-                );
-            }
-        }
-        // A DAV transport cannot observe native rclone handle closure. Keep
-        // served paths pinned for the mount session and expose incoming revisions
-        // as named copies instead of mixing bytes across unconditioned ranges.
-        for (name, pinned) in self
-            .pins
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|_| self.pool_sync_roots.is_empty())
-        {
-            if let Some(current) = result.get(name).cloned() {
-                if current.id() != pinned.id() {
-                    let alternate = crate::mount::shared_model::conflict_path(
-                        name,
-                        "incoming",
-                        current.id(),
-                        0,
-                    )?;
-                    result.insert(alternate, current);
-                    result.insert(name.clone(), pinned.clone());
-                }
-            } else {
-                result.insert(name.clone(), pinned.clone());
-            }
-        }
-        for intent in &s.pending {
-            if intent.spool.is_some() {
-                result.insert(
-                    intent.path.clone(),
-                    Revision::Local {
-                        id: intent.id.clone(),
-                        path: self.spool_path(intent),
-                        size: intent.size,
-                        _lease: self.local_lease(&intent.id),
-                    },
-                );
-            } else {
-                result.remove(&intent.path);
-            }
-        }
-        Ok(result)
+        let (s, projection, _) = self.locked_visible()?;
+        self.full_view(&s, &projection)
     }
     pub(crate) fn spool_path(&self, intent: &Intent) -> PathBuf {
         self.root.join("spool").join(&intent.id).join("content")
@@ -109,7 +56,8 @@ impl VirtualDrive {
             } else {
                 match revision {
                     Revision::Cloud { id, .. } => {
-                        s.resolved()?.get(path).is_some_and(|r| &r.event_id == id)
+                        let (projection, _) = self.cached_visible(&mut s)?;
+                        projection.committed(path).is_some_and(|r| r.id() == id)
                     }
                     Revision::Local { .. } => false,
                 }

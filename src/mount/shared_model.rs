@@ -162,20 +162,9 @@ pub(crate) fn reduce(events: &BTreeMap<String, Event>) -> Result<BTreeMap<String
         }
     }
     // Validate acyclicity explicitly rather than assuming content-addressed IDs imply it.
-    let mut remaining: BTreeSet<_> = events.keys().cloned().collect();
-    while !remaining.is_empty() {
-        let ready: Vec<_> = remaining
-            .iter()
-            .filter(|id| events[*id].parents.iter().all(|p| !remaining.contains(p)))
-            .cloned()
-            .collect();
-        if ready.is_empty() {
-            bail!("namespace event ancestry cycle");
-        }
-        for id in ready {
-            remaining.remove(&id);
-        }
-    }
+    // Kahn's algorithm: O(N log N) even for long edit chains (a layered scan
+    // re-read every remaining event once per chain step).
+    ensure_acyclic(events)?;
     for event in events.values() {
         for parent in &event.parents {
             heads.get_mut(&event.path).unwrap().remove(parent);
@@ -203,10 +192,8 @@ pub(crate) fn reduce(events: &BTreeMap<String, Event>) -> Result<BTreeMap<String
             }
         }
     }
-    for (i, path) in reserved.iter().enumerate() {
-        if reserved[i + 1..].iter().any(|other| overlaps(path, other)) {
-            bail!("namespace case or file/directory collision: {path}");
-        }
+    if let Some(path) = first_overlap(&reserved) {
+        bail!("namespace case or file/directory collision: {path}");
     }
     let mut result: BTreeMap<String, Resolved> = BTreeMap::new();
     for (path, ids) in heads {
@@ -245,6 +232,54 @@ pub(crate) fn reduce(events: &BTreeMap<String, Event>) -> Result<BTreeMap<String
         }
     }
     Ok(result)
+}
+
+/// Fails when the parent links (all present, checked by the caller) contain a cycle.
+fn ensure_acyclic(events: &BTreeMap<String, Event>) -> Result<()> {
+    let mut waiting: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut children: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    let mut ready = vec![];
+    for (id, event) in events {
+        waiting.insert(id, event.parents.len());
+        if event.parents.is_empty() {
+            ready.push(id.as_str());
+        }
+        for parent in &event.parents {
+            children.entry(parent).or_default().push(id);
+        }
+    }
+    let mut done = 0usize;
+    while let Some(id) = ready.pop() {
+        done += 1;
+        for child in children.get(id).into_iter().flatten() {
+            let count = waiting.get_mut(child).expect("child is an event");
+            *count -= 1;
+            if *count == 0 {
+                ready.push(child);
+            }
+        }
+    }
+    if done != events.len() {
+        bail!("namespace event ancestry cycle");
+    }
+    Ok(())
+}
+
+/// A path of `reserved` that [`overlaps`] another one (case-folded equality or
+/// ancestry), found in O(N log N) instead of comparing every pair. Lowercasing
+/// maps `/` only to itself, so the folded ancestors of a path are exactly the
+/// folded prefixes ending before one of its separators.
+fn first_overlap(reserved: &[String]) -> Option<&str> {
+    let mut folded = BTreeSet::new();
+    for path in reserved {
+        if !folded.insert(path.to_lowercase()) {
+            return Some(path);
+        }
+    }
+    reserved.iter().map(String::as_str).find(|path| {
+        path.match_indices('/')
+            .any(|(at, _)| folded.contains(&path[..at].to_lowercase()))
+    })
 }
 
 #[cfg(test)]
@@ -322,5 +357,43 @@ mod tests {
         let result = reduce(&map(vec![a, b, resolved])).unwrap();
         assert_eq!(result.len(), 1);
         assert!(result.contains_key("hello"));
+    }
+}
+
+#[cfg(test)]
+mod overlap_tests {
+    use super::*;
+
+    /// The pairwise check `first_overlap` replaced.
+    fn pairwise(reserved: &[String]) -> bool {
+        (0..reserved.len()).any(|i| {
+            reserved[i + 1..]
+                .iter()
+                .any(|other| overlaps(&reserved[i], other))
+        })
+    }
+
+    #[test]
+    fn first_overlap_agrees_with_the_pairwise_check() {
+        let cases: &[&[&str]] = &[
+            &["a", "ab", "a.txt", "b/a"],
+            &["A", "a"],
+            &["a", "a/b"],
+            &["A/b", "a"],
+            &["ΑΣ/x", "ας"],
+            &["İ/x", "i̇"],
+            &["dir/x", "dir0", "dir.txt", "dir/y/z"],
+            &["x/y/z", "X/Y"],
+            &["x/y/z", "x/yz"],
+        ];
+        for case in cases {
+            let mut reserved: Vec<String> = case.iter().map(|s| s.to_string()).collect();
+            reserved.sort();
+            assert_eq!(
+                first_overlap(&reserved).is_some(),
+                pairwise(&reserved),
+                "{reserved:?}"
+            );
+        }
     }
 }

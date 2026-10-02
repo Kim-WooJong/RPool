@@ -6,8 +6,13 @@ use super::*;
 const SNAPSHOT_MAX_AGE: u64 = 600;
 
 impl VirtualDrive {
+    /// Explorer asks for this on nearly every operation: it reads the
+    /// cached visible namespace and never copies the capacity snapshot.
     pub(crate) fn quota(&self) -> Option<(u64, Option<u64>)> {
-        let capacity = self.capacity.lock().ok()?.clone()?;
+        let (state, projection, pending) = self.locked_visible().ok()?;
+        drop(state);
+        let capacity = self.capacity.lock().ok()?;
+        let capacity = capacity.as_ref()?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .ok()?
@@ -17,28 +22,15 @@ impl VirtualDrive {
         {
             return None;
         }
-        let state = self.state.lock().ok()?;
-        let used = state.visible_logical_used().ok()?;
+        let used = pending.used?;
         // Writes since the snapshot no longer zero the free space (Explorer
         // then showed only the used size and refused to copy until the next
         // measurement). Their bytes are charged against the snapshot's
         // estimate instead: every new pending save and every new committed
         // revision counts in full (old versions stay stored), deletions free
         // nothing until cleanup. Uploads still check live quota themselves.
-        let known_events: std::collections::BTreeSet<&String> =
-            capacity.namespace_event_ids.iter().collect();
-        let new_committed: u64 = state
-            .events
-            .iter()
-            .filter(|(id, _)| !known_events.contains(id))
-            .filter_map(|(_, event)| event.content.as_ref().map(|c| c.size))
-            .sum();
-        let new_pending: u64 = state
-            .pending
-            .iter()
-            .filter(|i| i.spool.is_some() && !capacity.pending_ids.contains(&i.id))
-            .map(|i| i.size)
-            .sum();
+        let new_committed = projection.uncounted(&capacity.namespace_event_ids);
+        let new_pending = pending.uncounted(&capacity.pending_ids);
         let free = capacity
             .additional_estimate
             .saturating_sub(new_committed.saturating_add(new_pending));

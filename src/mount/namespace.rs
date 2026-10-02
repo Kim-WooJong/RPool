@@ -57,9 +57,16 @@ pub(crate) fn valid_path(path: &str) -> Result<()> {
     .validate()
 }
 pub(crate) fn durable_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
+    // Serialize in memory: `to_writer` on the unbuffered temporary issued one
+    // write call per JSON token (seconds for a multi-megabyte namespace).
+    durable_bytes(path, &serde_json::to_vec(value)?)
+}
+/// [`durable_json`] for already serialized bytes: temporary, flush, crash
+/// point, atomic replace, directory flush.
+pub(crate) fn durable_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
     let dir = path.parent().context("state parent missing")?;
     let mut temp = tempfile::NamedTempFile::new_in(dir)?;
-    serde_json::to_writer(&mut temp, value)?;
+    temp.write_all(bytes)?;
     temp.as_file()
         .sync_all()
         .with_context(|| format!("flush temporary for {}", path.display()))?;
@@ -68,6 +75,18 @@ pub(crate) fn durable_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     #[cfg(unix)]
     File::open(dir)?.sync_all()?;
     Ok(())
+}
+/// The visible files of `events` as a namespace of `version` resolves them
+/// (see [`Namespace::resolved`]); also used on a copy outside the drive lock.
+pub(crate) fn resolve_events(
+    version: u32,
+    events: &BTreeMap<String, Event>,
+) -> Result<BTreeMap<String, Resolved>> {
+    if version == 6 {
+        Ok(super::peer_projection::project(events)?.files)
+    } else {
+        shared_model::reduce(events)
+    }
 }
 impl Namespace {
     pub(crate) fn create(worker: &str) -> Result<Self> {
@@ -90,7 +109,9 @@ impl Namespace {
             bail!("unsupported virtual namespace version");
         }
         valid_path(&self.worker)?;
-        shared_model::reduce(&self.events)?;
+        // Event validation: `resolved` reduces (and validates) the events
+        // first; one projection serves both checks.
+        let resolved = self.resolved()?;
         if self
             .published
             .iter()
@@ -147,8 +168,7 @@ impl Namespace {
                 }
             }
         }
-        let mut live: BTreeSet<String> = self
-            .resolved()?
+        let mut live: BTreeSet<String> = resolved
             .into_iter()
             .filter(|(_, r)| r.event.content.is_some())
             .map(|(p, _)| p)
@@ -236,7 +256,8 @@ impl Namespace {
             .context("namespace generation overflow")?;
         let path = dir.join("namespace.json");
         if path.exists() {
-            let old: Envelope = crate::utils::read_json(&path)?;
+            let bytes = fs::read(&path)?;
+            let old: Envelope = serde_json::from_slice(&bytes)?;
             if blake3::hash(&serde_json::to_vec(&old.payload)?)
                 .to_hex()
                 .as_str()
@@ -244,23 +265,25 @@ impl Namespace {
             {
                 bail!("refusing to overwrite corrupt checkpoint");
             }
-            durable_json(&dir.join("namespace.previous.json"), &old)?;
+            // The verified checkpoint itself becomes the previous generation;
+            // `load` parses and verifies it exactly like the primary.
+            durable_bytes(&dir.join("namespace.previous.json"), &bytes)?;
             super::crash::point("namespace.after_previous")?;
         }
-        let envelope = Envelope {
-            hash: blake3::hash(&serde_json::to_vec(self)?)
-                .to_hex()
-                .to_string(),
-            payload: self.clone(),
-        };
-        durable_json(&path, &envelope)
+        // One serialization serves both the hash and the file: the compact
+        // JSON of `Envelope { hash, payload }` is these bytes concatenated.
+        let payload = serde_json::to_vec(self)?;
+        let hash = blake3::hash(&payload).to_hex().to_string();
+        let mut envelope = Vec::with_capacity(payload.len() + hash.len() + 24);
+        envelope.extend_from_slice(b"{\"hash\":");
+        serde_json::to_writer(&mut envelope, &hash)?;
+        envelope.extend_from_slice(b",\"payload\":");
+        envelope.extend_from_slice(&payload);
+        envelope.push(b'}');
+        durable_bytes(&path, &envelope)
     }
     pub(crate) fn resolved(&self) -> Result<BTreeMap<String, Resolved>> {
-        if self.version == 6 {
-            Ok(super::peer_projection::project(&self.events)?.files)
-        } else {
-            shared_model::reduce(&self.events)
-        }
+        resolve_events(self.version, &self.events)
     }
     pub(crate) fn logical_used(&self) -> Result<u64> {
         self.resolved()?
