@@ -22,6 +22,8 @@ pub(crate) struct LimitEdit {
     pub bwlimit: Option<String>,
     /// `0` removes the request-rate limit.
     pub tpslimit: Option<f64>,
+    /// `0` = backend default.
+    pub max_uploads: Option<u32>,
     /// `0` = never warn.
     pub inactivity_warn_days: Option<u32>,
 }
@@ -61,6 +63,12 @@ pub(crate) fn apply(store: &mut LimitsStore, account: &str, edit: &LimitEdit) ->
     if let Some(days) = edit.inactivity_warn_days {
         limits.inactivity_warn_days = Some(days);
     }
+    if let Some(uploads) = edit.max_uploads {
+        if uploads > 256 {
+            bail!("at most 256 simultaneous uploads per account");
+        }
+        limits.max_uploads = (uploads > 0).then_some(uploads);
+    }
     if limits.is_empty() {
         store.accounts.remove(account);
     } else {
@@ -92,6 +100,7 @@ mod tests {
             daily: Some(DailyEdit::Gib(1.5)),
             bwlimit: Some("10M:off".into()),
             tpslimit: Some(4.0),
+            max_uploads: Some(3),
             inactivity_warn_days: Some(0),
         };
         apply(&mut store, "gd:", &edit).unwrap();
@@ -99,6 +108,7 @@ mod tests {
         assert_eq!(gd.daily_upload, Some(DailyUpload::Bytes(3 << 29)));
         assert_eq!(gd.bwlimit.as_deref(), Some("10M:off"));
         assert_eq!((gd.tpslimit, gd.inactivity_warn_days), (Some(4.0), Some(0)));
+        assert_eq!(gd.max_uploads, Some(3));
         apply(
             &mut store,
             "gd",
@@ -121,6 +131,7 @@ mod tests {
                 daily: Some(DailyEdit::BackendDefault),
                 bwlimit: Some("off".into()),
                 tpslimit: Some(0.0),
+                max_uploads: Some(0),
                 ..Default::default()
             },
         )

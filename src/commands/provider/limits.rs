@@ -21,6 +21,7 @@ pub(crate) fn run(rclone: &str, command: LimitsCommands) -> Result<()> {
             default_daily_limit,
             bwlimit,
             tpslimit,
+            max_uploads,
             inactivity_warn_days,
         } => {
             let daily = match (daily_upload_gib, no_daily_limit, default_daily_limit) {
@@ -33,6 +34,7 @@ pub(crate) fn run(rclone: &str, command: LimitsCommands) -> Result<()> {
                 daily,
                 bwlimit,
                 tpslimit,
+                max_uploads,
                 inactivity_warn_days,
             };
             if change == LimitEdit::default() {
@@ -157,6 +159,9 @@ fn show(rclone: &str, json: bool) -> Result<()> {
         if let Some(tps) = row.tpslimit {
             extra.push(format!("tpslimit {tps}"));
         }
+        if let Some(n) = row.max_uploads {
+            extra.push(format!("max uploads {n}"));
+        }
         if !extra.is_empty() {
             println!("{:<22} {}", "", extra.join(" · "));
         }
@@ -229,6 +234,7 @@ mod tests {
             last_keepalive_unix: None,
             bwlimit: None,
             tpslimit: None,
+            max_uploads: None,
         }
     }
 

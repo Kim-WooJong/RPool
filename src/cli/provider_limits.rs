@@ -35,6 +35,10 @@ pub(crate) enum LimitsCommands {
         /// rclone `--tpslimit` for this account (`0` clears).
         #[arg(long)]
         tpslimit: Option<f64>,
+        /// Simultaneous uploads to this account (`0` = backend default;
+        /// Dropbox defaults to 1). Lower it for providers that rate-limit.
+        #[arg(long)]
+        max_uploads: Option<u32>,
         /// Warn after this many days without activity (`0` = never warn).
         #[arg(long)]
         inactivity_warn_days: Option<u32>,

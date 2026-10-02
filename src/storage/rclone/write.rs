@@ -227,7 +227,10 @@ impl RcloneContext {
         let lane = self.write_lane(ctx, address);
         let general = permit(ctx, address)?;
         let write = match &lane {
-            Some((base, kind)) => Some(limit::acquire_write(base, kind == "dropbox", ctx)?),
+            Some((base, kind)) => {
+                let own = crate::storage::account::runtime::settings().max_uploads(base);
+                Some(limit::acquire_write(base, kind == "dropbox", own, ctx)?)
+            }
             None => None,
         };
         Ok((general, write))

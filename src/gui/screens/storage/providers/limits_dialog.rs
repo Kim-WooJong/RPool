@@ -28,6 +28,8 @@ pub(crate) struct LimitsEditor {
     pub(crate) daily_gib: f64,
     pub(crate) bwlimit: String,
     pub(crate) tpslimit: f64,
+    /// 0 = backend default.
+    pub(crate) max_uploads: u32,
     pub(crate) warn: Mode,
     pub(crate) warn_days: u32,
     pub(crate) notice: Option<String>,
@@ -57,6 +59,7 @@ impl LimitsEditor {
             daily_gib: (daily_gib * 10.0).round() / 10.0,
             bwlimit: own.bwlimit.unwrap_or_default(),
             tpslimit: own.tpslimit.unwrap_or(0.0),
+            max_uploads: own.max_uploads.unwrap_or(0),
             warn,
             warn_days,
             notice: None,
@@ -83,6 +86,7 @@ impl LimitsEditor {
             }),
             bwlimit: Some(bwlimit.to_owned()),
             tpslimit: Some(self.tpslimit),
+            max_uploads: Some(self.max_uploads),
             inactivity_warn_days: match self.warn {
                 Mode::Default => None,
                 Mode::Off => Some(0),
@@ -148,6 +152,11 @@ pub(crate) fn show(ctx: &egui::Context, editor: &mut LimitsEditor) -> bool {
                     ui.add(egui::DragValue::new(&mut editor.tpslimit).range(0.0..=1000.0).speed(0.1));
                 });
                 theme::hint(ui, tr("0 = no limit. Applied per rclone call (--tpslimit)."));
+                ui.horizontal(|ui| {
+                    ui.label(tr("Simultaneous uploads"));
+                    ui.add(egui::DragValue::new(&mut editor.max_uploads).range(0..=256));
+                });
+                theme::hint(ui, tr("How many uploads go to this account at once. 0 = default (Dropbox 1, others 16). Lower it for providers that answer \"too many requests\", e.g. Filen."));
                 ui.separator();
                 ui.strong(tr("Inactivity warning"));
                 let default_warn = match default_inactivity_days(&editor.kind) {
@@ -214,6 +223,7 @@ mod tests {
                 daily_upload: Some(DailyUpload::Bytes(10 << 30)),
                 bwlimit: Some("1M".into()),
                 tpslimit: Some(2.0),
+                max_uploads: None,
                 inactivity_warn_days: Some(0),
             },
         );

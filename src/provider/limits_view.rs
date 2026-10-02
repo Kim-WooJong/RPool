@@ -43,6 +43,8 @@ pub(crate) struct AccountStatus {
     pub last_keepalive_unix: Option<u64>,
     pub bwlimit: Option<String>,
     pub tpslimit: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_uploads: Option<u32>,
 }
 
 impl AccountStatus {
@@ -116,6 +118,7 @@ pub(crate) fn build(
                 last_keepalive_unix: usage.and_then(|u| u.last_keepalive),
                 bwlimit: effective.bwlimit,
                 tpslimit: effective.tpslimit,
+                max_uploads: effective.max_uploads,
             }
         })
         .collect()

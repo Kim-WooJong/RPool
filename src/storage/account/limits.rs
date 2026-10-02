@@ -34,6 +34,11 @@ pub(crate) struct AccountLimits {
     /// rclone `--tpslimit` for calls to this account.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tpslimit: Option<f64>,
+    /// Uploads to this account at the same time (all of this PC's uploads
+    /// together). None = backend default (Dropbox 1, others the general
+    /// per-remote cap).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_uploads: Option<u32>,
     /// `0` = no inactivity warning.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inactivity_warn_days: Option<u32>,
@@ -118,6 +123,7 @@ impl LimitsStore {
             daily_upload_is_default: own.daily_upload.is_none(),
             bwlimit: own.bwlimit.clone(),
             tpslimit: own.tpslimit,
+            max_uploads: own.max_uploads,
             inactivity_warn_days: match own.inactivity_warn_days {
                 Some(0) => None,
                 Some(days) => Some(days),
@@ -135,6 +141,7 @@ pub(crate) struct Effective {
     pub daily_upload_is_default: bool,
     pub bwlimit: Option<String>,
     pub tpslimit: Option<f64>,
+    pub max_uploads: Option<u32>,
     pub inactivity_warn_days: Option<u32>,
     pub inactivity_is_default: bool,
 }

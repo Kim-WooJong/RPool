@@ -109,12 +109,18 @@ pub(super) fn acquire(remote: &str, ctx: &OperationContext) -> Result<Permit, St
 
 /// One slot of the write cap of the storage namespace `base` (the remote at
 /// the bottom of a crypt/alias chain), sized by its backend type.
+/// `own` is the account's configured cap (provider limits), which wins over
+/// the backend default; a changed cap gets its own semaphore.
 pub(super) fn acquire_write(
     base: &str,
     dropbox: bool,
+    own: Option<usize>,
     ctx: &OperationContext,
 ) -> Result<Permit, StorageError> {
-    acquire_lane(Lane::Write, base, write_limit(dropbox), ctx)
+    match own {
+        Some(cap) => acquire_lane(Lane::Write, &format!("{base}\u{0}{cap}"), cap, ctx),
+        None => acquire_lane(Lane::Write, base, write_limit(dropbox), ctx),
+    }
 }
 
 #[cfg(test)]

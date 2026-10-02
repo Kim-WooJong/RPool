@@ -143,6 +143,7 @@ mod tests {
             last_keepalive_unix: None,
             bwlimit: None,
             tpslimit: None,
+            max_uploads: None,
         }
     }
 

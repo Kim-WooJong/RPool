@@ -1723,5 +1723,15 @@
   "ko": "base64 — 더 짧은 이름, 대소문자 구분 저장소 전용",
   "ja": "base64 — より短い名前、大文字小文字を区別するストレージ専用",
   "zh": "base64 — 更短的名称，仅限区分大小写的存储"
+ },
+ "Simultaneous uploads": {
+  "ko": "동시 업로드",
+  "ja": "同時アップロード",
+  "zh": "同时上传"
+ },
+ "How many uploads go to this account at once. 0 = default (Dropbox 1, others 16). Lower it for providers that answer \"too many requests\", e.g. Filen.": {
+  "ko": "이 계정으로 동시에 보내는 업로드 수예요. 0은 기본값(Dropbox 1, 나머지 16)이에요. Filen처럼 \"too many requests\"로 거절하는 공급자는 낮춰 주세요.",
+  "ja": "このアカウントへ同時に送るアップロード数です。0 は既定値（Dropbox 1、その他 16）です。Filen のように \"too many requests\" で拒否するプロバイダーでは下げてください。",
+  "zh": "同时发往此账户的上传数。0 为默认值（Dropbox 1，其他 16）。对于像 Filen 这样返回 \"too many requests\" 的提供商，请调低。"
  }
 }

@@ -65,6 +65,13 @@ impl Settings {
             .get(account)
             .map_or(Rate::OFF, |table| table.at_unix(now, offset).0)
     }
+    /// This account's own cap on simultaneous uploads, if set.
+    pub(crate) fn max_uploads(&self, account: &str) -> Option<usize> {
+        self.store
+            .account(account)
+            .and_then(|limits| limits.max_uploads)
+            .map(|n| n as usize)
+    }
     pub(crate) fn tpslimit(&self, account: &str) -> Option<f64> {
         self.store
             .account(account)
