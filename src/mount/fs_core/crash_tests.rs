@@ -14,6 +14,8 @@ const POINTS: &[&str] = &[
     "seal.after_namespace_save",
     "namespace.after_previous",
     "durable.before_persist",
+    "namespace.journal_torn",
+    "namespace.after_journal_append",
     "rename.before_namespace_save",
     "delete.before_namespace_save",
 ];

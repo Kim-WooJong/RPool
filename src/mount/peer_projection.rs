@@ -362,7 +362,7 @@ mod regression_tests {
         {
             let mut state = drive.state.lock().unwrap();
             state.version = 6;
-            state.events = map(vec![o.clone(), a.clone()]);
+            state.events = map(vec![o.clone(), a.clone()]).into();
             state.save(root.path()).unwrap();
         }
         let read_a = drive.view().unwrap()["file"].clone();

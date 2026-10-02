@@ -24,16 +24,33 @@ pub(crate) struct Projection {
 
 impl Projection {
     pub(super) fn build(version: u32, events: &BTreeMap<String, Event>) -> Result<Self> {
+        let resolved = super::super::namespace::resolve_events(version, events)?;
+        Ok(Self::from_resolved(version, events, &resolved))
+    }
+    /// The projection of `state`, reusing the namespace's cached projection
+    /// of the same events when one exists.
+    pub(super) fn of_state(state: &Namespace) -> Result<Self> {
+        Ok(Self::from_resolved(
+            state.version,
+            &state.events,
+            &*state.projected()?,
+        ))
+    }
+    fn from_resolved(
+        version: u32,
+        events: &BTreeMap<String, Event>,
+        resolved: &BTreeMap<String, crate::mount::shared_model::Resolved>,
+    ) -> Self {
         let mut files = BTreeMap::new();
         let mut committed = 0u128;
-        for (path, resolved) in super::super::namespace::resolve_events(version, events)? {
-            if let Some(content) = resolved.event.content {
+        for (path, resolved) in resolved {
+            if let Some(content) = &resolved.event.content {
                 committed += u128::from(content.size);
                 files.insert(
-                    path,
+                    path.clone(),
                     Revision::Cloud {
-                        id: resolved.event_id,
-                        content,
+                        id: resolved.event_id.clone(),
+                        content: content.clone(),
                     },
                 );
             }
@@ -43,13 +60,13 @@ impl Projection {
             .map(|(id, e)| (id.clone(), e.content.as_ref().map_or(0, |c| c.size)))
             .collect();
         let events_total = sizes.values().map(|s| u128::from(*s)).sum();
-        Ok(Self {
+        Self {
             version,
             sizes,
             files,
             committed,
             events_total,
-        })
+        }
     }
     /// Whether this projection is the one of `state`'s events.
     pub(super) fn matches(&self, state: &Namespace) -> bool {
@@ -90,7 +107,7 @@ pub(crate) struct Pending {
     last: BTreeMap<String, Option<Spooled>>,
     /// Every spooled intent `(id, size)`, for capacity accounting.
     spooled: Vec<(String, u64)>,
-    directories: BTreeSet<String>,
+    directories: crate::mount::namespace::Shared<BTreeSet<String>>,
     generation: u64,
     /// `Namespace::visible_logical_used`, or `None` when it overflows.
     pub(super) used: Option<u64>,
@@ -262,7 +279,8 @@ impl VirtualDrive {
         if let Some((projection, pending)) = s.current() {
             return Ok((s, projection, pending));
         }
-        if !s.projection().is_some_and(|p| p.matches(&s)) {
+        if !s.projection().is_some_and(|p| p.matches(&s)) && !s.has_projected() {
+            // The event map is shared, so this copy is O(1).
             let (version, events) = (s.version, s.events.clone());
             drop(s);
             let built = Projection::build(version, &events);
@@ -288,7 +306,7 @@ impl VirtualDrive {
         let projection = match s.projection() {
             Some(p) if p.matches(s) => p.clone(),
             _ => {
-                let built = Arc::new(Projection::build(s.version, &s.events)?);
+                let built = Arc::new(Projection::of_state(s)?);
                 s.set_projection(built.clone());
                 built
             }

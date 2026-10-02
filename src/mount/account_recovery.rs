@@ -162,8 +162,13 @@ pub(super) fn copy_revision(
 }
 
 pub(super) fn source_hashes(source: &VirtualDrive) -> Result<BTreeMap<String, String>> {
+    // Namespace saves normally append to the journal and leave the checkpoint
+    // unchanged; it is listed only when present so earlier records still match.
+    let journal = "namespace.journal";
+    let journaled = source.root.join(journal).exists().then_some(journal);
     ["virtual.json", "namespace.json"]
         .into_iter()
+        .chain(journaled)
         .map(|name| Ok((name.into(), digest(&source.root.join(name))?)))
         .collect()
 }

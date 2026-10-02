@@ -76,7 +76,7 @@ pub(crate) fn v6_events(drive: &VirtualDrive) -> (BTreeMap<String, Event>, BTree
         .filter(|id| !state.published.contains(*id))
         .cloned()
         .collect();
-    (state.events.clone(), unpublished)
+    ((*state.events).clone(), unpublished)
 }
 
 /// Manifests this open drive may still read besides its events' current

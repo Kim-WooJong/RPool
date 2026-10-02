@@ -89,7 +89,7 @@ fn assert_matches_full_view(d: &VirtualDrive, probes: &[&str]) {
     let used = d.visible_used().unwrap();
     let state = d.state.lock().unwrap();
     assert_eq!(used, state.visible_logical_used().unwrap());
-    assert_eq!(view.directories(), &state.directories);
+    assert_eq!(view.directories(), &*state.directories);
     assert_eq!(view.generation(), state.generation);
 }
 /// Committed heads, conflicts, deletions, pending saves and deletions, and
