@@ -352,10 +352,21 @@ fn upload_levels(
     outcome: &mut TuneOutcome,
 ) {
     let engine = run.engine;
-    for level in LEVELS {
+    for (step, level) in LEVELS.into_iter().enumerate() {
         if engine.cancelled() || !climb_further(&tuning.steps) {
             break;
         }
+        let downloads_after = if run.plan.tune_downloads {
+            super::remaining::READ_SET_MAX + super::remaining::levels(LEVELS.len())
+        } else {
+            Duration::ZERO
+        };
+        super::remaining::say(
+            at,
+            run.plan,
+            &run.budget,
+            super::remaining::levels(LEVELS.len() - step) + downloads_after,
+        );
         at.status(&format!("tuning uploads: {level} at once"));
         let dir = remote_join(test_dir, &format!("{}-tune-{level:02}", run.run_id));
         let files = shard_files(run, &dir, files_at(level));
@@ -393,6 +404,12 @@ fn download_levels(
     let dir = remote_join(test_dir, &format!("{}-tune-read", run.run_id));
     let set = shard_files(run, &dir, READ_SET);
     let attempted: Vec<AtomicBool> = set.iter().map(|_| AtomicBool::new(false)).collect();
+    super::remaining::say(
+        at,
+        run.plan,
+        &run.budget,
+        super::remaining::READ_SET_MAX + super::remaining::levels(LEVELS.len()),
+    );
     at.status("tuning downloads: writing the read set");
     // Setup, not a measurement: written under the account's normal caps
     // (Dropbox: one at a time).
@@ -418,10 +435,16 @@ fn download_levels(
             .into_iter()
             .filter_map(|r| r.and_then(Result::ok))
             .collect();
-        for level in LEVELS {
+        for (step, level) in LEVELS.into_iter().enumerate() {
             if engine.cancelled() || !climb_further(&tuning.steps) {
                 break;
             }
+            super::remaining::say(
+                at,
+                run.plan,
+                &run.budget,
+                super::remaining::levels(LEVELS.len() - step),
+            );
             at.status(&format!("tuning downloads: {level} at once"));
             let count = files_at(level);
             let reads: Vec<TestFile> = (0..count)

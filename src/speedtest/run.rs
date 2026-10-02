@@ -45,6 +45,7 @@ pub(crate) fn execute(
         seed: random_seed()?,
         run_id: run_id()?,
         config: config.as_ref(),
+        budget: Default::default(),
     };
     let mut speeds = Vec::with_capacity(remotes.len());
     let mut leftovers = Vec::new();

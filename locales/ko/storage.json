@@ -363,5 +363,7 @@
   "Sets the Simultaneous shard downloads of {account} to {n}.": "{account}의 동시 샤드 다운로드를 {n}개로 설정해요.",
   "No recommendation: no level succeeded.": "추천 없음: 성공한 단계가 없어요.",
   "After the test, writes 64 shards of {shard} to each account and reads them back at 1, 2, 4, … 32 at once, then recommends its Simultaneous shard downloads. Each step measures 20 s (5 s warm-up, 15 s measured), then lets the shards in flight finish so every upload also commits.": "테스트 후 계정마다 {shard} 샤드 64개를 올리고 한 번에 1, 2, 4, … 32개씩 다시 받아 본 뒤 동시 샤드 다운로드 값을 추천해요. 단계마다 20초(예열 5초, 측정 15초)를 잰 뒤, 올리던 샤드는 끝까지 마무리해서 모든 업로드가 커밋까지 확인돼요.",
-  "After the test, uploads shards of {shard} to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous shard uploads. Each step measures 20 s (5 s warm-up, 15 s measured), then lets the shards in flight finish so every upload also commits.": "테스트 후 계정마다 {shard} 샤드를 한 번에 1, 2, 4, … 32개씩 올려 보고 동시 샤드 업로드 값을 추천해요. 단계마다 20초(예열 5초, 측정 15초)를 잰 뒤, 올리던 샤드는 끝까지 마무리해서 모든 업로드가 커밋까지 확인돼요."
+  "After the test, uploads shards of {shard} to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous shard uploads. Each step measures 20 s (5 s warm-up, 15 s measured), then lets the shards in flight finish so every upload also commits.": "테스트 후 계정마다 {shard} 샤드를 한 번에 1, 2, 4, … 32개씩 올려 보고 동시 샤드 업로드 값을 추천해요. 단계마다 20초(예열 5초, 측정 15초)를 잰 뒤, 올리던 샤드는 끝까지 마무리해서 모든 업로드가 커밋까지 확인돼요.",
+  "Remaining at most {minutes} min {seconds} s": "최대 남은 시간: {minutes}분 {seconds}초",
+  "An upper bound: tuning steps take at most 30 s each, a normal test at most as long as the slowest one so far. Most runs finish earlier.": "상한값이에요. 측정 단계는 하나당 최대 30초, 기본 테스트는 지금까지 가장 느렸던 계정만큼으로 잡아요. 대부분 이보다 빨리 끝나요."
 }

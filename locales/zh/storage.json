@@ -363,5 +363,7 @@
   "Sets the Simultaneous shard downloads of {account} to {n}.": "将 {account} 的同时分片下载数设为 {n}。",
   "No recommendation: no level succeeded.": "无推荐：没有成功的级别。",
   "After the test, writes 64 shards of {shard} to each account and reads them back at 1, 2, 4, … 32 at once, then recommends its Simultaneous shard downloads. Each step measures 20 s (5 s warm-up, 15 s measured), then lets the shards in flight finish so every upload also commits.": "测试后，向每个账户写入 64 个 {shard} 的分片，并以每次 1、2、4……32 个的方式读回，然后推荐其同时分片下载数。每一步测量 20 秒（预热 5 秒，测量 15 秒），然后让正在传输的分片完成，因此每次上传都会确认到提交。",
-  "After the test, uploads shards of {shard} to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous shard uploads. Each step measures 20 s (5 s warm-up, 15 s measured), then lets the shards in flight finish so every upload also commits.": "测试后，向每个账户以每次 1、2、4……32 个的方式上传 {shard} 的分片，并推荐其同时分片上传数。每一步测量 20 秒（预热 5 秒，测量 15 秒），然后让正在传输的分片完成，因此每次上传都会确认到提交。"
+  "After the test, uploads shards of {shard} to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous shard uploads. Each step measures 20 s (5 s warm-up, 15 s measured), then lets the shards in flight finish so every upload also commits.": "测试后，向每个账户以每次 1、2、4……32 个的方式上传 {shard} 的分片，并推荐其同时分片上传数。每一步测量 20 秒（预热 5 秒，测量 15 秒），然后让正在传输的分片完成，因此每次上传都会确认到提交。",
+  "Remaining at most {minutes} min {seconds} s": "最多剩余 {minutes} 分 {seconds} 秒",
+  "An upper bound: tuning steps take at most 30 s each, a normal test at most as long as the slowest one so far. Most runs finish earlier.": "这是上限：每个调优步骤最多 30 秒，常规测试按目前最慢的一次计算。大多数情况下会更早完成。"
 }

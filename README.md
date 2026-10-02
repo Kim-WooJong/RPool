@@ -219,6 +219,10 @@ best number of simultaneous shard downloads") writes a read set of 64 such
 shards per remote (under the account's normal caps) and reads it back, verified, at the same time-boxed
 levels; its recommendation is applied as `--max-downloads` / Simultaneous
 shard downloads.
+While it runs, stderr carries `Remaining at most N s` at every remote and
+tuning step: an upper bound (tuning steps at most 30 s each, the read set
+60 s, a normal test as long as the slowest so far). The GUI shows it in
+place of the rate-based remaining time.
 
 ### Object size limits and native crypt
 

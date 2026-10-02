@@ -23,6 +23,7 @@ mod format;
 pub(crate) mod model;
 mod options;
 mod progress;
+pub(crate) mod remaining;
 mod remote;
 mod run;
 mod stream;

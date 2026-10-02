@@ -249,13 +249,31 @@ fn body(
         );
     }
     if running_here {
+        let bound = task
+            .logs()
+            .iter()
+            .rev()
+            .find_map(|line| crate::speedtest::remaining::parse(&line.text));
         if let Some(current) = task.current_task() {
-            crate::gui::widgets::progress_view(ui, &current.progress);
+            // The bound below replaces the rate-based estimate: tuning steps
+            // have a fixed length, transfer rates do not predict them.
+            let mut progress = current.progress.clone();
+            progress.eta_seconds = None;
+            crate::gui::widgets::progress_view(ui, &progress);
         }
-        let last =
-            task.logs().iter().rev().find(|line| {
-                !line.text.trim_start().starts_with('{') && !line.text.trim().is_empty()
-            });
+        if let Some(seconds) = bound {
+            ui.label(trf(
+                "Remaining at most {minutes} min {seconds} s",
+                &[("minutes", &(seconds / 60)), ("seconds", &(seconds % 60))],
+            ))
+            .on_hover_text(tr("An upper bound: tuning steps take at most 30 s each, a normal test at most as long as the slowest one so far. Most runs finish earlier."));
+        }
+        let last = task.logs().iter().rev().find(|line| {
+            let text = line.text.trim();
+            !text.starts_with('{')
+                && !text.is_empty()
+                && crate::speedtest::remaining::parse(text).is_none()
+        });
         match last {
             Some(line) => theme::hint(ui, &line.text),
             None => theme::hint(ui, tr("Speed test running…")),

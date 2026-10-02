@@ -30,6 +30,8 @@ pub(crate) struct Run<'a> {
     pub seed: [u8; 32],
     pub run_id: String,
     pub config: Option<&'a serde_json::Value>,
+    /// For the "remaining at most" bound.
+    pub budget: super::remaining::Budget,
 }
 
 /// Bottom backend type behind `remote` (crypt → its base → … → `type`).
@@ -93,6 +95,13 @@ fn check_free_space(run: &Run<'_>, root: &str) -> Result<(), String> {
 
 /// Tests one remote; never fails the whole run.
 pub(crate) fn test(run: &Run<'_>, at: &Position<'_>) -> RemoteOutcome {
+    let started = Instant::now();
+    super::remaining::say(
+        at,
+        run.plan,
+        &run.budget,
+        run.budget.normal() + super::remaining::tuning(run.plan),
+    );
     let mut speed = RemoteSpeed {
         remote: at.remote.to_owned(),
         backend: run.config.and_then(|c| backend_type(c, at.remote)),
@@ -151,6 +160,7 @@ pub(crate) fn test(run: &Run<'_>, at: &Position<'_>) -> RemoteOutcome {
     .err();
     // Upload + read back of this remote, whatever did not move.
     progress::settle(2 * run.plan.bytes_per_remote, reported);
+    run.budget.record_normal(started.elapsed());
     speed.ok = error.is_none();
     speed.error = error;
 
@@ -178,6 +188,12 @@ pub(crate) fn test(run: &Run<'_>, at: &Position<'_>) -> RemoteOutcome {
             config.get(name)?;
             Some(crate::storage::rclone::write_base(config, name).0)
         });
+        super::remaining::say(
+            at,
+            run.plan,
+            &run.budget,
+            super::remaining::tuning(run.plan),
+        );
         let outcome = super::tune::run(run, at, &test_dir, account);
         tuned = outcome.reported;
         leftover.extend(outcome.leftover);
