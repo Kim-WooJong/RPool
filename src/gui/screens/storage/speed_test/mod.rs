@@ -21,6 +21,7 @@ use eframe::egui;
 use plan::{
     binary_size, Plan, PlanError, Preset, LARGE_SIZES_MIB, MAX_FILES, MAX_SIZE_MIB, SMALL_COUNTS,
 };
+use view::TuneKind;
 
 /// Most shards one account's tuning uploads (2 + 2 + 4 + 8 + 16 + 32).
 const TUNE_MAX_SHARDS: u64 = 64;
@@ -157,6 +158,8 @@ fn plan_controls(ui: &mut egui::Ui, form: &mut SpeedTestForm, enabled: bool, sha
                 ui.add(egui::DragValue::new(&mut form.custom.files).range(1..=MAX_FILES));
             }
         });
+        ui.checkbox(&mut form.tune_downloads, tr("Find the best number of simultaneous shard downloads"))
+            .on_hover_text(trf("After the test, writes 4 shards of {shard} to each account and reads them back at 1, 2, 4, … 32 at once, then recommends its Simultaneous shard downloads. Up to {total} more downloads per account; climbing usually stops earlier.", &[("shard", &binary_size(shard)), ("total", &binary_size(shard * TUNE_MAX_SHARDS))]));
         ui.checkbox(&mut form.tune_uploads, tr("Find the best number of simultaneous shard uploads"))
             .on_hover_text(trf("After the test, uploads shards of {shard} to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous shard uploads. Up to {total} more per account; climbing usually stops earlier.", &[("shard", &binary_size(shard)), ("total", &binary_size(shard * TUNE_MAX_SHARDS))]));
     });
@@ -213,7 +216,8 @@ fn body(
     }
     let ready = plan.is_ok() && accounts > 0 && !task.is_running();
     // Tuning uploads whole shards, often gigabytes per account.
-    let still_large = plan.is_ok_and(Plan::needs_confirmation) || form.tune_uploads;
+    let tuning = form.tune_uploads || form.tune_downloads;
+    let still_large = plan.is_ok_and(Plan::needs_confirmation) || tuning;
     if form.confirming.as_ref() == Some(target) && !(ready && still_large) {
         form.confirming = None;
     }
@@ -233,7 +237,7 @@ fn body(
             }
         } else if theme::primary_button(ui, ready, tr("Run speed test")).clicked() {
             if let Ok(plan) = plan {
-                if plan.needs_confirmation() || form.tune_uploads {
+                if plan.needs_confirmation() || tuning {
                     form.confirming = Some(target.clone());
                 } else {
                     start(form, task, rclone, target, plan);
@@ -268,15 +272,22 @@ fn body(
         .get(target)
         .and_then(|view| results::show(ui, view));
     if let Some(apply) = apply {
-        let notice = match save_max_uploads(&apply.account, apply.uploads) {
+        let notice = match save_limit(&apply.account, apply.kind, apply.value) {
             Ok(()) => {
                 if let Some(view) = form.results.get_mut(target) {
-                    view.applied(&apply.account, apply.uploads);
+                    view.applied(&apply.account, apply.kind, apply.value);
                 }
-                trf(
-                    "Simultaneous shard uploads of {account} set to {n}.",
-                    &[("account", &apply.account), ("n", &apply.uploads)],
-                )
+                let args: [(&str, &dyn std::fmt::Display); 2] =
+                    [("account", &apply.account), ("n", &apply.value)];
+                match apply.kind {
+                    TuneKind::Uploads => {
+                        trf("Simultaneous shard uploads of {account} set to {n}.", &args)
+                    }
+                    TuneKind::Downloads => trf(
+                        "Simultaneous shard downloads of {account} set to {n}.",
+                        &args,
+                    ),
+                }
             }
             Err(error) => error,
         };
@@ -284,27 +295,44 @@ fn body(
     }
 }
 
-/// Sets one account's "Simultaneous shard uploads" limit, keeping its other limits.
-fn save_max_uploads(account: &str, uploads: usize) -> Result<(), String> {
+/// Sets one account's simultaneous shard uploads or downloads, keeping its
+/// other limits.
+fn save_limit(account: &str, kind: TuneKind, value: usize) -> Result<(), String> {
     use crate::storage::account::{edit, store};
-    let uploads = u32::try_from(uploads).map_err(|e| e.to_string())?;
+    let value = u32::try_from(value).map_err(|e| e.to_string())?;
     let mut limits = store::load_limits().map_err(|e| format!("{e:#}"))?;
-    let change = edit::LimitEdit {
-        max_uploads: Some(uploads),
-        ..Default::default()
+    let change = match kind {
+        TuneKind::Uploads => edit::LimitEdit {
+            max_uploads: Some(value),
+            ..Default::default()
+        },
+        TuneKind::Downloads => edit::LimitEdit {
+            max_downloads: Some(value),
+            ..Default::default()
+        },
     };
     edit::apply(&mut limits, account, &change).map_err(|e| format!("{e:#}"))?;
     store::save_limits(&limits).map_err(|e| format!("{e:#}"))?;
     Ok(())
 }
 
-fn args(target: &Target, remotes: &[String], plan: Plan, tune: bool) -> Vec<std::ffi::OsString> {
+/// Which tunings to add to a run.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Tune {
+    pub(crate) uploads: bool,
+    pub(crate) downloads: bool,
+}
+
+fn args(target: &Target, remotes: &[String], plan: Plan, tune: Tune) -> Vec<std::ffi::OsString> {
     let mut args = match target {
         Target::Pool(name) => plan::pool_args(name, plan),
         Target::Remotes => plan::provider_args(remotes, plan),
     };
-    if tune {
-        // Right after `pool|provider speed-test`, before any `--`.
+    // Right after `pool|provider speed-test`, before any `--`.
+    if tune.downloads {
+        args.insert(2, "--tune-downloads".into());
+    }
+    if tune.uploads {
         args.insert(2, "--tune-uploads".into());
     }
     args
@@ -321,7 +349,15 @@ fn start(
     match task.start_rpool(
         TASK,
         rclone,
-        args(target, &form.remotes, plan, form.tune_uploads),
+        args(
+            target,
+            &form.remotes,
+            plan,
+            Tune {
+                uploads: form.tune_uploads,
+                downloads: form.tune_downloads,
+            },
+        ),
     ) {
         Ok(()) => {
             form.running = Some(target.clone());

@@ -106,14 +106,35 @@ impl RcloneContext {
         command.args(args);
         command
     }
-    /// [`Self::command`] plus per-account flags of the account behind `address`.
-    pub(super) fn command_for(&self, address: &str, args: &[OsString]) -> Command {
+    /// [`Self::command`] plus per-account flags of the account behind
+    /// `address`, for a call in `lane`.
+    pub(super) fn command_for(&self, address: &str, args: &[OsString], lane: TpsLane) -> Command {
         let mut command = self.command(&[]);
-        if let Some(tps) = self.tpslimit(address) {
+        if let Some(tps) = self.process_tpslimit(address, lane) {
             command.arg("--tpslimit").arg(tps.to_string());
         }
         command.args(args);
         command
+    }
+    /// The account's requests per second split over the calls that may run
+    /// at once in `lane`: rclone applies `--tpslimit` per process, and every
+    /// shard transfer is its own process, so the account as a whole stays at
+    /// its limit (uploads and downloads each).
+    fn process_tpslimit(&self, address: &str, lane: TpsLane) -> Option<f64> {
+        let total = self.tpslimit(address)?;
+        let settings = crate::storage::account::runtime::settings();
+        let (account, kind) = self.account_of(address)?;
+        let dropbox = kind == "dropbox";
+        let calls = match lane {
+            TpsLane::Upload => settings
+                .upload_cap(&account, dropbox)
+                .unwrap_or_else(|| limit::default_write_cap(dropbox)),
+            TpsLane::Download => settings
+                .download_cap(&account)
+                .unwrap_or_else(limit::general_cap),
+            TpsLane::Other => limit::general_cap(),
+        };
+        Some(split_tps(total, calls))
     }
     #[cfg(test)]
     pub(crate) fn set_test_environment(&mut self, key: &str, value: &str) {
@@ -123,5 +144,34 @@ impl RcloneContext {
     #[cfg(test)]
     pub(crate) fn allow_daemon_for_test(&mut self) {
         self.daemon_allowed = true;
+    }
+}
+
+/// Which concurrency cap a call runs under (for splitting `--tpslimit`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TpsLane {
+    Upload,
+    Download,
+    Other,
+}
+
+/// `total` requests per second shared by up to `calls` processes (`0` =
+/// uncapped: no split is possible).
+pub(super) fn split_tps(total: f64, calls: usize) -> f64 {
+    if calls == 0 {
+        total
+    } else {
+        total / calls as f64
+    }
+}
+
+#[cfg(test)]
+mod tps_tests {
+    #[test]
+    fn account_rate_is_split_over_its_simultaneous_calls() {
+        assert_eq!(super::split_tps(8.0, 4), 2.0);
+        assert_eq!(super::split_tps(8.0, 1), 8.0);
+        assert_eq!(super::split_tps(1.0, 4), 0.25);
+        assert_eq!(super::split_tps(5.0, 0), 5.0, "uncapped");
     }
 }

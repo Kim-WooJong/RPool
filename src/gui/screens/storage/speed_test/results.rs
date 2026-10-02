@@ -1,6 +1,6 @@
 //! The results list of a speed test: one block per remote, bottlenecks
 //! highlighted, the pool estimate and folders left behind.
-use super::view::{Bar, RemoteRow, ReportView, TuningView};
+use super::view::{Bar, RemoteRow, ReportView, TuneKind, TuningView};
 use crate::gui::i18n::{tr, trf};
 use crate::gui::theme;
 use crate::gui::widgets::{capacity_bar_colored, status_badge, StatusTone};
@@ -11,12 +11,13 @@ const LABEL_WIDTH: f32 = 96.0;
 const MAX_BAR_WIDTH: f32 = 420.0;
 
 /// "Apply" clicked on a tuning recommendation.
-pub(crate) struct ApplyUploads {
+pub(crate) struct ApplyTuning {
     pub(crate) account: String,
-    pub(crate) uploads: usize,
+    pub(crate) kind: TuneKind,
+    pub(crate) value: usize,
 }
 
-pub(crate) fn show(ui: &mut egui::Ui, view: &ReportView) -> Option<ApplyUploads> {
+pub(crate) fn show(ui: &mut egui::Ui, view: &ReportView) -> Option<ApplyTuning> {
     ui.separator();
     ui.horizontal_wrapped(|ui| {
         ui.strong(tr("Last result"));
@@ -222,7 +223,7 @@ fn speed_bars(ui: &mut egui::Ui, row: &RemoteRow) {
     }
 }
 
-fn remote_row(ui: &mut egui::Ui, row: &RemoteRow) -> Option<ApplyUploads> {
+fn remote_row(ui: &mut egui::Ui, row: &RemoteRow) -> Option<ApplyTuning> {
     let mut apply = None;
     let p = theme::pal(ui);
     let dark = ui.visuals().dark_mode;
@@ -287,8 +288,13 @@ fn remote_row(ui: &mut egui::Ui, row: &RemoteRow) -> Option<ApplyUploads> {
             if let Some(error) = &row.error {
                 ui.colored_label(theme::error_colors(dark).1, error);
             }
-            if let Some(tuning) = &row.tuning {
-                apply = tuning_line(ui, tuning);
+            for tuning in [&row.upload_tuning, &row.download_tuning]
+                .into_iter()
+                .flatten()
+            {
+                if let Some(clicked) = tuning_line(ui, tuning) {
+                    apply = Some(clicked);
+                }
             }
         });
     ui.add_space(4.0);
@@ -296,10 +302,14 @@ fn remote_row(ui: &mut egui::Ui, row: &RemoteRow) -> Option<ApplyUploads> {
 }
 
 /// Rate per number of simultaneous uploads, the recommendation and "Apply".
-fn tuning_line(ui: &mut egui::Ui, tuning: &TuningView) -> Option<ApplyUploads> {
+fn tuning_line(ui: &mut egui::Ui, tuning: &TuningView) -> Option<ApplyTuning> {
     let mut apply = None;
     ui.horizontal_wrapped(|ui| {
-        ui.label(egui::RichText::new(tr("Simultaneous shard uploads")).strong());
+        let title = match tuning.kind {
+            TuneKind::Uploads => tr("Simultaneous shard uploads"),
+            TuneKind::Downloads => tr("Simultaneous shard downloads"),
+        };
+        ui.label(egui::RichText::new(title).strong());
         for (text, error) in &tuning.steps {
             match error {
                 Some(error) => {
@@ -328,15 +338,22 @@ fn tuning_line(ui: &mut egui::Ui, tuning: &TuningView) -> Option<ApplyUploads> {
                 Some(account) if tuning.current != Some(n) => {
                     if ui
                         .button(tr("Apply"))
-                        .on_hover_text(trf(
-                            "Sets the Simultaneous shard uploads of {account} to {n}.",
-                            &[("account", account), ("n", &n)],
-                        ))
+                        .on_hover_text(match tuning.kind {
+                            TuneKind::Uploads => trf(
+                                "Sets the Simultaneous shard uploads of {account} to {n}.",
+                                &[("account", account), ("n", &n)],
+                            ),
+                            TuneKind::Downloads => trf(
+                                "Sets the Simultaneous shard downloads of {account} to {n}.",
+                                &[("account", account), ("n", &n)],
+                            ),
+                        })
                         .clicked()
                     {
-                        apply = Some(ApplyUploads {
+                        apply = Some(ApplyTuning {
                             account: account.clone(),
-                            uploads: n,
+                            kind: tuning.kind,
+                            value: n,
                         });
                     }
                 }
@@ -349,7 +366,12 @@ fn tuning_line(ui: &mut egui::Ui, tuning: &TuningView) -> Option<ApplyUploads> {
                 ),
             }
         }
-        None => theme::hint(ui, tr("No recommendation: no upload level succeeded.")),
+        None => match &tuning.error {
+            Some(error) => {
+                ui.colored_label(theme::error_colors(ui.visuals().dark_mode).1, error);
+            }
+            None => theme::hint(ui, tr("No recommendation: no level succeeded.")),
+        },
     });
     apply
 }

@@ -351,7 +351,6 @@
   "Apply": "应用",
   "Applied": "已应用",
   "Account not found in the rclone config; set it under Limits.": "在 rclone 配置中找不到该账户，请在 Limits 中设置。",
-  "No recommendation: no upload level succeeded.": "无推荐：没有成功的上传级别。",
   "Find the best number of simultaneous shard uploads": "查找最佳同时分片上传数",
   "After the test, uploads shards of {shard} to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous shard uploads. Up to {total} more per account; climbing usually stops earlier.": "测试后，向每个账户以每次 1、2、4……32 个的方式上传 {shard} 的分片，并推荐其同时分片上传数。每个账户最多额外上传 {total}，通常会更早停止。",
   "Simultaneous shard uploads of {account} set to {n}.": "已将 {account} 的同时分片上传数设为 {n}。",
@@ -359,5 +358,10 @@
   "Simultaneous shard uploads": "同时分片上传",
   "How many shards are uploaded to this account at once; each is one upload request. 0 = the default from Settings › Network (Dropbox 1). Lower it for providers that answer \"too many requests\", e.g. Filen.": "同时上传到此账户的分片数；每个分片是一次上传请求。0 = 设置 › 网络中的默认值（Dropbox 为 1）。对于返回 \"too many requests\" 的服务（如 Filen）请调低。",
   "Simultaneous shard downloads": "同时分片下载",
-  "How many shards are read from this account at once. 0 = the default from Settings › Network.": "同时从此账户读取的分片数。0 = 设置 › 网络中的默认值。"
+  "How many shards are read from this account at once. 0 = the default from Settings › Network.": "同时从此账户读取的分片数。0 = 设置 › 网络中的默认值。",
+  "Find the best number of simultaneous shard downloads": "查找最佳同时分片下载数",
+  "After the test, writes 4 shards of {shard} to each account and reads them back at 1, 2, 4, … 32 at once, then recommends its Simultaneous shard downloads. Up to {total} more downloads per account; climbing usually stops earlier.": "测试后，向每个账户写入 4 个 {shard} 的分片，并以每次 1、2、4……32 个的方式读回，然后推荐其同时分片下载数。每个账户最多额外下载 {total}，通常会更早停止。",
+  "Simultaneous shard downloads of {account} set to {n}.": "已将 {account} 的同时分片下载数设为 {n}。",
+  "Sets the Simultaneous shard downloads of {account} to {n}.": "将 {account} 的同时分片下载数设为 {n}。",
+  "No recommendation: no level succeeded.": "无推荐：没有成功的级别。"
 }

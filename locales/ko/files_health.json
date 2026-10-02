@@ -172,7 +172,6 @@
   "The drive could not be listed: {error}": "드라이브 목록을 불러오지 못했어요: {error}",
   "The drive is empty.": "드라이브가 비어 있어요.",
   "The selected manifest does not match the last scrub snapshot. Run a new scrub before repair.": "선택한 매니페스트가 마지막 스크럽 스냅샷과 맞지 않아요. 복구 전에 스크럽을 새로 실행하세요.",
-  "The selected pool owns destinations, erasure-coding policy, placement, workers and retries.": "선택한 풀이 대상, 이레이저 코딩 정책, 배치, 워커, 재시도를 관리해요.",
   "There are no pending files to upload.": "업로드할 대기 파일이 없어요.",
   "These destinations are not recognized as encrypted rclone crypt remotes: {remotes}": "다음 대상은 암호화된 rclone crypt 리모트로 인식되지 않아요: {remotes}",
   "This integrity snapshot predates group-level repair data. Run a new scrub first.": "이 무결성 스냅샷은 그룹 단위 복구 데이터가 생기기 전 것이에요. 먼저 스크럽을 새로 실행하세요.",
@@ -238,5 +237,6 @@
   "Refresh failed; showing the last listing: {error}": "새로 읽지 못해서 마지막 목록을 보여 드려요: {error}",
   "{n} s": "{n}초",
   "{n} h": "{n}시간",
-  "{n} d": "{n}일"
+  "{n} d": "{n}일",
+  "The selected pool owns destinations, erasure-coding policy, placement and retries.": "선택한 풀이 저장 위치, 오류 정정 정책, 배치, 재시도를 정해요."
 }

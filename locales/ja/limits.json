@@ -6,7 +6,6 @@
   "{n} min": "{n}分",
   "{remote}: upload limit reached — uploads wait and resume automatically": "{remote}: アップロード上限に達しました — アップロードは待機し、自動で再開します",
   "{up} up · {down} down": "アップロード {up} · ダウンロード {down}",
-  "0 = no limit. Applied per rclone call (--tpslimit).": "0 = 制限なし。rclone の呼び出しごとに適用されます（--tpslimit）。",
   "A mount makes one cheap authenticated call to each of its accounts when it was idle that long. Providers decide what counts as activity.": "その期間使われていないアカウントには、マウントが軽い認証付き呼び出しを1回行います。何をアクティビティとみなすかはプロバイダーが決めます。",
   "An account reached its upload limit — uploads wait and resume automatically": "アカウントがアップロード上限に達しました — アップロードは待機し、自動で再開します",
   "Backend default ({days} days)": "バックエンドの既定値（{days}日）",
@@ -60,5 +59,6 @@
   "Simultaneous shard downloads from one account unless its card (Providers › Limits) sets its own. 0 = built-in 16.": "1 つのアカウントから同時にダウンロードするシャード数です。アカウントのカード(Providers › Limits)に値があればそれが優先されます。0 = 組み込みの 16。",
   "Network & transfers": "ネットワークと転送",
   "Bandwidth limits and how many shards move at once, for every RPool transfer on this computer.": "このコンピューターのすべての RPool 転送に適用される帯域制限と、同時に転送するシャード数です。",
-  "Network": "ネットワーク"
+  "Network": "ネットワーク",
+  "Requests per second to this whole account, uploads and downloads each. RPool splits it over the simultaneous shards (rclone --tpslimit per call). 0 = no limit.": "このアカウント全体への 1 秒あたりの要求数で、アップロードとダウンロードにそれぞれ適用されます。RPool が同時シャード数で分割し、呼び出しごとに rclone --tpslimit として渡します。0 = 制限なし。"
 }

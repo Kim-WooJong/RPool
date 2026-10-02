@@ -106,6 +106,7 @@ pub(crate) fn test(run: &Run<'_>, at: &Position<'_>) -> RemoteOutcome {
         download_seconds: None,
         verified: false,
         upload_tuning: None,
+        download_tuning: None,
     };
     let root = match crate::remote_root::apply_remote_root(at.remote) {
         Ok(root) => root,
@@ -171,7 +172,7 @@ pub(crate) fn test(run: &Run<'_>, at: &Position<'_>) -> RemoteOutcome {
         }
     }
     let mut tuned = 0;
-    if run.plan.tune_uploads && speed.ok && !run.engine.cancelled() {
+    if (run.plan.tune_uploads || run.plan.tune_downloads) && speed.ok && !run.engine.cancelled() {
         let account = run.config.and_then(|config| {
             let name = crate::storage::rclone::remote_name(at.remote).ok()?;
             config.get(name)?;
@@ -180,7 +181,8 @@ pub(crate) fn test(run: &Run<'_>, at: &Position<'_>) -> RemoteOutcome {
         let outcome = super::tune::run(run, at, &test_dir, account);
         tuned = outcome.reported;
         leftover.extend(outcome.leftover);
-        speed.upload_tuning = Some(outcome.tuning);
+        speed.upload_tuning = outcome.uploads;
+        speed.download_tuning = outcome.downloads;
     }
     progress::settle(super::tune::expected_bytes(run.plan), tuned);
     at.done(speed.error.as_deref());
@@ -332,6 +334,7 @@ mod tests {
             file_sizes: vec![65536, 65536],
             parallel: 2,
             tune_uploads: false,
+            tune_downloads: false,
             shard_bytes: 64 * 65536,
         };
         assert_eq!(stored_bytes(&plan), 2 * (65536 + 32 + 16));

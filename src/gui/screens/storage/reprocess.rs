@@ -60,14 +60,28 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 });
             if state.reprocess.loaded_target != state.reprocess.target {
                 state.reprocess.picker = PoolPicker::default();
-                state.reprocess.draft =
-                    state.pool_definitions.get(&state.reprocess.target).cloned();
+                state.reprocess.draft = state
+                    .pool_definitions
+                    .get(&state.reprocess.target)
+                    .cloned()
+                    // Shard transfers are this PC's setting.
+                    .map(|pool| PoolDefinition {
+                        workers: state.settings.workers,
+                        ..pool
+                    });
                 state.reprocess.loaded_target = state.reprocess.target.clone();
             }
             if ui.button(tr("Reload saved policy into draft")).clicked() {
                 state.reprocess.picker = PoolPicker::default();
-                state.reprocess.draft =
-                    state.pool_definitions.get(&state.reprocess.target).cloned();
+                state.reprocess.draft = state
+                    .pool_definitions
+                    .get(&state.reprocess.target)
+                    .cloned()
+                    // Shard transfers are this PC's setting.
+                    .map(|pool| PoolDefinition {
+                        workers: state.settings.workers,
+                        ..pool
+                    });
             }
             if let Some(draft) = &mut state.reprocess.draft {
                 ui.strong(tr("Target draft (not saved to pool)"));
@@ -101,9 +115,6 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                         ui.end_row();
                         ui.label(tr("Parity shards (M)"));
                         ui.add(egui::DragValue::new(&mut draft.parity_shards).range(0..=254));
-                        ui.end_row();
-                        ui.label(tr("Workers"));
-                        ui.add(egui::DragValue::new(&mut draft.workers).range(1..=256));
                         ui.end_row();
                         ui.label(tr("Retries"));
                         ui.add(egui::DragValue::new(&mut draft.retries).range(0..=100));

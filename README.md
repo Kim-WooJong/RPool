@@ -170,8 +170,8 @@ every original.
 ### Storage speed test
 
 ```text
-rpool pool speed-test <POOL> [--size-mib N] [--files N] [--tune-uploads] [--json]
-rpool provider speed-test --remote c1:rpool --remote c2:rpool [--size-mib N] [--files N] [--tune-uploads] [--json]
+rpool pool speed-test <POOL> [--size-mib N] [--files N] [--tune-uploads] [--tune-downloads] [--json]
+rpool provider speed-test --remote c1:rpool --remote c2:rpool [--size-mib N] [--files N] [--tune-uploads] [--tune-downloads] [--json]
 ```
 
 Shows which account limits a pool. Each remote gets `--size-mib` (default 16,
@@ -200,6 +200,10 @@ show. Climbing stops at the first error or after two levels without a 10%
 gain. The recommendation is the smallest tested count within 10% of the best
 rate; the table prints the `provider limits set --max-uploads` command, and
 the GUI's Apply sets the account's Simultaneous shard uploads.
+`--tune-downloads` (GUI: "Find the best number of simultaneous shard
+downloads") writes a read set of 4 shards per remote and reads it back,
+verified, at the same levels (up to 64 shard reads); its recommendation is
+applied as `--max-downloads` / Simultaneous shard downloads.
 
 ### Object size limits and native crypt
 
@@ -358,7 +362,11 @@ rpool remote-root list | set REMOTE PATH | remove REMOTE
   750 GB; others none), shared by every RPool process on the PC; when exhausted,
   uploads to that account wait instead of failing. Last activity per account
   with inactivity warnings, a bandwidth timetable in rclone syntax
-  (`"08:00,512k 18:00,30M"`, `UP:DOWN`) and per-account `--tpslimit`.
+  (`"08:00,512k 18:00,30M"`, `UP:DOWN`) and per-account requests per second
+  (`--tpslimit`): a limit for the whole account, uploads and downloads each.
+  rclone applies `--tpslimit` per process and every shard transfer is its own
+  process, so RPool passes each call the account's rate divided by its
+  simultaneous shard uploads (or downloads; 16 for metadata calls).
 - **Concurrency is counted in shards.** One shard transfer is one request:
   RPool sets rclone's per-file chunk concurrency to 1 for its uploads
   (`RCLONE_CONFIG_<ACCOUNT>_UPLOAD_CONCURRENCY=1`, overriding rclone.conf;

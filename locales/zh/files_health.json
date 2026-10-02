@@ -172,7 +172,6 @@
   "The drive could not be listed: {error}": "无法列出驱动器：{error}",
   "The drive is empty.": "驱动器为空。",
   "The selected manifest does not match the last scrub snapshot. Run a new scrub before repair.": "所选清单与上次巡检快照不匹配。修复前请重新运行巡检。",
-  "The selected pool owns destinations, erasure-coding policy, placement, workers and retries.": "所选存储池决定目标、纠删码策略、放置策略、工作线程和重试次数。",
   "There are no pending files to upload.": "没有待上传的文件。",
   "These destinations are not recognized as encrypted rclone crypt remotes: {remotes}": "以下目标未被识别为加密的 rclone crypt 远程：{remotes}",
   "This integrity snapshot predates group-level repair data. Run a new scrub first.": "此完整性快照早于分组级修复数据。请先重新运行巡检。",
@@ -238,5 +237,6 @@
   "Refresh failed; showing the last listing: {error}": "刷新失败；显示上次的列表：{error}",
   "{n} s": "{n} 秒",
   "{n} h": "{n} 小时",
-  "{n} d": "{n} 天"
+  "{n} d": "{n} 天",
+  "The selected pool owns destinations, erasure-coding policy, placement and retries.": "所选池决定目标位置、纠删码策略、放置方式和重试次数。"
 }

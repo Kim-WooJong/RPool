@@ -63,6 +63,15 @@ fn write_limit(dropbox: bool) -> usize {
         })
 }
 
+/// The general per-remote cap (`0` = uncapped).
+pub(super) fn general_cap() -> usize {
+    general_limit()
+}
+/// The backend default write cap (`0` = uncapped).
+pub(super) fn default_write_cap(dropbox: bool) -> usize {
+    write_limit(dropbox)
+}
+
 fn acquire_lane(
     lane: Lane,
     key: &str,

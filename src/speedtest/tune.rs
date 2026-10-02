@@ -1,4 +1,5 @@
-//! `--tune-uploads`: the best number of simultaneous uploads per account.
+//! `--tune-uploads` / `--tune-downloads`: the best number of simultaneous
+//! shard uploads / downloads per account.
 //!
 //! The unit is the shard: after a remote passed the normal test, files of
 //! the pool's shard size are uploaded at 1, 2, 4, … [`LEVELS`] at once (one
@@ -6,13 +7,15 @@
 //! deleted right after, exactly like shard uploads (one request each, no
 //! chunk fan-out in rclone). Both process caps are lifted meanwhile, so the
 //! account's own behavior shows: throttling as a rate that stops rising, a
-//! provider that refuses concurrent writes as an error.
+//! provider that refuses concurrent writes as an error. Downloads first
+//! upload a read set of [`READ_SET`] shards and read it (cycling, verified)
+//! at the same levels.
 //! Climbing stops at the first error, or after two levels in a row that
 //! are not [`GAIN`] faster than the best so far. The recommendation is the
 //! smallest tested count within [`ENOUGH`] of the best rate: more uploads
 //! than that only add load (and risk throttling) for little gain.
 use super::cleanup;
-use super::model::{TuningStep, UploadTuning};
+use super::model::{ConcurrencyTuning, TuningStep};
 use super::options::TestPlan;
 use super::progress::Position;
 use super::remote::Run;
@@ -34,15 +37,19 @@ fn files_at(level: usize) -> usize {
     (level * FILES_PER_SLOT).max(MIN_FILES)
 }
 
-/// Bytes the tuning of one remote uploads at most (progress bar share).
+/// Bytes the tuning of one remote moves at most (progress bar share).
 pub(crate) fn expected_bytes(plan: &TestPlan) -> u64 {
-    if !plan.tune_uploads {
-        return 0;
-    }
-    LEVELS
+    let levels: u64 = LEVELS
         .iter()
         .map(|&level| files_at(level) as u64 * plan.shard_bytes)
-        .sum()
+        .sum();
+    let uploads = if plan.tune_uploads { levels } else { 0 };
+    let downloads = if plan.tune_downloads {
+        READ_SET as u64 * plan.shard_bytes + levels
+    } else {
+        0
+    };
+    uploads + downloads
 }
 
 /// Whether another level should run after `steps`.
@@ -82,39 +89,86 @@ pub(crate) fn recommend(steps: &[TuningStep]) -> Option<usize> {
 }
 
 pub(crate) struct TuneOutcome {
-    pub tuning: UploadTuning,
+    pub uploads: Option<ConcurrencyTuning>,
+    pub downloads: Option<ConcurrencyTuning>,
     /// Bytes reported to the progress bar.
     pub reported: u64,
     /// Level folders that may be left behind.
     pub leftover: Vec<String>,
 }
 
-/// Runs the levels on one remote; never fails the remote.
+/// Shards uploaded once and read back at every download level.
+const READ_SET: usize = 4;
+
+/// Runs the requested tunings on one remote; never fails the remote.
 pub(crate) fn run(
     run: &Run<'_>,
     at: &Position<'_>,
     test_dir: &str,
     account: Option<String>,
 ) -> TuneOutcome {
+    let mut outcome = TuneOutcome {
+        uploads: None,
+        downloads: None,
+        reported: 0,
+        leftover: Vec::new(),
+    };
+    let settings = crate::storage::account::runtime::settings();
+    let own = |pick: fn(&crate::storage::account::runtime::Settings, &str) -> Option<usize>| {
+        account.as_deref().and_then(|a| pick(&settings, a))
+    };
+    if run.plan.tune_uploads {
+        let mut tuning = ConcurrencyTuning::new(account.clone(), run.plan.shard_bytes);
+        tuning.current = own(crate::storage::account::runtime::Settings::max_uploads);
+        upload_levels(run, at, test_dir, &mut tuning, &mut outcome);
+        outcome.uploads = Some(tuning);
+    }
+    if run.plan.tune_downloads && !run.engine.cancelled() {
+        let mut tuning = ConcurrencyTuning::new(account.clone(), run.plan.shard_bytes);
+        tuning.current = own(crate::storage::account::runtime::Settings::max_downloads);
+        download_levels(run, at, test_dir, &mut tuning, &mut outcome);
+        outcome.downloads = Some(tuning);
+    }
+    outcome
+}
+
+/// `count` shard files under `dir` (named by index).
+fn shard_files(run: &Run<'_>, dir: &str, count: usize) -> Vec<TestFile> {
+    (0..count)
+        .map(|i| TestFile {
+            address: remote_join(dir, &format!("{i:04}.bin")),
+            size: run.plan.shard_bytes,
+        })
+        .collect()
+}
+
+fn cancelled_or(engine: &super::engine::Engine, error: Option<&str>) -> Option<String> {
+    if engine.cancelled() {
+        Some("cancelled".to_owned())
+    } else {
+        error.map(str::to_owned)
+    }
+}
+
+fn rate(bytes: u64, wall: std::time::Duration) -> f64 {
+    bytes as f64 / wall.as_secs_f64().max(1e-3)
+}
+
+fn upload_levels(
+    run: &Run<'_>,
+    at: &Position<'_>,
+    test_dir: &str,
+    tuning: &mut ConcurrencyTuning,
+    outcome: &mut TuneOutcome,
+) {
     let engine = run.engine;
-    let current = account
-        .as_deref()
-        .and_then(|account| crate::storage::account::runtime::settings().max_uploads(account));
-    let mut steps = Vec::new();
-    let mut reported = 0;
-    let mut leftover = Vec::new();
     for level in LEVELS {
-        if engine.cancelled() || !climb_further(&steps) {
+        if engine.cancelled() || !climb_further(&tuning.steps) {
             break;
         }
         at.status(&format!("tuning uploads: {level} at once"));
         let dir = remote_join(test_dir, &format!("{}-tune-{level:02}", run.run_id));
-        let files: Vec<TestFile> = (0..files_at(level))
-            .map(|i| TestFile {
-                address: remote_join(&dir, &format!("{i:04}.bin")),
-                size: run.plan.shard_bytes,
-            })
-            .collect();
+        let files = shard_files(run, &dir, files_at(level));
         let attempted: Vec<AtomicBool> = files.iter().map(|_| AtomicBool::new(false)).collect();
         let (phase, progress) = {
             let _uncapped = crate::storage::rclone::uncap_for_speed_test();
@@ -124,45 +178,100 @@ pub(crate) fn run(
                 at,
                 &files,
                 level,
-                &level_seed(&run.seed, level),
+                &level_seed(&run.seed, &format!("tune-{level}")),
                 &attempted,
             )
         };
-        reported += progress.reported();
+        outcome.reported += progress.reported();
         let bytes: u64 = files.iter().map(|f| f.size).sum();
-        let error = if engine.cancelled() {
-            Some("cancelled".to_owned())
-        } else {
-            phase.error().map(str::to_owned)
-        };
-        steps.push(TuningStep {
+        let error = cancelled_or(engine, phase.error());
+        tuning.steps.push(TuningStep {
             parallel: level,
             files: files.len(),
-            bytes_per_s: (error.is_none() && phase.complete())
-                .then(|| bytes as f64 / phase.wall.as_secs_f64().max(1e-3)),
+            bytes_per_s: (error.is_none() && phase.complete()).then(|| rate(bytes, phase.wall)),
             error,
         });
         at.status("cleaning up");
         if !cleanup::remove_run(engine, &files, &attempted, level, &dir, test_dir) {
-            leftover.push(dir);
+            outcome.leftover.push(dir);
         }
     }
-    let recommended = recommend(&steps);
-    TuneOutcome {
-        tuning: UploadTuning {
-            account,
-            file_bytes: run.plan.shard_bytes,
-            steps,
-            recommended,
-            current,
-        },
-        reported,
-        leftover,
+    tuning.recommended = recommend(&tuning.steps);
+}
+
+/// Uploads [`READ_SET`] shards, then reads them (cycling) at 1, 2, 4, …
+/// at once with every cap lifted, verifying each read.
+fn download_levels(
+    run: &Run<'_>,
+    at: &Position<'_>,
+    test_dir: &str,
+    tuning: &mut ConcurrencyTuning,
+    outcome: &mut TuneOutcome,
+) {
+    let engine = run.engine;
+    let dir = remote_join(test_dir, &format!("{}-tune-read", run.run_id));
+    let set = shard_files(run, &dir, READ_SET);
+    let attempted: Vec<AtomicBool> = set.iter().map(|_| AtomicBool::new(false)).collect();
+    at.status("tuning downloads: writing the read set");
+    let (written, progress) = {
+        let _uncapped = crate::storage::rclone::uncap_for_speed_test();
+        transfer::upload(
+            engine,
+            at,
+            &set,
+            READ_SET,
+            &level_seed(&run.seed, "tune-read"),
+            &attempted,
+        )
+    };
+    outcome.reported += progress.reported();
+    if let Some(error) = cancelled_or(engine, written.error()).or_else(|| {
+        (!written.complete()).then(|| "not every read-set shard was written".to_owned())
+    }) {
+        tuning.error = Some(format!("read set: {error}"));
+    } else {
+        let digests: Vec<blake3::Hash> = written
+            .results
+            .into_iter()
+            .filter_map(|r| r.and_then(Result::ok))
+            .collect();
+        for level in LEVELS {
+            if engine.cancelled() || !climb_further(&tuning.steps) {
+                break;
+            }
+            at.status(&format!("tuning downloads: {level} at once"));
+            let count = files_at(level);
+            let reads: Vec<TestFile> = (0..count)
+                .map(|i| TestFile {
+                    address: set[i % READ_SET].address.clone(),
+                    size: set[i % READ_SET].size,
+                })
+                .collect();
+            let expected: Vec<blake3::Hash> = (0..count).map(|i| digests[i % READ_SET]).collect();
+            let (phase, progress) = {
+                let _uncapped = crate::storage::rclone::uncap_for_speed_test();
+                transfer::download(engine, at, &reads, level, &expected)
+            };
+            outcome.reported += progress.reported();
+            let bytes: u64 = reads.iter().map(|f| f.size).sum();
+            let error = cancelled_or(engine, phase.error());
+            tuning.steps.push(TuningStep {
+                parallel: level,
+                files: count,
+                bytes_per_s: (error.is_none() && phase.complete()).then(|| rate(bytes, phase.wall)),
+                error,
+            });
+        }
+        tuning.recommended = recommend(&tuning.steps);
+    }
+    at.status("cleaning up");
+    if !cleanup::remove_run(engine, &set, &attempted, READ_SET, &dir, test_dir) {
+        outcome.leftover.push(dir);
     }
 }
 
-fn level_seed(seed: &[u8; 32], level: usize) -> [u8; 32] {
-    *blake3::keyed_hash(seed, format!("tune-{level}").as_bytes()).as_bytes()
+fn level_seed(seed: &[u8; 32], label: &str) -> [u8; 32] {
+    *blake3::keyed_hash(seed, label.as_bytes()).as_bytes()
 }
 
 #[cfg(test)]
@@ -242,11 +351,15 @@ mod tests {
             file_sizes: vec![MIB],
             parallel: 1,
             tune_uploads: false,
+            tune_downloads: false,
             shard_bytes: 64 * MIB,
         };
         assert_eq!(expected_bytes(&plan), 0);
         plan.tune_uploads = true;
         // 2 + 2 + 4 + 8 + 16 + 32 shards of 64 MiB.
         assert_eq!(expected_bytes(&plan), 64 * 64 * MIB);
+        plan.tune_downloads = true;
+        // Plus the read set of 4 and the same 64 reads.
+        assert_eq!(expected_bytes(&plan), (64 + 4 + 64) * 64 * MIB);
     }
 }

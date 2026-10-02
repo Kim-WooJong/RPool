@@ -172,7 +172,6 @@
   "The drive could not be listed: {error}": "ドライブを一覧表示できませんでした: {error}",
   "The drive is empty.": "ドライブは空です。",
   "The selected manifest does not match the last scrub snapshot. Run a new scrub before repair.": "選択したマニフェストが前回のスクラブのスナップショットと一致しません。修復の前に新しくスクラブを実行してください。",
-  "The selected pool owns destinations, erasure-coding policy, placement, workers and retries.": "選択したプールが保存先、イレージャーコーディングのポリシー、配置、ワーカー、リトライを管理します。",
   "There are no pending files to upload.": "アップロード待ちのファイルはありません。",
   "These destinations are not recognized as encrypted rclone crypt remotes: {remotes}": "次の保存先は暗号化された rclone crypt リモートとして認識されません: {remotes}",
   "This integrity snapshot predates group-level repair data. Run a new scrub first.": "この整合性スナップショットはグループ単位の修復データより前のものです。先に新しくスクラブを実行してください。",
@@ -238,5 +237,6 @@
   "Refresh failed; showing the last listing: {error}": "再読み込みに失敗したため、前回の一覧を表示しています: {error}",
   "{n} s": "{n}秒",
   "{n} h": "{n}時間",
-  "{n} d": "{n}日"
+  "{n} d": "{n}日",
+  "The selected pool owns destinations, erasure-coding policy, placement and retries.": "選択したプールが保存先、消失訂正ポリシー、配置、再試行を決めます。"
 }

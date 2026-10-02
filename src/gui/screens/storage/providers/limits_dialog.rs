@@ -155,7 +155,7 @@ pub(crate) fn show(ctx: &egui::Context, editor: &mut LimitsEditor) -> bool {
                     ui.label(tr("Requests per second"));
                     ui.add(egui::DragValue::new(&mut editor.tpslimit).range(0.0..=1000.0).speed(0.1));
                 });
-                theme::hint(ui, tr("0 = no limit. Applied per rclone call (--tpslimit)."));
+                theme::hint(ui, tr("Requests per second to this whole account, uploads and downloads each. RPool splits it over the simultaneous shards (rclone --tpslimit per call). 0 = no limit."));
                 ui.horizontal(|ui| {
                     ui.label(tr("Simultaneous shard uploads"));
                     ui.add(egui::DragValue::new(&mut editor.max_uploads).range(0..=256));

@@ -160,7 +160,7 @@ impl RcloneContext {
         let _permit = self.read_permit(ctx, address)?;
         let op = op.unwrap_or_else(|| self.op(address, traffic::Direction::Download));
         let result = process::run_metered(
-            &mut self.command_for(address, &args),
+            &mut self.command_for(address, &args, TpsLane::Download),
             ctx,
             None,
             &mut bounded,

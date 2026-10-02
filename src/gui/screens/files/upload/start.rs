@@ -39,6 +39,9 @@ fn append_pool_target(state: &GuiState, args: &mut Vec<OsString>) -> Result<(), 
     }
     args.push(OsString::from("--pool"));
     args.push(OsString::from(pool));
+    // Shard transfers are this PC's setting (Settings › Network & transfers).
+    args.push(OsString::from("--workers"));
+    args.push(OsString::from(state.settings.workers.to_string()));
     if let Some(policy) = &state.upload.policy_override {
         args.extend(policy.args());
     }

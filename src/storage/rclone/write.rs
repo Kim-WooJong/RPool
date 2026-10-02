@@ -79,7 +79,7 @@ impl RcloneContext {
             bytes: 0,
         };
         // A stalled transfer is killed and reported as a retriable timeout.
-        let mut command = self.command_for(address, &args);
+        let mut command = self.command_for(address, &args, TpsLane::Upload);
         if let Some((base, _)) = &account {
             // One shard is one upload: no chunk fan-out inside rclone, so
             // the account's simultaneous uploads are its requests in flight.
@@ -306,7 +306,7 @@ impl RcloneContext {
                 let _permits = self.mutation_permits(ctx, address)?;
                 let op = op.get_or_insert_with(|| self.op(address, direction));
                 process::run_metered(
-                    &mut self.command(args),
+                    &mut self.command_for(address, args, TpsLane::Upload),
                     ctx,
                     None,
                     &mut io::sink(),

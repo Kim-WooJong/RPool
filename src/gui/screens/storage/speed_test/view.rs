@@ -73,24 +73,37 @@ pub(crate) struct RemoteRow {
     /// accounts different shares.
     pub(crate) limits_upload: bool,
     pub(crate) limits_download: bool,
-    pub(crate) tuning: Option<TuningView>,
+    pub(crate) upload_tuning: Option<TuningView>,
+    pub(crate) download_tuning: Option<TuningView>,
 }
 
-/// `--tune-uploads` result of one account.
+/// Which limit a tuning result sets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TuneKind {
+    Uploads,
+    Downloads,
+}
+
+/// `--tune-uploads` / `--tune-downloads` result of one account.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TuningView {
+    pub(crate) kind: TuneKind,
     pub(crate) account: Option<String>,
     /// "1: 2.0 MB/s", "4: failed" in test order, with the failure if any.
     pub(crate) steps: Vec<(String, Option<String>)>,
     pub(crate) recommended: Option<usize>,
     /// The account's own limit (None = backend default).
     pub(crate) current: Option<usize>,
+    /// Why no level ran.
+    pub(crate) error: Option<String>,
 }
 
 impl TuningView {
-    fn new(tuning: &crate::speedtest::model::UploadTuning) -> Self {
+    fn new(kind: TuneKind, tuning: &crate::speedtest::model::ConcurrencyTuning) -> Self {
         Self {
+            kind,
             account: tuning.account.clone(),
+            error: tuning.error.clone(),
             steps: tuning
                 .steps
                 .iter()
@@ -182,11 +195,16 @@ fn bars(values: Vec<(Option<f64>, Option<f64>)>, files: usize) -> Vec<Option<Bar
 }
 
 impl ReportView {
-    /// After "Apply": every row of `account` now has its own limit `uploads`.
-    pub(crate) fn applied(&mut self, account: &str, uploads: usize) {
-        for tuning in self.rows.iter_mut().filter_map(|r| r.tuning.as_mut()) {
-            if tuning.account.as_deref() == Some(account) {
-                tuning.current = Some(uploads);
+    /// After "Apply": every row of `account` now has its own `kind` limit.
+    pub(crate) fn applied(&mut self, account: &str, kind: TuneKind, value: usize) {
+        let tunings = self
+            .rows
+            .iter_mut()
+            .flat_map(|r| [r.upload_tuning.as_mut(), r.download_tuning.as_mut()])
+            .flatten();
+        for tuning in tunings {
+            if tuning.kind == kind && tuning.account.as_deref() == Some(account) {
+                tuning.current = Some(value);
             }
         }
     }
@@ -240,7 +258,14 @@ impl ReportView {
                 slowest_download: slowest_down == Some(i),
                 limits_upload: is(&report.bottleneck_upload, &r.remote),
                 limits_download: is(&report.bottleneck_download, &r.remote),
-                tuning: r.upload_tuning.as_ref().map(TuningView::new),
+                upload_tuning: r
+                    .upload_tuning
+                    .as_ref()
+                    .map(|t| TuningView::new(TuneKind::Uploads, t)),
+                download_tuning: r
+                    .download_tuning
+                    .as_ref()
+                    .map(|t| TuningView::new(TuneKind::Downloads, t)),
             })
             .collect();
         Self {

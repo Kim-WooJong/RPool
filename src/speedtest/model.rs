@@ -51,13 +51,16 @@ pub(crate) struct RemoteSpeed {
     pub verified: bool,
     /// `--tune-uploads`: upload rate by number of simultaneous uploads.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub upload_tuning: Option<UploadTuning>,
+    pub upload_tuning: Option<ConcurrencyTuning>,
+    /// `--tune-downloads`: download rate by number of simultaneous reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download_tuning: Option<ConcurrencyTuning>,
 }
 
-/// Upload rate of one account at 1, 2, 4, … simultaneous shard uploads, and
-/// the count to use as its "Simultaneous shard uploads" limit.
+/// Rate of one account at 1, 2, 4, … simultaneous shard uploads (or
+/// downloads), and the count to use as its limit.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct UploadTuning {
+pub(crate) struct ConcurrencyTuning {
     /// The account the limit belongs to (the storage remote under the crypt
     /// remote), if the rclone config resolves it.
     pub account: Option<String>,
@@ -70,6 +73,22 @@ pub(crate) struct UploadTuning {
     pub recommended: Option<usize>,
     /// The account's own limit when tested (None = backend default).
     pub current: Option<usize>,
+    /// Why no level ran (e.g. the download read set could not be written).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl ConcurrencyTuning {
+    pub(crate) fn new(account: Option<String>, file_bytes: u64) -> Self {
+        Self {
+            account,
+            file_bytes,
+            steps: Vec::new(),
+            recommended: None,
+            current: None,
+            error: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

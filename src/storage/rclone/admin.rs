@@ -23,7 +23,7 @@ impl RcloneContext {
         let op = address.map(|address| self.op(address, traffic::Direction::Other));
         let args: Vec<OsString> = args.iter().map(OsString::from).collect();
         let mut command = match address {
-            Some(address) => self.command_for(address, &args),
+            Some(address) => self.command_for(address, &args, TpsLane::Other),
             None => self.command(&args),
         };
         let result = process::run_metered(&mut command, ctx, None, &mut sink, false, op.as_ref());
@@ -68,6 +68,7 @@ impl RcloneContext {
             &mut self.command_for(
                 address,
                 &args.iter().map(OsString::from).collect::<Vec<_>>(),
+                TpsLane::Other,
             ),
             ctx,
             None,

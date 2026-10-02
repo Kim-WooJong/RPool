@@ -351,7 +351,6 @@
   "Apply": "適用",
   "Applied": "適用済み",
   "Account not found in the rclone config; set it under Limits.": "rclone の設定にアカウントが見つかりません。Limits で設定してください。",
-  "No recommendation: no upload level succeeded.": "推奨なし: 成功したアップロード段階がありません。",
   "Find the best number of simultaneous shard uploads": "最適な同時シャードアップロード数を探す",
   "After the test, uploads shards of {shard} to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous shard uploads. Up to {total} more per account; climbing usually stops earlier.": "テスト後、各アカウントに {shard} のシャードを同時に 1, 2, 4, … 32 個ずつアップロードし、同時シャードアップロード数を推奨します。アカウントごとに最大 {total} 追加されますが、通常はそれより前に止まります。",
   "Simultaneous shard uploads of {account} set to {n}.": "{account} の同時シャードアップロード数を {n} に設定しました。",
@@ -359,5 +358,10 @@
   "Simultaneous shard uploads": "同時シャードアップロード",
   "How many shards are uploaded to this account at once; each is one upload request. 0 = the default from Settings › Network (Dropbox 1). Lower it for providers that answer \"too many requests\", e.g. Filen.": "このアカウントに同時にアップロードするシャード数です。1 シャードが 1 回のアップロード要求です。0 = 設定 › ネットワークの既定値(Dropbox は 1)。Filen など \"too many requests\" を返すプロバイダーでは下げてください。",
   "Simultaneous shard downloads": "同時シャードダウンロード",
-  "How many shards are read from this account at once. 0 = the default from Settings › Network.": "このアカウントから同時に読み込むシャード数です。0 = 設定 › ネットワークの既定値。"
+  "How many shards are read from this account at once. 0 = the default from Settings › Network.": "このアカウントから同時に読み込むシャード数です。0 = 設定 › ネットワークの既定値。",
+  "Find the best number of simultaneous shard downloads": "最適な同時シャードダウンロード数を探す",
+  "After the test, writes 4 shards of {shard} to each account and reads them back at 1, 2, 4, … 32 at once, then recommends its Simultaneous shard downloads. Up to {total} more downloads per account; climbing usually stops earlier.": "テスト後、各アカウントに {shard} のシャードを 4 個書き込み、同時に 1, 2, 4, … 32 個ずつ読み戻して、同時シャードダウンロード数を推奨します。アカウントごとに最大 {total} のダウンロードが追加されますが、通常はそれより前に止まります。",
+  "Simultaneous shard downloads of {account} set to {n}.": "{account} の同時シャードダウンロード数を {n} に設定しました。",
+  "Sets the Simultaneous shard downloads of {account} to {n}.": "{account} の同時シャードダウンロード数を {n} に設定します。",
+  "No recommendation: no level succeeded.": "推奨なし: 成功した段階がありません。"
 }

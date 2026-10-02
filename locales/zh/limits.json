@@ -6,7 +6,6 @@
   "{n} min": "{n} 分钟",
   "{remote}: upload limit reached — uploads wait and resume automatically": "{remote}：已达到上传限额 — 上传会等待并自动恢复",
   "{up} up · {down} down": "上传 {up} · 下载 {down}",
-  "0 = no limit. Applied per rclone call (--tpslimit).": "0 = 不限制。按每次 rclone 调用应用（--tpslimit）。",
   "A mount makes one cheap authenticated call to each of its accounts when it was idle that long. Providers decide what counts as activity.": "账户空闲达到该时长时，挂载会对其发起一次轻量的认证调用。什么算作活动由提供商决定。",
   "An account reached its upload limit — uploads wait and resume automatically": "某个账户已达到上传限额 — 上传会等待并自动恢复",
   "Backend default ({days} days)": "后端默认值（{days} 天）",
@@ -60,5 +59,6 @@
   "Simultaneous shard downloads from one account unless its card (Providers › Limits) sets its own. 0 = built-in 16.": "从一个账户同时下载的分片数，除非其卡片（Providers › Limits）另有设置。0 = 内置 16。",
   "Network & transfers": "网络与传输",
   "Bandwidth limits and how many shards move at once, for every RPool transfer on this computer.": "此电脑上所有 RPool 传输的带宽限制以及同时传输的分片数。",
-  "Network": "网络"
+  "Network": "网络",
+  "Requests per second to this whole account, uploads and downloads each. RPool splits it over the simultaneous shards (rclone --tpslimit per call). 0 = no limit.": "发往此账户整体的每秒请求数，上传和下载分别适用。RPool 会按同时分片数拆分，并按每次调用以 rclone --tpslimit 传递。0 = 不限制。"
 }

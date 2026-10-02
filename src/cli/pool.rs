@@ -141,6 +141,11 @@ pub(crate) struct SpeedTestSizeArgs {
     /// climbing usually stops earlier).
     #[arg(long)]
     pub tune_uploads: bool,
+    /// After the test, read shards back at 1, 2, 4, … 32 at once per remote
+    /// (from a read set of 4 uploaded shards) and recommend each account's
+    /// simultaneous shard downloads.
+    #[arg(long)]
+    pub tune_downloads: bool,
     /// Print one JSON report instead of the table.
     #[arg(long)]
     pub json: bool,

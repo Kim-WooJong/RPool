@@ -90,7 +90,7 @@ fn pool_override(ui: &mut egui::Ui, state: &mut GuiState) {
             .flatten();
     }
     let Some(policy) = &mut state.upload.policy_override else {
-        crate::gui::theme::hint(ui, tr("The selected pool owns destinations, erasure-coding policy, placement, workers and retries."));
+        crate::gui::theme::hint(ui, tr("The selected pool owns destinations, erasure-coding policy, placement and retries."));
         return;
     };
     egui::Grid::new("upload-pool-override")
@@ -124,9 +124,6 @@ fn pool_override(ui: &mut egui::Ui, state: &mut GuiState) {
                         ui.selectable_value(&mut policy.placement, placement, placement.label());
                     }
                 });
-            ui.end_row();
-            ui.label(tr("Workers"));
-            ui.add(egui::DragValue::new(&mut policy.workers).range(1..=256));
             ui.end_row();
             ui.label(tr("Retries"));
             ui.add(egui::DragValue::new(&mut policy.retries).range(0..=100));

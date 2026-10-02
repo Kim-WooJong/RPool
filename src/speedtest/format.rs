@@ -1,5 +1,5 @@
 //! Human-readable speed test report (the `--json` report is the model).
-use super::model::{RemoteSpeed, SpeedTestReport};
+use super::model::{ConcurrencyTuning, RemoteSpeed, SpeedTestReport};
 
 const MIB: f64 = 1024.0 * 1024.0;
 
@@ -177,22 +177,41 @@ pub(crate) fn render(report: &SpeedTestReport) -> String {
     out
 }
 
-/// The `--tune-uploads` lines: rate per level and the recommendation.
+/// The `--tune-uploads` / `--tune-downloads` lines: rate per level and the
+/// recommendation.
 fn tuning(report: &SpeedTestReport) -> String {
+    let mut out = tuning_section(report, "uploads", "--max-uploads", |r| {
+        r.upload_tuning.as_ref()
+    });
+    out.push_str(&tuning_section(
+        report,
+        "downloads",
+        "--max-downloads",
+        |r| r.download_tuning.as_ref(),
+    ));
+    out
+}
+
+fn tuning_section(
+    report: &SpeedTestReport,
+    what: &str,
+    flag: &str,
+    pick: impl Fn(&RemoteSpeed) -> Option<&ConcurrencyTuning>,
+) -> String {
     let tuned: Vec<_> = report
         .remotes
         .iter()
-        .filter_map(|r| r.upload_tuning.as_ref().map(|t| (r, t)))
+        .filter_map(|r| pick(r).map(|t| (r, t)))
         .collect();
     let Some((_, first)) = tuned.first() else {
         return String::new();
     };
     let mut out = format!(
-        "Simultaneous shard uploads ({:.0} MiB shards):\n",
+        "Simultaneous shard {what} ({:.0} MiB shards):\n",
         first.file_bytes as f64 / MIB
     );
     for (remote, tuning) in &tuned {
-        let steps: Vec<String> = tuning
+        let mut steps: Vec<String> = tuning
             .steps
             .iter()
             .map(|s| match (&s.error, s.bytes_per_s) {
@@ -200,6 +219,9 @@ fn tuning(report: &SpeedTestReport) -> String {
                 (None, rate) => format!("{}: {}", s.parallel, mb_s(rate)),
             })
             .collect();
+        if let Some(error) = &tuning.error {
+            steps.push(format!("failed ({error})"));
+        }
         let now = tuning
             .current
             .map_or_else(|| "default".to_owned(), |n| n.to_string());
@@ -215,7 +237,7 @@ fn tuning(report: &SpeedTestReport) -> String {
         if let (Some(n), Some(name)) = (tuning.recommended, &remote_name(&remote.remote)) {
             if tuning.current != Some(n) {
                 out.push_str(&format!(
-                    "    apply: rpool provider limits set --remote {name} --max-uploads {n}\n"
+                    "    apply: rpool provider limits set --remote {name} {flag} {n}\n"
                 ));
             }
         }
@@ -248,6 +270,7 @@ mod tests {
             download_seconds: Some(1.0),
             verified: true,
             upload_tuning: None,
+            download_tuning: None,
         };
         let mut failed = ok("sftp_crypt:rpool", 0.0, 0.0);
         failed.ok = false;
@@ -307,7 +330,7 @@ mod tests {
 
     #[test]
     fn tuning_lines_show_levels_recommendation_and_apply_command() {
-        use super::super::model::{TuningStep, UploadTuning};
+        use super::super::model::{ConcurrencyTuning, TuningStep};
         let mut report = sample();
         assert!(!render(&report).contains("Simultaneous shard uploads"));
         let step = |parallel, rate: Option<f64>, error: Option<&str>| TuningStep {
@@ -316,7 +339,7 @@ mod tests {
             bytes_per_s: rate,
             error: error.map(str::to_owned),
         };
-        report.remotes[0].upload_tuning = Some(UploadTuning {
+        report.remotes[0].upload_tuning = Some(ConcurrencyTuning {
             account: Some("filen_1".into()),
             file_bytes: 1024 * 1024,
             steps: vec![
@@ -326,9 +349,10 @@ mod tests {
             ],
             recommended: Some(2),
             current: None,
+            error: None,
         });
         let text = render(&report);
-        let remote = &report.remotes[0].remote;
+        let remote = report.remotes[0].remote.clone();
         assert!(
             text.contains("Simultaneous shard uploads (1 MiB shards):"),
             "{text}"
@@ -339,12 +363,23 @@ mod tests {
             )),
             "{text}"
         );
-        let name = remote.split(':').next().unwrap();
+        let name = remote.split(':').next().unwrap().to_owned();
         assert!(text.contains(&format!(
             "apply: rpool provider limits set --remote {name} --max-uploads 2"
         )));
         report.remotes[0].upload_tuning.as_mut().unwrap().current = Some(2);
         assert!(!render(&report).contains("apply:"), "already applied");
+        let mut reads = report.remotes[0].upload_tuning.clone().unwrap();
+        reads.current = None;
+        report.remotes[0].download_tuning = Some(reads);
+        let text = render(&report);
+        assert!(
+            text.contains("Simultaneous shard downloads (1 MiB shards):"),
+            "{text}"
+        );
+        assert!(text.contains(&format!(
+            "apply: rpool provider limits set --remote {name} --max-downloads 2"
+        )));
     }
 
     #[test]

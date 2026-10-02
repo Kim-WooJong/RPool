@@ -19,6 +19,8 @@ pub(crate) struct SpeedTestForm {
     pub(crate) custom: Plan,
     /// Also find each account's best number of simultaneous uploads.
     pub(crate) tune_uploads: bool,
+    /// Also find each account's best number of simultaneous shard downloads.
+    pub(crate) tune_downloads: bool,
     /// Remotes ticked for the Providers page test.
     pub(crate) remotes: Vec<String>,
     /// A large run waiting for its confirmation click.
@@ -40,6 +42,7 @@ impl Default for SpeedTestForm {
                 files: 4,
             },
             tune_uploads: false,
+            tune_downloads: false,
             remotes: Vec::new(),
             confirming: None,
             running: None,

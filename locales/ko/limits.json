@@ -6,7 +6,6 @@
   "{n} min": "{n}분",
   "{remote}: upload limit reached — uploads wait and resume automatically": "{remote}: 업로드 한도에 도달했어요 — 업로드는 대기했다가 자동으로 다시 시작돼요",
   "{up} up · {down} down": "업로드 {up} · 다운로드 {down}",
-  "0 = no limit. Applied per rclone call (--tpslimit).": "0이면 제한이 없어요. rclone 호출마다 적용돼요(--tpslimit).",
   "A mount makes one cheap authenticated call to each of its accounts when it was idle that long. Providers decide what counts as activity.": "그 기간 동안 쓰지 않은 계정에는 마운트가 가벼운 인증 호출을 한 번 보내요. 무엇을 활동으로 볼지는 공급자가 정해요.",
   "An account reached its upload limit — uploads wait and resume automatically": "한 계정이 업로드 한도에 도달했어요 — 업로드는 대기했다가 자동으로 다시 시작돼요",
   "Backend default ({days} days)": "백엔드 기본값({days}일)",
@@ -60,5 +59,6 @@
   "Simultaneous shard downloads from one account unless its card (Providers › Limits) sets its own. 0 = built-in 16.": "계정 하나에서 동시에 받는 샤드 수예요. 계정 카드(Providers › Limits)에 값이 있으면 그게 우선이에요. 0 = 내장값 16.",
   "Network & transfers": "네트워크 및 전송",
   "Bandwidth limits and how many shards move at once, for every RPool transfer on this computer.": "이 컴퓨터의 모든 RPool 전송에 적용되는 대역폭 제한과 한 번에 전송하는 샤드 수예요.",
-  "Network": "네트워크"
+  "Network": "네트워크",
+  "Requests per second to this whole account, uploads and downloads each. RPool splits it over the simultaneous shards (rclone --tpslimit per call). 0 = no limit.": "이 계정 전체에 보내는 초당 요청 수예요. 업로드와 다운로드에 각각 적용돼요. RPool이 동시 샤드 수로 나눠서 호출마다 rclone --tpslimit로 넘겨요. 0 = 제한 없음."
 }

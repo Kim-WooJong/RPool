@@ -32,7 +32,8 @@ pub(crate) enum LimitsCommands {
         /// Bandwidth for this account in `--bwlimit` syntax (`off` clears).
         #[arg(long)]
         bwlimit: Option<String>,
-        /// rclone `--tpslimit` for this account (`0` clears).
+        /// Requests per second to this whole account, uploads and downloads
+        /// each; RPool splits it over the simultaneous shard calls (`0` clears).
         #[arg(long)]
         tpslimit: Option<f64>,
         /// Simultaneous shard uploads to this account (`0` = the default of

@@ -17,10 +17,6 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
             );
             ui.end_row();
 
-            ui.label(tr("Workers"));
-            ui.add(egui::DragValue::new(&mut state.settings.workers).range(1..=256));
-            ui.end_row();
-
             ui.label(tr("Retries"));
             ui.add(egui::DragValue::new(&mut state.settings.retries).range(0..=100));
             ui.end_row();

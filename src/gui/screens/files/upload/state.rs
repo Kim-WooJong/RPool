@@ -76,7 +76,6 @@ pub(crate) struct UploadForm {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct UploadPolicy {
     pub(crate) shard_mib: u64,
-    pub(crate) workers: usize,
     pub(crate) retries: u32,
     pub(crate) placement: crate::models::Placement,
     pub(crate) data_shards: usize,
@@ -86,7 +85,6 @@ impl UploadPolicy {
     pub(crate) fn of_pool(pool: &crate::models::PoolDefinition) -> Self {
         Self {
             shard_mib: pool.shard_size.mib_ceil(),
-            workers: pool.workers,
             retries: pool.retries,
             placement: pool.placement,
             data_shards: pool.data_shards,
@@ -96,7 +94,6 @@ impl UploadPolicy {
     pub(crate) fn args(&self) -> Vec<std::ffi::OsString> {
         [
             ("--shard-mib", self.shard_mib.to_string()),
-            ("--workers", self.workers.to_string()),
             ("--placement", self.placement.cli_value().to_string()),
             ("--retries", self.retries.to_string()),
             ("--data-shards", self.data_shards.to_string()),
