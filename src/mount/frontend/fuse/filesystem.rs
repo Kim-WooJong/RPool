@@ -15,6 +15,15 @@ use std::time::{Duration, SystemTime};
 
 const TTL: Duration = Duration::from_secs(1);
 const BLOCK: u32 = 4096;
+// `renameat2` flags on Linux; macFUSE forwards `renamex_np` flags instead.
+#[cfg(target_os = "linux")]
+const RENAME_EXCHANGE: u32 = libc::RENAME_EXCHANGE;
+#[cfg(target_os = "linux")]
+const RENAME_NOREPLACE: u32 = libc::RENAME_NOREPLACE;
+#[cfg(target_os = "macos")]
+const RENAME_EXCHANGE: u32 = libc::RENAME_SWAP;
+#[cfg(target_os = "macos")]
+const RENAME_NOREPLACE: u32 = libc::RENAME_EXCL;
 
 pub(super) struct RpoolFs {
     core: Arc<FsCore>,
@@ -227,12 +236,12 @@ impl Filesystem for RpoolFs {
     ) {
         let result = (|| {
             self.writable()?;
-            if flags.contains(RenameFlags::RENAME_EXCHANGE) {
+            if flags.bits() & RENAME_EXCHANGE != 0 {
                 return Err(Errno::EINVAL);
             }
             let from = self.child(parent, name)?;
             let to = self.child(newparent, newname)?;
-            if flags.contains(RenameFlags::RENAME_NOREPLACE) && self.core.lookup(&to).is_ok() {
+            if flags.bits() & RENAME_NOREPLACE != 0 && self.core.lookup(&to).is_ok() {
                 return Err(Errno::EEXIST);
             }
             self.core.rename(&from, &to).map_err(errno)?;
@@ -430,6 +439,56 @@ impl Filesystem for RpoolFs {
                 }
                 reply.ok();
             }
+            Err(e) => reply.error(e),
+        }
+    }
+
+    // macOS (Finder, Spotlight, quarantine) probes extended attributes on
+    // every file. RPool stores none: answer "no such attribute" / "not
+    // supported" instead of ENOSYS, which would make macFUSE fall back to
+    // AppleDouble `._*` files. Linux keeps fuser's defaults.
+    #[cfg(target_os = "macos")]
+    fn getxattr(
+        &self,
+        _req: &Request,
+        ino: INodeNo,
+        _name: &OsStr,
+        _size: u32,
+        reply: fuser::ReplyXattr,
+    ) {
+        match self.path(ino) {
+            Ok(_) => reply.error(Errno::NO_XATTR),
+            Err(e) => reply.error(e),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn listxattr(&self, _req: &Request, ino: INodeNo, size: u32, reply: fuser::ReplyXattr) {
+        match self.path(ino) {
+            Ok(_) if size == 0 => reply.size(0),
+            Ok(_) => reply.data(&[]),
+            Err(e) => reply.error(e),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn setxattr(
+        &self,
+        _req: &Request,
+        _ino: INodeNo,
+        _name: &OsStr,
+        _value: &[u8],
+        _flags: i32,
+        _position: u32,
+        reply: ReplyEmpty,
+    ) {
+        reply.error(Errno::ENOTSUP);
+    }
+
+    #[cfg(target_os = "macos")]
+    fn removexattr(&self, _req: &Request, ino: INodeNo, _name: &OsStr, reply: ReplyEmpty) {
+        match self.path(ino) {
+            Ok(_) => reply.error(Errno::NO_XATTR),
             Err(e) => reply.error(e),
         }
     }

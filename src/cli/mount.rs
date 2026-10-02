@@ -20,7 +20,7 @@ pub(crate) enum Frontend {
     Auto,
     /// rclone mount/VFS over RPool's loopback WebDAV server.
     Dav,
-    /// Native FUSE frontend (Linux) over the filesystem core; local workspaces only.
+    /// Native FUSE frontend (Linux; macOS with macFUSE) over the filesystem core; local workspaces only.
     Fuse,
     /// Native WinFsp frontend (Windows) over the filesystem core; local workspaces only.
     Winfsp,
@@ -53,9 +53,10 @@ impl Frontend {
         }
     }
     /// The native frontend compiled into this build for this OS, if any.
-    /// Windows builds include WinFsp by default (`winfsp` feature).
+    /// Windows builds include WinFsp by default (`winfsp` feature); macOS
+    /// builds include FUSE, which needs macFUSE at runtime only.
     pub(crate) fn native_built() -> Option<Self> {
-        if cfg!(target_os = "linux") {
+        if cfg!(any(target_os = "linux", target_os = "macos")) {
             Some(Self::Fuse)
         } else if cfg!(all(windows, feature = "winfsp")) {
             Some(Self::Winfsp)
@@ -73,12 +74,18 @@ impl Frontend {
     pub(crate) fn installed(self) -> bool {
         match self {
             Self::Winfsp => winfsp_installed(),
-            Self::Auto | Self::Dav | Self::Fuse => true,
+            Self::Fuse => fuse_installed(),
+            Self::Auto | Self::Dav => true,
         }
     }
     /// Error for an explicitly chosen frontend that cannot run on this PC.
     pub(crate) fn ensure_available(self) -> anyhow::Result<()> {
-        match unavailable_reason(self, Self::native_built(), self.installed()) {
+        match unavailable_reason_on(
+            self,
+            Self::native_built(),
+            self.installed(),
+            cfg!(target_os = "macos"),
+        ) {
             Some(reason) => anyhow::bail!("{reason}"),
             None => Ok(()),
         }
@@ -87,10 +94,21 @@ impl Frontend {
 
 /// Why `frontend` cannot mount here, given the natively `built` frontend and
 /// whether its OS component is `installed`. Pure, so it is tested everywhere.
+#[cfg(test)]
 pub(crate) fn unavailable_reason(
     frontend: Frontend,
     built: Option<Frontend>,
     installed: bool,
+) -> Option<&'static str> {
+    unavailable_reason_on(frontend, built, installed, false)
+}
+
+/// [`unavailable_reason`] with the OS made explicit (`macos`: macFUSE hints).
+pub(crate) fn unavailable_reason_on(
+    frontend: Frontend,
+    built: Option<Frontend>,
+    installed: bool,
+    macos: bool,
 ) -> Option<&'static str> {
     match frontend {
         Frontend::Auto | Frontend::Dav => None,
@@ -100,9 +118,12 @@ pub(crate) fn unavailable_reason(
         Frontend::Winfsp if !installed => Some(
             "WinFsp is not installed on this PC (or its DLL cannot load): install WinFsp from https://winfsp.dev/rel/ and restart RPool, or use --frontend dav",
         ),
-        Frontend::Fuse if built != Some(Frontend::Fuse) => {
-            Some("the FUSE frontend is available on Linux only; use --frontend dav")
-        }
+        Frontend::Fuse if built != Some(Frontend::Fuse) => Some(
+            "the FUSE frontend is available on Linux and macOS (macFUSE) only; use --frontend dav",
+        ),
+        Frontend::Fuse if !installed && macos => Some(
+            "macFUSE is not installed on this Mac: install macFUSE from https://macfuse.github.io/ and restart RPool, or use --frontend dav",
+        ),
         Frontend::Winfsp | Frontend::Fuse => None,
     }
 }
@@ -118,6 +139,19 @@ fn winfsp_installed() -> bool {
 #[cfg(not(all(windows, feature = "winfsp")))]
 fn winfsp_installed() -> bool {
     false
+}
+
+/// OS probe: macOS needs macFUSE (bundle + libfuse); Linux FUSE has no
+/// runtime component RPool probes. Cached: installing macFUSE takes effect
+/// after a restart (the GUI asks every frame).
+#[cfg(target_os = "macos")]
+fn fuse_installed() -> bool {
+    static INSTALLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *INSTALLED.get_or_init(crate::mount::macfuse_installed)
+}
+#[cfg(not(target_os = "macos"))]
+fn fuse_installed() -> bool {
+    true
 }
 
 /// `rpool mount`: the virtual drive. File bytes stay sharded in the pool;
@@ -340,6 +374,25 @@ mod tests {
             None
         );
         assert!(unavailable_reason(Frontend::Fuse, None, true).is_some());
+    }
+
+    #[test]
+    fn macos_fuse_needs_macfuse_and_auto_falls_back() {
+        use super::{unavailable_reason_on, Frontend};
+        let f = Some(Frontend::Fuse);
+        assert_eq!(unavailable_reason_on(Frontend::Fuse, f, true, true), None);
+        let missing = unavailable_reason_on(Frontend::Fuse, f, false, true).unwrap();
+        assert!(
+            missing.contains("https://macfuse.github.io/") && missing.contains("--frontend dav")
+        );
+        // Linux has no probe: FUSE is reported installed there.
+        assert_eq!(unavailable_reason_on(Frontend::Fuse, f, true, false), None);
+        // Without macFUSE `native_here()` is None, so Auto uses WebDAV.
+        assert_eq!(Frontend::Auto.resolve_with(true, None), Frontend::Dav);
+        assert_eq!(Frontend::Auto.resolve_with(true, f), Frontend::Fuse);
+        if cfg!(any(target_os = "linux", target_os = "macos")) {
+            assert_eq!(Frontend::native_built(), f);
+        }
     }
 
     #[test]

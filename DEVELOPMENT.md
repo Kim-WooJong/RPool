@@ -119,7 +119,7 @@ Build validation, in this order (`scripts/ci-local.sh` runs the same steps):
 1. `cargo fmt --check`
 2. `cargo check --all-targets`
 3. `cargo clippy --all-targets -- -D warnings` — the crate still has pre-existing lints, so this is report-only for now; do not add new lints in touched files
-4. `cargo test` (and `cargo test -- --include-ignored` where rclone and age are installed; FUSE tests need `/dev/fuse` and the `e2e_*` tests need the Docker/cloud scripts)
+4. `cargo test` (and `cargo test -- --include-ignored` where rclone and age are installed; FUSE tests need `/dev/fuse` on Linux or macFUSE with its file system extension enabled on macOS — otherwise add `--skip frontend::fuse::tests` — and the `e2e_*` tests need the Docker/cloud scripts)
 5. `cargo check --target x86_64-pc-windows-gnu --all-targets` when that target is installed (Windows is the primary GUI target)
 
 Trivial text or number changes need only a diff review; behaviour or structure changes need the steps above for the affected scope.

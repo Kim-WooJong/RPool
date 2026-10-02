@@ -37,7 +37,8 @@ rpool mount --pool mypool --workspace C:\RPool\pc-a --mountpoint R:
 
 Requirements: rclone v1.64.0 or newer (v1.74.3 recommended; `rpool doctor`
 checks it). WebDAV mounts need WinFsp on Windows or FUSE on Linux; on macOS RPool
-uses `rclone nfsmount` with the built-in NFS client (no macFUSE). RPool does not
+uses `rclone nfsmount` with the built-in NFS client (no macFUSE). The native
+`fuse` frontend on macOS needs macFUSE instead. RPool does not
 install system drivers. A running child process alone is not treated as a ready
 filesystem; startup times out after 30 seconds.
 
@@ -54,9 +55,9 @@ server.
 
 | Frontend | Platform | Notes |
 |---|---|---|
-| `fuse` | Linux | Native, over the filesystem core; `fsync` and the last `close` are the local durability points. |
+| `fuse` | Linux, macOS | Native, over the filesystem core; `fsync` and the last `close` are the local durability points. On macOS it needs [macFUSE](https://macfuse.github.io/) (loaded at runtime, so builds and Macs without it still work and `auto` uses WebDAV). The FSKit backend (macFUSE 5+, macOS 15.4+) is tried first, then the kernel backend. Mounted with `volname=<pool>`, `noappledouble` and `noapplexattr` (no `._*`/`.DS_Store` files or `com.apple.*` xattrs reach the drive); xattrs are refused cleanly. When macFUSE is installed but cannot mount (for example its file system extension is not yet enabled), `--frontend auto` continues with WebDAV, except with `--native-read-only`; an explicit `--frontend fuse` fails with the approval steps. Not yet mounted on a Mac. |
 | `winfsp` | Windows | Native, same core; needs WinFsp installed (DLL is delay-loaded). Compiled, not yet run on Windows. |
-| `dav` | all | rclone mount/VFS (`--vfs-cache-mode full`, 60 s write-back) over the authenticated loopback WebDAV server. The only option on macOS. |
+| `dav` | all | rclone mount/VFS (`--vfs-cache-mode full`, 60 s write-back) over the authenticated loopback WebDAV server. The macOS choice without macFUSE (`rclone nfsmount`). |
 
 `--native-read-only` mounts a native frontend read-only.
 

@@ -17,7 +17,7 @@ rclone `crypt` today:
 ## Layering
 
 ```text
-OS  ──  WinFsp (Windows) │ FUSE (Linux) │ NFS or FSKit (macOS)     frontends
+OS  ──  WinFsp (Windows) │ FUSE (Linux) │ macFUSE or NFS (macOS)     frontends
           │
      filesystem core: lookup/open/read_at/write_at/truncate/flush/release
           │                                            (roadmap Phase 2)
@@ -54,7 +54,7 @@ frontend. Each layer ships and is verified separately.
 | M3 ✅ | Protocol-independent filesystem core (roadmap Phase 2) | The Phase 2 exit gate in `MOUNT_WRITE_ROADMAP.md` |
 | M4 (built, not run) | Windows WinFsp frontend (`winfsp_wrs`, MIT). Read-only first, then writable. | Windows machine: listing, reads, stop, and small writes with remount and recovery |
 | M5 ✅ | Linux FUSE (`fuser`) | Linux machine (Docker Linux VM: kernel tests pass) |
-| M6 | macOS frontend, only after the wedged test mount is cleared by a reboot | New workspace. Clean and uncertain stop measured. |
+| M6 (built, not mounted) | macOS frontend: the FUSE adapter over macFUSE (libfuse loaded at runtime, FSKit backend first, kernel backend fallback) | New workspace. Clean and uncertain stop measured. Needs macFUSE's file system extension enabled on the test Mac. |
 
 `--frontend auto` (default since 2026-09-30) picks the native frontend where
 the build has one and falls back to WebDAV (see "Native by default"). The
@@ -293,7 +293,7 @@ recovery.
   frontend where one exists for the build, otherwise WebDAV:
   - Linux: FUSE.
   - Windows: WinFsp, in `winfsp` builds only.
-  - macOS: WebDAV (no native frontend yet).
+  - macOS: FUSE via macFUSE when installed (built, not yet mounted), else WebDAV.
 - **Explicit choices still apply.** `--frontend dav|fuse|winfsp` is honoured,
   and an explicit native choice the build cannot serve is refused.
 - **Pool sync v6 is served natively.** Design review by an independent

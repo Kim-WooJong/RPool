@@ -11,6 +11,8 @@ pub(crate) mod drive_generation_write;
 pub(crate) mod drive_references;
 mod frontend;
 pub(crate) mod fs_core;
+#[cfg(target_os = "macos")]
+pub(crate) use frontend::macfuse_installed;
 pub(crate) mod history_bridge;
 mod incremental;
 pub(crate) mod layout_refresh;

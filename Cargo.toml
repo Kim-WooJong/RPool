@@ -56,7 +56,13 @@ scrypt = { version = "0.11.0", default-features = false }
 crypto_secretbox = { version = "0.1.1", default-features = false, features = ["salsa20", "alloc"] }
 data-encoding = "2.11"
 
+# Native FUSE frontend on macOS through macFUSE. `macos-no-mount` keeps fuser
+# from linking libfuse at build time (no pkg-config or macFUSE needed to
+# build); RPool loads macFUSE's libfuse at runtime to mount and hands the
+# device descriptor to fuser. `macfuse-4-compat` is the kernel ABI fuser
+# selects itself when it links macFUSE (4.x and later).
 [target.'cfg(target_os = "macos")'.dependencies]
+fuser = { version = "0.18", default-features = false, features = ["macos-no-mount", "macfuse-4-compat"] }
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]

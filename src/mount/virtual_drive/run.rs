@@ -160,23 +160,33 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         return Ok(());
     }
     // Lives until this function returns: registry entry and live status.
-    let _monitor = net_monitor(&drive, &args, frontend);
+    let mut monitor = net_monitor(&drive, &args, frontend);
     // rclone may not replay its cache here (native frontend, or peers may
     // have written since), so RPool imports the unsaved writes itself.
     drive.recover_previous_cache()?;
     if frontend != crate::cli::Frontend::Dav {
-        return crate::mount::frontend::run_native(
-            drive,
+        let outcome = crate::mount::frontend::run_native(
+            drive.clone(),
             crate::mount::frontend::NativeRun {
                 frontend,
                 mountpoint: args.mountpoint.as_deref().context("mountpoint required")?,
+                volume_name: &args.pool,
                 read_only: args.native_read_only,
                 interval: std::time::Duration::from_secs(args.interval_seconds),
                 stop: &stop,
-                report,
+                report: report.clone(),
             },
         );
+        match outcome {
+            Err(e) if auto_falls_back_to_dav(&args, &e) => {
+                eprintln!("{e:#}\nFalling back to WebDAV for this mount (`--frontend auto`).");
+                drop(monitor);
+                monitor = net_monitor(&drive, &args, crate::cli::Frontend::Dav);
+            }
+            other => return other,
+        }
     }
+    let _monitor = monitor;
     println!("Starting virtual filesystem and native mount");
     let server = crate::mount::dav::Server::start(drive.clone())?;
     let mut mount =
@@ -267,6 +277,17 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     drop(server);
     joined?;
     outcome
+}
+
+/// Whether a failed native start may continue with WebDAV: only on macOS,
+/// where macFUSE can be installed but not yet approved (RPool cannot probe
+/// that), only for `--frontend auto`, never for a read-only request (WebDAV
+/// would mount writable), and only when nothing was mounted yet.
+fn auto_falls_back_to_dav(args: &crate::cli::MountArgs, error: &anyhow::Error) -> bool {
+    cfg!(target_os = "macos")
+        && args.frontend == crate::cli::Frontend::Auto
+        && !args.native_read_only
+        && crate::mount::frontend::native_start_failed(error)
 }
 
 /// Network monitor of a mounted virtual drive; its queue is the drive's

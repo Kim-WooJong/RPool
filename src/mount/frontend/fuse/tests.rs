@@ -1,12 +1,13 @@
-//! Kernel-level FUSE tests on a fixture workspace. They need /dev/fuse and
-//! mount permission, so they are ignored by default; run them in the Linux
-//! container: `cargo test --bin rpool frontend::fuse -- --ignored --test-threads=1`.
+//! Kernel-level FUSE tests on a fixture workspace. They need /dev/fuse (Linux)
+//! or macFUSE (macOS) and mount permission, so they are ignored by default;
+//! run them in the Linux container or on a Mac with macFUSE:
+//! `cargo test --bin rpool frontend::fuse -- --ignored --test-threads=1`.
 use super::*;
 use crate::mount::virtual_drive::{fixture, fixture_reopen};
 use std::io::{Read, Seek, SeekFrom, Write};
 
 struct Mounted {
-    session: Option<BackgroundSession>,
+    session: Option<FuseMount>,
     root: tempfile::TempDir,
     mnt: tempfile::TempDir,
 }
@@ -15,7 +16,7 @@ impl Mounted {
         let root = tempfile::tempdir().unwrap();
         let mnt = tempfile::tempdir().unwrap();
         let core = Arc::new(FsCore::new(Arc::new(fixture(root.path()))).unwrap());
-        let session = session(core, mnt.path(), read_only).unwrap();
+        let session = session(core, mnt.path(), "rpool-test", read_only).unwrap();
         Self {
             session: Some(session),
             root,
@@ -34,7 +35,7 @@ impl Mounted {
     fn remount(&mut self) {
         self.unmount();
         let core = Arc::new(FsCore::new(Arc::new(fixture_reopen(self.root.path()))).unwrap());
-        self.session = Some(session(core, self.mnt.path(), false).unwrap());
+        self.session = Some(session(core, self.mnt.path(), "rpool-test", false).unwrap());
     }
 }
 impl Drop for Mounted {
@@ -47,7 +48,7 @@ fn pattern(len: usize) -> Vec<u8> {
 }
 
 #[test]
-#[ignore = "requires /dev/fuse"]
+#[ignore = "requires /dev/fuse or macFUSE"]
 fn files_round_trip_through_the_kernel_and_survive_remount() {
     let mut m = Mounted::new(false);
     fs::write(m.path("small.txt"), b"hello fuse").unwrap();
@@ -74,7 +75,7 @@ fn files_round_trip_through_the_kernel_and_survive_remount() {
 }
 
 #[test]
-#[ignore = "requires /dev/fuse"]
+#[ignore = "requires /dev/fuse or macFUSE"]
 fn edits_truncate_append_rename_and_delete_behave_like_posix() {
     let m = Mounted::new(false);
     fs::write(m.path("f"), b"0123456789").unwrap();
@@ -120,7 +121,7 @@ fn edits_truncate_append_rename_and_delete_behave_like_posix() {
 }
 
 #[test]
-#[ignore = "requires /dev/fuse"]
+#[ignore = "requires /dev/fuse or macFUSE"]
 fn an_open_file_keeps_its_bytes_after_overwrite_and_unlink() {
     let m = Mounted::new(false);
     fs::write(m.path("doc"), b"original bytes").unwrap();
@@ -139,7 +140,7 @@ fn an_open_file_keeps_its_bytes_after_overwrite_and_unlink() {
 }
 
 #[test]
-#[ignore = "requires /dev/fuse"]
+#[ignore = "requires /dev/fuse or macFUSE"]
 fn concurrent_writers_to_different_files() {
     let m = Mounted::new(false);
     std::thread::scope(|scope| {
@@ -156,13 +157,13 @@ fn concurrent_writers_to_different_files() {
 }
 
 #[test]
-#[ignore = "requires /dev/fuse"]
+#[ignore = "requires /dev/fuse or macFUSE"]
 fn read_only_mount_refuses_changes() {
     let mut m = Mounted::new(false);
     fs::write(m.path("kept"), b"kept").unwrap();
     m.unmount();
     let core = Arc::new(FsCore::new(Arc::new(fixture_reopen(m.root.path()))).unwrap());
-    m.session = Some(session(core, m.mnt.path(), true).unwrap());
+    m.session = Some(session(core, m.mnt.path(), "rpool-test", true).unwrap());
     assert_eq!(fs::read(m.path("kept")).unwrap(), b"kept");
     let error = fs::write(m.path("new"), b"x").unwrap_err();
     assert_eq!(error.raw_os_error(), Some(libc::EROFS));

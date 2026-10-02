@@ -57,6 +57,7 @@ fn frontend(ui: &mut egui::Ui, form: &mut MountForm) {
     let name = |f: Frontend| match f {
         Frontend::Auto => tr("Automatic — native where available (default)"),
         Frontend::Dav => tr("WebDAV via rclone mount"),
+        Frontend::Fuse if cfg!(target_os = "macos") => tr("Native macFUSE (macOS)"),
         Frontend::Fuse => tr("Native FUSE (Linux)"),
         Frontend::Winfsp => tr("Native WinFsp (Windows)"),
     };
@@ -81,6 +82,10 @@ fn frontend(ui: &mut egui::Ui, form: &mut MountForm) {
                     Some(Frontend::Winfsp) => {
                         theme::hint(ui, tr("WinFsp not installed — install WinFsp for the native drive (then restart RPool); WebDAV is used meanwhile."));
                         ui.hyperlink_to(tr("Download WinFsp"), "https://winfsp.dev/rel/");
+                    }
+                    Some(Frontend::Fuse) if cfg!(target_os = "macos") => {
+                        theme::hint(ui, tr("macFUSE not installed — install macFUSE for the native drive (then restart RPool); WebDAV is used meanwhile."));
+                        ui.hyperlink_to(tr("Download macFUSE"), "https://macfuse.github.io/");
                     }
                     Some(_) => theme::hint(
                         ui,

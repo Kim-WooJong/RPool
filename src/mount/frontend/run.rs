@@ -20,14 +20,15 @@ fn start(
     frontend: Frontend,
     core: Arc<FsCore>,
     mountpoint: &Path,
+    volume: &str,
     read_only: bool,
 ) -> Result<Box<dyn NativeMount>> {
     match frontend {
         Frontend::Dav | Frontend::Auto => bail!("not a native frontend"),
-        #[cfg(target_os = "linux")]
-        Frontend::Fuse => super::fuse::mount(core, mountpoint, read_only),
-        #[cfg(not(target_os = "linux"))]
-        Frontend::Fuse => bail!("the FUSE frontend is available on Linux only"),
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        Frontend::Fuse => super::fuse::mount(core, mountpoint, volume, read_only),
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        Frontend::Fuse => bail!("the FUSE frontend is available on Linux and macOS (macFUSE) only"),
         #[cfg(all(windows, feature = "winfsp"))]
         Frontend::Winfsp => super::winfsp::mount(core, mountpoint, read_only),
         #[cfg(not(all(windows, feature = "winfsp")))]
@@ -37,9 +38,26 @@ fn start(
     }
 }
 
+/// Context marking an error from mounting a native frontend, before anything
+/// was mounted (`--frontend auto` may then use WebDAV).
+#[derive(Debug)]
+struct NativeStartFailed;
+impl std::fmt::Display for NativeStartFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("native frontend could not mount")
+    }
+}
+
+/// Whether `error` came from a native frontend failing to mount.
+pub(crate) fn native_start_failed(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<NativeStartFailed>().is_some()
+}
+
 pub(crate) struct NativeRun<'a> {
     pub(crate) frontend: Frontend,
     pub(crate) mountpoint: &'a Path,
+    /// Volume name shown by the OS where the frontend supports one (macOS).
+    pub(crate) volume_name: &'a str,
     pub(crate) read_only: bool,
     pub(crate) interval: Duration,
     pub(crate) stop: &'a StopControl,
@@ -48,7 +66,14 @@ pub(crate) struct NativeRun<'a> {
 
 pub(crate) fn run_native(drive: Arc<VirtualDrive>, run: NativeRun<'_>) -> Result<()> {
     let core = Arc::new(FsCore::new(drive.clone()).map_err(|e| anyhow!("{e}"))?);
-    let mount = start(run.frontend, core, run.mountpoint, run.read_only)?;
+    let mount = start(
+        run.frontend,
+        core,
+        run.mountpoint,
+        run.volume_name,
+        run.read_only,
+    )
+    .context(NativeStartFailed)?;
     println!(
         "Native {:?} filesystem mounted at {} (read_only={}). fsync/close is the local durability point; cloud replication is asynchronous.",
         run.frontend,
@@ -76,4 +101,19 @@ pub(crate) fn run_native(drive: Arc<VirtualDrive>, run: NativeRun<'_>) -> Result
     joined?;
     println!("Native mount stopped; pending spool/cache/history retained. Cloud replication was not drained.");
     outcome
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_mount_start_failures_are_marked() {
+        let start = anyhow!("macFUSE mount failed").context(NativeStartFailed);
+        assert!(native_start_failed(&start));
+        assert!(native_start_failed(&start.context("outer")));
+        assert!(!native_start_failed(&anyhow!(
+            "native filesystem was unmounted externally"
+        )));
+    }
 }

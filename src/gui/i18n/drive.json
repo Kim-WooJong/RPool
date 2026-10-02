@@ -973,5 +973,20 @@
   "ko": "동시에 업로드하는 파일 수예요. 모든 파일이 풀의 샤드 작업자를 함께 나눠 써요.",
   "ja": "同時にアップロードするファイル数です。すべてのファイルがプールのシャードワーカーを共有します。",
   "zh": "同时上传的文件数。所有文件共享存储池的分片工作线程。"
+ },
+ "Native macFUSE (macOS)": {
+  "ko": "네이티브 macFUSE(macOS)",
+  "ja": "ネイティブ macFUSE（macOS）",
+  "zh": "原生 macFUSE（macOS）"
+ },
+ "macFUSE not installed — install macFUSE for the native drive (then restart RPool); WebDAV is used meanwhile.": {
+  "ko": "macFUSE가 설치되지 않았어요 — 네이티브 드라이브를 쓰려면 macFUSE를 설치하고 RPool을 다시 시작하세요. 그동안은 WebDAV를 사용해요.",
+  "ja": "macFUSE がインストールされていません — ネイティブドライブを使うには macFUSE をインストールし、RPool を再起動してください。それまでは WebDAV を使用します。",
+  "zh": "未安装 macFUSE — 如需原生驱动器请安装 macFUSE（然后重启 RPool）；在此期间使用 WebDAV。"
+ },
+ "Download macFUSE": {
+  "ko": "macFUSE 다운로드",
+  "ja": "macFUSE をダウンロード",
+  "zh": "下载 macFUSE"
  }
 }

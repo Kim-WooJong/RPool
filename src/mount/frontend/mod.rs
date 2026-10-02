@@ -1,7 +1,7 @@
 //! Native OS frontends over `FsCore`: WinFsp on Windows (M4) and FUSE on Linux
-//! (M5). They replace rclone mount + loopback WebDAV for local virtual-drive
+//! (M5) and macOS (macFUSE, FSKit backend first). They replace rclone mount + loopback WebDAV for local virtual-drive
 //! workspaces. DAV stays the default frontend.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod fuse;
 #[cfg_attr(
     not(all(windows, feature = "winfsp")),
@@ -12,4 +12,6 @@ mod run;
 #[cfg(all(windows, feature = "winfsp"))]
 mod winfsp;
 
-pub(crate) use run::{run_native, NativeRun};
+#[cfg(target_os = "macos")]
+pub(crate) use fuse::macfuse::installed as macfuse_installed;
+pub(crate) use run::{native_start_failed, run_native, NativeRun};

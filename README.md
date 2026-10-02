@@ -82,9 +82,10 @@ coordinator or extra metadata service is needed. Concurrent edits keep the
 original and both edited versions as named conflict copies. Close and `fsync`
 are local durability points; cloud replication is asynchronous.
 
-- Frontends: native FUSE (Linux) and WinFsp (Windows, not yet run on Windows)
-  over RPool's filesystem core, or rclone mount over RPool's loopback WebDAV
-  server (`dav`, the only choice on macOS, via `rclone nfsmount`).
+- Frontends: native FUSE (Linux; macOS with macFUSE, FSKit backend first, not
+  yet mounted on a Mac) and WinFsp (Windows, not yet run on Windows) over
+  RPool's filesystem core, or rclone mount over RPool's loopback WebDAV server
+  (`dav`; on macOS via `rclone nfsmount`, used when macFUSE is missing).
 - Without mounting: `--sync-only`, `--capacity-only`, `--recover-spool`,
   `--cleanup-cache`, `--apply-pool-changes` (after changing pool accounts),
   `--account-recovery-from` (copy into a new pool after losing an account),
