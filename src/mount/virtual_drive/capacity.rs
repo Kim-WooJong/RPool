@@ -65,11 +65,11 @@ impl VirtualDrive {
         status.pending_writes = state.pending.len();
         status.pending_ids = state.pending.iter().map(|i| i.id.clone()).collect();
         status.namespace_event_ids = state.events.keys().cloned().collect();
-        let pending_sizes: Vec<_> = state
+        let pending_writes: Vec<Intent> = state
             .pending
             .iter()
             .filter(|i| i.spool.is_some())
-            .map(|i| i.size)
+            .cloned()
             .collect();
         if !self.pool_sync_roots.is_empty() {
             status.pool_sync_roots = self.pool_sync_roots.clone();
@@ -79,6 +79,13 @@ impl VirtualDrive {
                 .push_str(" Pool-sync metadata is replicated automatically.");
         }
         drop(state);
+        let mut pending_sizes = Vec::new();
+        for intent in &pending_writes {
+            match self.upload_remaining(intent, &status.eligible) {
+                Some(remaining) => status.reserve_remaining(&remaining)?,
+                None => pending_sizes.push(intent.size),
+            }
+        }
         status.reserve_pending(&self.policy, &pending_sizes)?;
         status.logical_ceiling_estimate = status
             .logical_used
@@ -88,5 +95,50 @@ impl VirtualDrive {
         }
         status.note.push_str(" Virtual mode usage is the known shared namespace plus local pending writes, not the local cache. Other unimported archives are not counted.");
         Ok(status)
+    }
+    /// The planned shards of `intent`'s eligible upload (see
+    /// `mount::upload`) that its journal does not list as uploaded, with
+    /// their accounts; empty once its manifest is complete. `None` when no
+    /// plan for the current eligible accounts exists (not started, an
+    /// incremental upload, unreadable files): reserve the whole file.
+    pub(super) fn upload_remaining(
+        &self,
+        intent: &Intent,
+        eligible: &[String],
+    ) -> Option<Vec<(String, u64)>> {
+        let name = Path::new(&intent.path).file_name()?;
+        let key = blake3::hash(&serde_json::to_vec(eligible).ok()?)
+            .to_hex()
+            .to_string();
+        let staged = self
+            .spool_path(intent)
+            .parent()?
+            .join("upload")
+            .join(format!("eligible-{key}"))
+            .join(name);
+        if crate::utils::append_suffix(&staged, ".rpool.json").exists() {
+            return Some(Vec::new());
+        }
+        let plan: crate::models::UploadPlan =
+            crate::utils::read_json(&crate::utils::append_suffix(&staged, ".rpool.upload.json"))
+                .ok()?;
+        if plan.source_size != intent.size || plan.remotes != eligible {
+            return None;
+        }
+        let journal = crate::utils::append_suffix(&staged, ".rpool.upload.state.json");
+        let done = if journal.exists() {
+            crate::utils::read_json::<crate::models::UploadJournal>(&journal)
+                .ok()?
+                .completed
+        } else {
+            Default::default()
+        };
+        Some(
+            plan.shards
+                .iter()
+                .filter(|shard| !done.contains_key(&shard.index))
+                .map(|shard| (shard.remote.clone(), shard.size))
+                .collect(),
+        )
     }
 }

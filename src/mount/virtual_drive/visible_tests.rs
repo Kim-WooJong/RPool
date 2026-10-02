@@ -217,6 +217,117 @@ fn quota_charges_new_writes_like_before() {
     let (used, total) = d.quota().unwrap();
     assert_eq!(total, Some(used + 1_000_000 - 1000 - 300));
 }
+/// A file half uploaded is reserved only for its missing shards, on their
+/// planned accounts: the uploaded half is already in the accounts' usage.
+#[test]
+fn uploads_in_progress_reserve_only_their_missing_shards() {
+    let (_temp, d) = scenario(6);
+    write(&d, "big", &[7u8; 1000]);
+    let intent = d
+        .state
+        .lock()
+        .unwrap()
+        .pending
+        .iter()
+        .find(|i| i.path == "big")
+        .cloned()
+        .unwrap();
+    let eligible = vec!["a:pool".to_string(), "b:pool".to_string()];
+    // Not started: no plan, so the caller reserves the whole file.
+    assert_eq!(d.upload_remaining(&intent, &eligible), None);
+    let key = blake3::hash(&serde_json::to_vec(&eligible).unwrap())
+        .to_hex()
+        .to_string();
+    let dir = d
+        .spool_path(&intent)
+        .parent()
+        .unwrap()
+        .join("upload")
+        .join(format!("eligible-{key}"));
+    fs::create_dir_all(&dir).unwrap();
+    let staged = dir.join("big");
+    let shard = |index: u32, remote: &str| crate::models::PlanShard {
+        index,
+        offset: 0,
+        size: 400,
+        remote: remote.into(),
+        object: format!("o{index}"),
+        kind: Default::default(),
+        group: 0,
+        slot: 0,
+    };
+    let plan = crate::models::UploadPlan {
+        version: 1,
+        archive_id: "x".into(),
+        source_size: 1000,
+        shard_size: 400,
+        remotes: eligible.clone(),
+        placement: crate::models::Placement::RoundRobin,
+        coding: None,
+        shards: vec![shard(0, "a:pool"), shard(1, "b:pool"), shard(2, "a:pool")],
+    };
+    let plan_path = crate::utils::append_suffix(&staged, ".rpool.upload.json");
+    crate::utils::save_json_atomic(&plan_path, &plan).unwrap();
+    // Planned, nothing uploaded: every shard on its account.
+    assert_eq!(
+        d.upload_remaining(&intent, &eligible),
+        Some(vec![
+            ("a:pool".into(), 400),
+            ("b:pool".into(), 400),
+            ("a:pool".into(), 400)
+        ])
+    );
+    let journal = serde_json::json!({
+        "version": 1,
+        "plan_fingerprint": "f",
+        "completed": {"0": {"index": 0, "offset": 0, "size": 400, "remote": "a:pool",
+                            "object": "o0", "blake3": "h"}},
+        "updated_unix": 0
+    });
+    fs::write(
+        crate::utils::append_suffix(&staged, ".rpool.upload.state.json"),
+        journal.to_string(),
+    )
+    .unwrap();
+    assert_eq!(
+        d.upload_remaining(&intent, &eligible),
+        Some(vec![("b:pool".into(), 400), ("a:pool".into(), 400)])
+    );
+    // A plan for other accounts is not resumed: reserve the whole file.
+    assert_eq!(d.upload_remaining(&intent, &["c:pool".to_string()]), None);
+    // Manifest complete: nothing left to reserve.
+    fs::write(crate::utils::append_suffix(&staged, ".rpool.json"), "{}").unwrap();
+    assert_eq!(d.upload_remaining(&intent, &eligible), Some(vec![]));
+
+    let target = |remote: &str, free| crate::storage::admin::budget::TargetBudget {
+        remote: remote.into(),
+        backing: remote.into(),
+        capacity_domain: remote.into(),
+        failure_domain: None,
+        declared: true,
+        total: 10_000,
+        free,
+    };
+    let mut status = CapacityStatus {
+        targets: vec![target("a:pool", 5000), target("b:pool", 3000)],
+        ..CapacityStatus::default()
+    };
+    status
+        .reserve_remaining(&[
+            ("b:pool".into(), 400),
+            ("a:pool".into(), 400),
+            ("gone:".into(), 999),
+        ])
+        .unwrap();
+    let free: Vec<u64> = status.targets.iter().map(|t| t.free).collect();
+    assert_eq!(
+        free,
+        [4600, 2600],
+        "only the missing shards, on their accounts"
+    );
+    assert_eq!(status.pending_physical_reservation, 800);
+}
+
 impl VirtualDrive {
     fn measure_capacity_offline(&self, state: &Namespace) -> CapacityStatus {
         CapacityStatus {

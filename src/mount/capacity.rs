@@ -383,8 +383,37 @@ impl CapacityStatus {
     }
 
     /// Reserve queued uploads against their actual quota-group placement. No remote writes.
+    /// Reserves uploads already in progress: only their planned shards that
+    /// are not uploaded yet, each on its planned account. The uploaded ones
+    /// are already in the accounts' measured usage; reserving the whole file
+    /// as well counted them twice (a 72 GB file half uploaded took 108 GB
+    /// off the free space). Unknown accounts (no longer eligible) are
+    /// skipped: such a plan is not resumed, its intent is reserved in full.
+    pub(crate) fn reserve_remaining(&mut self, remaining: &[(String, u64)]) -> Result<()> {
+        for (remote, size) in remaining {
+            let Some(domain) = self
+                .targets
+                .iter()
+                .find(|t| &t.remote == remote)
+                .map(|t| t.capacity_domain.clone())
+            else {
+                continue;
+            };
+            for t in &mut self.targets {
+                if t.capacity_domain == domain {
+                    t.free = t.free.saturating_sub(*size);
+                }
+            }
+            self.pending_physical_reservation = self
+                .pending_physical_reservation
+                .checked_add(*size)
+                .context("pending reservation overflow")?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn reserve_pending(&mut self, policy: &PoolDefinition, sizes: &[u64]) -> Result<()> {
-        if sizes.is_empty() {
+        if sizes.is_empty() && self.pending_physical_reservation == 0 {
             self.logical_ceiling_estimate =
                 self.logical_used.saturating_add(self.additional_estimate);
             return Ok(());
