@@ -11,6 +11,9 @@ pub(crate) fn manifest_remotes(manifest: &Manifest) -> Vec<String> {
 
 /// Quota-aware modes skip exhausted targets for both shards and metadata.
 /// Replicate metadata to every actually used target, not unused/full members.
+/// Free-ratio is quota-aware too: a small file uses only some accounts, and
+/// writing its manifest to the others (one write at a time on Dropbox) made
+/// many small uploads queue behind each other for no recovery benefit.
 pub(crate) fn publication_remotes(
     manifest: &Manifest,
     requested: &[String],
@@ -19,6 +22,7 @@ pub(crate) fn publication_remotes(
     if matches!(
         placement,
         crate::models::Placement::Resilient
+            | crate::models::Placement::FreeRatio
             | crate::models::Placement::Proportional
             | crate::models::Placement::CapacityFirst
     ) {
@@ -65,6 +69,10 @@ mod tests {
                 &requested,
                 crate::models::Placement::CapacityFirst
             ),
+            vec!["usable:"]
+        );
+        assert_eq!(
+            publication_remotes(&manifest, &requested, crate::models::Placement::FreeRatio),
             vec!["usable:"]
         );
         assert_eq!(
