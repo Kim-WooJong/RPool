@@ -18,6 +18,9 @@ mod pacer;
 mod process;
 mod stall;
 #[cfg(test)]
+#[path = "stored_hash_rclone_tests.rs"]
+mod stored_hash_rclone_tests;
+#[cfg(test)]
 mod tests;
 pub(crate) mod traffic;
 #[cfg(all(test, unix))]

@@ -14,6 +14,7 @@ pub(crate) mod registry;
 mod remote_config;
 pub(crate) mod scheduler;
 pub(crate) mod source;
+pub(crate) mod stored_hash;
 pub(crate) mod traits;
 pub(crate) mod transfer_budget;
 pub(crate) mod verified;

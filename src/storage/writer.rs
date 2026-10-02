@@ -25,6 +25,15 @@ pub(crate) fn upload_retry(error: &anyhow::Error, attempt: u32) -> Option<std::t
     super::scheduler::read_retry(error, attempt)
 }
 
+/// `RPOOL_UPLOAD_VERIFY=readback` always reads uploads back in full, even
+/// when the provider's hash already proved them.
+fn full_readback_forced() -> bool {
+    static FORCED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *FORCED.get_or_init(|| {
+        std::env::var("RPOOL_UPLOAD_VERIFY").is_ok_and(|v| v.eq_ignore_ascii_case("readback"))
+    })
+}
+
 pub(crate) struct StorageWriter {
     reader: StorageReader,
     native: Option<NativeCrypt>,
@@ -141,9 +150,17 @@ impl StorageWriter {
                         .into());
                     }
                     // Readback failure never restarts the mutation in this call.
-                    self.reader
-                        .verify(shard, true)
-                        .map_err(|e| e.context(ReadbackFailed))?;
+                    if receipt.hash_verified && !full_readback_forced() {
+                        // The provider reported the hash of exactly the
+                        // ciphertext sent: no need to download it again.
+                        self.reader
+                            .record_hash_verified(shard)
+                            .map_err(|e| e.context(ReadbackFailed))?;
+                    } else {
+                        self.reader
+                            .verify(shard, true)
+                            .map_err(|e| e.context(ReadbackFailed))?;
+                    }
                     super::rclone::traffic::credit_verified(&shard.object, shard.size);
                     return Ok(());
                 }

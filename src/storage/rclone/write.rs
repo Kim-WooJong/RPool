@@ -13,10 +13,12 @@ impl RcloneContext {
     ) -> Result<WriteReceipt, StorageError> {
         unconditional(options)?;
         self.ensure_crypt(ctx, address)?;
-        self.write_ungated(ctx, address, source, size, options)
+        // rclone encrypts here, so RPool never sees the stored bytes.
+        self.write_streamed(ctx, address, source, size, options, false)
     }
     /// Only reachable through `RcloneBackend::for_crypt_base`, whose bytes are
-    /// already encrypted by RPool.
+    /// already encrypted by RPool. These are the bytes the provider stores,
+    /// so their hash is compared with the provider's (see `stored_hash`).
     pub(super) fn write_ungated(
         &self,
         ctx: &OperationContext,
@@ -24,6 +26,17 @@ impl RcloneContext {
         source: &mut dyn Read,
         size: Option<u64>,
         options: &WriteOptions,
+    ) -> Result<WriteReceipt, StorageError> {
+        self.write_streamed(ctx, address, source, size, options, true)
+    }
+    fn write_streamed(
+        &self,
+        ctx: &OperationContext,
+        address: &str,
+        source: &mut dyn Read,
+        size: Option<u64>,
+        options: &WriteOptions,
+        check_stored_hash: bool,
     ) -> Result<WriteReceipt, StorageError> {
         unconditional(options)?;
         let mut args = vec![
@@ -51,8 +64,18 @@ impl RcloneContext {
         // retriable (RateLimited) instead of being retried here.
         let _permits = self.mutation_permits(ctx, address)?;
         let op = self.op(address, traffic::Direction::Upload);
-        let mut counted = Counted {
+        let hash = if check_stored_hash {
+            self.stored_hash_kinds(ctx, address)
+                .and_then(|kinds| crate::storage::stored_hash::StreamHash::for_provider(&kinds))
+        } else {
+            None
+        };
+        let mut hashing = crate::storage::stored_hash::Hashing {
             inner: source,
+            hash,
+        };
+        let mut counted = Counted {
+            inner: &mut hashing,
             bytes: 0,
         };
         // A stalled transfer is killed and reported as a retriable timeout.
@@ -73,10 +96,62 @@ impl RcloneContext {
             op.acked(size);
         }
         op.finish(&result);
+        let size = result?;
+        let hash_verified = match hashing.hash {
+            Some(hash) => self.stored_hash_matches(ctx, address, size, hash),
+            None => false,
+        };
         Ok(WriteReceipt {
-            size: result?,
+            size,
             version: None,
+            hash_verified,
         })
+    }
+    /// Hash kinds the provider behind `address` reports, cached per remote;
+    /// None when it reports none RPool can compute, or when it advertised
+    /// one but returned none for an object (e.g. an SFTP server without
+    /// `md5sum`), so later uploads do not ask again.
+    fn stored_hash_kinds(&self, ctx: &OperationContext, address: &str) -> Option<Vec<String>> {
+        let name = remote_name(address).ok()?.to_owned();
+        let key = format!("{}\u{0}{name}", self.route_identity());
+        if let Some(known) = stored_hash_cache().lock().ok()?.get(&key) {
+            return known.clone();
+        }
+        let kinds = self
+            .backend_features(ctx, &format!("{name}:"))
+            .ok()
+            .map(|f| f.hashes)
+            .filter(|kinds| crate::storage::stored_hash::StreamHash::for_provider(kinds).is_some());
+        stored_hash_cache().lock().ok()?.insert(key, kinds.clone());
+        kinds
+    }
+    /// Whether the provider reports exactly the hash of the bytes sent. Any
+    /// doubt is `false`, and the caller then reads the object back in full.
+    fn stored_hash_matches(
+        &self,
+        ctx: &OperationContext,
+        address: &str,
+        size: u64,
+        hash: crate::storage::stored_hash::StreamHash,
+    ) -> bool {
+        let kind = hash.kind().to_owned();
+        let expected = hash.finish();
+        match self.object_hash(ctx, address, std::slice::from_ref(&kind)) {
+            Ok(Some((stored, reported))) => {
+                let value = reported.rsplit(':').next().unwrap_or_default();
+                stored == size && value.eq_ignore_ascii_case(&expected)
+            }
+            Ok(None) => {
+                // Advertised but not returned: stop asking this remote.
+                if let (Ok(name), Ok(mut cache)) =
+                    (remote_name(address), stored_hash_cache().lock())
+                {
+                    cache.insert(format!("{}\u{0}{name}", self.route_identity()), None);
+                }
+                false
+            }
+            Err(_) => false,
+        }
     }
     /// Creates the parent folder of `address` once per process, serialized
     /// per remote, so parallel writes into a new folder do not race to create
@@ -269,4 +344,11 @@ pub(super) fn unconditional(options: &WriteOptions) -> Result<(), StorageError> 
         return Err(StorageError::unsupported("rclone conditional write"));
     }
     Ok(())
+}
+
+type HashKindCache = std::collections::HashMap<String, Option<Vec<String>>>;
+
+fn stored_hash_cache() -> &'static std::sync::Mutex<HashKindCache> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<HashKindCache>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(Default::default)
 }

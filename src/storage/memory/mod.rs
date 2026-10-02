@@ -225,6 +225,7 @@ impl StorageBackend for MemoryBackend {
         Ok(WriteReceipt {
             size,
             version: Some(version),
+            hash_verified: false,
         })
     }
 

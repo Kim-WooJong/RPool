@@ -99,6 +99,9 @@ impl Default for WriteOptions {
 pub(crate) struct WriteReceipt {
     pub(crate) size: u64,
     pub(crate) version: Option<String>,
+    /// The provider reported the hash of exactly the bytes sent, so the
+    /// object need not be read back to prove it was stored intact.
+    pub(crate) hash_verified: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

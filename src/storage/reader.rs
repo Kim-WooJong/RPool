@@ -283,6 +283,24 @@ impl StorageReader {
             }
         }
     }
+    /// Records an upload the provider's hash already proved (see
+    /// `stored_hash`): the object is stat'ed (size must match) and remembered
+    /// as verified, so the post-upload re-check only stats it.
+    pub(crate) fn record_hash_verified(&self, shard: &Shard) -> Result<()> {
+        let metadata = self.stat(&shard.object)?;
+        if metadata.size != shard.size {
+            self.forget_verified(&shard.object);
+            return Err(corrupt(
+                format!("size:{}", metadata.size),
+                format!("size:{}", shard.size),
+            )
+            .into());
+        }
+        if let Some(route) = self.verified_route() {
+            super::verified::record(&route, shard, fingerprint(&metadata));
+        }
+        Ok(())
+    }
     /// Only rclone-addressed readers take part: their addresses are stable
     /// names under one rclone config.
     fn verified_route(&self) -> Option<String> {
