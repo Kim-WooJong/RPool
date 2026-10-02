@@ -209,11 +209,20 @@ impl FsCore {
         // Hash moved unsealed files before taking the exclusive lock, so the
         // seals below only record intents.
         let prefix = format!("{from}/");
+        let mut unsealed = BTreeSet::new();
         for (path, (file, _, _)) in self.unsealed()? {
             if path == from || path.starts_with(&prefix) {
                 self.prehash(file)?;
+                unsealed.insert(path);
             }
         }
+        // Link (or, without hard links, copy) the moved sealed images now too,
+        // so the MOVE under the lock only renames them into place.
+        let mut staged = if from == to {
+            Default::default()
+        } else {
+            self.drive.stage_move(from, &unsealed)
+        };
         let _namespace = self.exclusive()?;
         let source = self.lookup(from)?;
         if from == to {
@@ -233,7 +242,7 @@ impl FsCore {
                     self.seal_file(file)?;
                 }
             }
-            self.drive.rename_directory(from, to)?;
+            self.drive.rename_directory_staged(from, to, &mut staged)?;
             lock(&self.ids)?.rename_directory(from, to);
             return Ok(());
         }
@@ -243,7 +252,7 @@ impl FsCore {
         if let Some(file) = source.id {
             self.seal_file(file)?;
         }
-        self.drive.rename_file(from, to)?;
+        self.drive.rename_file_staged(from, to, &mut staged)?;
         lock(&self.ids)?.rename(from, to);
         // Handles follow the moved file; its new revision is the moved copy.
         if let (Some(file), Some(moved)) = (source.id, self.visible(to)?) {

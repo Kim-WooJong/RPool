@@ -72,7 +72,7 @@ impl VirtualDrive {
         Ok((size, hash))
     }
     /// Records an intent whose image `hash_spool` flushed and hashed.
-    fn record_intent(&self, intent: &Intent) -> Result<()> {
+    pub(super) fn record_intent(&self, intent: &Intent) -> Result<()> {
         let path = self.spool_path(intent);
         durable_json(&path.parent().unwrap().join("intent.json"), intent)
             .context("seal: record intent")?;

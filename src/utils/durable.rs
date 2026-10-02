@@ -37,6 +37,13 @@ pub(crate) fn open_for_sync(path: &Path) -> io::Result<File> {
 }
 
 /// fsync an existing regular file by path.
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "MOVE no longer copies sealed images; kept for callers"
+    )
+)]
 pub(crate) fn sync_file(path: &Path) -> Result<()> {
     open_for_sync(path)
         .and_then(|file| file.sync_all())

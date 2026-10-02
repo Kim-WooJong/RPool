@@ -38,6 +38,8 @@ impl VirtualDrive {
         Ok(intent)
     }
     pub(super) fn copy_revision_to_spool(&self, revision: &Revision, target: &Path) -> Result<()> {
+        #[cfg(test)]
+        super::move_image::hooks::copied();
         if let Revision::Local { path, .. } = revision {
             return self.copy_to_spool(path, target);
         }
@@ -58,6 +60,16 @@ impl VirtualDrive {
         Ok(())
     }
     pub(crate) fn rename_file(&self, from: &str, to: &str) -> Result<()> {
+        self.rename_file_staged(from, to, &mut StagedMoves::default())
+    }
+    /// Rename a file. A sealed local image moves by link (see `move_image`),
+    /// taken from `staged` when [`Self::stage_move`] prepared it.
+    pub(crate) fn rename_file_staged(
+        &self,
+        from: &str,
+        to: &str,
+        staged: &mut StagedMoves,
+    ) -> Result<()> {
         valid_path(from)?;
         valid_path(to)?;
         if from == to {
@@ -106,13 +118,14 @@ impl VirtualDrive {
                 return Ok(());
             }
         }
-        let size = revision.size();
-        let output = self.spool_path(&destination);
-        self.copy_revision_to_spool(&revision, &output)?;
-        crate::utils::sync_file(&output)?;
-        destination.size = size;
-        destination.hash = crate::utils::hash_file_range(&output, 0, size)?;
-        destination = self.prepare_seal(destination)?;
+        // A sealed local image is immutable and its seal recorded its hash:
+        // link it instead of copying and hashing it again.
+        if !self.move_image(&revision, &mut destination, staged)? {
+            let output = self.spool_path(&destination);
+            self.copy_revision_to_spool(&revision, &output)?;
+            destination = self.prepare_seal(destination)?;
+        }
+        let size = destination.size;
         let mut s = self.state.lock().unwrap();
         let mut next = s.clone();
         next.pending.push(destination.clone());
@@ -137,6 +150,15 @@ impl VirtualDrive {
         Ok(())
     }
     pub(crate) fn rename_directory(&self, from: &str, to: &str) -> Result<()> {
+        self.rename_directory_staged(from, to, &mut StagedMoves::default())
+    }
+    /// Rename a directory; local files move as in [`Self::rename_file_staged`].
+    pub(crate) fn rename_directory_staged(
+        &self,
+        from: &str,
+        to: &str,
+        staged: &mut StagedMoves,
+    ) -> Result<()> {
         valid_path(from)?;
         valid_path(to)?;
         if from == to {
@@ -161,8 +183,10 @@ impl VirtualDrive {
             let content = match revision {
                 Revision::Cloud { content, .. } => Some(content.clone()),
                 revision => {
-                    self.copy_revision_to_spool(revision, &self.spool_path(&destination))?;
-                    destination = self.prepare_seal(destination)?;
+                    if !self.move_image(revision, &mut destination, staged)? {
+                        self.copy_revision_to_spool(revision, &self.spool_path(&destination))?;
+                        destination = self.prepare_seal(destination)?;
+                    }
                     None
                 }
             };

@@ -3,6 +3,7 @@ use super::namespace::Intent;
 use super::virtual_drive::VirtualDrive;
 use crate::prelude::*;
 
+mod identity;
 mod meter;
 pub(crate) use meter::SpoolMeter;
 
@@ -111,21 +112,39 @@ impl VirtualDrive {
 }
 
 impl VirtualDrive {
+    /// Bytes of every spool image, including images staged for a MOVE. An
+    /// image hard-linked into several spool directories counts once.
     pub(crate) fn spool_bytes(&self) -> Result<u64> {
         let mut sum = 0u64;
+        let mut linked = BTreeSet::new();
+        let mut count = |path: PathBuf| -> Result<()> {
+            match fs::symlink_metadata(&path) {
+                Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => {
+                    if identity::shared_identity(&path, &meta)?.is_none_or(|id| linked.insert(id)) {
+                        sum = sum.checked_add(meta.len()).context("spool size overflow")?;
+                    }
+                    Ok(())
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                _ => bail!("invalid spool content"),
+            }
+        };
         for entry in fs::read_dir(self.root.join("spool"))? {
             let entry = entry?;
             let meta = fs::symlink_metadata(entry.path())?;
             if !meta.is_dir() || meta.file_type().is_symlink() {
                 bail!("invalid spool directory");
             }
-            let path = entry.path().join("content");
-            match fs::symlink_metadata(path) {
-                Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => {
-                    sum = sum.checked_add(meta.len()).context("spool size overflow")?;
+            count(entry.path().join("content"))?;
+            let moving = entry.path().join("moving");
+            match fs::symlink_metadata(&moving) {
+                Ok(meta) if meta.is_dir() && !meta.file_type().is_symlink() => {
+                    for staged in fs::read_dir(&moving)? {
+                        count(staged?.path().join("content"))?;
+                    }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                _ => bail!("invalid spool content"),
+                _ => bail!("invalid spool directory"),
             }
         }
         Ok(sum)
@@ -323,12 +342,27 @@ mod tests {
         assert_eq!(fs::read_dir(temp.path().join("spool")).unwrap().count(), 0);
     }
     #[test]
-    fn local_move_obeys_spool_limit() {
+    fn linked_local_move_adds_no_spool_bytes() {
         let temp = tempfile::tempdir().unwrap();
         let mut d = fixture(temp.path());
         d.spool_limit = 5;
         let i = write(&d, b"four");
-        assert!(d.rename_file("file", "moved").is_err());
+        d.rename_file("file", "moved").unwrap();
+        assert_eq!(d.spool_bytes().unwrap(), 4);
+        assert_eq!(fs::read(d.spool_path(&i)).unwrap(), b"four");
+        assert!(d.view().unwrap().contains_key("moved"));
+    }
+    #[test]
+    fn copied_local_move_obeys_spool_limit() {
+        use super::super::virtual_drive::move_hooks::NO_LINK;
+        let temp = tempfile::tempdir().unwrap();
+        let mut d = fixture(temp.path());
+        d.spool_limit = 5;
+        let i = write(&d, b"four");
+        NO_LINK.with(|n| n.set(true));
+        let moved = d.rename_file("file", "moved");
+        NO_LINK.with(|n| n.set(false));
+        assert!(moved.is_err());
         assert_eq!(fs::read(d.spool_path(&i)).unwrap(), b"four");
         assert!(d.view().unwrap().contains_key("file"));
         assert!(!d.view().unwrap().contains_key("moved"));

@@ -6,6 +6,7 @@ use super::shared_transport::SharedTransport;
 use crate::prelude::*;
 
 mod capacity;
+mod move_image;
 mod open;
 mod read;
 mod recovery;
@@ -24,6 +25,9 @@ mod visible;
 mod visible_tests;
 mod write;
 
+#[cfg(test)]
+pub(crate) use move_image::hooks as move_hooks;
+pub(crate) use move_image::StagedMoves;
 pub(crate) use open::FORMAT_VERSION;
 use recovery::checked_directory;
 pub(crate) use recovery::recover_spool;

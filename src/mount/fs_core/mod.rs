@@ -26,6 +26,8 @@ mod error;
 mod generation;
 mod handles;
 mod identity;
+#[cfg(test)]
+mod move_tests;
 mod namespace_ops;
 #[cfg(test)]
 mod peer_tests;
