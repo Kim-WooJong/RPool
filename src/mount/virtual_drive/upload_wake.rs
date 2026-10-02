@@ -13,6 +13,13 @@ pub(crate) const DEFAULT_UPLOAD_FILES: usize = 4;
 /// `workers` whatever this is.
 pub(crate) const MAX_UPLOAD_FILES: usize = 64;
 
+/// Files uploaded at once when not set: enough whole coding groups to keep
+/// every shard transfer busy, twice over so the next file is ready while one
+/// finishes. All of them share the `workers` shard budget anyway.
+pub(crate) fn auto_upload_files(workers: usize, shards_per_group: usize) -> usize {
+    (workers.div_ceil(shards_per_group.max(1)) * 2).clamp(2, MAX_UPLOAD_FILES)
+}
+
 pub(crate) struct UploadControl {
     /// Bumped by every notification; waiters compare against what they saw.
     generation: Mutex<u64>,
@@ -101,5 +108,14 @@ mod tests {
         assert_eq!(control.files(), 1);
         control.set_files(10_000);
         assert_eq!(control.files(), MAX_UPLOAD_FILES);
+    }
+
+    #[test]
+    fn automatic_file_count_follows_the_shard_budget() {
+        // 27 workers, RS 9+3: three groups' worth, twice.
+        assert_eq!(auto_upload_files(27, 12), 6);
+        assert_eq!(auto_upload_files(1, 12), 2, "at least two");
+        assert_eq!(auto_upload_files(256, 1), MAX_UPLOAD_FILES);
+        assert_eq!(auto_upload_files(8, 0), 16, "no coding: one shard each");
     }
 }

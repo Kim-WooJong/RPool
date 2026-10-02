@@ -12,7 +12,6 @@ fn pool_profiles_restore_all_options_and_isolate_new_pools() {
     form.pc_name = "desktop".into();
     form.manifests = vec!["archive.json".into()];
     form.interval_seconds = 42;
-    form.upload_files = 7;
     form.frontend = crate::cli::Frontend::Dav;
     form.native_read_only = true;
     form.cache_gib = 23;

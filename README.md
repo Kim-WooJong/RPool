@@ -377,6 +377,9 @@ rpool remote-root list | set REMOTE PATH | remove REMOTE
     downloads, shared by all files (GUI setting, passed to the drive as
     `mount --workers`; without it the pool's saved `workers` apply).
     Changing it keeps started uploads resumable.
+  - Files the drive uploads at once follow automatically: twice the coding
+    groups (K+M shards each) that fit in the shard transfers, 2–64
+    (`mount --upload-files N` overrides it).
   - `default-uploads N` / `default-downloads N`: simultaneous shard uploads /
     downloads per account for accounts without their own value (`0` =
     built-in 16; Dropbox uploads stay 1).

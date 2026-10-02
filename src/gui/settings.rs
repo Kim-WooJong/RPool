@@ -43,9 +43,6 @@ impl Default for GuiSettings {
     }
 }
 
-/// `rpool mount --upload-files` default.
-pub(crate) const DEFAULT_UPLOAD_FILES: u64 = 4;
-
 /// Machine-local mount inputs, isolated by upload pool. Runtime/recovery state is never saved.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -58,8 +55,6 @@ pub(crate) struct MountProfile {
     pub(crate) pc_name: String,
     pub(crate) manifests: Vec<String>,
     pub(crate) interval_seconds: u64,
-    /// Files uploaded at the same time (`--upload-files`).
-    pub(crate) upload_files: u64,
     pub(crate) cache: MountCacheSettings,
     /// Filesystem frontend.
     pub(crate) frontend: crate::cli::Frontend,
@@ -78,7 +73,6 @@ impl Default for MountProfile {
             pc_name: Default::default(),
             manifests: Default::default(),
             interval_seconds: 30,
-            upload_files: DEFAULT_UPLOAD_FILES,
             cache: Default::default(),
             frontend: Default::default(),
             native_read_only: Default::default(),
@@ -138,7 +132,6 @@ pub(crate) fn load(startup_rclone: &str) -> GuiSettings {
             profile.cache = MountCacheSettings::default();
         }
         profile.interval_seconds = profile.interval_seconds.clamp(2, 86400);
-        profile.upload_files = profile.upload_files.clamp(1, 64);
     }
     if startup_rclone != "rclone" {
         settings.rclone = startup_rclone.to_string();

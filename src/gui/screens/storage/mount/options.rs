@@ -34,9 +34,6 @@ fn cache(ui: &mut egui::Ui, form: &mut MountForm) {
                 ui.label(tr("Background interval")).on_hover_text(tr("How often other PCs' changes are fetched. Saved files start uploading at once. Capacity is measured at least every 60 s regardless."));
                 ui.add(egui::DragValue::new(&mut form.interval_seconds).range(2..=86400).suffix(" s"));
                 ui.end_row();
-                ui.label(tr("Parallel uploads")).on_hover_text(tr("Files uploaded at the same time. All of them share the shard transfers (Settings › Network)."));
-                ui.add(egui::DragValue::new(&mut form.upload_files).range(1..=64));
-                ui.end_row();
             });
             theme::hint(
                 ui,

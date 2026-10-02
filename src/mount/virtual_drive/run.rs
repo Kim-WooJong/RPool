@@ -61,9 +61,14 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         .checked_mul(1073741824)
         .context("spool limit overflow")?;
     // Also used by `--sync-only` and import batches.
-    drive
-        .upload
-        .set_files(usize::try_from(args.upload_files).unwrap_or(usize::MAX));
+    let files = match args.upload_files {
+        Some(files) => usize::try_from(files).unwrap_or(usize::MAX),
+        None => super::upload_wake::auto_upload_files(
+            drive.policy.workers,
+            drive.policy.data_shards + drive.policy.parity_shards,
+        ),
+    };
+    drive.upload.set_files(files);
     let drive = Arc::new(drive);
     println!(
         "Virtual workspace opened in {:.3}s",
