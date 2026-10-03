@@ -15,7 +15,6 @@
   "Automatic — native where available (default)": "자동 — 가능하면 네이티브(기본값)",
   "Background interval": "백그라운드 간격",
   "Cache & pending writes": "캐시 및 대기 중인 쓰기",
-  "Cache of the native mount. Open files and unsaved writes may exceed it.": "네이티브 마운트의 캐시예요. 열린 파일과 저장 안 된 쓰기는 이 값을 넘을 수 있어요.",
   "Cannot create mount control directory: {error}": "마운트 제어 디렉터리를 만들 수 없어요: {error}",
   "Cannot create recovery control directory: {error}": "복구 제어 디렉터리를 만들 수 없어요: {error}",
   "Cannot dismiss recovery report: {error}": "복구 보고서를 닫을 수 없어요: {error}",
@@ -142,7 +141,6 @@
   "Stops gracefully. Pending local changes are kept and upload on the next start or sync.": "정상적으로 중지해요. 대기 중인 로컬 변경은 보존되고 다음 시작이나 동기화 때 업로드돼요.",
   "Sync now": "지금 동기화",
   "Synchronizing local workspace. See log for verified archive results.": "로컬 워크스페이스를 동기화하고 있어요. 검증된 아카이브 결과는 로그를 보세요.",
-  "The OS cache tries to leave this much free disk space.": "OS 캐시는 이만큼의 디스크 여유 공간을 남기려고 해요.",
   "The drive shows 0 bytes free": "드라이브 여유 공간이 0바이트로 표시돼요",
   "The native frontend is unavailable on this PC; WebDAV is used.": "이 PC에서는 네이티브 프런트엔드를 쓸 수 없어 WebDAV를 사용해요.",
   "The persistent workspace must use an absolute path.": "영구 워크스페이스는 절대 경로여야 해요.",
@@ -194,5 +192,7 @@
   "How often other PCs' changes are fetched. Saved files start uploading at once. Capacity is measured at least every 60 s regardless.": "다른 PC의 변경 사항을 가져오는 주기예요. 저장한 파일은 바로 업로드를 시작해요. 용량은 이와 관계없이 최소 60초마다 측정돼요.",
   "Native macFUSE (macOS)": "네이티브 macFUSE(macOS)",
   "macFUSE not installed — install macFUSE for the native drive (then restart RPool); WebDAV is used meanwhile.": "macFUSE가 설치되지 않았어요 — 네이티브 드라이브를 쓰려면 macFUSE를 설치하고 RPool을 다시 시작하세요. 그동안은 WebDAV를 사용해요.",
-  "Download macFUSE": "macFUSE 다운로드"
+  "Download macFUSE": "macFUSE 다운로드",
+  "rclone's whole-file cache, used only with the WebDAV frontend (on top of the shard cache). Open files and unsaved writes may exceed it. Native frontends (WinFsp, FUSE, macFUSE) do not use it.": "WebDAV 방식에서만 쓰는 rclone의 파일 단위 캐시예요(샤드 캐시와 별도). 열린 파일이나 아직 저장 중인 파일은 이 크기를 잠깐 넘을 수 있어요. 네이티브 방식(WinFsp, FUSE, macFUSE)에서는 쓰지 않아요.",
+  "With the WebDAV frontend, rclone's file cache tries to leave this much free disk space. Native frontends do not use it.": "WebDAV 방식에서 rclone 파일 캐시가 이만큼의 디스크 여유 공간을 남기려고 해요. 네이티브 방식에서는 쓰지 않아요."
 }

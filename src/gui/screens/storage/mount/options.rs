@@ -8,8 +8,17 @@ use eframe::egui;
 
 /// One grid row with a GiB `DragValue` (`min`..=1 PiB) and a hover hint.
 pub(super) fn gib(ui: &mut egui::Ui, label: &str, value: &mut u64, min: u64, hint: &str) {
-    ui.label(label).on_hover_text(hint);
-    ui.add(
+    gib_if(ui, true, label, value, min, hint);
+}
+
+/// [`gib`], dimmed and not editable when `enabled` is false (a setting the
+/// chosen frontend does not use).
+fn gib_if(ui: &mut egui::Ui, enabled: bool, label: &str, value: &mut u64, min: u64, hint: &str) {
+    ui.add_enabled(enabled, egui::Label::new(label))
+        .on_hover_text(hint)
+        .on_disabled_hover_text(hint);
+    ui.add_enabled(
+        enabled,
         egui::DragValue::new(value)
             .range(min..=1_048_576)
             .suffix(" GiB"),
@@ -19,6 +28,8 @@ pub(super) fn gib(ui: &mut egui::Ui, label: &str, value: &mut u64, min: u64, hin
 
 /// "Cache & pending writes" card: cache budgets and the background interval.
 fn cache(ui: &mut egui::Ui, form: &mut MountForm) {
+    // The rclone file cache exists only behind the WebDAV frontend.
+    let webdav = !form.native_selected();
     theme::card_section(
         ui,
         tr("Cache & pending writes"),
@@ -30,8 +41,8 @@ fn cache(ui: &mut egui::Ui, form: &mut MountForm) {
             .spacing([16.0, 8.0])
             .show(ui, |ui| {
                 gib(ui, tr("Clean shard cache"), &mut form.cache_gib, 1, tr("Verified cloud data kept locally; least recently used is trimmed first. A whole recovery group must fit."));
-                gib(ui, tr("OS cache target"), &mut form.vfs_cache_gib, 1, tr("Cache of the native mount. Open files and unsaved writes may exceed it."));
-                gib(ui, tr("Keep disk free"), &mut form.cache_min_free_gib, 0, tr("The OS cache tries to leave this much free disk space."));
+                gib_if(ui, webdav, tr("OS cache target"), &mut form.vfs_cache_gib, 1, tr("rclone's whole-file cache, used only with the WebDAV frontend (on top of the shard cache). Open files and unsaved writes may exceed it. Native frontends (WinFsp, FUSE, macFUSE) do not use it."));
+                gib_if(ui, webdav, tr("Keep disk free"), &mut form.cache_min_free_gib, 0, tr("With the WebDAV frontend, rclone's file cache tries to leave this much free disk space. Native frontends do not use it."));
                 gib(ui, tr("Pending write limit"), &mut form.spool_gib, 1, tr("Local space for saves not yet uploaded; new writes fail safely at the limit."));
                 ui.label(tr("Background interval")).on_hover_text(tr("How often other PCs' changes are fetched. Saved files start uploading at once. Capacity is measured at least every 60 s regardless."));
                 ui.add(egui::DragValue::new(&mut form.interval_seconds).range(2..=86400).suffix(" s"));
@@ -42,7 +53,12 @@ fn cache(ui: &mut egui::Ui, form: &mut MountForm) {
                 &trf(
                     "Clean caches up to {cache} GiB plus pending writes up to {pending} GiB (not preallocated).",
                     &[
-                        ("cache", &form.cache_gib.saturating_add(form.vfs_cache_gib)),
+                        (
+                            "cache",
+                            &form
+                                .cache_gib
+                                .saturating_add(if webdav { form.vfs_cache_gib } else { 0 }),
+                        ),
                         ("pending", &form.spool_gib),
                     ],
                 ),

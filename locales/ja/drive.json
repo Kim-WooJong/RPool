@@ -15,7 +15,6 @@
   "Automatic — native where available (default)": "自動 — 利用可能ならネイティブ（既定）",
   "Background interval": "バックグラウンド間隔",
   "Cache & pending writes": "キャッシュと保留中の書き込み",
-  "Cache of the native mount. Open files and unsaved writes may exceed it.": "ネイティブマウントのキャッシュです。開いているファイルや未保存の書き込みはこれを超える場合があります。",
   "Cannot create mount control directory: {error}": "マウント制御ディレクトリを作成できません: {error}",
   "Cannot create recovery control directory: {error}": "復旧制御ディレクトリを作成できません: {error}",
   "Cannot dismiss recovery report: {error}": "復旧レポートを閉じられません: {error}",
@@ -142,7 +141,6 @@
   "Stops gracefully. Pending local changes are kept and upload on the next start or sync.": "正常に停止します。保留中のローカルの変更は保持され、次回の起動または同期時にアップロードされます。",
   "Sync now": "今すぐ同期",
   "Synchronizing local workspace. See log for verified archive results.": "ローカルワークスペースを同期しています。検証済みアーカイブの結果はログを参照してください。",
-  "The OS cache tries to leave this much free disk space.": "OS キャッシュはこれだけのディスク空き容量を残そうとします。",
   "The drive shows 0 bytes free": "ドライブの空き容量は 0 バイトと表示されます",
   "The native frontend is unavailable on this PC; WebDAV is used.": "この PC ではネイティブのフロントエンドを利用できないため、WebDAV を使用します。",
   "The persistent workspace must use an absolute path.": "永続ワークスペースには絶対パスを使用してください。",
@@ -194,5 +192,7 @@
   "How often other PCs' changes are fetched. Saved files start uploading at once. Capacity is measured at least every 60 s regardless.": "他の PC の変更を取得する頻度です。保存したファイルはすぐにアップロードを開始します。容量はこれに関係なく少なくとも 60 秒ごとに測定されます。",
   "Native macFUSE (macOS)": "ネイティブ macFUSE（macOS）",
   "macFUSE not installed — install macFUSE for the native drive (then restart RPool); WebDAV is used meanwhile.": "macFUSE がインストールされていません — ネイティブドライブを使うには macFUSE をインストールし、RPool を再起動してください。それまでは WebDAV を使用します。",
-  "Download macFUSE": "macFUSE をダウンロード"
+  "Download macFUSE": "macFUSE をダウンロード",
+  "rclone's whole-file cache, used only with the WebDAV frontend (on top of the shard cache). Open files and unsaved writes may exceed it. Native frontends (WinFsp, FUSE, macFUSE) do not use it.": "WebDAV 方式でのみ使う rclone のファイル単位キャッシュです(シャードキャッシュとは別)。開いているファイルや保存中のファイルは一時的にこのサイズを超えることがあります。ネイティブ方式(WinFsp、FUSE、macFUSE)では使いません。",
+  "With the WebDAV frontend, rclone's file cache tries to leave this much free disk space. Native frontends do not use it.": "WebDAV 方式では、rclone のファイルキャッシュがこれだけのディスク空き容量を残そうとします。ネイティブ方式では使いません。"
 }

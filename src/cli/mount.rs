@@ -202,10 +202,12 @@ pub(crate) struct MountArgs {
     /// Clean-shard/read-working-space budget in GiB (0 rejects uncached reads); dirty writes are never evicted.
     #[arg(long, default_value_t = 10)]
     pub(crate) cache_gib: u64,
-    /// Native VFS cache target in GiB; open/dirty files may temporarily exceed it.
+    /// rclone VFS (whole-file) cache target in GiB, WebDAV frontend only (native
+    /// frontends have no rclone cache); open/dirty files may temporarily exceed it.
     #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u64).range(1..=1048576))]
     pub(crate) vfs_cache_gib: u64,
-    /// Ask rclone to preserve this much free disk space (GiB); not a hard reservation.
+    /// WebDAV frontend only: ask rclone's file cache to preserve this much free
+    /// disk space (GiB); not a hard reservation.
     #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u64).range(0..=1048576))]
     pub(crate) cache_min_free_gib: u64,
     /// Maximum local virtual write spool in GiB (includes partial writes); growth fails safely at the limit.

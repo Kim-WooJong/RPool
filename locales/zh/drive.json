@@ -15,7 +15,6 @@
   "Automatic — native where available (default)": "自动 — 可用时使用原生（默认）",
   "Background interval": "后台间隔",
   "Cache & pending writes": "缓存与待处理写入",
-  "Cache of the native mount. Open files and unsaved writes may exceed it.": "原生挂载的缓存。打开的文件和未保存的写入可能超出此值。",
   "Cannot create mount control directory: {error}": "无法创建挂载控制目录：{error}",
   "Cannot create recovery control directory: {error}": "无法创建恢复控制目录：{error}",
   "Cannot dismiss recovery report: {error}": "无法关闭恢复报告：{error}",
@@ -142,7 +141,6 @@
   "Stops gracefully. Pending local changes are kept and upload on the next start or sync.": "正常停止。待处理的本地更改会保留，并在下次启动或同步时上传。",
   "Sync now": "立即同步",
   "Synchronizing local workspace. See log for verified archive results.": "正在同步本地工作区。已验证的归档结果请查看日志。",
-  "The OS cache tries to leave this much free disk space.": "操作系统缓存会尽量保留这么多可用磁盘空间。",
   "The drive shows 0 bytes free": "驱动器显示可用空间为 0 字节",
   "The native frontend is unavailable on this PC; WebDAV is used.": "此电脑上无法使用原生前端；将使用 WebDAV。",
   "The persistent workspace must use an absolute path.": "持久工作区必须使用绝对路径。",
@@ -194,5 +192,7 @@
   "How often other PCs' changes are fetched. Saved files start uploading at once. Capacity is measured at least every 60 s regardless.": "获取其他电脑更改的频率。已保存的文件会立即开始上传。无论如何，容量至少每 60 秒测量一次。",
   "Native macFUSE (macOS)": "原生 macFUSE（macOS）",
   "macFUSE not installed — install macFUSE for the native drive (then restart RPool); WebDAV is used meanwhile.": "未安装 macFUSE — 如需原生驱动器请安装 macFUSE（然后重启 RPool）；在此期间使用 WebDAV。",
-  "Download macFUSE": "下载 macFUSE"
+  "Download macFUSE": "下载 macFUSE",
+  "rclone's whole-file cache, used only with the WebDAV frontend (on top of the shard cache). Open files and unsaved writes may exceed it. Native frontends (WinFsp, FUSE, macFUSE) do not use it.": "仅在 WebDAV 方式下使用的 rclone 整文件缓存（独立于分片缓存）。打开的文件和尚未保存完的文件可能暂时超过此大小。原生方式（WinFsp、FUSE、macFUSE）不使用它。",
+  "With the WebDAV frontend, rclone's file cache tries to leave this much free disk space. Native frontends do not use it.": "在 WebDAV 方式下，rclone 文件缓存会尽量保留这么多磁盘可用空间。原生方式不使用它。"
 }
