@@ -1,0 +1,112 @@
+# Builds RPool for each OS and attaches the archives to a GitHub release.
+#
+# - Pushing a tag `vX.Y.Z` builds that tag and publishes its release.
+#   (GitHub sends no tag events when more than three tags are pushed at once,
+#   so a bulk `git push --tags` does not start a build per old tag.)
+# - "Run workflow" (Actions tab) builds an existing tag with this workflow,
+#   e.g. a tag created before this file existed.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and release (e.g. v2.12.0)"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Older Ubuntu keeps the glibc requirement low for other distributions.
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, name: linux-x86_64 }
+          - { os: macos-14, target: aarch64-apple-darwin, name: macos-arm64 }
+          - { os: macos-14, target: x86_64-apple-darwin, name: macos-x86_64 }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, name: windows-x86_64 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+          rustup default stable
+
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+
+      # The default `winfsp` feature links WinFsp's SDK import library
+      # (delay-loaded: PCs without WinFsp still start and use WebDAV).
+      - name: WinFsp SDK
+        if: runner.os == 'Windows'
+        run: choco install winfsp -y --no-progress
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        shell: bash
+        run: cargo build --release --locked --target ${{ matrix.target }} --bin rpool --bin rpool-gui
+
+      - name: Package
+        shell: bash
+        run: |
+          dir="rpool-${TAG}-${{ matrix.name }}"
+          mkdir "$dir"
+          bin="target/${{ matrix.target }}/release"
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp "$bin/rpool.exe" "$bin/rpool-gui.exe" "$dir/"
+          else
+            cp "$bin/rpool" "$bin/rpool-gui" "$dir/"
+          fi
+          cp README.md LICENSE "$dir/" 2>/dev/null || cp README.md "$dir/"
+          if [ "$RUNNER_OS" = Windows ]; then
+            7z a -tzip "$dir.zip" "$dir" >/dev/null
+            echo "ASSET=$dir.zip" >> "$GITHUB_ENV"
+          else
+            tar czf "$dir.tar.gz" "$dir"
+            echo "ASSET=$dir.tar.gz" >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ env.ASSET }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: RPool ${{ env.TAG }}
+          generate_release_notes: true
+          files: dist/*
