@@ -72,6 +72,17 @@ impl RcloneContext {
         }
         daemon::get(self)
     }
+    /// The upload daemon for `address` ([`daemon::Role::Upload`]), unless its
+    /// account has a request rate (per-process `--tpslimit`).
+    pub(super) fn upload_daemon_for(
+        &self,
+        address: &str,
+    ) -> Option<std::sync::Arc<daemon::Daemon>> {
+        if self.tpslimit(address).is_some() {
+            return None;
+        }
+        daemon::get_upload(self)
+    }
     /// Which rclone binary and config resolve addresses (paths only, no
     /// secrets): the same address under another config is another object.
     pub(crate) fn route_identity(&self) -> String {

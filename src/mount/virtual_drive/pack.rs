@@ -36,6 +36,13 @@ pub(crate) const BATCH_WAIT: Duration = Duration::from_millis(1000);
 pub(crate) type PackUploadFn<'a> = dyn Fn(&Path, &str) -> Result<Manifest> + Sync + 'a;
 
 impl VirtualDrive {
+    /// Removes pack staging folders left by earlier rounds (a member set that
+    /// changed, a crash): everything there is rebuilt from the spool images.
+    /// Called at the start of every upload round, before any worker claims.
+    pub(super) fn sweep_pack_staging(&self) {
+        let _ = fs::remove_dir_all(self.root.join("packs"));
+    }
+
     /// Whether `intent` may join a pack: packing is on for this pool and it
     /// is a write of 1..=[`PACK_MEMBER_MAX`] bytes.
     pub(super) fn packable(&self, intent: &Intent) -> bool {
@@ -164,7 +171,9 @@ impl VirtualDrive {
         // The slice every member's event will name must hold its exact bytes.
         for (member, offset) in members.iter().zip(&offsets) {
             if crate::utils::hash_file_range(&staged, *offset, member.size)? != member.hash {
-                let _ = fs::remove_file(&staged);
+                // The whole folder: an earlier attempt's upload links the
+                // old file, and a rebuilt one must start a fresh upload.
+                let _ = fs::remove_dir_all(&dir);
                 bail!(
                     "pack member {} does not match its sealed image",
                     member.path

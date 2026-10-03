@@ -177,25 +177,33 @@ pub(super) fn rate_limited(text: &str) -> Option<StorageError> {
     )
 }
 
+/// A failed mutation (subprocess stderr or daemon error text): retriable
+/// only on an explicit upload-limit or "rejected, not performed" signal,
+/// else an unknown outcome (the write may have happened). Shared by the
+/// subprocess and daemon upload paths so both report alike.
+pub(super) fn classify_mutation(text: &[u8]) -> StorageError {
+    if upload_limit_reported(text) {
+        return StorageError::RateLimited {
+            retry_after: None,
+            detail: UPLOAD_LIMIT_DETAIL.into(),
+        };
+    }
+    if mutation_rejected(text) {
+        return StorageError::RateLimited {
+            retry_after: None,
+            detail: "rclone write rejected by provider rate limit (not performed)".into(),
+        };
+    }
+    StorageError::unknown_outcome("rclone mutation did not acknowledge success")
+}
+
 /// Turns a failed rclone exit into a [`StorageError`] from its exit code and stderr.
 /// Mutations are `RateLimited` only on explicit provider rejection evidence, else
 /// unknown outcome (the write may have happened); reads map denial, missing (exit 3/4),
 /// rate limits, timeouts and exit 5 (I/O). Used by every subprocess call.
 pub(super) fn classify(status: ExitStatus, stderr: &[u8], mutation: bool) -> StorageError {
     if mutation {
-        if upload_limit_reported(stderr) {
-            return StorageError::RateLimited {
-                retry_after: None,
-                detail: UPLOAD_LIMIT_DETAIL.into(),
-            };
-        }
-        if mutation_rejected(stderr) {
-            return StorageError::RateLimited {
-                retry_after: None,
-                detail: "rclone write rejected by provider rate limit (not performed)".into(),
-            };
-        }
-        return StorageError::unknown_outcome("rclone mutation did not acknowledge success");
+        return classify_mutation(stderr);
     }
     let text = String::from_utf8_lossy(stderr).to_ascii_lowercase();
     if let Some(error) = denial(&text) {

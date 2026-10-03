@@ -322,7 +322,7 @@ fn rclone_about_reports_mount_capacity_for_default_64_mib_pool() {
         .unwrap()
         .as_mut()
         .unwrap()
-        .observed_unix = now() - 121;
+        .observed_unix = now() - crate::mount::virtual_drive::SNAPSHOT_MAX_AGE - 1;
     let stale = about();
     assert_eq!(stale["used"], 5, "{stale}");
     assert_eq!(stale["free"], 0, "{stale}");

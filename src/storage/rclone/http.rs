@@ -211,6 +211,22 @@ pub(super) fn send(
     headers: &[(&str, &str)],
     body: Option<&[u8]>,
 ) -> Result<Response, HttpError> {
+    match body {
+        Some(body) => send_parts(endpoint, ctx, method, target, headers, Some(&[body])),
+        None => send_parts(endpoint, ctx, method, target, headers, None),
+    }
+}
+
+/// [`send`] with a body written from several slices (no joined copy of a
+/// large upload body).
+pub(super) fn send_parts(
+    endpoint: &Endpoint,
+    ctx: &OperationContext,
+    method: &str,
+    target: &str,
+    headers: &[(&str, &str)],
+    body: Option<&[&[u8]]>,
+) -> Result<Response, HttpError> {
     stopped(ctx)?;
     let mut stream = connect(endpoint).map_err(|_| HttpError::Transport)?;
     let mut head =
@@ -224,13 +240,15 @@ pub(super) fn send(
     for (name, value) in headers {
         head.push_str(&format!("{name}: {value}\r\n"));
     }
-    if let Some(body) = body {
-        head.push_str(&format!("Content-Length: {}\r\n", body.len()));
+    let parts = body.unwrap_or_default();
+    if body.is_some() {
+        let length: usize = parts.iter().map(|part| part.len()).sum();
+        head.push_str(&format!("Content-Length: {length}\r\n"));
     }
     head.push_str("\r\n");
     stream
         .write_all(head.as_bytes())
-        .and_then(|()| stream.write_all(body.unwrap_or_default()))
+        .and_then(|()| parts.iter().try_for_each(|part| stream.write_all(part)))
         .and_then(|()| stream.flush())
         .map_err(|_| HttpError::Transport)?;
     let mut connection = Connection {

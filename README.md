@@ -379,10 +379,14 @@ move existing archives. Declare shared quotas and outage groups with
 - One persistent `rclone rcd` per process serves reads and **uploads of up to
   16 MiB** over a private socket (Windows: localhost TCP with random
   credentials), so providers pay process start, backend set-up and a new TLS
-  connection once instead of per shard. Small uploads are buffered and sent
-  with their size and no rclone retries (like `rcat --size
-  --low-level-retries 1`); a non-definite daemon failure re-sends the same
-  bytes through a subprocess. Larger uploads, deletes, moves, Google Drive
+  connection once instead of per shard. Small uploads go to a separate upload
+  daemon started with rclone retries off (like `rcat --size
+  --low-level-retries 1`; a backend's retry count is fixed when it is built,
+  so reads keep their own daemon and defaults), are buffered and sent with
+  their size, and are classified exactly like `rcat`: a refused write is
+  retriable, anything else (and a stop after sending) an unknown outcome; no
+  answer within the stall allowance is the retriable stall timeout. Only a
+  daemon that cannot take the request falls back to a subprocess. Larger uploads, deletes, moves, Google Drive
   uploads and accounts with a request rate (`--tpslimit`) stay subprocesses.
   The `rclone config dump` checked before every upload is cached while the
   config file is unchanged. Locally (crypt over a local disk) a 64 KiB upload

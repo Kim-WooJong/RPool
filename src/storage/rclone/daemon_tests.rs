@@ -423,7 +423,7 @@ fn daemon_stat_timing() {
 fn daemon_uploads_equal_subprocess_uploads() {
     let f = fixture();
     let ctx = OperationContext::none();
-    let d = daemon::get(&f.daemon).unwrap();
+    let d = daemon::get_upload(&f.daemon).unwrap();
     // The daemon itself takes the upload (no silent fallback).
     assert!(d.upload(&ctx, "c:up/direct.bin", &sample(1000)).is_ok());
     assert_eq!(

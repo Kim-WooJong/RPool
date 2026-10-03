@@ -100,7 +100,7 @@ impl RcloneContext {
         let daemon = size
             .filter(|size| *size <= daemon::DAEMON_UPLOAD_MAX)
             .filter(|_| !account.as_ref().is_some_and(|(_, kind)| kind == "drive"))
-            .and_then(|_| self.daemon_for(address));
+            .and_then(|_| self.upload_daemon_for(address));
         let result = match (daemon, size) {
             (Some(daemon), Some(size)) => {
                 upload_buffered(&daemon, &mut command, ctx, address, &mut counted, size, &op)
@@ -445,7 +445,10 @@ fn upload_buffered(
             Err(daemon::Failure::Fallback) => {}
         }
     }
-    process::run_upload(command, ctx, &mut io::Cursor::new(body), Some(op))
+    // The bytes were already paced while buffering: send them unmetered.
+    let sent = process::run_upload(command, ctx, &mut io::Cursor::new(body), None)?;
+    op.sent(sent);
+    Ok(sent)
 }
 
 /// `RCLONE_CONFIG_<REMOTE>_UPLOAD_CONCURRENCY`: rclone upper-cases the

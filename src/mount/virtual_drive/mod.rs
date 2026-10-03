@@ -12,6 +12,9 @@ use super::shared_transport::SharedTransport;
 use crate::prelude::*;
 
 mod capacity;
+/// How long a capacity snapshot serves the free-space report (tests).
+#[cfg(test)]
+pub(crate) use capacity::SNAPSHOT_MAX_AGE;
 mod move_image;
 mod open;
 /// Small-file packs: many small writes uploaded as one archive.

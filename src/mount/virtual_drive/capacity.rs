@@ -3,7 +3,7 @@
 use super::*;
 
 /// How long a capacity snapshot may serve the drive's free-space report.
-const SNAPSHOT_MAX_AGE: u64 = 600;
+pub(crate) const SNAPSHOT_MAX_AGE: u64 = 600;
 
 impl VirtualDrive {
     /// Explorer asks for this on nearly every operation: it reads the

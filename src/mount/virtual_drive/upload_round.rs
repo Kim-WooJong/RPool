@@ -63,6 +63,7 @@ impl VirtualDrive {
             let ids: BTreeSet<&str> = state.pending.iter().map(|i| i.id.as_str()).collect();
             book.retain(|id| ids.contains(id));
         }
+        self.sweep_pack_staging();
         let budget = Arc::new(TransferBudget::new(self.policy.workers));
         let shared = Mutex::new(Shared {
             book,

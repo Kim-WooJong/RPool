@@ -259,6 +259,15 @@ impl OperationContext {
         }
     }
 
+    /// A copy of this context whose deadline is at most `deadline` (the
+    /// earlier of both). Used to bound one step, e.g. a daemon upload's wait
+    /// for its answer (stall supervision).
+    pub(crate) fn with_earlier_deadline(&self, deadline: Instant) -> Self {
+        let mut bounded = self.clone();
+        bounded.deadline = Some(self.deadline.map_or(deadline, |own| own.min(deadline)));
+        bounded
+    }
+
     /// A copy of this context also cancelled by `cancel`.
     pub(crate) fn child(&self, cancel: Arc<AtomicBool>) -> Self {
         let mut child = self.clone();

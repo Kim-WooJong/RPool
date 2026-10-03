@@ -85,12 +85,27 @@ const CHUNKED_UPLOAD_BACKENDS: [&str; 12] = [
 /// Registry key: one daemon per distinct executable, config and environment.
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Key {
+    /// Reads or uploads (separate daemons, see [`Role`]).
+    role: Role,
     /// rclone binary.
     executable: PathBuf,
     /// Explicit `--config` file; `None` = inherited selection.
     config: Option<PathBuf>,
     /// Full (sorted) environment, since it can change rclone behavior.
     environment: Vec<(OsString, OsString)>,
+}
+
+/// What a daemon serves. Uploads get their own daemon, started with rclone
+/// retries off (`--low-level-retries 1 --retries 1`, like the `rcat`
+/// subprocess): a backend's pacer takes its retry count when the backend is
+/// first built, so a per-call setting cannot turn retries off on a backend
+/// the read daemon already built. Reads keep rclone's default retries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum Role {
+    /// Stats, listings and ranged reads.
+    Read,
+    /// Small uploads (`Daemon::upload`).
+    Upload,
 }
 
 /// Config file (size, mtime) at daemon start; `None` = unreadable. A change means the daemon is stale.
@@ -129,6 +144,9 @@ pub(super) struct Daemon {
     fingerprint: Fingerprint,
     /// Rate last set with `core/bwlimit` (`None` = rclone's default, off).
     bwlimit: Mutex<Option<String>>,
+    /// Serves uploads ([`Role::Upload`]): RPool already paces the bytes it
+    /// sends, so no rclone bandwidth limit is set on it.
+    uploads: bool,
     /// 0700 temp dir holding the socket and owner file; removed on drop.
     #[cfg(unix)]
     dir: tempfile::TempDir,
@@ -180,7 +198,7 @@ impl Daemon {
     pub(super) fn apply_bwlimit(&self, rate: &str) {
         let mut applied = self.bwlimit.lock().unwrap_or_else(|p| p.into_inner());
         let current = applied.as_deref().unwrap_or("off");
-        if current == rate || self.is_dead() {
+        if current == rate || self.uploads || self.is_dead() {
             return;
         }
         let ctx = OperationContext::with_deadline(Instant::now() + Duration::from_secs(5));
@@ -303,12 +321,24 @@ pub(super) fn fingerprint(path: &std::path::Path) -> Fingerprint {
 /// The live daemon for this context, starting or replacing it when needed.
 /// `None` = use subprocesses.
 pub(super) fn get(context: &RcloneContext) -> Option<Arc<Daemon>> {
+    get_role(context, Role::Read)
+}
+
+/// The live upload daemon for this context ([`Role::Upload`]).
+pub(super) fn get_upload(context: &RcloneContext) -> Option<Arc<Daemon>> {
+    get_role(context, Role::Upload)
+}
+
+/// The live daemon of `role` for this context, starting or replacing it
+/// when needed. `None` = use subprocesses.
+fn get_role(context: &RcloneContext, role: Role) -> Option<Arc<Daemon>> {
     if !context.daemon_allowed || opted_out(context) || SHUT_DOWN.load(Ordering::Acquire) {
         return None;
     }
     let mut environment = context.environment.clone();
     environment.sort();
     let key = Key {
+        role,
         executable: context.executable.clone(),
         config: match &context.config {
             ConfigSelection::File(path) => Some(path.clone()),
@@ -348,7 +378,7 @@ pub(super) fn get(context: &RcloneContext) -> Option<Arc<Daemon>> {
             slot.daemon = None;
         }
     }
-    match start(context, current) {
+    match start(context, current, role) {
         Some(daemon) => {
             let daemon = Arc::new(daemon);
             slot.daemon = Some(daemon.clone());
@@ -364,16 +394,25 @@ pub(super) fn get(context: &RcloneContext) -> Option<Arc<Daemon>> {
 
 /// `rcd` command with the context's global args/env, minus `RCLONE_RC_*`
 /// variables, with stdin/stdout discarded.
-fn daemon_command(context: &RcloneContext, args: &[&str]) -> Command {
-    let mut command = context.base_command(&args.iter().map(OsString::from).collect::<Vec<_>>());
-    // One shard is one upload request here too: no chunk fan-out inside a
-    // shard (backend-wide variables override rclone.conf; see
-    // `write::chunk_concurrency_variable` for the subprocess path).
-    for backend in CHUNKED_UPLOAD_BACKENDS {
-        command.env(
-            format!("RCLONE_{}_UPLOAD_CONCURRENCY", backend.to_ascii_uppercase()),
-            "1",
-        );
+fn daemon_command(context: &RcloneContext, args: &[&str], role: Role) -> Command {
+    let mut args: Vec<OsString> = args.iter().map(OsString::from).collect();
+    if role == Role::Upload {
+        // Like `rcat --retries 1 --low-level-retries 1`: a refused write
+        // reaches RPool (rate limits, Dropbox's concurrent-write refusal)
+        // instead of being retried inside rclone while a permit is held.
+        args.extend(["--low-level-retries", "1", "--retries", "1"].map(OsString::from));
+    }
+    let mut command = context.base_command(&args);
+    if role == Role::Upload {
+        // One shard is one upload request here too: no chunk fan-out inside
+        // a shard (backend-wide variables override rclone.conf; see
+        // `write::chunk_concurrency_variable` for the subprocess path).
+        for backend in CHUNKED_UPLOAD_BACKENDS {
+            command.env(
+                format!("RCLONE_{}_UPLOAD_CONCURRENCY", backend.to_ascii_uppercase()),
+                "1",
+            );
+        }
     }
     for (key, _) in &context.environment {
         if key
@@ -391,7 +430,7 @@ fn daemon_command(context: &RcloneContext, args: &[&str]) -> Command {
 /// Starts `rclone rcd` on a unix socket in a fresh 0700 temp dir (sweeping
 /// stale daemons first) and waits until it is ready; `None` on any failure.
 #[cfg(unix)]
-fn start(context: &RcloneContext, fingerprint: Fingerprint) -> Option<Daemon> {
+fn start(context: &RcloneContext, fingerprint: Fingerprint, role: Role) -> Option<Daemon> {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::Builder::new()
         .prefix("rpool-rcd-")
@@ -408,6 +447,7 @@ fn start(context: &RcloneContext, fingerprint: Fingerprint) -> Option<Daemon> {
     let mut command = daemon_command(
         context,
         &["rcd", "--rc-serve", "--rc-no-auth", "--rc-addr", &address],
+        role,
     );
     command.stderr(Stdio::null());
     let child = command.spawn().ok()?;
@@ -418,6 +458,7 @@ fn start(context: &RcloneContext, fingerprint: Fingerprint) -> Option<Daemon> {
         dead: AtomicBool::new(false),
         fingerprint,
         bwlimit: Mutex::new(None),
+        uploads: role == Role::Upload,
         dir,
     };
     std::fs::write(daemon.dir.path().join("owner"), owner).ok()?;
@@ -427,13 +468,17 @@ fn start(context: &RcloneContext, fingerprint: Fingerprint) -> Option<Daemon> {
 /// Starts `rclone rcd` on 127.0.0.1 with a random port and Basic-auth password
 /// passed via env, reads the port from stderr and waits until it is ready.
 #[cfg(windows)]
-fn start(context: &RcloneContext, fingerprint: Fingerprint) -> Option<Daemon> {
+fn start(context: &RcloneContext, fingerprint: Fingerprint, role: Role) -> Option<Daemon> {
     use std::io::{BufRead, Read};
     use std::os::windows::process::CommandExt;
     let mut secret = [0u8; 24];
     getrandom::fill(&mut secret).ok()?;
     let password = data_encoding::HEXLOWER.encode(&secret);
-    let mut command = daemon_command(context, &["rcd", "--rc-serve", "--rc-addr", "127.0.0.1:0"]);
+    let mut command = daemon_command(
+        context,
+        &["rcd", "--rc-serve", "--rc-addr", "127.0.0.1:0"],
+        role,
+    );
     command
         .env("RCLONE_RC_USER", "rpool")
         .env("RCLONE_RC_PASS", &password)
@@ -473,6 +518,7 @@ fn start(context: &RcloneContext, fingerprint: Fingerprint) -> Option<Daemon> {
         dead: AtomicBool::new(false),
         fingerprint,
         bwlimit: Mutex::new(None),
+        uploads: role == Role::Upload,
     };
     let Ok(port) = receiver.recv_timeout(READY_TIMEOUT) else {
         drop(daemon(Endpoint::Tcp {
@@ -829,11 +875,14 @@ impl Daemon {
 
 impl Daemon {
     /// Uploads `body` as the object at `address` (`operations/uploadfile`)
-    /// with a known size and without rclone retries, like the subprocess
-    /// `rcat --size --low-level-retries 1`. Rate limits and denials are
-    /// definite; anything else falls back so the caller re-sends the same
-    /// bytes through a subprocess (an upload repeated after a lost reply
-    /// writes the same object again).
+    /// with a known size, on the upload daemon (rclone retries off), like
+    /// `rcat --size --low-level-retries 1`. Errors are classified like the
+    /// subprocess's (`process::classify_mutation`): a refusal is retriable,
+    /// anything else an unknown outcome. Once the request is sent, a stop or
+    /// deadline is an unknown outcome (the write may complete), and no answer
+    /// within the stall allowance is the retriable stall timeout (a re-send
+    /// overwrites the same object). Only a daemon that cannot take the
+    /// request (transport, an answer that is not rclone's) falls back.
     pub(super) fn upload(&self, ctx: &OperationContext, address: &str, body: &[u8]) -> Outcome<()> {
         let (root, rel) = split(address).ok_or(Failure::Fallback)?;
         let (dir, name) = match rel.rsplit_once('/') {
@@ -843,10 +892,12 @@ impl Daemon {
         if name.is_empty() || address.ends_with('/') {
             return Err(Failure::Fallback);
         }
+        process::check(ctx).map_err(Failure::Definite)?;
         let config = json!({
-            // Buffer the whole body: uploaded with its size, never streamed
-            // (a backend without streaming uploads would spool to disk).
-            "StreamingUploadCutoff": format!("{}", DAEMON_UPLOAD_MAX / 1024 + 1),
+            // Buffer exactly this body (a bare number is KiB): uploaded with
+            // its size, never streamed (a backend without streaming uploads
+            // would spool to disk).
+            "StreamingUploadCutoff": format!("{}", body.len() as u64 / 1024 + 1),
             "LowLevelRetries": 1,
         })
         .to_string();
@@ -856,19 +907,32 @@ impl Daemon {
         http::encode_component(dir, &mut target);
         target.push_str("&_config=");
         http::encode_component(&config, &mut target);
-        let (content_type, payload) = multipart(name, body);
-        let mut response = http::send(
+        let (content_type, head, tail) = multipart(name);
+        let allowance = super::stall::STALL_FLOOR.max(Duration::from_secs(
+            body.len() as u64 / super::stall::STALL_RATE,
+        ));
+        let bounded = ctx.with_earlier_deadline(Instant::now() + allowance);
+        let stopped = |error: HttpError| match error {
+            HttpError::Stopped(_) if ctx.is_cancelled() || ctx.deadline_passed() => {
+                Failure::Definite(StorageError::unknown_outcome(
+                    "daemon upload stopped before its answer",
+                ))
+            }
+            HttpError::Stopped(_) => Failure::Definite(StorageError::Timeout {
+                detail: process::STALLED_DETAIL.into(),
+            }),
+            other => self.transport(other),
+        };
+        let mut response = http::send_parts(
             &self.endpoint,
-            ctx,
+            &bounded,
             "POST",
             &target,
             &[("Content-Type", content_type.as_str())],
-            Some(&payload),
+            Some(&[head.as_slice(), body, tail.as_slice()]),
         )
-        .map_err(|error| self.transport(error))?;
-        let reply = response
-            .body(ctx, ERROR_BODY_LIMIT)
-            .map_err(|error| self.transport(error))?;
+        .map_err(stopped)?;
+        let reply = response.body(&bounded, ERROR_BODY_LIMIT).map_err(stopped)?;
         if response.status == 200 {
             return Ok(());
         }
@@ -876,10 +940,11 @@ impl Daemon {
     }
 }
 
-/// One `multipart/form-data` part named `file` holding `body`; the file name
-/// travels as RFC 2231 `filename*` (UTF-8, percent-encoded), so encrypted
-/// names with any characters arrive unchanged. Returns (Content-Type, bytes).
-fn multipart(name: &str, body: &[u8]) -> (String, Vec<u8>) {
+/// The framing of one `multipart/form-data` part named `file`: (Content-Type,
+/// bytes before the body, bytes after it). The file name travels as RFC 2231
+/// `filename*` (UTF-8, percent-encoded), so encrypted names with any
+/// characters arrive unchanged.
+fn multipart(name: &str) -> (String, Vec<u8>, Vec<u8>) {
     let mut random = [0u8; 12];
     let _ = getrandom::fill(&mut random);
     let boundary: String = std::iter::once("rpool".to_owned())
@@ -887,19 +952,21 @@ fn multipart(name: &str, body: &[u8]) -> (String, Vec<u8>) {
         .collect();
     let mut encoded = String::new();
     http::encode_component(name, &mut encoded);
-    let mut payload = format!(
+    let head = format!(
         "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename*=UTF-8''{encoded}\r\nContent-Type: application/octet-stream\r\n\r\n"
     )
     .into_bytes();
-    payload.reserve(body.len() + boundary.len() + 8);
-    payload.extend_from_slice(body);
-    payload.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
-    (format!("multipart/form-data; boundary={boundary}"), payload)
+    let tail = format!("\r\n--{boundary}--\r\n").into_bytes();
+    (
+        format!("multipart/form-data; boundary={boundary}"),
+        head,
+        tail,
+    )
 }
 
-/// Classifies a failed upload reply: a rate limit or a denial is definite
-/// (the subprocess would get the same answer); everything else, including
-/// a 404 for a missing parent, falls back to the subprocess path.
+/// Classifies a failed upload reply like a failed `rcat`
+/// (`process::classify_mutation`). Only an answer that is not rclone's JSON
+/// error (the daemon itself misbehaving) falls back to the subprocess.
 fn upload_failure(body: &[u8]) -> Failure {
     let message = serde_json::from_slice::<Value>(body)
         .ok()
@@ -910,9 +977,7 @@ fn upload_failure(body: &[u8]) -> Failure {
                 .map(str::to_owned)
         });
     match message {
-        Some(message) => process::denial(&message)
-            .or_else(|| process::rate_limited(&message))
-            .map_or(Failure::Fallback, Failure::Definite),
+        Some(message) => Failure::Definite(process::classify_mutation(message.as_bytes())),
         None => Failure::Fallback,
     }
 }
@@ -961,6 +1026,54 @@ mod tests {
         ] {
             assert!(split(refused).is_none(), "{refused}");
         }
+    }
+
+    #[test]
+    fn upload_errors_are_classified_like_rcat() {
+        let reply = |message: &str| serde_json::to_vec(&json!({ "error": message })).unwrap();
+        let kind = |failure: Failure| match failure {
+            Failure::Definite(error) => Some(error),
+            Failure::Fallback => None,
+        };
+        // A refused write is retriable, as from rcat.
+        let refused = kind(upload_failure(&reply("HTTP error 429: too many requests"))).unwrap();
+        assert!(
+            matches!(refused, StorageError::RateLimited { .. }),
+            "{refused:?}"
+        );
+        let dropbox = kind(upload_failure(&reply("too_many_write_operations/"))).unwrap();
+        assert!(matches!(dropbox, StorageError::RateLimited { .. }));
+        // A path that merely contains 429 or a denial word is no signal: the
+        // write may have happened.
+        for message in [
+            "failed to upload x/shard-429/a: connection reset",
+            "access denied while finishing x",
+            "insufficient space",
+        ] {
+            let error = kind(upload_failure(&reply(message))).unwrap();
+            assert_eq!(
+                error.kind(),
+                crate::storage::error::StorageErrorKind::UnknownOutcome,
+                "{message}"
+            );
+        }
+        // Only an answer that is not rclone's falls back to the subprocess.
+        assert!(kind(upload_failure(b"<html>bad gateway</html>")).is_none());
+    }
+
+    #[test]
+    fn multipart_framing_carries_any_name() {
+        let (content_type, head, tail) = multipart("ꕋ a+b%20/x.bin");
+        let boundary = content_type
+            .strip_prefix("multipart/form-data; boundary=")
+            .unwrap();
+        let head = String::from_utf8(head).unwrap();
+        assert!(head.starts_with(&format!("--{boundary}\r\n")));
+        assert!(
+            head.contains("filename*=UTF-8''%EA%95%8B%20a%2Bb%2520%2Fx.bin"),
+            "{head}"
+        );
+        assert_eq!(tail, format!("\r\n--{boundary}--\r\n").into_bytes());
     }
 
     #[test]
