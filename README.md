@@ -113,8 +113,10 @@ stays while any member is kept). Before upload every member's slice is
 re-hashed against its sealed image; a failed pack upload leaves every member
 pending. **Every PC using the pool needs RPool 2.10 or later**: older versions
 refuse version-3 events and stop syncing the pool (loudly, never misreading
-a pack). Pool migration refuses drives with packed files for now; account
-recovery copies packed files correctly.
+a pack). Pool migration moves each pack as one unit (relocated or
+re-encoded once; every member keeps its offset in the new pack, and a lost
+pack drops all its members, only with `--accept-lost`); account recovery
+copies packed files correctly.
 
 ### Trash, versions and rollback
 

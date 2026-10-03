@@ -90,5 +90,6 @@ pub(crate) fn drive_file(path: &str, revision: &str, manifest: Manifest) -> Driv
         hash: blake3::hash(path.as_bytes()).to_hex().to_string(),
         size: manifest.original_size,
         manifest,
+        pack: None,
     }
 }

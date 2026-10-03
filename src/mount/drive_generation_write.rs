@@ -45,18 +45,20 @@ pub(crate) fn records(files: &[DriveFile], seed: &str) -> Result<Vec<Record>> {
     let mut events = BTreeMap::new();
     let mut out = Vec::with_capacity(files.len());
     for file in files {
+        let content = Content {
+            hash: file.hash.clone(),
+            size: file.size,
+            manifest: file.manifest.clone(),
+            // A pack member keeps its position in the (migrated) pack.
+            pack: file.pack,
+        };
         let event = Event {
-            version: 1,
+            version: content.event_version(),
             worker: WORKER.into(),
             device: device.clone(),
             path: file.path.clone(),
             parents: vec![],
-            content: Some(Content {
-                hash: file.hash.clone(),
-                size: file.size,
-                manifest: file.manifest.clone(),
-                pack: None,
-            }),
+            content: Some(content),
         };
         event.validate()?;
         let id = event.id()?;
@@ -127,6 +129,7 @@ mod tests {
             hash: blake3::hash(path.as_bytes()).to_hex().to_string(),
             size: 5,
             manifest: manifest(id, 5, 1048576, 2, 1, &["a:", "b:", "c:"]),
+            pack: None,
         }
     }
 

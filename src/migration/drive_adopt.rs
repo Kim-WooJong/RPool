@@ -22,7 +22,8 @@ use super::drive_journal::{
     adopt as record_adoption, freeze, load_adoption, load_freeze, load_plan,
 };
 use super::drive_model::{
-    entry_key, DriveAdoption, DriveFile, DriveFreeze, DrivePlan, GenerationRef, BOOTSTRAP_RECORDS,
+    entry_key, units, DriveAdoption, DriveFile, DriveFreeze, DrivePlan, GenerationRef,
+    BOOTSTRAP_RECORDS,
 };
 use super::drive_source::DriveSource;
 use super::execute::{is_abandoned, progress, Progress, RunOptions, RunSummary};
@@ -104,10 +105,11 @@ pub(crate) fn adopt_core(
         .filter(|e| e.action == Action::Unaffected)
         .map(|e| e.key.clone())
         .collect();
-    let mut resolution = resolve(journal, &view.files, &unaffected)?;
+    // A small-file pack is one unit: its members share its new archive.
+    let units = units(&view.files);
+    let mut resolution = resolve(journal, &units, &unaffected)?;
     if !resolution.pending.is_empty() {
-        let files: Vec<DriveFile> = view
-            .files
+        let files: Vec<DriveFile> = units
             .iter()
             .filter(|f| {
                 resolution
@@ -127,7 +129,7 @@ pub(crate) fn adopt_core(
             summary.stopped
         ));
         let unaffected: BTreeSet<String> = unaffected.union(&kept).cloned().collect();
-        resolution = resolve(journal, &view.files, &unaffected)?;
+        resolution = resolve(journal, &units, &unaffected)?;
     }
     if !resolution.pending.is_empty() {
         let list: Vec<String> = resolution
@@ -141,7 +143,13 @@ pub(crate) fn adopt_core(
             list.join(", ")
         );
     }
-    let dropped: Vec<String> = resolution.lost.keys().cloned().collect();
+    // A lost pack drops every member.
+    let dropped: Vec<String> = view
+        .files
+        .iter()
+        .filter(|f| resolution.lost.contains_key(&f.unit_key()))
+        .map(|f| f.path.clone())
+        .collect();
     if !dropped.is_empty() && !accept_lost {
         bail!(
             "{} drive file(s) are unrecoverable; adopt with --accept-lost to leave them out (they are listed by `pool migrate lost`): {}",
@@ -150,30 +158,44 @@ pub(crate) fn adopt_core(
         );
     }
 
-    // New manifests, checked against their records.
-    let adopted: Vec<DriveFile> = view
-        .files
+    // New manifests (once per unit), checked against their records: a
+    // unit's new archive holds exactly its old archive's bytes.
+    let manifests: BTreeMap<String, Manifest> = units
         .par_iter()
-        .filter_map(|file| {
-            let key = entry_key(&file.path, &file.revision);
+        .filter_map(|unit| {
+            let key = entry_key(&unit.path, &unit.revision);
             match resolution.resolved.get(&key) {
-                None => None,
-                Some(None) => Some(Ok(file.clone())),
                 Some(Some((id, location))) => {
                     Some(io.load_manifest(location).and_then(|manifest| {
                         crate::manifest::validate_manifest(&manifest)?;
-                        if manifest.archive_id != *id || manifest.original_size != file.size {
-                            bail!("{}: new archive does not match its record", file.path);
+                        if manifest.archive_id != *id
+                            || manifest.original_size != unit.manifest.original_size
+                        {
+                            bail!("{}: new archive does not match its record", unit.path);
                         }
-                        Ok(DriveFile {
-                            manifest,
-                            ..file.clone()
-                        })
+                        Ok((key, manifest))
                     }))
                 }
+                _ => None,
             }
         })
         .collect::<Result<_>>()?;
+    let adopted: Vec<DriveFile> = view
+        .files
+        .iter()
+        .filter_map(|file| {
+            let key = file.unit_key();
+            match resolution.resolved.get(&key) {
+                None => None,
+                Some(None) => Some(file.clone()),
+                // Members keep their offset in the new pack archive.
+                Some(Some(_)) => manifests.get(&key).map(|manifest| DriveFile {
+                    manifest: manifest.clone(),
+                    ..file.clone()
+                }),
+            }
+        })
+        .collect();
     let new_records = records(&adopted, &plan.migration_id)?;
     io.say(&format!(
         "drive_publish epoch={} records={} files={}",
@@ -188,7 +210,8 @@ pub(crate) fn adopt_core(
         epoch: Some(drive.epoch.clone()),
     };
     let seen = io.source().view(&generation)?;
-    let identity = |files: &[DriveFile]| -> Result<BTreeMap<String, (String, u64, String)>> {
+    type Identity = (String, u64, String, Option<u64>);
+    let identity = |files: &[DriveFile]| -> Result<BTreeMap<String, Identity>> {
         files
             .iter()
             .map(|f| {
@@ -198,6 +221,7 @@ pub(crate) fn adopt_core(
                         f.hash.clone(),
                         f.size,
                         crate::manifest::manifest_fingerprint(&f.manifest)?,
+                        f.pack.map(|p| p.offset),
                     ),
                 ))
             })
@@ -264,7 +288,7 @@ struct Resolution {
     /// Visible file key -> new `(archive id, manifest location)`, or `None` to
     /// keep its current archive.
     resolved: BTreeMap<String, Option<(String, String)>>,
-    /// Drive path -> group losses of files recorded as lost.
+    /// Unit key -> group losses of units recorded as lost.
     lost: BTreeMap<String, Vec<GroupLoss>>,
     /// Keys still needing the catch-up run.
     pending: BTreeSet<String>,
@@ -305,7 +329,7 @@ fn resolve(
                 _ => pending(&mut out, "switched record without its new archive"),
             },
             Some(Progress::Lost(r)) => {
-                out.lost.insert(file.path.clone(), r.losses.clone());
+                out.lost.insert(key.clone(), r.losses.clone());
             }
             _ if unaffected.contains(&key) => {
                 out.resolved.insert(key.clone(), None);

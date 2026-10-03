@@ -60,6 +60,11 @@ fn world() -> World {
         .zip(names)
         .map(|(m, name)| drive_file(name, &format!("rev1-{name}"), m))
         .collect();
+    world_with(cloud, files)
+}
+
+/// The same pool with `files` (planned and published like [`world`]).
+fn world_with(cloud: FakeCloud, files: Vec<DriveFile>) -> World {
     let drive = FakeDrive::new(files);
     let options = PlanOptions::default();
     let (mut plan, mut listed) = plan_listed(
@@ -114,7 +119,9 @@ impl World {
         self.clock.load(SeqCst)
     }
     fn files(&self) -> BTreeMap<String, DriveFile> {
-        by_key(self.drive.files.lock().unwrap().clone())
+        by_key(crate::migration::drive_model::units(
+            &self.drive.files.lock().unwrap(),
+        ))
     }
     /// The run's drive part for `pc`: freeze, then the planned entries still
     /// current, through the real state machine.
@@ -506,4 +513,114 @@ fn files_claimed_by_a_running_pc_block_adoption() {
     // The adoption froze the source while it waited.
     let known = known_in("p", w.stores(), Some(w.cache("cache-z"))).unwrap();
     assert_eq!(known.freezes.len(), 1);
+}
+
+/// Small-file packs migrate as one unit: the pack archive is built once and
+/// every member keeps its offset in the new pack.
+#[test]
+fn a_small_file_pack_moves_once_and_members_keep_their_offsets() {
+    let mut cloud = FakeCloud::default();
+    let kept = payload('1', &["a:x", "b:x", "c:x"]);
+    let moved = payload('2', &["b:x", "c:x", "d:x"]);
+    let pack = payload('6', &["b:x", "c:x", "d:x"]);
+    for m in [&kept, &moved, &pack] {
+        cloud.store(m, &[]);
+    }
+    cloud.wipe("d:x");
+    let member = |path: &str, offset: u64, size: u64| {
+        let mut file = drive_file(path, &format!("rev1-{path}"), pack.clone());
+        file.size = size;
+        file.pack = Some(crate::mount::PackSlice { offset });
+        file
+    };
+    let files = vec![
+        drive_file("docs/kept.txt", "rev1-kept", kept.clone()),
+        member("small/a.txt", 0, 100),
+        drive_file("moved.bin", "rev1-moved", moved.clone()),
+        member("small/b.txt", 100, 2_000),
+        member("small/c.txt", 2_100, 50_000),
+    ];
+    let w = world_with(cloud, files);
+    // Three units: the kept file, the moved file and ONE pack.
+    let paths: Vec<&str> = w
+        .drive_plan
+        .entries
+        .iter()
+        .map(|e| e.path.as_str())
+        .collect();
+    assert_eq!(paths.len(), 3, "{paths:?}");
+    let pack_entry = planned(&w, &format!("(pack {})", pack.archive_id));
+    assert_eq!(pack_entry.size, pack.original_size);
+    assert!(matches!(
+        pack_entry.action,
+        Action::Relocate | Action::Reencode
+    ));
+    assert!(w
+        .drive_plan
+        .notes
+        .iter()
+        .any(|n| n.contains("1 small-file pack(s) move as one unit")));
+
+    let run = w.run("pc-a", "cache-a");
+    assert_eq!(run.switched_now, 2, "the moved file and the pack, once");
+    let adoption = w.adopt("cache-a", false).unwrap();
+    assert_eq!(adoption.files, 5);
+    assert!(adoption.dropped.is_empty());
+
+    let files = seen(&w, &w.new_generation());
+    assert_eq!(files["docs/kept.txt"].manifest.archive_id, kept.archive_id);
+    let new_pack = &files["small/a.txt"].manifest.archive_id;
+    assert_ne!(new_pack, &pack.archive_id);
+    for (path, offset, size) in [
+        ("small/a.txt", 0, 100),
+        ("small/b.txt", 100, 2_000),
+        ("small/c.txt", 2_100, 50_000),
+    ] {
+        let file = &files[path];
+        assert_eq!(
+            &file.manifest.archive_id, new_pack,
+            "{path} shares the new pack"
+        );
+        assert_eq!(file.pack.map(|p| p.offset), Some(offset), "{path}");
+        assert_eq!(file.size, size, "{path}");
+    }
+    assert_ne!(files["moved.bin"].manifest.archive_id, *new_pack);
+}
+
+/// A lost pack drops every member (only with `--accept-lost`).
+#[test]
+fn a_lost_pack_drops_all_its_members() {
+    let mut cloud = FakeCloud::default();
+    let kept = payload('1', &["a:x", "b:x", "c:x"]);
+    let pack = payload('7', &["d:x", "d:x", "c:x"]);
+    for m in [&kept, &pack] {
+        cloud.store(m, &[]);
+    }
+    cloud.wipe("d:x");
+    let member = |path: &str, offset: u64| {
+        let mut file = drive_file(path, &format!("rev1-{path}"), pack.clone());
+        file.size = 10;
+        file.pack = Some(crate::mount::PackSlice { offset });
+        file
+    };
+    let w = world_with(
+        cloud,
+        vec![
+            drive_file("docs/kept.txt", "rev1-kept", kept),
+            member("small/x.txt", 0),
+            member("small/y.txt", 10),
+        ],
+    );
+    w.run("pc-a", "cache-a");
+    let error = w.adopt("cache-a", false).unwrap_err().to_string();
+    assert!(
+        error.contains("small/x.txt") && error.contains("small/y.txt"),
+        "{error}"
+    );
+    let adoption = w.adopt("cache-a", true).unwrap();
+    assert_eq!(adoption.files, 1);
+    assert_eq!(
+        adoption.dropped,
+        vec!["small/x.txt".to_string(), "small/y.txt".to_string()]
+    );
 }

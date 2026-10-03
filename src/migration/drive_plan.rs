@@ -7,7 +7,7 @@
 //! Only what the cloud records is planned: writes still pending on some PC
 //! (not yet uploaded and published) are not visible here.
 use super::drive_model::{
-    entry_key, epoch_for, record_bytes, DriveEntry, DriveFile, DrivePlan, BOOTSTRAP_BYTES,
+    entry_key, epoch_for, record_bytes, units, DriveEntry, DriveFile, DrivePlan, BOOTSTRAP_BYTES,
     BOOTSTRAP_RECORDS,
 };
 use super::drive_source::DriveSource;
@@ -61,7 +61,13 @@ pub(crate) fn plan_drive(
     };
     let target = plan.target.clone();
     let target_set: BTreeSet<String> = target.remotes.iter().cloned().collect();
-    extend_listings(cloud, &mut listed.listings, &view.files);
+    // A small-file pack moves once for all its members (`units`).
+    let units = units(&view.files);
+    let packs = units
+        .iter()
+        .filter(|u| u.path.starts_with("(pack "))
+        .count();
+    extend_listings(cloud, &mut listed.listings, &units);
     let workers = if options.workers > 0 {
         options.workers
     } else {
@@ -74,14 +80,14 @@ pub(crate) fn plan_drive(
         &listed.listings,
         options,
         workers,
-        &view.files,
+        &units,
     )?;
 
     let mut counts = Counts::default();
     let (mut download, mut upload, mut new_storage, mut record_total) = (0u64, 0u64, 0u64, 0u64);
     let add = |a: u64, b: u64| a.checked_add(b).context("transfer estimate overflow");
     let mut specs = listed.specs.clone();
-    for ((entry, transfer), file) in classified.iter().zip(&view.files) {
+    for (entry, transfer) in &classified {
         match entry.action {
             Action::Unaffected => counts.unaffected += 1,
             Action::Relocate => counts.relocate += 1,
@@ -92,8 +98,16 @@ pub(crate) fn plan_drive(
         download = add(download, entry.download_bytes)?;
         upload = add(upload, entry.upload_bytes)?;
         new_storage = add(new_storage, transfer.specs.iter().map(|s| s.size).sum())?;
-        record_total = add(record_total, record_bytes(&file.path, &file.manifest))?;
         specs.push(transfer.specs.clone());
+    }
+    // Every visible file (pack members too) gets its own record.
+    for file in &view.files {
+        record_total = add(record_total, record_bytes(&file.path, &file.manifest))?;
+    }
+    if packs > 0 {
+        notes.push(format!(
+            "drive: {packs} small-file pack(s) move as one unit each; every file in a pack keeps its position in the new pack archive"
+        ));
     }
     let quota_ok = cloud.quota_ok(&target, &specs);
     // A fresh PC streams large generations in pages (metadata checkpoints);

@@ -8,7 +8,7 @@
 //! adoption's catch-up. Starting the drive part freezes the source
 //! generation (PCs on it stop publishing).
 use super::drive_journal::{freeze, load_adoption, load_plan};
-use super::drive_model::{entry_key, DriveEntry, DriveFile, DriveFreeze};
+use super::drive_model::{entry_key, units, DriveEntry, DriveFile, DriveFreeze};
 use super::drive_source::{CloudDrive, DriveSource};
 use super::execute::{run_core, Effects, Replacement, RunOptions, RunSummary};
 use super::journal::Journal;
@@ -51,7 +51,8 @@ pub(crate) fn run(
     );
     let source = CloudDrive::new(rclone, &plan.pool, &plan.target);
     let view = source.view(&drive.source)?;
-    let current = by_key(view.files);
+    // Pack members move with their pack (`drive_model::units`).
+    let current = by_key(units(&view.files));
     let (planned, changed): (Vec<&DriveEntry>, Vec<&DriveEntry>) = drive
         .entries
         .iter()

@@ -52,8 +52,55 @@ pub(crate) struct DriveFile {
     pub hash: String,
     /// Plaintext size in bytes.
     pub size: u64,
-    /// Manifest of the file's payload archive.
+    /// Manifest of the file's payload archive (the whole pack when packed).
     pub manifest: Manifest,
+    /// Position in a small-file pack; `None` when the archive is the file.
+    pub pack: Option<crate::mount::PackSlice>,
+}
+
+impl DriveFile {
+    /// Journal key of the unit this file migrates with: the file itself, or
+    /// for a pack member the whole pack ([`units`]).
+    pub(crate) fn unit_key(&self) -> String {
+        match self.pack {
+            None => entry_key(&self.path, &self.revision),
+            Some(_) => {
+                let unit = pack_unit(&self.manifest);
+                entry_key(&unit.path, &unit.revision)
+            }
+        }
+    }
+}
+
+/// The migration unit of a pack: a synthetic file standing for the whole
+/// pack archive (path `(pack <archive id>)`, revision `pack:<fingerprint>`),
+/// so the archive state machine relocates or re-encodes it once.
+pub(crate) fn pack_unit(manifest: &Manifest) -> DriveFile {
+    let fingerprint = crate::manifest::manifest_fingerprint(manifest).unwrap_or_default();
+    DriveFile {
+        path: format!("(pack {})", manifest.archive_id),
+        revision: format!("pack:{fingerprint}"),
+        hash: manifest.content_root_blake3.clone(),
+        size: manifest.original_size,
+        manifest: manifest.clone(),
+        pack: None,
+    }
+}
+
+/// What migration moves: every unpacked file, plus one [`pack_unit`] per
+/// pack archive (members are not moved one by one: they share it). Order
+/// follows `files`, a pack at its first member.
+pub(crate) fn units(files: &[DriveFile]) -> Vec<DriveFile> {
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for file in files {
+        if file.pack.is_none() {
+            out.push(file.clone());
+        } else if seen.insert(file.unit_key()) {
+            out.push(pack_unit(&file.manifest));
+        }
+    }
+    out
 }
 
 /// The drive as read from the cloud.
