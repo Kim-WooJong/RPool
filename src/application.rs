@@ -164,6 +164,7 @@ fn dispatch(cli: Cli) -> Result<()> {
                 parity_shards,
                 max_object_bytes,
                 native_crypt,
+                small_file_packing,
             } => commands::pool::set(
                 &cli.rclone,
                 name,
@@ -176,6 +177,7 @@ fn dispatch(cli: Cli) -> Result<()> {
                 parity_shards,
                 max_object_bytes,
                 native_crypt,
+                small_file_packing,
             ),
             PoolCommands::Remove { name } => commands::pool::remove(&name),
             PoolCommands::Migrate(args) => commands::pool::migrate(&cli.rclone, args),

@@ -18,6 +18,7 @@ pub(crate) fn run(
     parity_shards: usize,
     max_object_bytes: Option<u64>,
     native_crypt: bool,
+    small_file_packing: bool,
 ) -> Result<()> {
     let pool = PoolDefinition {
         remotes,
@@ -29,6 +30,7 @@ pub(crate) fn run(
         parity_shards,
         max_object_bytes,
         native_crypt,
+        small_file_packing,
     };
     let previous = crate::pool::load_pool_store()
         .ok()

@@ -64,6 +64,7 @@ fn event(worker: &str, path: &str, parents: Vec<String>, size: Option<u64>) -> T
                 hash: blake3::hash(&bytes).to_hex().to_string(),
                 size,
                 manifest,
+                pack: None,
             }
         }),
     }

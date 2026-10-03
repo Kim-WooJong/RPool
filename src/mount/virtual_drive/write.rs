@@ -231,6 +231,7 @@ impl VirtualDrive {
                 hash: manifest.content_root_blake3.clone(),
                 size: manifest.original_size,
                 manifest,
+                pack: None,
             }),
         };
         event.validate()?;

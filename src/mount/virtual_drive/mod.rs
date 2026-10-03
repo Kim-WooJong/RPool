@@ -14,6 +14,8 @@ use crate::prelude::*;
 mod capacity;
 mod move_image;
 mod open;
+/// Small-file packs: many small writes uploaded as one archive.
+mod pack;
 mod read;
 mod recovery;
 mod rename;

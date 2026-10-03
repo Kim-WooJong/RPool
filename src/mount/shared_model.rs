@@ -10,10 +10,43 @@ use crate::prelude::*;
 pub(crate) struct Content {
     /// Hex BLAKE3 of the file bytes.
     pub hash: String,
-    /// File size in bytes (must equal `manifest.original_size`).
+    /// File size in bytes (equals `manifest.original_size` unless packed).
     pub size: u64,
-    /// Shard manifest of the uploaded archive.
+    /// Shard manifest of the uploaded archive (the whole pack when packed).
     pub manifest: Manifest,
+    /// Set when the file is one member of a small-file pack: its bytes are
+    /// `size` bytes at this position of the archive. Omitted otherwise, so
+    /// unpacked events serialize (and hash to ids) exactly as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pack: Option<PackSlice>,
+}
+
+/// Position of a packed file inside its pack archive (see `virtual_drive::pack`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct PackSlice {
+    /// Byte offset of the file's first byte in the pack.
+    pub offset: u64,
+}
+
+/// Event version of a write whose content is a pack member. Older RPool
+/// rejects it ("unsupported namespace event version") and so stops syncing
+/// the pool instead of misreading a whole pack as the file; packing is
+/// therefore opt-in per pool.
+pub(crate) const PACKED_EVENT_VERSION: u32 = 3;
+
+impl Content {
+    /// Byte offset of the file in its archive: 0 unless packed.
+    pub(crate) fn offset(&self) -> u64 {
+        self.pack.map_or(0, |pack| pack.offset)
+    }
+    /// The event version this content needs: 1, or [`PACKED_EVENT_VERSION`].
+    pub(crate) fn event_version(&self) -> u32 {
+        if self.pack.is_some() {
+            PACKED_EVENT_VERSION
+        } else {
+            1
+        }
+    }
 }
 
 /// One immutable namespace event; its id is the BLAKE3 of its JSON
@@ -21,7 +54,7 @@ pub(crate) struct Content {
 /// `Namespace::events`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Event {
-    /// Event format version (only 1 is valid).
+    /// Event format version: 1, or [`PACKED_EVENT_VERSION`] for a packed write.
     pub version: u32,
     /// Worker (PC) name that wrote the event.
     pub worker: String,
@@ -93,8 +126,11 @@ impl Event {
     /// Checks version, portable worker/device/path, unique well-formed parents,
     /// and a valid content manifest whose size matches.
     pub(crate) fn validate(&self) -> Result<()> {
-        if self.version != 1 {
-            bail!("unsupported namespace event version");
+        let packed = self.content.as_ref().is_some_and(|c| c.pack.is_some());
+        match self.version {
+            1 if !packed => {}
+            PACKED_EVENT_VERSION if packed => {}
+            _ => bail!("unsupported namespace event version"),
         }
         component(&self.worker)?;
         component(&self.device)?;
@@ -108,7 +144,14 @@ impl Event {
             }
         }
         if let Some(content) = &self.content {
-            if !hash_valid(&content.hash) || content.size != content.manifest.original_size {
+            let fits = match content.pack {
+                None => content.size == content.manifest.original_size,
+                Some(pack) => pack
+                    .offset
+                    .checked_add(content.size)
+                    .is_some_and(|end| end <= content.manifest.original_size),
+            };
+            if !hash_valid(&content.hash) || !fits {
                 bail!("invalid namespace content hash or size");
             }
             crate::manifest::validate_manifest(&content.manifest)?;
@@ -343,6 +386,7 @@ mod tests {
                 hash: blake3::hash(b"").to_hex().to_string(),
                 size: 0,
                 manifest,
+                pack: None,
             }),
         }
     }
@@ -393,6 +437,61 @@ mod tests {
         let result = reduce(&map(vec![a, b, resolved])).unwrap();
         assert_eq!(result.len(), 1);
         assert!(result.contains_key("hello"));
+    }
+}
+
+#[cfg(test)]
+mod pack_tests {
+    use super::*;
+
+    fn event(version: u32, pack: Option<u64>, size: u64) -> Event {
+        Event {
+            version,
+            worker: "w".into(),
+            device: "d".into(),
+            path: "small.txt".into(),
+            parents: vec![],
+            content: Some(Content {
+                hash: blake3::hash(b"").to_hex().to_string(),
+                size,
+                manifest: Manifest {
+                    version: 2,
+                    archive_id: "virtual-pack-x".into(),
+                    original_name: "pack".into(),
+                    original_size: 0,
+                    shard_size: 1024,
+                    created_unix: 0,
+                    content_root_blake3: crate::manifest::content_root_v2(0, 1024, &None, &[]),
+                    coding: None,
+                    shards: vec![],
+                },
+                pack: pack.map(|offset| PackSlice { offset }),
+            }),
+        }
+    }
+
+    #[test]
+    fn unpacked_events_serialize_as_before() {
+        let json = serde_json::to_string(&event(1, None, 0)).unwrap();
+        assert!(!json.contains("\"pack\":"), "{json}");
+        event(1, None, 0).validate().unwrap();
+    }
+
+    #[test]
+    fn packed_events_need_version_3_and_a_slice_inside_the_pack() {
+        event(PACKED_EVENT_VERSION, Some(0), 0).validate().unwrap();
+        assert_eq!(event(PACKED_EVENT_VERSION, Some(0), 0).version, 3);
+        // An older reader's version with a pack, or version 3 without one.
+        assert!(event(1, Some(0), 0).validate().is_err());
+        assert!(event(PACKED_EVENT_VERSION, None, 0).validate().is_err());
+        // The slice must lie inside the archive.
+        assert!(event(PACKED_EVENT_VERSION, Some(1), 0).validate().is_err());
+        assert!(event(PACKED_EVENT_VERSION, Some(0), 1).validate().is_err());
+        assert!(event(PACKED_EVENT_VERSION, Some(u64::MAX), 1)
+            .validate()
+            .is_err());
+        let content = event(PACKED_EVENT_VERSION, Some(0), 0).content.unwrap();
+        assert_eq!((content.offset(), content.event_version()), (0, 3));
     }
 }
 

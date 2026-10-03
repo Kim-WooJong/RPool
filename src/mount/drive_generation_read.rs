@@ -27,19 +27,28 @@ pub(crate) fn v6_view(events: &BTreeMap<String, Event>) -> Result<Vec<DriveFile>
     if events.is_empty() {
         return Ok(vec![]);
     }
-    Ok(super::peer_projection::project(events)?
-        .files
-        .into_iter()
-        .filter_map(|(path, resolved)| {
-            resolved.event.content.map(|content| DriveFile {
-                path,
-                revision: resolved.event_id,
-                hash: content.hash,
-                size: content.size,
-                manifest: content.manifest,
-            })
-        })
-        .collect())
+    let mut files = Vec::new();
+    for (path, resolved) in super::peer_projection::project(events)?.files {
+        let Some(content) = resolved.event.content else {
+            continue;
+        };
+        // Migration re-encodes archives per file; a pack is shared by many
+        // files and would be re-encoded once per member. Refuse until packs
+        // migrate as one unit.
+        if content.pack.is_some() {
+            bail!(
+                "{path} is stored in a small-file pack; pool migration does not move packed files yet"
+            );
+        }
+        files.push(DriveFile {
+            path,
+            revision: resolved.event_id,
+            hash: content.hash,
+            size: content.size,
+            manifest: content.manifest,
+        });
+    }
+    Ok(files)
 }
 
 /// Decodes published adoption records the way a fresh PC reads them (tests

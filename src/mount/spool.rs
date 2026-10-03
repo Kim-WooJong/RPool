@@ -289,6 +289,7 @@ mod tests {
                 hash: i.hash.clone(),
                 size: i.size,
                 manifest,
+                pack: None,
             }),
         )
         .unwrap();

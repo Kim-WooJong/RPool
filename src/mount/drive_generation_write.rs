@@ -55,6 +55,7 @@ pub(crate) fn records(files: &[DriveFile], seed: &str) -> Result<Vec<Record>> {
                 hash: file.hash.clone(),
                 size: file.size,
                 manifest: file.manifest.clone(),
+                pack: None,
             }),
         };
         event.validate()?;

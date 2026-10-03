@@ -60,6 +60,7 @@ pub(super) fn content(bytes: &[u8]) -> Content {
             coding: None,
             shards,
         },
+        pack: None,
     }
 }
 fn add(

@@ -134,7 +134,15 @@ pub(super) fn copy_revision(
         Revision::Cloud { content, .. } => {
             let manifest = content.manifest.clone();
             crate::manifest::validate_manifest(&manifest)?;
-            if manifest.original_size != revision.size() {
+            // A pack member is `size` bytes at its offset of the archive.
+            let base = content.offset();
+            let fits = match content.pack {
+                None => manifest.original_size == revision.size(),
+                Some(_) => base
+                    .checked_add(revision.size())
+                    .is_some_and(|end| end <= manifest.original_size),
+            };
+            if !fits {
                 bail!("source revision size mismatch");
             }
             let mut offset = 0;
@@ -148,7 +156,7 @@ pub(super) fn copy_revision(
                 let bytes = source.cache.read(
                     &reader,
                     &manifest,
-                    offset,
+                    base + offset,
                     count,
                     source.policy.workers,
                     source.policy.retries,
@@ -175,7 +183,9 @@ pub(super) fn copy_revision(
                 .hash
                 .clone(),
         ),
-        Revision::Cloud { content, .. } if content.hash != content.manifest.content_root_blake3 => {
+        Revision::Cloud { content, .. }
+            if content.pack.is_some() || content.hash != content.manifest.content_root_blake3 =>
+        {
             Some(content.hash.clone())
         }
         _ => None,
@@ -243,6 +253,11 @@ pub(super) fn matching_replacement(
     let Revision::Cloud { content, .. } = revision else {
         return Ok(None);
     };
+    // A replacement re-encodes the whole pack; the member is copied from the
+    // original archive instead (`copy_revision`).
+    if content.pack.is_some() {
+        return Ok(None);
+    }
     let retained = content.manifest.clone();
     let fingerprint = crate::manifest::manifest_fingerprint(&retained)?;
     let original_fingerprint = crate::manifest::manifest_fingerprint(&content.manifest)?;
@@ -587,6 +602,7 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
                             hash,
                             size: manifest.original_size,
                             manifest,
+                            pack: None,
                         }),
                     )?;
                 } else {
@@ -777,6 +793,7 @@ mod tests {
                 hash: original.content_root_blake3.clone(),
                 size: 0,
                 manifest: original.clone(),
+                pack: None,
             },
         };
         let matched = matching_replacement(&revision, &[(original.clone(), replacement)], &[])
@@ -795,6 +812,7 @@ mod tests {
                     hash,
                     size: 0,
                     manifest: matched,
+                    pack: None,
                 }),
             )
             .unwrap();
@@ -816,6 +834,7 @@ mod tests {
                 hash: blake3::hash(b"different content").to_hex().to_string(),
                 size: 0,
                 manifest: empty_manifest("old"),
+                pack: None,
             },
         };
         assert!(verify_replacement(
@@ -880,6 +899,7 @@ mod tests {
                 hash: original.content_root_blake3.clone(),
                 size: 4,
                 manifest: original.clone(),
+                pack: None,
             },
         };
         let matched = matching_replacement(
@@ -922,6 +942,7 @@ mod tests {
                 hash: blake3::hash(b"EVIL").to_hex().to_string(),
                 size: 4,
                 manifest: original,
+                pack: None,
             },
         };
         assert!(
@@ -937,6 +958,7 @@ mod tests {
                     hash,
                     size: 4,
                     manifest: matched,
+                    pack: None,
                 }),
             )
             .unwrap();
@@ -961,6 +983,7 @@ mod tests {
             hash: blake3::hash(b"").to_hex().to_string(),
             size: 0,
             manifest: empty_manifest("reprocess-new"),
+            pack: None,
         };
         drive
             .commit_uploaded(&intent, Some(content.clone()))

@@ -30,14 +30,21 @@ impl VirtualDrive {
         match revision {
             // Background shard downloads may outlive this call, so they share
             // the reader instead of borrowing it.
-            Revision::Cloud { content, .. } => self.cache.read_shared(
-                &Arc::new(crate::storage::reader::StorageReader::rclone(&self.rclone)),
-                &content.manifest,
-                offset,
-                count,
-                self.policy.workers,
-                self.policy.retries,
-            ),
+            Revision::Cloud { content, .. } => {
+                if offset >= content.size {
+                    return Ok(vec![]);
+                }
+                // A pack member is a window of its archive.
+                let count = (count as u64).min(content.size - offset) as usize;
+                self.cache.read_shared(
+                    &Arc::new(crate::storage::reader::StorageReader::rclone(&self.rclone)),
+                    &content.manifest,
+                    content.offset() + offset,
+                    count,
+                    self.policy.workers,
+                    self.policy.retries,
+                )
+            }
             Revision::Local { path, size, .. } => {
                 if offset >= *size {
                     return Ok(vec![]);

@@ -98,6 +98,24 @@ are local durability points; cloud replication is asynchronous.
 
 Full description, recovery and limits: [docs/MOUNT.md](docs/MOUNT.md).
 
+### Small-file packing
+
+`rpool pool set ... --small-file-packing` (GUI: Pools › "Pack small files")
+makes the drive upload files of up to 1 MiB together: an upload round
+batches ready small writes (waiting up to 1 s for more) into one archive
+`virtual-pack-<id>` of up to 16 MiB / 500 files. Each file keeps its own
+event, whose content names the pack manifest plus the file's byte offset
+(event version 3), so a pack costs one set of shard uploads, manifest
+replicas and capacity checks instead of one per file, and small files no
+longer pay the 64 KiB-per-shard minimum each. The pack is an ordinary
+archive: scrub, repair, verify, versions and cleanup work unchanged (a pack
+stays while any member is kept). Before upload every member's slice is
+re-hashed against its sealed image; a failed pack upload leaves every member
+pending. **Every PC using the pool needs RPool 2.10 or later**: older versions
+refuse version-3 events and stop syncing the pool (loudly, never misreading
+a pack). Pool migration refuses drives with packed files for now; account
+recovery copies packed files correctly.
+
 ### Trash, versions and rollback
 
 ```text

@@ -182,6 +182,7 @@ impl VirtualDrive {
                 hash: intent.hash.clone(),
                 size: intent.size,
                 manifest,
+                pack: None,
             }
         };
         Ok(Some(content))

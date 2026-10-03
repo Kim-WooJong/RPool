@@ -385,6 +385,7 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
                         hash: hash.clone(),
                         size: manifest.original_size,
                         manifest: manifest.clone(),
+                        pack: None,
                     },
                 };
                 // Read the verified replacement directly into a fresh,

@@ -29,6 +29,8 @@ pub(crate) struct PoolForm {
     pub(crate) max_object_bytes: u64,
     /// Encrypt in RPool instead of through rclone crypt (put and reprocess).
     pub(crate) native_crypt: bool,
+    /// Upload the drive's small files as packs (`--small-file-packing`).
+    pub(crate) small_file_packing: bool,
     /// Shard transfers per pool operation (`--workers`).
     pub(crate) workers: usize,
     /// Retry count for rclone transfers (`--retries`).
@@ -67,6 +69,7 @@ impl PoolForm {
             max_object_bytes: 0,
             // New pools encrypt in RPool (rclone crypt format); loaded pools keep theirs.
             native_crypt: true,
+            small_file_packing: false,
             workers: settings.workers,
             retries: settings.retries,
             placement: settings.placement,
@@ -90,6 +93,7 @@ impl PoolForm {
         self.shard_mib = pool.shard_size.mib_ceil();
         self.max_object_bytes = pool.max_object_bytes.unwrap_or(0);
         self.native_crypt = pool.native_crypt;
+        self.small_file_packing = pool.small_file_packing;
         self.workers = pool.workers;
         self.retries = pool.retries;
         self.placement = pool.placement;
@@ -277,6 +281,11 @@ fn policy_card(ui: &mut egui::Ui, state: &mut GuiState, task: &TaskRunner) {
                     ui.checkbox(&mut state.pools.native_crypt, tr("Encrypt in RPool"));
                     ui.end_row();
 
+                    ui.label(tr("Small-file packing"))
+                        .on_hover_text(tr("The mounted drive uploads files of up to 1 MiB together as one archive per batch: far fewer requests and less space per small file. Every PC that uses this pool needs RPool 2.10 or later; older versions stop syncing the pool."));
+                    ui.checkbox(&mut state.pools.small_file_packing, tr("Pack small files"));
+                    ui.end_row();
+
                     ui.label(tr("Retries"));
                     ui.add(egui::DragValue::new(&mut state.pools.retries).range(0..=100));
                     ui.end_row();
@@ -337,6 +346,7 @@ fn policy_card(ui: &mut egui::Ui, state: &mut GuiState, task: &TaskRunner) {
                 parity_shards: state.pools.parity_shards,
                 max_object_bytes: state.pools.object_limit(),
                 native_crypt: state.pools.native_crypt,
+                small_file_packing: state.pools.small_file_packing,
             };
             if let Err(error) = crate::models::shard_size::check_object_limit(
                 shard_size.bytes(),
@@ -443,6 +453,7 @@ fn save_current(state: &mut GuiState, task: &mut TaskRunner) {
         parity_shards: state.pools.parity_shards,
         max_object_bytes: state.pools.object_limit(),
         native_crypt: state.pools.native_crypt,
+        small_file_packing: state.pools.small_file_packing,
     };
 
     let args = pool_save_args(&name, &definition);
@@ -473,6 +484,9 @@ fn pool_save_args(name: &str, pool: &PoolDefinition) -> Vec<OsString> {
     }
     if pool.native_crypt {
         args.push("--native-crypt".into());
+    }
+    if pool.small_file_packing {
+        args.push("--small-file-packing".into());
     }
     args.extend(["--placement".into(), pool.placement.cli_value().into()]);
     args.extend(["--".into(), name.into()]);
@@ -613,6 +627,7 @@ mod tests {
             parity_shards: 2,
             max_object_bytes: Some(250_000_000),
             native_crypt: true,
+            small_file_packing: false,
         };
         form.load_definition("existing".into(), existing.clone());
         settings.shard_mib = 91;
@@ -650,6 +665,7 @@ mod tests {
             parity_shards: 2,
             max_object_bytes: Some(250_000_000),
             native_crypt: true,
+            small_file_packing: false,
         };
         let mut args = vec![
             OsString::from("rpool"),
@@ -672,8 +688,10 @@ mod tests {
                     parity_shards,
                     max_object_bytes,
                     native_crypt,
+                    small_file_packing,
                 } => {
                     assert_eq!(name, "-pool name");
+                    assert!(!small_file_packing);
                     assert_eq!(max_object_bytes, Some(250_000_000));
                     assert!(native_crypt);
                     assert_eq!(remotes, definition.remotes);

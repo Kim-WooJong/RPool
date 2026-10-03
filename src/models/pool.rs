@@ -32,6 +32,12 @@ pub(crate) struct PoolDefinition {
     /// and write them to the crypt remote's base. Omitted from JSON when false.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub(crate) native_crypt: bool,
+    /// Opt-in: the drive uploads small files (≤ 1 MiB) together as one
+    /// archive per batch (`mount::virtual_drive::pack`). Older RPool cannot
+    /// read such files and stops syncing the pool, so every PC must run a
+    /// version that supports packs. Omitted from JSON when false.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) small_file_packing: bool,
 }
 
 impl PoolDefinition {
@@ -58,6 +64,7 @@ impl Default for PoolDefinition {
             parity_shards: crate::config::constants::DEFAULT_PARITY_SHARDS,
             max_object_bytes: None,
             native_crypt: false,
+            small_file_packing: false,
         }
     }
 }

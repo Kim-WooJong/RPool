@@ -328,6 +328,62 @@ fn uploads_in_progress_reserve_only_their_missing_shards() {
     assert_eq!(status.pending_physical_reservation, 800);
 }
 
+/// A failed pack upload leaves every member pending (spool kept), and a
+/// lone member uses the single-file path.
+#[test]
+fn failed_pack_upload_keeps_every_member_pending() {
+    let (_temp, d) = scenario(6);
+    write(&d, "a.txt", b"first small file");
+    write(&d, "b.txt", b"second small file");
+    let members: Vec<Intent> = d
+        .state
+        .lock()
+        .unwrap()
+        .pending
+        .iter()
+        .filter(|i| i.path == "a.txt" || i.path == "b.txt")
+        .cloned()
+        .collect();
+    assert_eq!(members.len(), 2);
+    let results = d.upload_pack(
+        &members,
+        &|staged: &Path, id: &str| {
+            assert!(id.starts_with("virtual-pack-"));
+            // The staged pack is both files back to back.
+            assert_eq!(
+                fs::read(staged).unwrap(),
+                b"first small filesecond small file"
+            );
+            bail!("provider unavailable")
+        },
+        &|_| panic!("no single upload for two members"),
+    );
+    assert!(results.iter().all(|r| r
+        .as_ref()
+        .is_err_and(|e| e.to_string().contains("provider unavailable"))));
+    let pending = d.state.lock().unwrap().pending.clone();
+    for member in &members {
+        assert!(
+            pending.iter().any(|i| i.id == member.id),
+            "{} still pending",
+            member.path
+        );
+        assert!(d.spool_path(member).exists(), "spool image kept");
+    }
+    // One member left: uploaded on its own.
+    let single_called = std::sync::atomic::AtomicBool::new(false);
+    let results = d.upload_pack(
+        &members[..1],
+        &|_: &Path, _: &str| panic!("no pack for one member"),
+        &|_| {
+            single_called.store(true, std::sync::atomic::Ordering::SeqCst);
+            bail!("offline")
+        },
+    );
+    assert!(single_called.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(results[0].is_err());
+}
+
 impl VirtualDrive {
     fn measure_capacity_offline(&self, state: &Namespace) -> CapacityStatus {
         CapacityStatus {

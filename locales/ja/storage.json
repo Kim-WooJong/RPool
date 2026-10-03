@@ -365,5 +365,8 @@
   "After the test, writes 64 shards of {shard} to each account and reads them back at 1, 2, 4, … 32 at once, then recommends its Simultaneous shard downloads. Each step measures 20 s (5 s warm-up, 15 s measured), then lets the shards in flight finish so every upload also commits.": "テスト後、各アカウントに {shard} のシャードを 64 個書き込み、同時に 1, 2, 4, … 32 個ずつ読み戻して、同時シャードダウンロード数を推奨します。各段階は 20 秒(ウォームアップ 5 秒、計測 15 秒)計測した後、転送中のシャードを最後まで完了させるため、すべてのアップロードがコミットまで確認されます。",
   "After the test, uploads shards of {shard} to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous shard uploads. Each step measures 20 s (5 s warm-up, 15 s measured), then lets the shards in flight finish so every upload also commits.": "テスト後、各アカウントに {shard} のシャードを同時に 1, 2, 4, … 32 個ずつアップロードし、同時シャードアップロード数を推奨します。各段階は 20 秒(ウォームアップ 5 秒、計測 15 秒)計測した後、転送中のシャードを最後まで完了させるため、すべてのアップロードがコミットまで確認されます。",
   "Remaining at most {minutes} min {seconds} s": "残り最大 {minutes} 分 {seconds} 秒",
-  "An upper bound: tuning steps take at most 30 s each, a normal test at most as long as the slowest one so far. Most runs finish earlier.": "上限値です。調整の各段階は最大 30 秒、通常テストはこれまでで最も遅かったものと同じ時間として見積もります。ほとんどの場合、これより早く終わります。"
+  "An upper bound: tuning steps take at most 30 s each, a normal test at most as long as the slowest one so far. Most runs finish earlier.": "上限値です。調整の各段階は最大 30 秒、通常テストはこれまでで最も遅かったものと同じ時間として見積もります。ほとんどの場合、これより早く終わります。",
+  "Small-file packing": "小さなファイルのパック",
+  "Pack small files": "小さなファイルをまとめてアップロード",
+  "The mounted drive uploads files of up to 1 MiB together as one archive per batch: far fewer requests and less space per small file. Every PC that uses this pool needs RPool 2.10 or later; older versions stop syncing the pool.": "マウントしたドライブが 1 MiB 以下のファイルをバッチごとに 1 つのアーカイブにまとめてアップロードします。要求数が大幅に減り、小さなファイルごとの容量も減ります。このプールを使うすべての PC に RPool 2.10 以降が必要です。古いバージョンはこのプールを同期できなくなります。"
 }

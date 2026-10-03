@@ -189,6 +189,7 @@ fn target(remotes: &[&str], placement: Placement) -> PoolDefinition {
         parity_shards: 1,
         max_object_bytes: None,
         native_crypt: false,
+        small_file_packing: false,
     }
 }
 

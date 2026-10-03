@@ -105,6 +105,12 @@ pub(crate) enum PoolCommands {
         /// crypt remote's base. Applies to put and reprocess; mounts still use rclone crypt.
         #[arg(long)]
         native_crypt: bool,
+
+        /// Upload small files (up to 1 MiB) of the mounted drive together as one
+        /// archive per batch: far fewer requests. Every PC using the pool needs
+        /// RPool 2.10 or later; older versions stop syncing it.
+        #[arg(long)]
+        small_file_packing: bool,
     },
 
     /// Remove a storage pool definition. Stored shards are not touched.

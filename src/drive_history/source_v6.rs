@@ -88,6 +88,7 @@ pub(crate) mod fixture {
                         coding: None,
                         shards,
                     },
+                    pack: None,
                 }
             }),
         }

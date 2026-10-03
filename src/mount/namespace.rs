@@ -717,6 +717,11 @@ impl Namespace {
         let Some(content) = candidate else {
             return Ok(None);
         };
+        // An incremental recipe rewrites the whole base archive: a pack
+        // member is not its archive.
+        if content.pack.is_some() {
+            return Ok(None);
+        }
         let fingerprint = crate::manifest::manifest_fingerprint(&content.manifest)?;
         // MOVE preserves content but creates a new namespace event. Follow the
         // original upload receipt, not the move receipt, and require the exact
@@ -754,7 +759,7 @@ impl Namespace {
     /// event id. Called by sync after upload and by `settle_deletions`.
     pub(crate) fn commit(&mut self, intent: &Intent, content: Option<Content>) -> Result<String> {
         let event = Event {
-            version: 1,
+            version: content.as_ref().map_or(1, Content::event_version),
             worker: self.worker.clone(),
             device: self.device.clone(),
             path: intent.event_path.clone(),

@@ -227,6 +227,7 @@ mod tests {
                     coding: None,
                     shards: vec![],
                 },
+                pack: None,
             }),
         }
     }

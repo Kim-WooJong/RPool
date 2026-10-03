@@ -40,6 +40,7 @@ The project follows three structural rules by default.
 - Task history is operational metadata and must not contain credentials, tokens, or complete secret-bearing command lines.
 - Manifest replicas should remain independently readable full copies.
 - Pool configuration is reusable policy, not archive metadata; an existing manifest must remain usable if a pool is later edited or removed.
+- A drive `Content` is either a whole archive (`size == manifest.original_size`, event version 1) or a small-file pack member (`pack: Some(PackSlice { offset })`, the bytes `offset..offset+size` of the archive, event version 3). Code that reads a revision's bytes must add `Content::offset()`; code that re-encodes archives per file (migration) must treat a pack as one unit or refuse it.
 - Per-remote default paths live in `remote_roots.json`. They are configuration aliases only: an explicit path in a manifest or CLI target remains authoritative.
 - Portable dotfiles synchronization uses the versioned `rpool-portable-config` bundle. Only reusable configuration belongs there; credentials and machine-local operational state must stay out.
 - Every remote object written by rpool must target an rclone `crypt` remote with content encryption enabled (`no_data_encryption != true`). Capacity/placement logic resolves virtual crypt/chunker layers to physical backing remotes instead of bypassing encryption for writes.

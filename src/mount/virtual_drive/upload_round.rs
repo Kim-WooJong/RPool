@@ -82,13 +82,15 @@ impl VirtualDrive {
             .report
     }
 
-    /// The next intent this worker may upload, or `None` when the round is over.
+    /// The next intents this worker uploads together, or `None` when the
+    /// round is over: one intent, or with small-file packing a batch of
+    /// ready small writes (waiting up to `pack::BATCH_WAIT` for more).
     fn claim(
         &self,
         shared: &Mutex<Shared<'_>>,
         changed: &Condvar,
         cancelled: &AtomicBool,
-    ) -> Option<Intent> {
+    ) -> Option<Vec<Intent>> {
         let mut guard = shared.lock().unwrap_or_else(|p| p.into_inner());
         loop {
             if cancelled.load(Ordering::Acquire) {
@@ -107,12 +109,63 @@ impl VirtualDrive {
             };
             if let Some(intent) = picked {
                 guard.running.insert(intent.id.clone());
-                return Some(intent);
+                if !self.packable(&intent) {
+                    return Some(vec![intent]);
+                }
+                return Some(self.gather_pack(intent, guard, changed, cancelled));
             }
             if guard.running.is_empty() {
                 // Nothing runs and nothing may start: the round is over.
                 changed.notify_all();
                 return None;
+            }
+            guard = changed
+                .wait_timeout(guard, POLL)
+                .unwrap_or_else(|p| p.into_inner())
+                .0;
+        }
+    }
+
+    /// Adds ready packable writes to the batch started by `first` (marking
+    /// them running) up to the pack limits, waiting up to `pack::BATCH_WAIT`
+    /// for more while the pack is small. Every pick is legal next to the
+    /// running ones (`next_ready`), so the batch commits like parallel uploads.
+    fn gather_pack(
+        &self,
+        first: Intent,
+        mut guard: std::sync::MutexGuard<'_, Shared<'_>>,
+        changed: &Condvar,
+        cancelled: &AtomicBool,
+    ) -> Vec<Intent> {
+        use super::pack::{BATCH_WAIT, PACK_MAX_MEMBERS, PACK_TARGET_BYTES};
+        let started = Instant::now();
+        let mut total = first.size;
+        let mut batch = vec![first];
+        loop {
+            while batch.len() < PACK_MAX_MEMBERS && total < PACK_TARGET_BYTES {
+                let now = Instant::now();
+                let picked = {
+                    let state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+                    let sh = &*guard;
+                    next_ready(&state.pending, |i| {
+                        sh.running.contains(&i.id)
+                            || sh.tried.contains(&i.id)
+                            || !sh.book.due(&i.id, now)
+                            || !self.packable(i)
+                            || total + i.size > PACK_TARGET_BYTES
+                    })
+                    .map(|index| state.pending[index].clone())
+                };
+                let Some(intent) = picked else {
+                    break;
+                };
+                guard.running.insert(intent.id.clone());
+                total += intent.size;
+                batch.push(intent);
+            }
+            let full = batch.len() >= PACK_MAX_MEMBERS || total >= PACK_TARGET_BYTES;
+            if full || started.elapsed() >= BATCH_WAIT || cancelled.load(Ordering::Acquire) {
+                return batch;
             }
             guard = changed
                 .wait_timeout(guard, POLL)
@@ -131,14 +184,41 @@ impl VirtualDrive {
         upload: &UploadFn<'_>,
         budget: &Arc<TransferBudget>,
     ) {
-        while let Some(intent) = self.claim(shared, changed, cancelled) {
-            // A panic must still release the claim, or the round never ends.
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                scoped(budget.clone(), || upload(&intent))
-                    .and_then(|content| self.commit_uploaded(&intent, content))
-                    .inspect(|_| self.publish.notify())
+        while let Some(batch) = self.claim(shared, changed, cancelled) {
+            // A panic must still release the claims, or the round never ends.
+            let results = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let results = match batch.as_slice() {
+                    [intent] => vec![scoped(budget.clone(), || upload(intent))
+                        .and_then(|content| self.commit_uploaded(intent, content))],
+                    _ => scoped(budget.clone(), || {
+                        self.upload_pack(
+                            &batch,
+                            &|staged, id| self.upload_pack_archive(staged, id),
+                            upload,
+                        )
+                    }),
+                };
+                if results.iter().any(Result::is_ok) {
+                    self.publish.notify();
+                }
+                results
             }))
-            .unwrap_or_else(|_| Err(anyhow!("upload worker panicked; local data retained")));
+            .unwrap_or_else(|_| {
+                batch
+                    .iter()
+                    .map(|_| Err(anyhow!("upload worker panicked; local data retained")))
+                    .collect()
+            });
+            for (intent, result) in batch.iter().zip(results) {
+                self.record(shared, intent, result);
+            }
+            changed.notify_all();
+        }
+    }
+
+    /// Releases `intent`'s claim and books its outcome (report, retry book).
+    fn record(&self, shared: &Mutex<Shared<'_>>, intent: &Intent, result: Result<()>) {
+        {
             let mut guard = shared.lock().unwrap_or_else(|p| p.into_inner());
             guard.running.remove(&intent.id);
             match result {
@@ -165,8 +245,6 @@ impl VirtualDrive {
                         .get_or_insert_with(|| format!("{}: {text}", intent.path));
                 }
             }
-            drop(guard);
-            changed.notify_all();
         }
     }
 }

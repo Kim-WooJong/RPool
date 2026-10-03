@@ -36,6 +36,7 @@ pub(super) fn content(seed: &str, size: u64) -> Content {
         hash: hex(&format!("content-{seed}")),
         size,
         manifest,
+        pack: None,
     }
 }
 
