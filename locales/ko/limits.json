@@ -60,5 +60,8 @@
   "Network & transfers": "네트워크 및 전송",
   "Bandwidth limits and how many shards move at once, for every RPool transfer on this computer.": "이 컴퓨터의 모든 RPool 전송에 적용되는 대역폭 제한과 한 번에 전송하는 샤드 수예요.",
   "Network": "네트워크",
-  "Requests per second to this whole account, uploads and downloads each. RPool splits it over the simultaneous shards (rclone --tpslimit per call). 0 = no limit.": "이 계정 전체에 보내는 초당 요청 수예요. 업로드와 다운로드에 각각 적용돼요. RPool이 동시 샤드 수로 나눠서 호출마다 rclone --tpslimit로 넘겨요. 0 = 제한 없음."
+  "Requests per second to this whole account, uploads and downloads each. RPool splits it over the simultaneous shards (rclone --tpslimit per call). 0 = no limit.": "이 계정 전체에 보내는 초당 요청 수예요. 업로드와 다운로드에 각각 적용돼요. RPool이 동시 샤드 수로 나눠서 호출마다 rclone --tpslimit로 넘겨요. 0 = 제한 없음.",
+  "Pack small files": "작은 파일 묶어 올리기",
+  "Mounted drives on this PC upload files of up to 1 MiB together as one archive per batch: far fewer requests and less space per small file. Applies within 30 s, no remount needed.": "이 PC의 마운트 드라이브가 1 MiB 이하 파일을 묶음마다 아카이브 하나로 합쳐 올려요. 요청 수가 크게 줄고 작은 파일마다 드는 공간도 줄어요. 30초 안에 적용되고 다시 마운트할 필요 없어요.",
+  "Every PC that uses these pools needs RPool 2.10 or later: older versions stop syncing a pool once it holds packed files. Turning this off later is safe; packed files stay readable.": "이 풀들을 쓰는 모든 PC가 RPool 2.10 이상이어야 해요. 묶인 파일이 생기면 이전 버전은 그 풀을 동기화하지 못해요. 나중에 꺼도 안전하고, 이미 묶인 파일은 계속 읽을 수 있어요."
 }

@@ -100,8 +100,10 @@ Full description, recovery and limits: [docs/MOUNT.md](docs/MOUNT.md).
 
 ### Small-file packing
 
-`rpool pool set ... --small-file-packing` (GUI: Pools › "Pack small files")
-makes the drive upload files of up to 1 MiB together: an upload round
+`rpool provider limits small-file-packing on` (GUI: Settings › Network &
+transfers › "Pack small files"; a setting of this PC, applied by running
+mounts within 30 s; the older per-pool `pool set --small-file-packing` is
+still honoured) makes the drive upload files of up to 1 MiB together: an upload round
 batches ready small writes (waiting up to 1 s for more) into one archive
 `virtual-pack-<id>` of up to 16 MiB / 500 files. Each file keeps its own
 event, whose content names the pack manifest plus the file's byte offset

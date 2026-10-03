@@ -60,5 +60,8 @@
   "Network & transfers": "ネットワークと転送",
   "Bandwidth limits and how many shards move at once, for every RPool transfer on this computer.": "このコンピューターのすべての RPool 転送に適用される帯域制限と、同時に転送するシャード数です。",
   "Network": "ネットワーク",
-  "Requests per second to this whole account, uploads and downloads each. RPool splits it over the simultaneous shards (rclone --tpslimit per call). 0 = no limit.": "このアカウント全体への 1 秒あたりの要求数で、アップロードとダウンロードにそれぞれ適用されます。RPool が同時シャード数で分割し、呼び出しごとに rclone --tpslimit として渡します。0 = 制限なし。"
+  "Requests per second to this whole account, uploads and downloads each. RPool splits it over the simultaneous shards (rclone --tpslimit per call). 0 = no limit.": "このアカウント全体への 1 秒あたりの要求数で、アップロードとダウンロードにそれぞれ適用されます。RPool が同時シャード数で分割し、呼び出しごとに rclone --tpslimit として渡します。0 = 制限なし。",
+  "Pack small files": "小さなファイルをまとめてアップロード",
+  "Mounted drives on this PC upload files of up to 1 MiB together as one archive per batch: far fewer requests and less space per small file. Applies within 30 s, no remount needed.": "この PC のマウントドライブが 1 MiB 以下のファイルをバッチごとに 1 つのアーカイブにまとめてアップロードします。要求数が大幅に減り、小さなファイルごとの容量も減ります。30 秒以内に反映され、再マウントは不要です。",
+  "Every PC that uses these pools needs RPool 2.10 or later: older versions stop syncing a pool once it holds packed files. Turning this off later is safe; packed files stay readable.": "これらのプールを使うすべての PC に RPool 2.10 以降が必要です。パックされたファイルができると、古いバージョンはそのプールを同期できなくなります。後でオフにしても安全で、パック済みのファイルは引き続き読めます。"
 }

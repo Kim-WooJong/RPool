@@ -60,5 +60,8 @@
   "Network & transfers": "网络与传输",
   "Bandwidth limits and how many shards move at once, for every RPool transfer on this computer.": "此电脑上所有 RPool 传输的带宽限制以及同时传输的分片数。",
   "Network": "网络",
-  "Requests per second to this whole account, uploads and downloads each. RPool splits it over the simultaneous shards (rclone --tpslimit per call). 0 = no limit.": "发往此账户整体的每秒请求数，上传和下载分别适用。RPool 会按同时分片数拆分，并按每次调用以 rclone --tpslimit 传递。0 = 不限制。"
+  "Requests per second to this whole account, uploads and downloads each. RPool splits it over the simultaneous shards (rclone --tpslimit per call). 0 = no limit.": "发往此账户整体的每秒请求数，上传和下载分别适用。RPool 会按同时分片数拆分，并按每次调用以 rclone --tpslimit 传递。0 = 不限制。",
+  "Pack small files": "打包上传小文件",
+  "Mounted drives on this PC upload files of up to 1 MiB together as one archive per batch: far fewer requests and less space per small file. Applies within 30 s, no remount needed.": "此电脑上挂载的驱动器会把不超过 1 MiB 的文件按批次合并为一个归档上传：请求数大幅减少，每个小文件占用的空间也更少。30 秒内生效，无需重新挂载。",
+  "Every PC that uses these pools needs RPool 2.10 or later: older versions stop syncing a pool once it holds packed files. Turning this off later is safe; packed files stay readable.": "使用这些池的每台电脑都需要 RPool 2.10 或更高版本：池中出现打包文件后，旧版本将无法同步该池。之后关闭此选项是安全的，已打包的文件仍可读取。"
 }

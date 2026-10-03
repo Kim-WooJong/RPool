@@ -43,10 +43,14 @@ impl VirtualDrive {
         let _ = fs::remove_dir_all(self.root.join("packs"));
     }
 
-    /// Whether `intent` may join a pack: packing is on for this pool and it
-    /// is a write of 1..=[`PACK_MEMBER_MAX`] bytes.
+    /// Whether `intent` may join a pack: packing is on (Settings › Network &
+    /// transfers on this PC, or the pool's legacy `--small-file-packing`)
+    /// and it is a write of 1..=[`PACK_MEMBER_MAX`] bytes.
     pub(super) fn packable(&self, intent: &Intent) -> bool {
-        self.policy.small_file_packing
+        (self.policy.small_file_packing
+            || crate::storage::account::runtime::settings()
+                .store
+                .small_file_packing)
             && intent.spool.is_some()
             && intent.size > 0
             && intent.size <= PACK_MEMBER_MAX

@@ -90,6 +90,10 @@ pub(crate) struct LimitsStore {
     /// value; `None` = built-in default (16).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_max_downloads: Option<u32>,
+    /// This PC's mounted drives upload small files together as packs
+    /// (`mount::virtual_drive::pack`). Mounts re-read it within 30 s.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub small_file_packing: bool,
     /// Keyed by account (bottom remote name, no colon).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub accounts: BTreeMap<String, AccountLimits>,
@@ -103,6 +107,7 @@ impl Default for LimitsStore {
             keepalive_days: DEFAULT_KEEPALIVE_DAYS,
             default_max_uploads: None,
             default_max_downloads: None,
+            small_file_packing: false,
             accounts: BTreeMap::new(),
         }
     }

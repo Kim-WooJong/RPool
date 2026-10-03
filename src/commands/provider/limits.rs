@@ -81,6 +81,20 @@ pub(crate) fn run(rclone: &str, command: LimitsCommands) -> Result<()> {
             println!("{}", default_uploads_line(&store));
             Ok(())
         }
+        LimitsCommands::SmallFilePacking { state } => {
+            let mut store = load_limits()?;
+            store.small_file_packing = state == "on";
+            save_limits(&store)?;
+            println!(
+                "Small-file packing {} for mounted drives on this PC (applies within 30 s)",
+                if store.small_file_packing {
+                    "on"
+                } else {
+                    "off"
+                }
+            );
+            Ok(())
+        }
         LimitsCommands::DefaultDownloads { downloads } => {
             let mut store = load_limits()?;
             store.default_max_downloads = (downloads > 0).then_some(downloads);
@@ -177,6 +191,7 @@ fn show(rclone: &str, json: bool) -> Result<()> {
             "keepalive_days": store.keepalive_days,
             "default_max_uploads": store.default_max_uploads,
             "default_max_downloads": store.default_max_downloads,
+            "small_file_packing": store.small_file_packing,
             "accounts": rows,
         });
         println!("{}", serde_json::to_string_pretty(&value)?);
@@ -216,6 +231,14 @@ fn show(rclone: &str, json: bool) -> Result<()> {
     println!();
     println!("{}", default_uploads_line(&store));
     println!("{}", default_downloads_line(&store));
+    println!(
+        "Small-file packing: {}",
+        if store.small_file_packing {
+            "on"
+        } else {
+            "off"
+        }
+    );
     print_bandwidth(store.bandwidth.as_deref())?;
     println!(
         "Uploads are counted per computer; other computers and tools using the same account are not included. \

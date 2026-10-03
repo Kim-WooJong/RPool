@@ -281,11 +281,6 @@ fn policy_card(ui: &mut egui::Ui, state: &mut GuiState, task: &TaskRunner) {
                     ui.checkbox(&mut state.pools.native_crypt, tr("Encrypt in RPool"));
                     ui.end_row();
 
-                    ui.label(tr("Small-file packing"))
-                        .on_hover_text(tr("The mounted drive uploads files of up to 1 MiB together as one archive per batch: far fewer requests and less space per small file. Every PC that uses this pool needs RPool 2.10 or later; older versions stop syncing the pool."));
-                    ui.checkbox(&mut state.pools.small_file_packing, tr("Pack small files"));
-                    ui.end_row();
-
                     ui.label(tr("Retries"));
                     ui.add(egui::DragValue::new(&mut state.pools.retries).range(0..=100));
                     ui.end_row();

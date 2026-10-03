@@ -23,6 +23,8 @@ pub(crate) struct NetworkForm {
     pub(crate) default_uploads: u32,
     /// Simultaneous shard downloads per account by default; 0 = built-in 16.
     pub(crate) default_downloads: u32,
+    /// Mounted drives on this PC upload small files as packs.
+    pub(crate) small_file_packing: bool,
     /// Result of the last load/save (saved path or error), shown next to the Save button.
     pub(crate) notice: Option<String>,
 }
@@ -87,6 +89,7 @@ fn load(form: &mut NetworkForm) {
             form.keepalive_days = store.keepalive_days;
             form.default_uploads = store.default_max_uploads.unwrap_or(0);
             form.default_downloads = store.default_max_downloads.unwrap_or(0);
+            form.small_file_packing = store.small_file_packing;
         }
         Err(error) => form.notice = Some(format!("{error:#}")),
     }
@@ -102,6 +105,7 @@ fn save(form: &NetworkForm) -> Result<std::path::PathBuf, String> {
     store.keepalive_days = form.keepalive_days;
     store.default_max_uploads = (form.default_uploads > 0).then_some(form.default_uploads);
     store.default_max_downloads = (form.default_downloads > 0).then_some(form.default_downloads);
+    store.small_file_packing = form.small_file_packing;
     crate::storage::account::store::save_limits(&store).map_err(|e| format!("{e:#}"))
 }
 
@@ -124,6 +128,19 @@ fn transfers(ui: &mut egui::Ui, form: &mut NetworkForm, workers: &mut usize) {
             ui.add(egui::DragValue::new(&mut form.default_downloads).range(0..=MAX_UPLOADS));
             ui.end_row();
         });
+    ui.checkbox(&mut form.small_file_packing, tr("Pack small files"))
+        .on_hover_text(tr("Mounted drives on this PC upload files of up to 1 MiB together as one archive per batch: far fewer requests and less space per small file. Applies within 30 s, no remount needed."));
+    if form.small_file_packing {
+        let (fill, fg) = theme::warning_colors(ui.visuals().dark_mode);
+        egui::Frame::new()
+            .fill(fill)
+            .corner_radius(theme::CORNER_RADIUS)
+            .inner_margin(egui::Margin::same(8))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.colored_label(fg, tr("Every PC that uses these pools needs RPool 2.10 or later: older versions stop syncing a pool once it holds packed files. Turning this off later is safe; packed files stay readable."));
+            });
+    }
 }
 
 /// Renders the Network tab; called by `screens::settings::show`. Save writes

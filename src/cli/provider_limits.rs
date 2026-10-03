@@ -78,6 +78,13 @@ pub(crate) enum LimitsCommands {
         /// Uploads per account (0..=256; `0` = built-in default).
         uploads: u32,
     },
+    /// Mounted drives on this PC upload small files (up to 1 MiB) together as
+    /// one archive per batch. Every PC using the pools needs RPool 2.10 or later.
+    SmallFilePacking {
+        /// `on` or `off`.
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
+    },
     /// Simultaneous shard downloads per account for accounts without their
     /// own value (`0` = built-in 16).
     DefaultDownloads {
@@ -176,6 +183,11 @@ mod tests {
             LimitsCommands::DefaultUploads { uploads: 8 }
         ));
         assert!(limits(&["default-uploads", "257"]).is_err());
+        assert!(matches!(
+            limits(&["small-file-packing", "on"]).unwrap(),
+            LimitsCommands::SmallFilePacking { state } if state == "on"
+        ));
+        assert!(limits(&["small-file-packing", "yes"]).is_err());
         assert!(matches!(
             limits(&["default-downloads", "0"]).unwrap(),
             LimitsCommands::DefaultDownloads { downloads: 0 }
