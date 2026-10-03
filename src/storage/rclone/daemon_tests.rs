@@ -417,3 +417,115 @@ fn daemon_stat_timing() {
         );
     }
 }
+
+#[test]
+#[ignore = "requires rclone"]
+fn daemon_uploads_equal_subprocess_uploads() {
+    let f = fixture();
+    let ctx = OperationContext::none();
+    let d = daemon::get(&f.daemon).unwrap();
+    // The daemon itself takes the upload (no silent fallback).
+    assert!(d.upload(&ctx, "c:up/direct.bin", &sample(1000)).is_ok());
+    assert_eq!(
+        read(&f.subprocess, "c:up/direct.bin", None).unwrap(),
+        sample(1000)
+    );
+    let names = [
+        "c:up/plain.bin",
+        "c:up/sp ace [x]%20 한+b.txt",
+        "c:up/deep/er/𝓧ᐊ鵜.bin",
+    ];
+    // Empty, small, and largest daemon size; then one over: the subprocess.
+    let max = daemon::DAEMON_UPLOAD_MAX as usize;
+    for (i, len) in [0, 100_000, max, max + 1].into_iter().enumerate() {
+        for name in names {
+            let address = format!("{name}.{i}");
+            let bytes = sample(len);
+            let receipt = f
+                .daemon
+                .write_raw(
+                    &ctx,
+                    &address,
+                    &mut &bytes[..],
+                    Some(len as u64),
+                    &WriteOptions::default(),
+                )
+                .unwrap();
+            assert_eq!(receipt.size, len as u64, "{address}");
+            assert_eq!(
+                read(&f.subprocess, &address, None).unwrap(),
+                bytes,
+                "{address}"
+            );
+        }
+    }
+    // Native crypt writes already-encrypted bytes under encoded names to the
+    // plain base remote.
+    let raw = format!("{}/raw/ꕋꔵ꘠-𐀀.bin", f.base);
+    let bytes = sample(4096);
+    f.daemon
+        .write_ungated(
+            &ctx,
+            &raw,
+            &mut &bytes[..],
+            Some(4096),
+            &WriteOptions::default(),
+        )
+        .unwrap();
+    assert_eq!(read(&f.subprocess, &raw, None).unwrap(), bytes);
+    // A source shorter than announced is refused, exactly like rcat.
+    assert!(f
+        .daemon
+        .write_raw(
+            &ctx,
+            "c:up/short.bin",
+            &mut &sample(10)[..],
+            Some(20),
+            &WriteOptions::default(),
+        )
+        .is_err());
+}
+
+#[test]
+#[ignore = "requires rclone; timing report"]
+fn daemon_upload_timing() {
+    let f = fixture();
+    let ctx = OperationContext::none();
+    daemon::get(&f.daemon).unwrap();
+    let bytes = sample(64 * 1024);
+    for (label, context) in [("daemon", &f.daemon), ("subprocess", &f.subprocess)] {
+        let started = Instant::now();
+        for i in 0..100 {
+            context
+                .write_raw(
+                    &ctx,
+                    &format!("c:timing/{label}-{i}.bin"),
+                    &mut &bytes[..],
+                    Some(bytes.len() as u64),
+                    &WriteOptions::default(),
+                )
+                .unwrap();
+        }
+        let took = started.elapsed();
+        eprintln!(
+            "{label}: 100 uploads of 64 KiB {took:?} ({:?}/upload)",
+            took / 100
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires rclone"]
+fn config_dump_is_cached_until_the_config_file_changes() {
+    let f = fixture();
+    let ctx = OperationContext::none();
+    let first = f.subprocess.config_dump(&ctx).unwrap();
+    assert!(first.get("c").is_some() && first.get("added").is_none());
+    assert_eq!(f.subprocess.config_dump(&ctx).unwrap(), first, "cached");
+    let conf = f.temp.path().join("rclone.conf");
+    let mut text = std::fs::read_to_string(&conf).unwrap();
+    text.push_str("\n[added]\ntype = local\n");
+    std::fs::write(&conf, text).unwrap();
+    let after = f.subprocess.config_dump(&ctx).unwrap();
+    assert!(after.get("added").is_some(), "a changed file is read again");
+}

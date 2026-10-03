@@ -87,11 +87,40 @@ impl RcloneContext {
     /// Parsed `rclone config dump`; errors unless it is a JSON object. Contains
     /// secrets, so callers must never log or copy its values.
     pub(crate) fn config_dump(&self, ctx: &OperationContext) -> Result<Value, StorageError> {
+        // Every gated upload asks (`ensure_crypt`): a cached dump spares an
+        // `rclone config dump` process per shard. It is reused while the
+        // config file keeps its size and modification time; without a
+        // readable file the dump is always read again.
+        type Cache = HashMap<String, (Option<PathBuf>, daemon::Fingerprint, Option<Value>)>;
+        static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
+        let key = format!("{}|{:?}", self.route_identity(), self.environment);
+        let cache = CACHE.get_or_init(Default::default);
+        let known_file = cache.lock().ok().and_then(|c| {
+            c.get(&key)
+                .map(|(file, stamp, dump)| (file.clone(), *stamp, dump.clone()))
+        });
+        let file = match &known_file {
+            Some((file, _, _)) => file.clone(),
+            None => daemon::config_file(self),
+        };
+        // Size alone cannot tell an edit apart: no modification time, no cache.
+        let stamp = file
+            .as_deref()
+            .and_then(daemon::fingerprint)
+            .filter(|(_, modified)| modified.is_some());
+        if let Some((_, Some(cached), Some(dump))) = &known_file {
+            if stamp == Some(*cached) {
+                return Ok(dump.clone());
+            }
+        }
         let bytes = self.capture(ctx, &["config", "dump"])?;
         let value: Value =
             serde_json::from_slice(&bytes).map_err(|_| invalid("invalid rclone config JSON"))?;
         if !value.is_object() {
             return Err(invalid("rclone config must be an object"));
+        }
+        if let Ok(mut cache) = cache.lock() {
+            cache.insert(key, (file, stamp, stamp.map(|_| value.clone())));
         }
         Ok(value)
     }

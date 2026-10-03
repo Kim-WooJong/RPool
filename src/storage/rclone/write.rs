@@ -93,7 +93,20 @@ impl RcloneContext {
             // without this option ignore it.
             command.env(chunk_concurrency_variable(base), "1");
         }
-        let result = process::run_upload(&mut command, ctx, &mut counted, Some(&op));
+        // Small objects go through the warm daemon (no process start, no new
+        // backend or TLS set-up per shard); Drive keeps the subprocess for
+        // `--drive-stop-on-upload-limit`, accounts with a request rate for
+        // their per-process `--tpslimit` (`daemon_for`).
+        let daemon = size
+            .filter(|size| *size <= daemon::DAEMON_UPLOAD_MAX)
+            .filter(|_| !account.as_ref().is_some_and(|(_, kind)| kind == "drive"))
+            .and_then(|_| self.daemon_for(address));
+        let result = match (daemon, size) {
+            (Some(daemon), Some(size)) => {
+                upload_buffered(&daemon, &mut command, ctx, address, &mut counted, size, &op)
+            }
+            _ => process::run_upload(&mut command, ctx, &mut counted, Some(&op)),
+        };
         if let Some((name, _)) = &account {
             // Bytes that reached rclone count, whatever the outcome.
             crate::storage::account::runtime::record_upload(name, counted.bytes);
@@ -390,6 +403,49 @@ type HashKindCache = std::collections::HashMap<String, Option<Vec<String>>>;
 fn stored_hash_cache() -> &'static std::sync::Mutex<HashKindCache> {
     static CACHE: std::sync::OnceLock<std::sync::Mutex<HashKindCache>> = std::sync::OnceLock::new();
     CACHE.get_or_init(Default::default)
+}
+
+/// A small upload through the daemon: reads the whole `source` (paced like
+/// the subprocess path) and sends it with its size. When the daemon cannot
+/// answer definitely, or the source is not `size` bytes long, the same bytes
+/// go through `command` (`rcat`), which reports exactly as before.
+fn upload_buffered(
+    daemon: &daemon::Daemon,
+    command: &mut std::process::Command,
+    ctx: &OperationContext,
+    address: &str,
+    source: &mut dyn Read,
+    size: u64,
+    op: &traffic::Op,
+) -> Result<u64, StorageError> {
+    let mut body = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+    let mut chunk = vec![0u8; process::CHUNK];
+    loop {
+        process::check(ctx)?;
+        let n = match source.read(&mut chunk) {
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            result => result.map_err(|_| process::io_error())?,
+        };
+        if n == 0 {
+            break;
+        }
+        op.throttle(ctx, n as u64);
+        body.extend_from_slice(&chunk[..n]);
+        if body.len() as u64 > size {
+            break;
+        }
+    }
+    if body.len() as u64 == size {
+        match daemon.upload(ctx, address, &body) {
+            Ok(()) => {
+                op.sent(size);
+                return Ok(size);
+            }
+            Err(daemon::Failure::Definite(error)) => return Err(error),
+            Err(daemon::Failure::Fallback) => {}
+        }
+    }
+    process::run_upload(command, ctx, &mut io::Cursor::new(body), Some(op))
 }
 
 /// `RCLONE_CONFIG_<REMOTE>_UPLOAD_CONCURRENCY`: rclone upper-cases the

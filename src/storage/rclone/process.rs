@@ -35,7 +35,7 @@ pub(super) fn check(ctx: &OperationContext) -> Result<(), StorageError> {
     Ok(())
 }
 /// Generic retriable stream failure; never carries OS error text.
-fn io_error() -> StorageError {
+pub(super) fn io_error() -> StorageError {
     StorageError::TransientIo {
         detail: "rclone stream I/O failed".into(),
     }

@@ -1,4 +1,4 @@
-//! Persistent `rclone rcd` transport for READ-ONLY operations.
+//! Persistent `rclone rcd` transport for reads and small uploads.
 //!
 //! Every rclone subprocess pays the backend's cold start again (tens of
 //! seconds on some providers); one long-lived daemon per (executable, config
@@ -23,7 +23,13 @@
 //! Routing rule: a definite answer (not found, authentication, permission,
 //! rate limit, cancellation, output bounds) is returned as is; anything else
 //! ([`Failure::Fallback`]) makes the caller repeat that read via subprocess.
-//! Mutations never come here.
+//!
+//! Uploads of small objects ([`DAEMON_UPLOAD_MAX`], see `write`) also come
+//! here (`operations/uploadfile`): a subprocess per shard pays process start,
+//! backend set-up and a new TLS connection for every request, which dominates
+//! small shards; the daemon keeps them warm and paces one account's requests
+//! in one place. Other mutations (delete, move, copy, large uploads) still
+//! use subprocesses.
 use super::http::{self, Endpoint, HttpError};
 use super::{process, remote_name, BoundedVec, ConfigSelection, RcloneContext, ADMIN_LIMIT};
 use crate::storage::error::StorageError;
@@ -53,6 +59,29 @@ pub(super) enum Failure {
 /// Result of a daemon call.
 type Outcome<T> = Result<T, Failure>;
 
+/// Largest upload sent through the daemon. The body is buffered (the daemon
+/// gets its size up front and uploads it with a known size), so this bounds
+/// memory per upload; larger shards are dominated by transfer time, not by
+/// the per-request cost the daemon saves, and keep the subprocess path.
+pub(super) const DAEMON_UPLOAD_MAX: u64 = 16 * 1024 * 1024;
+
+/// Backends with an `upload_concurrency` option (chunks of one file sent in
+/// parallel), from `rclone help flags`; others ignore the variable.
+const CHUNKED_UPLOAD_BACKENDS: [&str; 12] = [
+    "azureblob",
+    "azurefiles",
+    "b2",
+    "drime",
+    "filen",
+    "hidrive",
+    "internxt",
+    "oos",
+    "pikpak",
+    "qingstor",
+    "s3",
+    "shade",
+];
+
 /// Registry key: one daemon per distinct executable, config and environment.
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Key {
@@ -65,7 +94,7 @@ struct Key {
 }
 
 /// Config file (size, mtime) at daemon start; `None` = unreadable. A change means the daemon is stale.
-type Fingerprint = Option<(u64, Option<SystemTime>)>;
+pub(super) type Fingerprint = Option<(u64, Option<SystemTime>)>;
 
 /// Registry entry for one `Key`.
 #[derive(Default)]
@@ -248,7 +277,7 @@ fn env_value<'a>(context: &'a RcloneContext, name: &str) -> Option<&'a OsString>
 }
 
 /// Effective config file, exactly as the subprocess path would use it.
-fn config_file(context: &RcloneContext) -> Option<PathBuf> {
+pub(super) fn config_file(context: &RcloneContext) -> Option<PathBuf> {
     if let ConfigSelection::File(path) = &context.config {
         return Some(path.clone());
     }
@@ -265,7 +294,7 @@ fn config_file(context: &RcloneContext) -> Option<PathBuf> {
 }
 
 /// (size, mtime) of `path`, or `None` if it cannot be read.
-fn fingerprint(path: &std::path::Path) -> Fingerprint {
+pub(super) fn fingerprint(path: &std::path::Path) -> Fingerprint {
     std::fs::metadata(path)
         .ok()
         .map(|meta| (meta.len(), meta.modified().ok()))
@@ -337,6 +366,15 @@ pub(super) fn get(context: &RcloneContext) -> Option<Arc<Daemon>> {
 /// variables, with stdin/stdout discarded.
 fn daemon_command(context: &RcloneContext, args: &[&str]) -> Command {
     let mut command = context.base_command(&args.iter().map(OsString::from).collect::<Vec<_>>());
+    // One shard is one upload request here too: no chunk fan-out inside a
+    // shard (backend-wide variables override rclone.conf; see
+    // `write::chunk_concurrency_variable` for the subprocess path).
+    for backend in CHUNKED_UPLOAD_BACKENDS {
+        command.env(
+            format!("RCLONE_{}_UPLOAD_CONCURRENCY", backend.to_ascii_uppercase()),
+            "1",
+        );
+    }
     for (key, _) in &context.environment {
         if key
             .to_string_lossy()
@@ -786,6 +824,96 @@ impl Daemon {
             .copy_to(ctx, &mut counting)
             .map(drop)
             .map_err(|error| self.transport(error))
+    }
+}
+
+impl Daemon {
+    /// Uploads `body` as the object at `address` (`operations/uploadfile`)
+    /// with a known size and without rclone retries, like the subprocess
+    /// `rcat --size --low-level-retries 1`. Rate limits and denials are
+    /// definite; anything else falls back so the caller re-sends the same
+    /// bytes through a subprocess (an upload repeated after a lost reply
+    /// writes the same object again).
+    pub(super) fn upload(&self, ctx: &OperationContext, address: &str, body: &[u8]) -> Outcome<()> {
+        let (root, rel) = split(address).ok_or(Failure::Fallback)?;
+        let (dir, name) = match rel.rsplit_once('/') {
+            Some((dir, name)) => (dir, name),
+            None => ("", rel.as_str()),
+        };
+        if name.is_empty() || address.ends_with('/') {
+            return Err(Failure::Fallback);
+        }
+        let config = json!({
+            // Buffer the whole body: uploaded with its size, never streamed
+            // (a backend without streaming uploads would spool to disk).
+            "StreamingUploadCutoff": format!("{}", DAEMON_UPLOAD_MAX / 1024 + 1),
+            "LowLevelRetries": 1,
+        })
+        .to_string();
+        let mut target = String::from("/operations/uploadfile?fs=");
+        http::encode_component(&root, &mut target);
+        target.push_str("&remote=");
+        http::encode_component(dir, &mut target);
+        target.push_str("&_config=");
+        http::encode_component(&config, &mut target);
+        let (content_type, payload) = multipart(name, body);
+        let mut response = http::send(
+            &self.endpoint,
+            ctx,
+            "POST",
+            &target,
+            &[("Content-Type", content_type.as_str())],
+            Some(&payload),
+        )
+        .map_err(|error| self.transport(error))?;
+        let reply = response
+            .body(ctx, ERROR_BODY_LIMIT)
+            .map_err(|error| self.transport(error))?;
+        if response.status == 200 {
+            return Ok(());
+        }
+        Err(upload_failure(&reply))
+    }
+}
+
+/// One `multipart/form-data` part named `file` holding `body`; the file name
+/// travels as RFC 2231 `filename*` (UTF-8, percent-encoded), so encrypted
+/// names with any characters arrive unchanged. Returns (Content-Type, bytes).
+fn multipart(name: &str, body: &[u8]) -> (String, Vec<u8>) {
+    let mut random = [0u8; 12];
+    let _ = getrandom::fill(&mut random);
+    let boundary: String = std::iter::once("rpool".to_owned())
+        .chain(random.iter().map(|b| format!("{b:02x}")))
+        .collect();
+    let mut encoded = String::new();
+    http::encode_component(name, &mut encoded);
+    let mut payload = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename*=UTF-8''{encoded}\r\nContent-Type: application/octet-stream\r\n\r\n"
+    )
+    .into_bytes();
+    payload.reserve(body.len() + boundary.len() + 8);
+    payload.extend_from_slice(body);
+    payload.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+    (format!("multipart/form-data; boundary={boundary}"), payload)
+}
+
+/// Classifies a failed upload reply: a rate limit or a denial is definite
+/// (the subprocess would get the same answer); everything else, including
+/// a 404 for a missing parent, falls back to the subprocess path.
+fn upload_failure(body: &[u8]) -> Failure {
+    let message = serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("error")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        });
+    match message {
+        Some(message) => process::denial(&message)
+            .or_else(|| process::rate_limited(&message))
+            .map_or(Failure::Fallback, Failure::Definite),
+        None => Failure::Fallback,
     }
 }
 

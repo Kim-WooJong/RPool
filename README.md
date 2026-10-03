@@ -356,10 +356,18 @@ move existing archives. Declare shared quotas and outage groups with
   bound (`clamp(workers / 4, 1, 2)` reserved slots). A group reconstructs as
   soon as it has enough verified inputs. Two active groups bound staging to
   roughly `(workers + 2*M) * shard_size`.
-- One persistent `rclone rcd` per process serves read-only calls over a private
-  socket (Windows: localhost TCP with random credentials) so slow-starting
-  providers pay their cold start once; writes stay subprocesses.
-  `RPOOL_RCLONE_DAEMON=0` turns it off.
+- One persistent `rclone rcd` per process serves reads and **uploads of up to
+  16 MiB** over a private socket (Windows: localhost TCP with random
+  credentials), so providers pay process start, backend set-up and a new TLS
+  connection once instead of per shard. Small uploads are buffered and sent
+  with their size and no rclone retries (like `rcat --size
+  --low-level-retries 1`); a non-definite daemon failure re-sends the same
+  bytes through a subprocess. Larger uploads, deletes, moves, Google Drive
+  uploads and accounts with a request rate (`--tpslimit`) stay subprocesses.
+  The `rclone config dump` checked before every upload is cached while the
+  config file is unchanged. Locally (crypt over a local disk) a 64 KiB upload
+  took 54 ms as a subprocess and 3 ms through the daemon.
+  `RPOOL_RCLONE_DAEMON=0` turns the daemon off (e.g. to compare a speed test).
 
 These are scheduling rules; tests use synthetic storage and Docker, and
 real-cloud numbers are in the CHANGELOG.
