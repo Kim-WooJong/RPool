@@ -122,10 +122,15 @@ pub(crate) fn adopt(journal: &Journal, adoption: &DriveAdoption) -> Result<Drive
     Ok(winner)
 }
 
+/// Time limit of each cloud call of [`known`], per account.
+const KNOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
+
 /// Every drive migration of `pool` recorded in the cloud (and the local
 /// cache). Errors only when no journal store could be listed.
 pub(crate) fn known(rclone: &str, pool: &str) -> Result<Known> {
-    let (cloud, cache) = super::journal::pool_stores(rclone, pool)?;
+    // Read-only and run before every mount: an account that does not answer
+    // in time is skipped (journals are replicated on every account).
+    let (cloud, cache) = super::journal::pool_stores_bounded(rclone, pool, KNOWN_TIMEOUT)?;
     known_in(pool, cloud, cache)
 }
 

@@ -46,11 +46,13 @@ use crate::prelude::*;
 use crate::storage::{
     error::{StorageError, StorageErrorKind},
     rclone::RcloneContext,
+    reader::StorageReader,
     traits::OperationContext,
     writer::StorageWriter,
 };
 use crate::utils::remote_join;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 /// Object name of the frozen plan.
 const PLAN: &str = "plan.json";
@@ -646,8 +648,27 @@ fn validate_document(rel: &str) -> Result<()> {
 /// The cloud replicas and the local cache of `pool`'s migration journals
 /// (`Journal::with_stores` / `discover_in` inputs), for readers that look at
 /// many migrations at once.
-pub(crate) fn pool_stores(rclone: &str, pool: &str) -> Result<Stores> {
-    stores(rclone, pool)
+///
+/// Each cloud listing/read is limited to `timeout`: these are read-only checks
+/// (such as the one before mounting), never writes.
+pub(crate) fn pool_stores_bounded(rclone: &str, pool: &str, timeout: Duration) -> Result<Stores> {
+    crate::pool::validate_pool_name(pool)?;
+    let (_, cache) = stores(rclone, pool)?;
+    let policy = crate::pool::load_pool_store()?
+        .pools
+        .get(pool)
+        .cloned()
+        .with_context(|| format!("pool {pool} is not configured"))?;
+    let cloud = roots(pool, &policy)?
+        .into_iter()
+        .map(|root| {
+            Ok(
+                Arc::new(CloudStore::new(rclone, &root, policy.native_crypt)?.bounded(timeout))
+                    as Arc<dyn JournalStore>,
+            )
+        })
+        .collect::<Result<_>>()?;
+    Ok((cloud, cache))
 }
 
 /// Migration ids listed by any reachable store (no plan is read). Errors
@@ -677,6 +698,7 @@ pub(crate) fn list_ids(
     if reachable == 0 {
         bail!("migration journal unreachable: {}", failures.join("; "));
     }
+    warn_failures("migrations not listed", &failures);
     Ok(ids)
 }
 
@@ -780,6 +802,9 @@ pub(crate) struct CloudStore {
     root: String,
     /// The pool uses RPool's native crypt for writes.
     native_crypt: bool,
+    /// Time limit of each listing or read (`None` = unbounded). Writes are
+    /// never bounded: a write cut off mid-flight has an unknown outcome.
+    read_timeout: Option<Duration>,
 }
 
 /// One entry of `rclone lsjson` output.
@@ -816,7 +841,35 @@ impl CloudStore {
             rclone: rclone.into(),
             root: root.trim_end_matches('/').into(),
             native_crypt,
+            read_timeout: None,
         })
+    }
+    /// The same store with every listing and read limited to `timeout`, so
+    /// one slow or unreachable account cannot hold up its caller.
+    pub(crate) fn bounded(mut self, timeout: Duration) -> Self {
+        self.read_timeout = Some(timeout);
+        self
+    }
+    /// Deadline context of one listing or read.
+    fn read_context(&self) -> OperationContext {
+        self.read_timeout
+            .map_or_else(OperationContext::none, |timeout| {
+                OperationContext::with_deadline(Instant::now() + timeout)
+            })
+    }
+    /// Names the account and the limit when a bounded call ran out of time.
+    fn explain_timeout(&self, error: anyhow::Error) -> anyhow::Error {
+        let timed_out = error
+            .downcast_ref::<StorageError>()
+            .is_some_and(|e| e.kind() == StorageErrorKind::Timeout);
+        match (timed_out, self.read_timeout) {
+            (true, Some(timeout)) => anyhow!(
+                "{} did not answer within {} s (slow or unreachable account)",
+                self.label(),
+                timeout.as_secs()
+            ),
+            _ => error,
+        }
     }
     /// Writer for this pool's crypt mode.
     fn writer(&self) -> StorageWriter {
@@ -834,7 +887,7 @@ impl CloudStore {
         filter: Option<&str>,
     ) -> Result<Option<Vec<Listed>>, StorageError> {
         let context = RcloneContext::inherited(&self.rclone);
-        let operation = OperationContext::none();
+        let operation = self.read_context();
         context.ensure_crypt(&operation, &self.root)?;
         let mut args = vec!["lsjson", if dirs { "--dirs-only" } else { "--files-only" }];
         if let Some(filter) = filter {
@@ -860,7 +913,8 @@ impl JournalStore for CloudStore {
     }
     fn list_migrations(&self) -> Result<Vec<String>> {
         let listed = self
-            .list(&self.root, true, None)?
+            .list(&self.root, true, None)
+            .map_err(|error| self.explain_timeout(error.into()))?
             .context("migration listing exceeds the output bound")?;
         Ok(listed
             .into_iter()
@@ -870,10 +924,16 @@ impl JournalStore for CloudStore {
     }
     fn read(&self, migration: &str, rel: &str) -> Result<Option<Vec<u8>>> {
         let address = self.address(migration, rel);
-        match self.writer().reader().read_metadata(&address) {
+        let read = match self.read_timeout {
+            Some(timeout) => StorageReader::rclone(&self.rclone)
+                .with_deadline(Instant::now() + timeout)
+                .read_metadata(&address),
+            None => self.writer().reader().read_metadata(&address),
+        };
+        match read {
             Ok(bytes) => Ok(Some(bytes)),
             Err(error) if not_found(&error) => Ok(None),
-            Err(error) => Err(error),
+            Err(error) => Err(self.explain_timeout(error)),
         }
     }
     fn create(&self, migration: &str, rel: &str, bytes: &[u8]) -> Result<Option<Vec<u8>>> {

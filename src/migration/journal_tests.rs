@@ -532,3 +532,40 @@ fn appends_from_several_threads_share_one_journal() {
     assert_eq!(parts.1.len(), 8);
     assert_eq!(j.records().unwrap().len(), 8);
 }
+
+/// A bounded cloud store gives up on an account that never answers (here a
+/// fake rclone that hangs) and names it, instead of holding up the mount.
+#[cfg(unix)]
+#[test]
+fn bounded_cloud_store_names_an_account_that_does_not_answer() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let rclone = dir.path().join("rclone");
+    // Local config queries answer at once; every network call hangs.
+    fs::write(
+        &rclone,
+        r#"#!/bin/sh
+case " $* " in
+  *" config file "*) printf 'Configuration file is stored at:\n/nonexistent/rclone.conf\n' ;;
+  *" config dump "*) printf '{"slow_crypt":{"type":"crypt"}}' ;;
+  *) exec sleep 30 ;;
+esac
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&rclone, fs::Permissions::from_mode(0o755)).unwrap();
+    let store = CloudStore::new(rclone.to_str().unwrap(), "slow_crypt:rpool/journal", false)
+        .unwrap()
+        .bounded(std::time::Duration::from_secs(1));
+    let started = std::time::Instant::now();
+    let listed = store.list_migrations();
+    let read = store.read("m1", "drive-plan.json");
+    assert!(started.elapsed() < std::time::Duration::from_secs(8));
+    for error in [listed.unwrap_err(), read.unwrap_err()] {
+        let text = format!("{error:#}");
+        assert!(
+            text.contains("slow_crypt: did not answer within 1 s"),
+            "{text}"
+        );
+    }
+}

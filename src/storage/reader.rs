@@ -151,6 +151,12 @@ impl StorageReader {
         reader.context = OperationContext::with_deadline(Instant::now() + Duration::from_secs(120));
         Ok(reader)
     }
+    /// The same reader with every read failing with `Timeout` after `deadline`
+    /// (bounded metadata checks, e.g. the migration journal before mounting).
+    pub(crate) fn with_deadline(mut self, deadline: Instant) -> Self {
+        self.context = OperationContext::with_deadline(deadline);
+        self
+    }
     /// Reader over an explicit rclone context (used by `StorageWriter` and tests).
     pub(crate) fn with_rclone_context(context: RcloneContext) -> Self {
         Self {
