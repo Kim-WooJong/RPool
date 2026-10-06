@@ -1,4 +1,4 @@
-# rpool v1.0.0
+# rpool v2.13.0
 
 `rpool` is a Rust storage layer that stripes files across several
 **explicitly supplied rclone `crypt` remotes**, optionally with
@@ -87,7 +87,7 @@ are local durability points; cloud replication is asynchronous.
   RPool's filesystem core, or rclone mount over RPool's loopback WebDAV server
   (`dav`; on macOS via `rclone nfsmount`, used when macFUSE is missing).
 - Without mounting: `--sync-only`, `--capacity-only`, `--recover-spool`,
-  `--cleanup-cache`, `--apply-pool-changes` (after changing pool accounts),
+  `--cleanup-cache`, `--apply-pool-changes` (after removing pool accounts),
   `--account-recovery-from` (copy into a new pool after losing an account),
   `--import-from REMOTE:PATH` (import files stored with plain rclone),
   `--manifest FILE` (add `put` archives to the drive).
@@ -95,6 +95,20 @@ are local durability points; cloud replication is asynchronous.
   `--spool-gib`.
 - Several pools can be mounted at once; a pool, workspace or mountpoint is used
   by one mount at a time.
+- **Adding accounts needs only a normal mount.** When the pool only gained
+  accounts (`pool set` with every old remote kept, native crypt unchanged),
+  the next mount copies the drive metadata to the new accounts, verifies it,
+  and then uses them for placement and metadata; file data stays where it is.
+  An interrupted copy resumes on the next mount, and until it succeeds the
+  mount uses the previous accounts. A new account holding another drive's
+  metadata is refused. Removing accounts still needs `--apply-pool-changes`
+  or a pool migration.
+- An account that does not answer makes the mount fail with its name instead
+  of hanging: the pre-mount migration check gives each account 45 s per call,
+  drive metadata listings and reads 120 s.
+- Every account keeps 1/64 of its space (at most 1 GiB) free for the drive
+  metadata, which goes to every account; shards and capacity figures leave it
+  out, so a full pool keeps syncing.
 
 Full description, recovery and limits: [docs/MOUNT.md](docs/MOUNT.md).
 
@@ -172,12 +186,20 @@ After removing an account or changing K/M, shard size or native crypt with
 
 ```text
 rpool pool migrate plan <POOL>            # what moves, bytes, ETA, unrecoverable files
-rpool pool migrate run <POOL> --id <ID> [--parallel N] [--stop-file PATH]
+rpool pool migrate run <POOL> --id <ID> [--parallel N] [--transfers N] [--bwlimit RATE] [--stop-file PATH]
 rpool pool migrate status|lost|abandon <POOL> --id <ID>
 rpool pool migrate adopt <POOL> --id <ID>  # publish the migrated drive as a new generation
 rpool pool migrate retire <POOL> --id <ID> [--dry-run|--confirm]   # clean up, with quarantine
 rpool pool migrate restore <POOL> --id <ID> ...                    # take items out of quarantine
 ```
+
+To spread existing data onto a newly added account, plan with `--rebalance`
+(GUI: "Rebalance existing data"). A run can be slow and gentle:
+`--transfers N` moves N shards at once (archives one at a time), and
+`--bwlimit` caps the whole run in rclone syntax with timetables, e.g.
+`--bwlimit "01:00,20M 08:00,2M"`; both are in the GUI run step.
+Planning prints how long each phase took (`[plan] …: N s`) and reuses the
+drive records this PC already read.
 
 Progress lives in the cloud; rerun on any PC to resume. Kept shards are copied
 server-side where the provider supports it; shards of an unreadable account are
@@ -358,6 +380,13 @@ move existing archives. Declare shared quotas and outage groups with
 `--capacity-domain`/`--failure-domain` or Storage › Pools (stored in
 `provider_domains.json`). See [Pool capacity](docs/POOL_CAPACITY.md).
 
+Resilient and free-ratio put at most a fixed share of each coding group on
+one group/account, so one account much larger than the rest keeps space no
+placement can use (with 9+3, the largest must be at most a quarter of the
+total). `pool capacity` and the GUI capacity preview list that unusable
+space per account and how much to add, in how many accounts, to use all of
+it.
+
 ### Fair transfers and hedged reads
 
 - `--workers` caps concurrent tasks per operation; with several remotes each
@@ -438,6 +467,10 @@ rpool remote-root list | set REMOTE PATH | remove REMOTE
     built-in 16; Dropbox uploads stay 1).
   - `set --remote R --max-uploads N --max-downloads N`: one account's own
     values, which win (`0` = the default).
+  - `set --remote R --max-group-shards N`: at most N shards of each coding
+    group on this account, below the placement's own limit (Resilient and
+    free-ratio). For a slow account, so uploads do not queue on it; it never
+    weakens the outage bound (`0` clears).
 - **keepalive** makes one cheap authenticated call per account and records it
   as activity; mounts do it automatically after `keepalive-days`. Providers
   decide what counts as activity.
@@ -569,7 +602,8 @@ options still apply, for example `rpool --rclone C:\Tools\rclone.exe`.
   several pools mounted at once with a "Mounted pools" strip.
 - **Monitoring**: live traffic per mounted pool and account, history.
 - **Storage**: Providers (cards with usage, limits, keep-alive, speed test),
-  Pools (policy, capacity, drive metadata, trash & versions, speed test),
+  Pools ("New pool" or load one; policy, capacity, drive metadata, trash &
+  versions, speed test; a new pool never overwrites an existing name),
   Account changes (pool migration wizard).
 - **Health**: Archive (verify/status), Integrity, Metadata, Diagnostics.
 - **Activity** (jobs and history) and **Settings** (General, New-pool defaults, Encryption & paths,
