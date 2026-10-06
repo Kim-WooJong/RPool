@@ -69,6 +69,7 @@ fn snapshot(free: &[u64]) -> BudgetSnapshot {
                 declared: true,
                 total: 1000,
                 free,
+                shard_cap: None,
             })
             .collect(),
         rejected: vec![],

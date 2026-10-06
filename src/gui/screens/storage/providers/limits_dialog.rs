@@ -45,6 +45,8 @@ pub(crate) struct LimitsEditor {
     pub(crate) max_uploads: u32,
     /// 0 = the default.
     pub(crate) max_downloads: u32,
+    /// Shards of one coding group on this account at most; 0 = placement's own.
+    pub(crate) max_group_shards: u32,
     /// Inactivity warning mode.
     pub(crate) warn: Mode,
     /// Custom inactivity warning, days (at least 1).
@@ -79,6 +81,7 @@ impl LimitsEditor {
             tpslimit: own.tpslimit.unwrap_or(0.0),
             max_uploads: own.max_uploads.unwrap_or(0),
             max_downloads: own.max_downloads.unwrap_or(0),
+            max_group_shards: own.max_group_shards.unwrap_or(0),
             warn,
             warn_days,
             notice: None,
@@ -107,6 +110,7 @@ impl LimitsEditor {
             tpslimit: Some(self.tpslimit),
             max_uploads: Some(self.max_uploads),
             max_downloads: Some(self.max_downloads),
+            max_group_shards: Some(self.max_group_shards),
             inactivity_warn_days: match self.warn {
                 Mode::Default => None,
                 Mode::Off => Some(0),
@@ -183,6 +187,11 @@ pub(crate) fn show(ctx: &egui::Context, editor: &mut LimitsEditor) -> bool {
                     ui.add(egui::DragValue::new(&mut editor.max_downloads).range(0..=256));
                 });
                 theme::hint(ui, tr("How many shards are read from this account at once. 0 = the default from Settings › Network."));
+                ui.horizontal(|ui| {
+                    ui.label(tr("Shards per coding group at most"));
+                    ui.add(egui::DragValue::new(&mut editor.max_group_shards).range(0..=255));
+                });
+                theme::hint(ui, tr("For a slow account: it gets at most this many shards of each coding group, so uploads do not queue on it (Resilient and free-space ratio placement). Lower values never weaken the outage protection but use less of this account. 0 = the placement's own limit."));
                 ui.separator();
                 ui.strong(tr("Inactivity warning"));
                 let default_warn = match default_inactivity_days(&editor.kind) {
@@ -253,6 +262,7 @@ mod tests {
                 max_uploads: None,
                 max_downloads: None,
                 inactivity_warn_days: Some(0),
+                max_group_shards: Some(1),
             },
         );
         let mut editor = LimitsEditor::open_for("gd", "drive", &store);

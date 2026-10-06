@@ -26,6 +26,7 @@ pub(crate) fn run(rclone: &str, command: LimitsCommands) -> Result<()> {
             max_uploads,
             max_downloads,
             inactivity_warn_days,
+            max_group_shards,
         } => {
             let daily = match (daily_upload_gib, no_daily_limit, default_daily_limit) {
                 (Some(gib), _, _) => Some(DailyEdit::Gib(gib)),
@@ -40,6 +41,7 @@ pub(crate) fn run(rclone: &str, command: LimitsCommands) -> Result<()> {
                 max_uploads,
                 max_downloads,
                 inactivity_warn_days,
+                max_group_shards,
             };
             if change == LimitEdit::default() {
                 bail!("nothing to change; see `rpool provider limits set --help`");

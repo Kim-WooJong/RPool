@@ -234,10 +234,19 @@ fn resilient_allocate_inner(
     order.sort_by_key(|&i| (specs[i].group, std::cmp::Reverse(specs[i].size), i));
     let mut result = vec![0; specs.len()];
     let mut cursor = 0;
+    // Shards of each group per backing account, for `TargetBudget::shard_cap`.
+    let mut on_account = BTreeMap::<(u32, &str), usize>::new();
     for i in order {
         let spec = &specs[i];
         let eligible: Vec<_> = (0..targets.len())
             .map(|n| (cursor + n) % targets.len())
+            .filter(|&j| {
+                let held = on_account
+                    .get(&(spec.group, targets[j].backing.as_str()))
+                    .copied()
+                    .unwrap_or(0);
+                targets[j].shard_cap.is_none_or(|cap| held < cap)
+            })
             .filter(|&j| {
                 budgets[&targets[j].capacity_domain] >= spec.size
                     && (spec.size == 0 && parity == 0
@@ -307,6 +316,9 @@ fn resilient_allocate_inner(
         *budgets.get_mut(&targets[chosen].capacity_domain).unwrap() -= spec.size;
         *counts
             .entry((spec.group, domains[chosen].as_str()))
+            .or_default() += 1;
+        *on_account
+            .entry((spec.group, targets[chosen].backing.as_str()))
             .or_default() += 1;
         result[i] = chosen;
         cursor = (chosen + 1) % targets.len();
@@ -597,10 +609,30 @@ mod tests {
                     declared: true,
                     total: 1000,
                     free,
+                    shard_cap: None,
                 })
                 .collect(),
             rejected: vec![],
             observed_targets: vec![],
+        }
+    }
+    /// A slow account limited to one shard per group gets at most one, even
+    /// though it is by far the emptiest; the others take the rest.
+    #[test]
+    fn resilient_honours_an_account_shard_limit() {
+        let mut snap = snapshot(&[1000, 400, 400, 400, 400, 400]);
+        snap.targets[0].shard_cap = Some(1);
+        let specs: Vec<_> = (0..4)
+            .flat_map(|group| vec![PhysicalSpec { group, size: 10 }; 12])
+            .collect();
+        let assigned = assign_with_budget(&snap, &specs, Placement::Resilient, Some(3)).unwrap();
+        for group in 0..4 {
+            let on_slow = specs
+                .iter()
+                .zip(&assigned)
+                .filter(|(s, t)| s.group == group && **t == 0)
+                .count();
+            assert!(on_slow <= 1, "group {group}: {assigned:?}");
         }
     }
     #[test]

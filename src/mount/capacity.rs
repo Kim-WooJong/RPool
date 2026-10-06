@@ -706,6 +706,7 @@ mod tests {
                     declared: true,
                     total: 3 * mib,
                     free,
+                    shard_cap: None,
                 })
                 .collect(),
             ..Default::default()
@@ -809,6 +810,7 @@ mod tests {
                     declared: true,
                     total: 2 * tib,
                     free: tib,
+                    shard_cap: None,
                 })
                 .collect(),
             ..Default::default()
@@ -899,6 +901,7 @@ mod tests {
                 declared: true,
                 total: 100 * 1048576,
                 free: n * 1048576,
+                shard_cap: None,
             })
             .collect();
         let s = CapacityStatus {
@@ -940,6 +943,7 @@ mod tests {
                 declared: true,
                 total: 10 * 1048576,
                 free: 10 * 1048576,
+                shard_cap: None,
             })
             .collect();
         let mut p = policy();
@@ -983,6 +987,7 @@ mod tests {
                     declared: true,
                     total: bytes,
                     free: bytes,
+                    shard_cap: None,
                 },
             )
             .collect(),

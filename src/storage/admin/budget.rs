@@ -25,6 +25,21 @@ pub(crate) struct TargetBudget {
     /// Free bytes reported by the provider, less the [`metadata_reserve`]:
     /// what shards may still fill.
     pub free: u64,
+    /// This PC's lower limit of shards per coding group on this account
+    /// (`AccountLimits::max_group_shards`); `None` = the placement's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shard_cap: Option<usize>,
+}
+
+/// This PC's `max_group_shards` of the account behind placement target
+/// `backing` (`name:` or `name:path`).
+fn group_shard_limit(backing: &str) -> Option<usize> {
+    let account = backing.split_once(':').map_or(backing, |(name, _)| name);
+    crate::storage::account::runtime::settings()
+        .store
+        .account(account)
+        .and_then(|limits| limits.max_group_shards)
+        .map(|n| n as usize)
 }
 
 /// Space kept free on every account for the drive's metadata, which goes to
@@ -147,6 +162,7 @@ impl BudgetSnapshot {
             match catalog.placement_target(remote) {
                 Ok(backing) => {
                     let reserve = metadata_reserve(total);
+                    let shard_cap = group_shard_limit(&backing);
                     result.targets.push(TargetBudget {
                         remote: remote.clone(),
                         backing,
@@ -155,6 +171,7 @@ impl BudgetSnapshot {
                         declared: catalog.identity_declared(remote),
                         total: total.saturating_sub(reserve),
                         free: free.saturating_sub(reserve),
+                        shard_cap,
                     })
                 }
                 Err(e) => {

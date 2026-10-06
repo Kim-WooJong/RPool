@@ -253,6 +253,7 @@ fn rclone_about_reports_mount_capacity_for_default_64_mib_pool() {
                 declared: true,
                 total: 2 * free * gib,
                 free: free * gib,
+                shard_cap: None,
             })
             .collect(),
         ..Default::default()

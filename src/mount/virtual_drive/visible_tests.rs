@@ -307,6 +307,7 @@ fn uploads_in_progress_reserve_only_their_missing_shards() {
         declared: true,
         total: 10_000,
         free,
+        shard_cap: None,
     };
     let mut status = CapacityStatus {
         targets: vec![target("a:pool", 5000), target("b:pool", 3000)],

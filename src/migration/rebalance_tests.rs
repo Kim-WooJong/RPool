@@ -11,6 +11,7 @@ fn quota(name: &str, free: u64, total: u64) -> TargetBudget {
         declared: true,
         total,
         free,
+        shard_cap: None,
     }
 }
 

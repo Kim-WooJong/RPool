@@ -293,6 +293,7 @@ fn rebalance_relocates_unaffected_archives_toward_an_empty_account() {
         declared: true,
         total: 100 * MIB,
         free,
+        shard_cap: None,
     };
     let quotas = [
         quota("a", 10 * MIB),

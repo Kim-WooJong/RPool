@@ -366,5 +366,7 @@
   "After the test, uploads shards of {shard} to each account at 1, 2, 4, … 32 at once and recommends its Simultaneous shard uploads. Each step measures 20 s (5 s warm-up, 15 s measured), then lets the shards in flight finish so every upload also commits.": "テスト後、各アカウントに {shard} のシャードを同時に 1, 2, 4, … 32 個ずつアップロードし、同時シャードアップロード数を推奨します。各段階は 20 秒(ウォームアップ 5 秒、計測 15 秒)計測した後、転送中のシャードを最後まで完了させるため、すべてのアップロードがコミットまで確認されます。",
   "Remaining at most {minutes} min {seconds} s": "残り最大 {minutes} 分 {seconds} 秒",
   "An upper bound: tuning steps take at most 30 s each, a normal test at most as long as the slowest one so far. Most runs finish earlier.": "上限値です。調整の各段階は最大 30 秒、通常テストはこれまでで最も遅かったものと同じ時間として見積もります。ほとんどの場合、これより早く終わります。",
-  "Pack small files": "小さなファイルをまとめてアップロード"
+  "Pack small files": "小さなファイルをまとめてアップロード",
+  "Shards per coding group at most": "コーディンググループあたりの最大シャード数",
+  "For a slow account: it gets at most this many shards of each coding group, so uploads do not queue on it (Resilient and free-space ratio placement). Lower values never weaken the outage protection but use less of this account. 0 = the placement's own limit.": "遅いアカウント向け: 各コーディンググループのシャードをこの数までしか受け取らないため、アップロードがこのアカウントで滞りません（Resilient・空き容量比率の配置）。値を下げても障害保護は弱まりませんが、このアカウントの使用量は減ります。0 = 配置方式の既定の上限。"
 }

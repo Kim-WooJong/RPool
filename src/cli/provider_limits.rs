@@ -52,6 +52,11 @@ pub(crate) enum LimitsCommands {
         /// Warn after this many days without activity (`0` = never warn).
         #[arg(long)]
         inactivity_warn_days: Option<u32>,
+        /// At most this many shards of one coding group on this account, below
+        /// the placement's limit (e.g. `1` for a slow account; `0` clears).
+        /// Resilient and free-ratio placement.
+        #[arg(long)]
+        max_group_shards: Option<u32>,
     },
     /// Remove every override of one account (backend defaults apply).
     Reset {

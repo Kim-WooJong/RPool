@@ -84,7 +84,10 @@ fn allocate_ordered(
             .filter_map(|(i, t)| {
                 let free = budgets[&t.capacity_domain];
                 let count = group.get(&t.backing).copied().unwrap_or(0);
-                if free < spec.size || cap.is_some_and(|m| count >= m) {
+                if free < spec.size
+                    || cap.is_some_and(|m| count >= m)
+                    || t.shard_cap.is_some_and(|own| count >= own)
+                {
                     return None;
                 }
                 Some((i, count, free as f64 / t.total.max(1) as f64))
@@ -224,6 +227,7 @@ mod tests {
                     declared: true,
                     free: *f,
                     total: 1_000,
+                    shard_cap: None,
                 })
                 .collect(),
             ..Default::default()
@@ -240,6 +244,20 @@ mod tests {
         let count = |t: usize| assigned.iter().filter(|i| **i == t).count();
         assert!((0..6).all(|t| count(t) <= 3), "{assigned:?}");
         assert_eq!(count(5), 0, "{assigned:?}");
+    }
+
+    #[test]
+    fn free_ratio_honours_an_account_shard_limit() {
+        // The emptiest account is slow and limited to one shard per group.
+        let mut snap = snapshot(&[1_000, 500, 500, 500, 500, 500]);
+        snap.targets[0].shard_cap = Some(1);
+        let specs = vec![PhysicalSpec { group: 0, size: 10 }; 12];
+        let assigned = allocate(&snap, &specs, Some(3)).unwrap();
+        assert_eq!(
+            assigned.iter().filter(|i| **i == 0).count(),
+            1,
+            "{assigned:?}"
+        );
     }
 
     #[test]

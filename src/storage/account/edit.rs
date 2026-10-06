@@ -33,6 +33,8 @@ pub(crate) struct LimitEdit {
     pub max_downloads: Option<u32>,
     /// `0` = never warn.
     pub inactivity_warn_days: Option<u32>,
+    /// `0` = the placement's own limit.
+    pub max_group_shards: Option<u32>,
 }
 
 /// Applies `edit` to `account` (a trailing `:` is stripped) in `store`,
@@ -92,6 +94,12 @@ pub(crate) fn apply(store: &mut LimitsStore, account: &str, edit: &LimitEdit) ->
         }
         limits.max_downloads = (downloads > 0).then_some(downloads);
     }
+    if let Some(shards) = edit.max_group_shards {
+        if shards > 255 {
+            bail!("at most 255 shards of a coding group per account");
+        }
+        limits.max_group_shards = (shards > 0).then_some(shards);
+    }
     if limits.is_empty() {
         store.accounts.remove(account);
     } else {
@@ -126,12 +134,14 @@ mod tests {
             max_uploads: Some(3),
             max_downloads: Some(5),
             inactivity_warn_days: Some(0),
+            max_group_shards: Some(1),
         };
         apply(&mut store, "gd:", &edit).unwrap();
         let gd = &store.accounts["gd"];
         assert_eq!(gd.daily_upload, Some(DailyUpload::Bytes(3 << 29)));
         assert_eq!(gd.bwlimit.as_deref(), Some("10M:off"));
         assert_eq!((gd.tpslimit, gd.inactivity_warn_days), (Some(4.0), Some(0)));
+        assert_eq!(gd.max_group_shards, Some(1));
         assert_eq!((gd.max_uploads, gd.max_downloads), (Some(3), Some(5)));
         apply(
             &mut store,
@@ -157,6 +167,7 @@ mod tests {
                 tpslimit: Some(0.0),
                 max_uploads: Some(0),
                 max_downloads: Some(0),
+                max_group_shards: Some(0),
                 ..Default::default()
             },
         )
