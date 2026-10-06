@@ -107,8 +107,8 @@ impl SharedTransport {
             read_timeout: READ_TIMEOUT,
         })
     }
-    /// The same transport with another listing/read time limit (tests).
-    #[cfg(test)]
+    /// The same transport with another listing/read time limit (unix tests).
+    #[cfg(all(test, unix))]
     pub(crate) fn with_read_timeout(mut self, timeout: std::time::Duration) -> Self {
         self.read_timeout = timeout;
         self
