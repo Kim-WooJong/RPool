@@ -75,7 +75,6 @@
   "Pool name": "プール名",
   "Save pool": "プールを保存",
   "Remove selected": "選択項目を削除",
-  "New / clear": "新規 / クリア",
   "'{name}' changed how data is stored. Existing archives still use the old accounts or coding until they are migrated.": "'{name}' のデータ保存方法が変わりました。既存のアーカイブは移行するまで古いアカウントや符号化を使い続けます。",
   "Plan migration now": "今すぐ移行を計画",
   "Later": "後で",
@@ -368,5 +367,9 @@
   "An upper bound: tuning steps take at most 30 s each, a normal test at most as long as the slowest one so far. Most runs finish earlier.": "上限値です。調整の各段階は最大 30 秒、通常テストはこれまでで最も遅かったものと同じ時間として見積もります。ほとんどの場合、これより早く終わります。",
   "Pack small files": "小さなファイルをまとめてアップロード",
   "Shards per coding group at most": "コーディンググループあたりの最大シャード数",
-  "For a slow account: it gets at most this many shards of each coding group, so uploads do not queue on it (Resilient and free-space ratio placement). Lower values never weaken the outage protection but use less of this account. 0 = the placement's own limit.": "遅いアカウント向け: 各コーディンググループのシャードをこの数までしか受け取らないため、アップロードがこのアカウントで滞りません（Resilient・空き容量比率の配置）。値を下げても障害保護は弱まりませんが、このアカウントの使用量は減ります。0 = 配置方式の既定の上限。"
+  "For a slow account: it gets at most this many shards of each coding group, so uploads do not queue on it (Resilient and free-space ratio placement). Lower values never weaken the outage protection but use less of this account. 0 = the placement's own limit.": "遅いアカウント向け: 各コーディンググループのシャードをこの数までしか受け取らないため、アップロードがこのアカウントで滞りません（Resilient・空き容量比率の配置）。値を下げても障害保護は弱まりませんが、このアカウントの使用量は減ります。0 = 配置方式の既定の上限。",
+  "New pool": "新しいプール",
+  "New pool: choose a name and providers, then Save pool.": "新しいプール: 名前とプロバイダーを選んでから「プールを保存」を押してください。",
+  "Editing pool '{name}'": "プール「{name}」を編集中",
+  "A pool named '{name}' already exists. Load it to edit it, or choose another name.": "「{name}」という名前のプールは既にあります。編集するには読み込むか、別の名前を選んでください。"
 }

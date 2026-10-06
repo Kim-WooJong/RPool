@@ -75,7 +75,6 @@
   "Pool name": "存储池名称",
   "Save pool": "保存存储池",
   "Remove selected": "移除所选",
-  "New / clear": "新建 / 清除",
   "'{name}' changed how data is stored. Existing archives still use the old accounts or coding until they are migrated.": "“{name}”的数据存储方式已更改。现有归档在迁移之前仍使用旧账户或编码。",
   "Plan migration now": "立即规划迁移",
   "Later": "稍后",
@@ -368,5 +367,9 @@
   "An upper bound: tuning steps take at most 30 s each, a normal test at most as long as the slowest one so far. Most runs finish earlier.": "这是上限：每个调优步骤最多 30 秒，常规测试按目前最慢的一次计算。大多数情况下会更早完成。",
   "Pack small files": "打包上传小文件",
   "Shards per coding group at most": "每个编码组最多分片数",
-  "For a slow account: it gets at most this many shards of each coding group, so uploads do not queue on it (Resilient and free-space ratio placement). Lower values never weaken the outage protection but use less of this account. 0 = the placement's own limit.": "用于慢速账户：该账户在每个编码组中最多只接收这么多分片，上传不会在它这里排队（Resilient 与按空闲比例放置）。调低该值不会削弱故障保护，但会减少对该账户的使用。0 = 放置方式自身的上限。"
+  "For a slow account: it gets at most this many shards of each coding group, so uploads do not queue on it (Resilient and free-space ratio placement). Lower values never weaken the outage protection but use less of this account. 0 = the placement's own limit.": "用于慢速账户：该账户在每个编码组中最多只接收这么多分片，上传不会在它这里排队（Resilient 与按空闲比例放置）。调低该值不会削弱故障保护，但会减少对该账户的使用。0 = 放置方式自身的上限。",
+  "New pool": "新建池",
+  "New pool: choose a name and providers, then Save pool.": "新建池：选择名称和提供商，然后点击“保存池”。",
+  "Editing pool '{name}'": "正在编辑池“{name}”",
+  "A pool named '{name}' already exists. Load it to edit it, or choose another name.": "名为“{name}”的池已存在。要编辑请先加载它，或选择其他名称。"
 }

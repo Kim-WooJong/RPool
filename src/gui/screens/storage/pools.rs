@@ -19,6 +19,9 @@ pub(crate) struct PoolForm {
     pub(crate) selected: String,
     /// Name the pool is saved under.
     pub(crate) name: String,
+    /// Saved pool the form was loaded from; `None` while creating a new pool
+    /// (saving then refuses a name that already exists).
+    pub(crate) editing: Option<String>,
     /// Destinations (crypt remotes) of the pool.
     pub(crate) remotes: Vec<String>,
     /// Text box of the "Advanced: custom destination" entry.
@@ -63,6 +66,7 @@ impl PoolForm {
         Self {
             selected: String::new(),
             name: String::new(),
+            editing: None,
             remotes: settings.remotes.clone(),
             manual_remote: String::new(),
             shard_mib: settings.shard_mib,
@@ -88,6 +92,7 @@ impl PoolForm {
     /// Fills the form from a saved pool definition.
     fn load_definition(&mut self, name: String, pool: PoolDefinition) {
         self.picker = PoolPicker::default();
+        self.editing = Some(name.clone());
         self.name = name;
         self.remotes = pool.remotes;
         self.shard_mib = pool.shard_size.mib_ceil();
@@ -133,9 +138,23 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 if ui.button(tr("Reload list")).clicked() {
                     refresh_pool_names(state);
                 }
+                ui.separator();
+                if ui
+                    .add_enabled(!task.is_running(), egui::Button::new(tr("New pool")))
+                    .clicked()
+                {
+                    state.pools = PoolForm::from_settings(&state.settings);
+                    state.pools.notice = Some(
+                        tr("New pool: choose a name and providers, then Save pool.").to_string(),
+                    );
+                }
             });
 
             ui.add_space(8.0);
+            match &state.pools.editing {
+                Some(name) => ui.strong(trf("Editing pool '{name}'", &[("name", name)])),
+                None => ui.strong(tr("New pool")),
+            };
             ui.horizontal(|ui| {
                 ui.label(tr("Pool name"));
                 ui.add(egui::TextEdit::singleline(&mut state.pools.name).desired_width(280.0));
@@ -161,12 +180,6 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                     .clicked()
                 {
                     remove_selected(state);
-                }
-                if ui
-                    .add_enabled(!task.is_running(), egui::Button::new(tr("New / clear")))
-                    .clicked()
-                {
-                    state.pools = PoolForm::from_settings(&state.settings);
                 }
             });
             migration_hint(ui, state);
@@ -431,6 +444,15 @@ pub(crate) fn load_selected(state: &mut GuiState) {
 /// Validates the shard size and starts `rpool pool set` for the form as a task.
 fn save_current(state: &mut GuiState, task: &mut TaskRunner) {
     let name = state.pools.name.trim().to_string();
+    if state.pools.editing.as_deref() != Some(name.as_str())
+        && state.pool_definitions.contains_key(&name)
+    {
+        state.pools.notice = Some(trf(
+            "A pool named '{name}' already exists. Load it to edit it, or choose another name.",
+            &[("name", &name)],
+        ));
+        return;
+    }
     let shard_size = match crate::models::shard_size::ShardSize::from_mib(state.pools.shard_mib) {
         Ok(size) => size,
         Err(error) => {
@@ -501,6 +523,7 @@ pub(crate) fn handle_task_completion(state: &mut GuiState, task: &TaskRunner, st
             let before = state.pool_definitions.get(&name).cloned();
             if refresh_pool_names(state) {
                 state.pools.selected = name.clone();
+                state.pools.editing = Some(name.clone());
                 state.pools.notice = Some(trf("Saved '{name}'.", &[("name", &name)]));
                 let changed = matches!(
                     (&before, state.pool_definitions.get(&name)),
@@ -624,7 +647,9 @@ mod tests {
             native_crypt: true,
             small_file_packing: false,
         };
+        assert_eq!(form.editing, None, "a fresh form creates a new pool");
         form.load_definition("existing".into(), existing.clone());
+        assert_eq!(form.editing.as_deref(), Some("existing"));
         settings.shard_mib = 91;
         settings.workers = 6;
         assert_eq!(form.remotes, existing.remotes);
@@ -646,6 +671,7 @@ mod tests {
         assert_eq!(reset.object_limit(), None);
         assert!(reset.native_crypt, "new pools encrypt in RPool by default");
         assert!(reset.name.is_empty() && reset.selected.is_empty());
+        assert_eq!(reset.editing, None);
     }
 
     #[test]

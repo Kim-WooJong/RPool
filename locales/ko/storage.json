@@ -75,7 +75,6 @@
   "Pool name": "풀 이름",
   "Save pool": "풀 저장",
   "Remove selected": "선택 항목 제거",
-  "New / clear": "새로 만들기 / 지우기",
   "'{name}' changed how data is stored. Existing archives still use the old accounts or coding until they are migrated.": "'{name}'의 데이터 저장 방식이 바뀌었어요. 기존 아카이브는 이전하기 전까지 이전 계정이나 코딩을 계속 사용해요.",
   "Plan migration now": "지금 이전 계획하기",
   "Later": "나중에",
@@ -368,5 +367,9 @@
   "An upper bound: tuning steps take at most 30 s each, a normal test at most as long as the slowest one so far. Most runs finish earlier.": "상한값이에요. 측정 단계는 하나당 최대 30초, 기본 테스트는 지금까지 가장 느렸던 계정만큼으로 잡아요. 대부분 이보다 빨리 끝나요.",
   "Pack small files": "작은 파일 묶어 올리기",
   "Shards per coding group at most": "코딩 그룹당 최대 샤드 수",
-  "For a slow account: it gets at most this many shards of each coding group, so uploads do not queue on it (Resilient and free-space ratio placement). Lower values never weaken the outage protection but use less of this account. 0 = the placement's own limit.": "느린 계정용: 이 계정은 코딩 그룹마다 이 수만큼만 샤드를 받아서, 업로드가 이 계정에서 밀리지 않아요 (Resilient, 여유 공간 비율 배치). 값을 낮춰도 장애 보호는 약해지지 않지만 이 계정을 덜 쓰게 돼요. 0 = 배치 방식의 기본 제한."
+  "For a slow account: it gets at most this many shards of each coding group, so uploads do not queue on it (Resilient and free-space ratio placement). Lower values never weaken the outage protection but use less of this account. 0 = the placement's own limit.": "느린 계정용: 이 계정은 코딩 그룹마다 이 수만큼만 샤드를 받아서, 업로드가 이 계정에서 밀리지 않아요 (Resilient, 여유 공간 비율 배치). 값을 낮춰도 장애 보호는 약해지지 않지만 이 계정을 덜 쓰게 돼요. 0 = 배치 방식의 기본 제한.",
+  "New pool": "새 풀",
+  "New pool: choose a name and providers, then Save pool.": "새 풀: 이름과 공급자를 고른 뒤 풀 저장을 누르세요.",
+  "Editing pool '{name}'": "풀 '{name}' 편집 중",
+  "A pool named '{name}' already exists. Load it to edit it, or choose another name.": "'{name}' 이름의 풀이 이미 있어요. 편집하려면 불러오거나, 다른 이름을 고르세요."
 }
