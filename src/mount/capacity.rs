@@ -731,7 +731,11 @@ mod tests {
         let mut p = policy();
         p.parity_shards = 0;
         let s = CapacityStatus::inspect(&a, &p).unwrap();
-        assert_eq!(s.nominal_logical_upper, 300000 * 1048576);
+        let total = 300000 * 1048576;
+        assert_eq!(
+            s.nominal_logical_upper,
+            total - crate::storage::admin::budget::metadata_reserve(total)
+        );
         assert_eq!(s.additional_estimate, MAX_SIMULATED_SHARDS * 1048576);
         assert!(s.estimate_limited);
     }

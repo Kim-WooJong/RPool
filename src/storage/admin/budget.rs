@@ -19,10 +19,28 @@ pub(crate) struct TargetBudget {
     pub failure_domain: Option<String>,
     /// The backing remote has a user-declared identity in `provider_domains.json`.
     pub declared: bool,
-    /// Total quota in bytes reported by the provider.
+    /// Total quota in bytes reported by the provider, less the
+    /// [`metadata_reserve`] (space shards never use).
     pub total: u64,
-    /// Free bytes reported by the provider.
+    /// Free bytes reported by the provider, less the [`metadata_reserve`]:
+    /// what shards may still fill.
     pub free: u64,
+}
+
+/// Space kept free on every account for the drive's metadata, which goes to
+/// every pool account (change records, checkpoints) and must be written to
+/// all of them before other PCs see a change: 1/64 of the account, at most
+/// 1 GiB (a change record is a few KiB, a checkpoint chunk at most 8 MiB).
+/// Accounts below 1 GiB keep nothing. Shard placement and the capacity
+/// estimates see the account without it, so shards never fill an account
+/// completely and metadata writes keep working when the pool is full.
+pub(crate) fn metadata_reserve(total: u64) -> u64 {
+    const GIB: u64 = 1 << 30;
+    if total < GIB {
+        0
+    } else {
+        (total / 64).min(GIB)
+    }
 }
 #[derive(Debug, Clone, Default)]
 /// Result of one quota round over a set of pool remotes.
@@ -127,15 +145,18 @@ impl BudgetSnapshot {
                 continue;
             };
             match catalog.placement_target(remote) {
-                Ok(backing) => result.targets.push(TargetBudget {
-                    remote: remote.clone(),
-                    backing,
-                    capacity_domain: domain.as_str().into(),
-                    failure_domain: binding.failure_domain.map(|d| d.as_str().to_owned()),
-                    declared: catalog.identity_declared(remote),
-                    total,
-                    free,
-                }),
+                Ok(backing) => {
+                    let reserve = metadata_reserve(total);
+                    result.targets.push(TargetBudget {
+                        remote: remote.clone(),
+                        backing,
+                        capacity_domain: domain.as_str().into(),
+                        failure_domain: binding.failure_domain.map(|d| d.as_str().to_owned()),
+                        declared: catalog.identity_declared(remote),
+                        total: total.saturating_sub(reserve),
+                        free: free.saturating_sub(reserve),
+                    })
+                }
                 Err(e) => {
                     result
                         .rejected
@@ -351,8 +372,10 @@ mod tests {
         let admin = SkewAdmin;
         let mut catalog = admin.catalog().unwrap();
         let remotes = ["a:".into(), "alias:".into(), "b:".into()];
+        // Each account keeps its metadata reserve out of the budget.
+        let net = |bytes: u64| bytes - metadata_reserve(bytes);
         let unknown = BudgetSnapshot::query(&admin, &catalog, &remotes);
-        assert_eq!(unknown.total_free().unwrap(), 2u64 << 30);
+        assert_eq!(unknown.total_free().unwrap(), net(2u64 << 30));
         assert_eq!(unknown.observed_targets.len(), 3);
 
         catalog.set_domains(DomainStore {
@@ -376,7 +399,61 @@ mod tests {
         });
         let declared = BudgetSnapshot::query(&admin, &catalog, &remotes);
         assert!(declared.rejected.is_empty());
-        assert_eq!(declared.total_free().unwrap(), (2u64 << 40) + (2u64 << 30));
+        assert_eq!(
+            declared.total_free().unwrap(),
+            net(2u64 << 40) + net(2u64 << 30)
+        );
         assert_eq!(declared.budgets().len(), 2); // The crypt alias adds no quota.
+    }
+
+    #[test]
+    fn metadata_reserve_is_a_64th_of_the_account_up_to_one_gib() {
+        const GIB: u64 = 1 << 30;
+        assert_eq!(metadata_reserve(0), 0);
+        assert_eq!(metadata_reserve(GIB - 1), 0);
+        assert_eq!(metadata_reserve(GIB), GIB / 64);
+        assert_eq!(metadata_reserve(10 * GIB), 10 * GIB / 64);
+        assert_eq!(metadata_reserve(150 * GIB), GIB);
+        assert_eq!(metadata_reserve(8 << 40), GIB);
+    }
+
+    /// An account with less free space than its reserve takes no shards, but
+    /// the pool still lists it (metadata keeps going there).
+    #[test]
+    fn nearly_full_account_has_no_shard_budget() {
+        const GIB: u64 = 1 << 30;
+        struct Full;
+        impl BackendAdmin for Full {
+            fn catalog(&self) -> Result<RemoteCatalog> {
+                Admin.catalog()
+            }
+            fn quota(&self, remote: &str) -> QuotaReport {
+                QuotaReport {
+                    remote: remote.into(),
+                    total: Some(150 * GIB),
+                    used: Some(150 * GIB - GIB / 2),
+                    free: Some(GIB / 2),
+                    trashed: None,
+                    other: None,
+                    used_percent: None,
+                    error: None,
+                }
+            }
+            fn discover(&self) -> Result<Vec<String>> {
+                unreachable!()
+            }
+            fn probe(&self, _: &str) -> Result<()> {
+                unreachable!()
+            }
+            fn ensure_encrypted(&self, _: &str) -> Result<()> {
+                unreachable!()
+            }
+        }
+        let catalog = Full.catalog().unwrap();
+        let s = BudgetSnapshot::query(&Full, &catalog, &["a:".into()]);
+        assert!(s.rejected.is_empty());
+        assert_eq!(s.targets[0].free, 0);
+        assert_eq!(s.targets[0].total, 149 * GIB);
+        assert_eq!(s.total_free().unwrap(), 0);
     }
 }
