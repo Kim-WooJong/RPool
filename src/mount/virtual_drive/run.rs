@@ -52,7 +52,9 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
             cache_limit,
             &epoch,
         )?,
-        None => VirtualDrive::open(rclone, &args.pool, &args.workspace, worker, cache_limit)?,
+        None => {
+            VirtualDrive::open_for_mount(rclone, &args.pool, &args.workspace, worker, cache_limit)?
+        }
     };
     durable_json(&drive.root.join("pool-worker.json"), &worker)?;
     if let Some(workers) = args.workers {

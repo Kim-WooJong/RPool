@@ -6,7 +6,7 @@
   "A previous WebDAV mount stopped before rclone saved these writes. Restored files are pending upload like any other save. Recovered copies sit next to a file that may have changed since; compare and keep what you need. Nothing was overwritten.": "之前的 WebDAV 挂载在 rclone 保存这些写入之前就已停止。已恢复的文件与其他保存一样等待上传。恢复的副本位于可能已更改的文件旁边，请比较后保留所需内容。没有任何内容被覆盖。",
   "Account": "账户",
   "Adds archives made with Upload to the drive at the next Mount or Sync. Pool membership is never inferred.": "在下次挂载或同步时，将通过上传创建的归档添加到驱动器。不会推断存储池归属。",
-  "After adding or removing accounts in Pools: unmount, then apply. The pool name and workspace stay; current files, conflicts and sealed writes are verified in a new metadata generation first.": "在存储池中添加或移除账户后：先卸载再应用。存储池名称和工作区保持不变；当前文件、冲突和已封存的写入会先在新的元数据世代中验证。",
+  "After removing accounts in Pools: unmount, then apply. The pool name and workspace stay; current files, conflicts and sealed writes are verified in a new metadata generation first. Accounts that were only added need no apply: the next Mount copies the drive metadata to them and leaves file data in place.": "在“池”中移除账户后：先卸载，再应用。池名称和工作区保持不变；当前文件、冲突和已确认的写入会先在新的元数据代中验证。若只是添加了账户，则无需应用：下次挂载时会把驱动器元数据复制到新账户，文件数据保持原位。",
   "All variants are kept; nothing is merged or discarded automatically.": "所有版本均会保留；不会自动合并或丢弃。",
   "An existing empty directory. Requires FUSE.": "已存在的空目录。需要 FUSE。",
   "An unused drive letter. Requires WinFsp.": "未使用的驱动器号。需要 WinFsp。",

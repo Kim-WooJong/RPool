@@ -22,6 +22,17 @@ pub(crate) struct ReplicaDirs {
     marks: SharedTransport,
 }
 impl ReplicaDirs {
+    /// The same directories in metadata copy order (`metadata_backfill`).
+    pub(crate) fn backfill_view(
+        &self,
+    ) -> super::metadata_backfill::ReplicaView<'_, SharedTransport> {
+        super::metadata_backfill::ReplicaView {
+            chunks: &self.chunks,
+            heads: &self.heads,
+            marks: &self.marks,
+            records: self.records.iter().collect(),
+        }
+    }
     /// Borrowed `Replica` view of these directories for the checkpoint and
     /// compaction functions.
     pub(crate) fn replica(&self) -> Replica<'_> {

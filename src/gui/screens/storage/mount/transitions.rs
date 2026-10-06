@@ -55,7 +55,7 @@ fn target(ui: &mut egui::Ui, state: &mut GuiState) {
 /// "Apply a changed pool to a drive" card (mount action 6); shown in
 /// Storage › Account changes.
 pub(crate) fn apply_card(ui: &mut egui::Ui, state: &mut GuiState) {
-    theme::card_section(ui, tr("Apply a changed pool to a drive"), Some(tr("After adding or removing accounts in Pools: unmount, then apply. The pool name and workspace stay; current files, conflicts and sealed writes are verified in a new metadata generation first.")), |_| {}, |ui| {
+    theme::card_section(ui, tr("Apply a changed pool to a drive"), Some(tr("After removing accounts in Pools: unmount, then apply. The pool name and workspace stay; current files, conflicts and sealed writes are verified in a new metadata generation first. Accounts that were only added need no apply: the next Mount copies the drive metadata to them and leaves file data in place.")), |_| {}, |ui| {
         target(ui, state);
         let (form, settings) = (&mut state.mount, &mut state.settings);
         ui.add_enabled_ui(!form.session.runner.is_running(), |ui| {

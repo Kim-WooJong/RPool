@@ -11,6 +11,7 @@ use super::shared_model::{Content, Event};
 use super::shared_transport::SharedTransport;
 use crate::prelude::*;
 
+mod add_accounts;
 mod capacity;
 /// How long a capacity snapshot serves the free-space report (tests).
 #[cfg(test)]

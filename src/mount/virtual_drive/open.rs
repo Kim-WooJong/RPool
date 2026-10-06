@@ -69,7 +69,19 @@ impl VirtualDrive {
         worker: &str,
         cache_limit: u64,
     ) -> Result<Self> {
-        Self::open_internal(rclone, pool, root, worker, cache_limit, None)
+        Self::open_internal(rclone, pool, root, worker, cache_limit, None, false)
+    }
+
+    /// [`Self::open`] for `rpool mount`: also accepts a pool that only gained
+    /// accounts, copying the drive metadata to them first (`add_accounts`).
+    pub(crate) fn open_for_mount(
+        rclone: &str,
+        pool: &str,
+        root: &Path,
+        worker: &str,
+        cache_limit: u64,
+    ) -> Result<Self> {
+        Self::open_internal(rclone, pool, root, worker, cache_limit, None, true)
     }
 
     /// Initialize a private transition generation; callers persist the epoch in their journal.
@@ -84,12 +96,13 @@ impl VirtualDrive {
         if root.join("virtual.json").exists() {
             bail!("epoch initialization requires a fresh workspace");
         }
-        Self::open_internal(rclone, pool, root, worker, cache_limit, Some(epoch))
+        Self::open_internal(rclone, pool, root, worker, cache_limit, Some(epoch), false)
     }
 
     /// Shared opener: validates or writes the `virtual.json` binding, takes the
     /// workspace lock, loads the namespace and cache, and resolves the effective
-    /// pool layout. A changed pool membership is refused (use a transition).
+    /// pool layout. A changed pool membership is refused (use a transition),
+    /// except, with `add_accounts`, a pool that only gained accounts.
     pub(super) fn open_internal(
         rclone: &str,
         pool: &str,
@@ -97,6 +110,7 @@ impl VirtualDrive {
         worker: &str,
         cache_limit: u64,
         requested_epoch: Option<&str>,
+        add_accounts: bool,
     ) -> Result<Self> {
         #[derive(Deserialize)]
         struct Epoch {
@@ -137,7 +151,7 @@ impl VirtualDrive {
             .cloned()
             .context("unknown pool")?;
         crate::pool::validate_pool(&current_policy)?;
-        let auto_roots = drive_metadata_roots(pool, &current_policy.remotes, epoch.as_deref())?;
+        let mut auto_roots = drive_metadata_roots(pool, &current_policy.remotes, epoch.as_deref())?;
         let shared = auto_roots.first().cloned();
         let root = root.canonicalize()?;
         let lock = OpenOptions::new()
@@ -184,14 +198,21 @@ impl VirtualDrive {
                 binding.version
             );
         }
-        if binding.epoch != epoch
-            || binding.pool != pool
-            || binding.shared != shared
-            || binding.metadata_roots != auto_roots
-        {
-            bail!("workspace pool changed; keep this workspace and use Apply pool changes to transition its account membership. Reprocess alone does not update mount metadata");
+        let changed = binding.shared != shared || binding.metadata_roots != auto_roots;
+        // Accounts only added: the metadata is copied to them below.
+        let adding = changed
+            && add_accounts
+            && binding.epoch == epoch
+            && binding.pool == pool
+            && super::add_accounts::only_adds(&binding.policy, &current_policy)?
+            && binding.metadata_roots
+                == drive_metadata_roots(pool, &binding.policy.remotes, epoch.as_deref())?;
+        if binding.epoch != epoch || binding.pool != pool || (changed && !adding) {
+            bail!("workspace pool changed; keep this workspace and use Apply pool changes to transition its account membership (adding accounts only needs a normal mount). Reprocess alone does not update mount metadata");
         }
-        crate::mount::layout_refresh::validate_membership(&binding.policy, &current_policy)?;
+        if !adding {
+            crate::mount::layout_refresh::validate_membership(&binding.policy, &current_policy)?;
+        }
         for name in ["spool", "clean-cache", "anchor", ".rpool"] {
             fs::create_dir_all(root.join(name))?;
             checked_directory(&root.join(name))?;
@@ -212,8 +233,28 @@ impl VirtualDrive {
             &root,
             state.pending.iter().map(|intent| intent.id.as_str()),
         )?;
-        let (effective_policy, layout_deferral) =
+        let (mut effective_policy, layout_deferral) =
             crate::mount::layout_refresh::resolve(&binding.policy, &current_policy, pending)?;
+        if adding && pending > 0 {
+            // Started uploads resume with the accounts they were planned with.
+            println!("Pool accounts added: {pending} pending upload(s) use the previous accounts; the new accounts join on the next mount after they finish");
+            effective_policy.remotes = binding.policy.remotes.clone();
+            auto_roots = binding.metadata_roots.clone();
+        } else if adding {
+            let added = auto_roots.len() - binding.metadata_roots.len();
+            println!("Pool accounts added: copying the drive metadata to {added} new account(s); file data stays where it is");
+            let copied = super::add_accounts::copy_metadata(
+                rclone,
+                &binding.metadata_roots,
+                &auto_roots,
+                current_policy.native_crypt,
+            )?;
+            println!("Drive metadata copied to the new account(s): {copied} object(s)");
+            binding.metadata_roots = auto_roots.clone();
+            binding.shared = shared.clone();
+            binding.policy.remotes = current_policy.remotes.clone();
+            durable_json(&config, &binding)?;
+        }
         if serde_json::to_value(&binding.policy)? != serde_json::to_value(&effective_policy)? {
             binding.policy = effective_policy;
             durable_json(&config, &binding)?;

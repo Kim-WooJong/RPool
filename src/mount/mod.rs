@@ -19,11 +19,14 @@ mod frontend;
 pub(crate) mod fs_core;
 #[cfg(target_os = "macos")]
 pub(crate) use frontend::macfuse_installed;
+#[cfg(test)]
+mod add_accounts_tests;
 pub(crate) mod history_bridge;
 mod incremental;
 pub(crate) mod layout_refresh;
 mod lifecycle;
 mod maintenance;
+pub(crate) mod metadata_backfill;
 pub(crate) mod metadata_browse;
 mod metadata_cache;
 mod metadata_checkpoint;

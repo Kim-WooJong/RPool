@@ -6,7 +6,7 @@
   "A previous WebDAV mount stopped before rclone saved these writes. Restored files are pending upload like any other save. Recovered copies sit next to a file that may have changed since; compare and keep what you need. Nothing was overwritten.": "以前の WebDAV マウントが、rclone がこれらの書き込みを保存する前に停止しました。復元したファイルは通常の保存と同様にアップロード待ちです。復旧したコピーは、その後変更された可能性のあるファイルの隣にあります。比較して必要なものを残してください。上書きされたものはありません。",
   "Account": "アカウント",
   "Adds archives made with Upload to the drive at the next Mount or Sync. Pool membership is never inferred.": "アップロードで作成したアーカイブを、次回のマウントまたは同期時にドライブへ追加します。プールへの所属は推測しません。",
-  "After adding or removing accounts in Pools: unmount, then apply. The pool name and workspace stay; current files, conflicts and sealed writes are verified in a new metadata generation first.": "プールでアカウントを追加・削除した後: マウントを解除してから適用します。プール名とワークスペースはそのままで、現在のファイル・競合・確定済みの書き込みを新しいメタデータ世代で先に検証します。",
+  "After removing accounts in Pools: unmount, then apply. The pool name and workspace stay; current files, conflicts and sealed writes are verified in a new metadata generation first. Accounts that were only added need no apply: the next Mount copies the drive metadata to them and leaves file data in place.": "Poolsでアカウントを削除した後: マウントを解除してから適用してください。プール名とワークスペースはそのままで、現在のファイル・競合・確定済みの書き込みを新しいメタデータ世代で先に検証します。アカウントを追加しただけなら適用は不要です。次回のマウントでドライブのメタデータが新しいアカウントにコピーされ、ファイルデータはそのまま残ります。",
   "All variants are kept; nothing is merged or discarded automatically.": "すべてのバリアントが保持されます。自動で統合や破棄は行いません。",
   "An existing empty directory. Requires FUSE.": "既存の空のディレクトリ。FUSE が必要です。",
   "An unused drive letter. Requires WinFsp.": "未使用のドライブ文字。WinFsp が必要です。",
