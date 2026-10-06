@@ -70,18 +70,21 @@ impl RcloneContext {
             Err(error) if error.kind() == crate::storage::error::StorageErrorKind::NotFound => {}
             Err(error) => return Err(error),
         }
-        let args = [
+        let mut args: Vec<OsString> = [
             "copyto",
             "--ignore-existing",
             "--retries",
             "1",
             "--low-level-retries",
             "1",
-            "--",
-            source,
-            destination,
         ]
-        .map(OsString::from);
+        .map(OsString::from)
+        .into();
+        // A slow migration (`process_limit`) also limits rclone's own streams.
+        if let Some(limit) = super::process_limit::per_stream_bwlimit() {
+            args.extend(["--bwlimit".into(), limit.into()]);
+        }
+        args.extend(["--".into(), source.into(), destination.into()]);
         self.ensure_parent_dir(ctx, destination);
         self.retry_rejected(ctx, destination, &args, traffic::Direction::Upload)
     }

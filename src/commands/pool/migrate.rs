@@ -43,6 +43,8 @@ pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
             stop_file,
             take_over,
             parallel,
+            transfers,
+            bwlimit,
         } => execute::run(
             rclone,
             &pool,
@@ -51,6 +53,8 @@ pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
                 stop_file,
                 take_over,
                 parallel,
+                transfers: transfers.map(|n| n as usize),
+                bwlimit,
             },
         ),
         MigrateCommands::Status { pool, id, json } => {
@@ -151,6 +155,7 @@ pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
                 stop_file,
                 take_over,
                 parallel,
+                ..Default::default()
             },
         ),
     }

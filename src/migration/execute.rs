@@ -47,6 +47,36 @@ pub(crate) struct RunOptions {
     pub take_over: bool,
     /// Archives processed concurrently (None: [`DEFAULT_PARALLEL`]).
     pub parallel: Option<usize>,
+    /// Shard transfers per archive instead of the pool's workers
+    /// (`--transfers`); archives then default to one at a time.
+    pub transfers: Option<usize>,
+    /// Bandwidth limit of the whole run (`--bwlimit` timetable syntax).
+    pub bwlimit: Option<String>,
+}
+
+impl RunOptions {
+    /// Applies `transfers` and `bwlimit` to `plan` and this process; returns
+    /// the archives-at-once request to use. Called by `run` before any work.
+    fn throttle(&self, plan: &mut Plan) -> Result<Option<usize>> {
+        let mut parallel = self.parallel;
+        if let Some(transfers) = self.transfers {
+            plan.target.workers = transfers.max(1);
+            parallel = parallel.or(Some(1));
+        }
+        if let Some(text) = self
+            .bwlimit
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+        {
+            let table = crate::storage::account::bandwidth::Timetable::parse(text)
+                .with_context(|| format!("invalid --bwlimit {text:?}"))?;
+            let streams = plan.target.workers.max(1) * effective_parallel(parallel, usize::MAX);
+            crate::storage::rclone::process_limit::set(table, streams);
+            println!("migration_bwlimit={text} streams={streams}");
+        }
+        Ok(parallel)
+    }
 }
 
 /// Worker count actually used: the request (or the default) clamped to
@@ -84,12 +114,17 @@ pub(crate) fn run(
     options: &RunOptions,
 ) -> Result<()> {
     let journal = Journal::open(rclone, pool, migration_id)?;
-    let plan = journal
+    let mut plan = journal
         .load_plan()?
         .ok_or_else(|| anyhow!("migration not found in the cloud: {migration_id}"))?;
     if plan.migration_id != migration_id || plan.pool != pool {
         bail!("journal plan does not belong to {pool}/{migration_id}");
     }
+    let parallel = options.throttle(&mut plan)?;
+    let options = &RunOptions {
+        parallel,
+        ..options.clone()
+    };
     let records = journal.records()?;
     let work_root = crate::config::app_config_dir()?
         .join("migrations")

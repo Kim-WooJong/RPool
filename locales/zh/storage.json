@@ -371,5 +371,9 @@
   "New pool": "新建池",
   "New pool: choose a name and providers, then Save pool.": "新建池：选择名称和提供商，然后点击“保存池”。",
   "Editing pool '{name}'": "正在编辑池“{name}”",
-  "A pool named '{name}' already exists. Load it to edit it, or choose another name.": "名为“{name}”的池已存在。要编辑请先加载它，或选择其他名称。"
+  "A pool named '{name}' already exists. Load it to edit it, or choose another name.": "名为“{name}”的池已存在。要编辑请先加载它，或选择其他名称。",
+  "Slow run: shards moved at once (archives then one at a time). 0 = the pool's workers.": "慢速运行：同时移动的分片数（归档将逐个处理）。0 = 池的工作线程数。",
+  "Shards at once": "同时分片数",
+  "Bandwidth limit of the whole run, rclone --bwlimit syntax with timetables, e.g. 10M or 01:00,20M 08:00,2M. Empty = no limit.": "整个运行的带宽限制，使用 rclone --bwlimit 语法，支持时间表，例如 10M 或 01:00,20M 08:00,2M。留空 = 不限制。",
+  "Bandwidth": "带宽"
 }

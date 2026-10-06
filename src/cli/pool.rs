@@ -258,6 +258,16 @@ pub(crate) enum MigrateCommands {
         /// default: 4, or fewer when fewer archives remain.
         #[arg(long, value_name = "N")]
         parallel: Option<usize>,
+        /// Shard transfers of each archive at once instead of the pool's
+        /// workers. Without --parallel archives then move one at a time, so
+        /// N is the total: a slow, gentle rebalance.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=256))]
+        transfers: Option<u32>,
+        /// Bandwidth limit of the whole run in rclone `--bwlimit` syntax,
+        /// timetables included (e.g. `10M`, or `01:00,20M 08:00,2M`). Covers
+        /// copies between accounts and RPool's own transfers.
+        #[arg(long, value_name = "RATE")]
+        bwlimit: Option<String>,
     },
     /// Show migrations recorded in the cloud (all, or one).
     Status {
@@ -558,7 +568,11 @@ mod capacity_tests {
         ));
         assert!(matches!(
             migrate(&["run", "p", "--id", "m1", "--stop-file", "/tmp/stop"]),
-            M::Run { ref pool, ref id, stop_file: Some(ref s), take_over: false, parallel: None } if pool == "p" && id == "m1" && s.ends_with("stop")
+            M::Run { ref pool, ref id, stop_file: Some(ref s), take_over: false, parallel: None, transfers: None, bwlimit: None } if pool == "p" && id == "m1" && s.ends_with("stop")
+        ));
+        assert!(matches!(
+            migrate(&["run", "p", "--id", "m1", "--transfers", "2", "--bwlimit", "01:00,20M 08:00,2M"]),
+            M::Run { transfers: Some(2), bwlimit: Some(ref b), parallel: None, .. } if b == "01:00,20M 08:00,2M"
         ));
         assert!(matches!(
             migrate(&["run", "p", "--id", "m1", "--parallel", "3"]),

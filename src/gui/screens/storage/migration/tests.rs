@@ -329,7 +329,7 @@ fn background_planning_reports_failures_without_blocking() {
 fn run_and_abandon_argv() {
     let stop = Path::new("/ctl dir/stop");
     assert_eq!(
-        run_args("-my pool", ID, stop, false, 4),
+        run_args("-my pool", ID, stop, false, 4, &Throttle::default()),
         [
             "pool",
             "migrate",
@@ -368,6 +368,10 @@ fn run_argv_parses_with_the_cli() {
         Path::new("/ctl dir/stop"),
         false,
         1,
+        &Throttle {
+            transfers: 2,
+            bwlimit: "01:00,20M 08:00,2M",
+        },
     ));
     parses(run_args(
         "-my pool",
@@ -375,9 +379,10 @@ fn run_argv_parses_with_the_cli() {
         Path::new("/ctl dir/stop"),
         true,
         16,
+        &Throttle::default(),
     ));
     // Out-of-range values are clamped before they reach the CLI.
-    let args = run_args("p", ID, Path::new("/s"), false, 0);
+    let args = run_args("p", ID, Path::new("/s"), false, 0, &Throttle::default());
     assert!(args.windows(2).any(|w| w[0] == "--parallel" && w[1] == "1"));
     assert_eq!(
         super::state::MigrationForm::default().parallel.0,

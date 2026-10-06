@@ -101,6 +101,10 @@ pub(crate) struct MigrationForm {
     pub(crate) take_over: bool,
     /// Archives migrated at once (`--parallel`).
     pub(crate) parallel: RunParallel,
+    /// Shard transfers per archive (`--transfers`); 0 = the pool's workers.
+    pub(crate) transfers: u32,
+    /// Bandwidth limit of the run (`--bwlimit`); empty = none.
+    pub(crate) bwlimit: String,
     /// Current wizard step.
     pub(crate) step: Step,
     /// Full probe (hashes) instead of the quick size check when planning.
@@ -440,6 +444,10 @@ impl MigrationForm {
             &control.path().join("stop"),
             self.take_over,
             self.parallel.0,
+            &Throttle {
+                transfers: self.transfers,
+                bwlimit: self.bwlimit.trim(),
+            },
         );
         task.start_rpool(RUN_TASK, rclone, args)?;
         self.control = Some(control);
@@ -601,14 +609,24 @@ fn positive(value: f64) -> Option<f64> {
     (value.is_finite() && value > 0.0).then_some(value)
 }
 
+/// Optional slow-run limits of [`run_args`].
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct Throttle<'a> {
+    /// `--transfers` (0 = not given).
+    pub(crate) transfers: u32,
+    /// `--bwlimit` (empty = not given).
+    pub(crate) bwlimit: &'a str,
+}
+
 /// `rpool pool migrate run <pool> --id <id> --stop-file <stop> --parallel <n>
-/// [--take-over]`.
+/// [--take-over] [--transfers <n>] [--bwlimit <rate>]`.
 pub(crate) fn run_args(
     pool: &str,
     id: &str,
     stop: &Path,
     take_over: bool,
     parallel: usize,
+    throttle: &Throttle<'_>,
 ) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec![
         "pool".into(),
@@ -626,6 +644,12 @@ pub(crate) fn run_args(
     ];
     if take_over {
         args.push("--take-over".into());
+    }
+    if throttle.transfers > 0 {
+        args.extend(["--transfers".into(), throttle.transfers.to_string().into()]);
+    }
+    if !throttle.bwlimit.is_empty() {
+        args.extend(["--bwlimit".into(), throttle.bwlimit.into()]);
     }
     args.extend(["--".into(), pool.into()]);
     args

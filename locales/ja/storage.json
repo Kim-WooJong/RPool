@@ -371,5 +371,9 @@
   "New pool": "新しいプール",
   "New pool: choose a name and providers, then Save pool.": "新しいプール: 名前とプロバイダーを選んでから「プールを保存」を押してください。",
   "Editing pool '{name}'": "プール「{name}」を編集中",
-  "A pool named '{name}' already exists. Load it to edit it, or choose another name.": "「{name}」という名前のプールは既にあります。編集するには読み込むか、別の名前を選んでください。"
+  "A pool named '{name}' already exists. Load it to edit it, or choose another name.": "「{name}」という名前のプールは既にあります。編集するには読み込むか、別の名前を選んでください。",
+  "Slow run: shards moved at once (archives then one at a time). 0 = the pool's workers.": "低速実行: 一度に移すシャード数です（アーカイブは1つずつ処理されます）。0 = プールのワーカー数。",
+  "Shards at once": "同時シャード数",
+  "Bandwidth limit of the whole run, rclone --bwlimit syntax with timetables, e.g. 10M or 01:00,20M 08:00,2M. Empty = no limit.": "実行全体の帯域制限です。rclone --bwlimit 形式で時間帯指定もできます。例: 10M または 01:00,20M 08:00,2M。空欄 = 制限なし。",
+  "Bandwidth": "帯域"
 }

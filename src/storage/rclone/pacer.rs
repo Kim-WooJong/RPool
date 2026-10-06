@@ -120,7 +120,18 @@ pub(crate) fn current_rate(key: &Key) -> Option<u64> {
     let now = super::traffic::now_unix();
     let offset = crate::storage::account::runtime::offset();
     let (rate, upload) = match key {
-        Key::Global { upload } => (settings.global_rate(now, offset).0, *upload),
+        Key::Global { upload } => {
+            // A command's own process limit (`process_limit`) tightens it.
+            let (own, process) = (
+                settings.global_rate(now, offset).0,
+                super::process_limit::rate_now(),
+            );
+            let both = crate::storage::account::bandwidth::Rate {
+                up: super::process_limit::tighter(own.up, process.up),
+                down: super::process_limit::tighter(own.down, process.down),
+            };
+            (both, *upload)
+        }
         Key::Account { name, upload } => (settings.account_rate(name, now, offset), *upload),
     };
     if upload {

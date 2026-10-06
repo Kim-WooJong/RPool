@@ -371,5 +371,9 @@
   "New pool": "새 풀",
   "New pool: choose a name and providers, then Save pool.": "새 풀: 이름과 공급자를 고른 뒤 풀 저장을 누르세요.",
   "Editing pool '{name}'": "풀 '{name}' 편집 중",
-  "A pool named '{name}' already exists. Load it to edit it, or choose another name.": "'{name}' 이름의 풀이 이미 있어요. 편집하려면 불러오거나, 다른 이름을 고르세요."
+  "A pool named '{name}' already exists. Load it to edit it, or choose another name.": "'{name}' 이름의 풀이 이미 있어요. 편집하려면 불러오거나, 다른 이름을 고르세요.",
+  "Slow run: shards moved at once (archives then one at a time). 0 = the pool's workers.": "천천히 실행: 한 번에 옮기는 샤드 수예요 (이때 아카이브는 하나씩 처리해요). 0 = 풀의 작업자 수.",
+  "Shards at once": "동시 샤드 수",
+  "Bandwidth limit of the whole run, rclone --bwlimit syntax with timetables, e.g. 10M or 01:00,20M 08:00,2M. Empty = no limit.": "이번 실행 전체의 대역폭 제한이에요. rclone --bwlimit 형식이며 시간대 지정도 돼요. 예: 10M 또는 01:00,20M 08:00,2M. 비우면 제한 없음.",
+  "Bandwidth": "대역폭"
 }

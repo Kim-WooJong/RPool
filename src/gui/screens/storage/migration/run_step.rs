@@ -159,6 +159,18 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                     .range(1..=crate::migration::execute::MAX_PARALLEL),
             )
             .on_hover_text(hint);
+            let hint = tr("Slow run: shards moved at once (archives then one at a time). 0 = the pool's workers.");
+            ui.label(tr("Shards at once")).on_hover_text(hint);
+            ui.add(egui::DragValue::new(&mut state.migration.transfers).range(0..=256))
+                .on_hover_text(hint);
+            let hint = tr("Bandwidth limit of the whole run, rclone --bwlimit syntax with timetables, e.g. 10M or 01:00,20M 08:00,2M. Empty = no limit.");
+            ui.label(tr("Bandwidth")).on_hover_text(hint);
+            ui.add(
+                egui::TextEdit::singleline(&mut state.migration.bwlimit)
+                    .hint_text("01:00,20M 08:00,2M")
+                    .desired_width(160.0),
+            )
+            .on_hover_text(hint);
         }
         if let Some(drive) = &drive {
             let label = if drive.adopted.is_some() {

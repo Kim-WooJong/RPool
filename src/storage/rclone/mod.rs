@@ -16,6 +16,7 @@ mod http;
 mod limit;
 mod pacer;
 mod process;
+pub(crate) mod process_limit;
 mod stall;
 mod stored_check;
 #[cfg(test)]
