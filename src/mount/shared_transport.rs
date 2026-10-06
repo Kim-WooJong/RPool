@@ -7,6 +7,7 @@
 use crate::storage::{
     error::{StorageError, StorageErrorKind},
     rclone::RcloneContext,
+    reader::StorageReader,
     traits::OperationContext,
     writer::StorageWriter,
 };
@@ -14,6 +15,12 @@ use crate::utils::remote_join;
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use std::collections::BTreeMap;
+
+/// Time limit of one metadata listing or read. An account that does not
+/// answer (e.g. a broken route) fails the sync round with its name instead of
+/// holding the mount or a sync round forever. Writes are never cut off: a
+/// write stopped mid-flight would have an unknown outcome.
+const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 use super::metadata_limits::{
     LEGACY_BOOTSTRAP_BYTES as TOTAL_LIMIT, LEGACY_BOOTSTRAP_RECORDS as EVENT_COUNT_LIMIT,
@@ -30,6 +37,8 @@ pub(crate) struct SharedTransport {
     native_crypt: bool,
     /// Object directory below `root` (`events` for every record family).
     dir: &'static str,
+    /// Time limit of each listing or read ([`READ_TIMEOUT`]; shorter in tests).
+    read_timeout: std::time::Duration,
 }
 
 /// One `rclone lsjson` entry of the object directory.
@@ -95,7 +104,14 @@ impl SharedTransport {
             root: root.trim_end_matches('/').into(),
             native_crypt: false,
             dir: "events",
+            read_timeout: READ_TIMEOUT,
         })
+    }
+    /// The same transport with another listing/read time limit (tests).
+    #[cfg(test)]
+    pub(crate) fn with_read_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.read_timeout = timeout;
+        self
     }
     /// Objects in `<root>/<dir>/` instead of `<root>/events/` (checkpoints).
     pub(crate) fn in_dir(mut self, dir: &'static str) -> Self {
@@ -130,33 +146,67 @@ impl SharedTransport {
     pub(crate) fn entries(
         &self,
         known: &std::collections::BTreeSet<String>,
+        budget: Option<(&mut usize, &mut usize)>,
+    ) -> Result<Vec<(String, u64)>> {
+        self.entries_inner(known, budget)
+            .map_err(|error| self.explain_timeout(error))
+    }
+
+    /// Deadline context of one listing or read call.
+    fn read_context(&self) -> OperationContext {
+        OperationContext::with_deadline(std::time::Instant::now() + self.read_timeout)
+    }
+
+    /// Names the account when a bounded call ran out of time.
+    fn explain_timeout(&self, error: anyhow::Error) -> anyhow::Error {
+        let timed_out = error
+            .downcast_ref::<StorageError>()
+            .is_some_and(|e| e.kind() == StorageErrorKind::Timeout);
+        if !timed_out {
+            return error;
+        }
+        let account = self
+            .root
+            .split_once(':')
+            .map_or(self.root.as_str(), |(r, _)| r);
+        anyhow::anyhow!(
+            "{account}: drive metadata did not answer within {} s (slow or unreachable account)",
+            self.read_timeout.as_secs()
+        )
+    }
+
+    /// Body of [`Self::entries`]; every listing call gets its own deadline.
+    fn entries_inner(
+        &self,
+        known: &std::collections::BTreeSet<String>,
         mut budget: Option<(&mut usize, &mut usize)>,
     ) -> Result<Vec<(String, u64)>> {
         let context = RcloneContext::inherited(&self.rclone);
-        let operation = OperationContext::none();
-        context.ensure_crypt(&operation, &self.root)?;
+        context.ensure_crypt(&self.read_context(), &self.root)?;
         let events = remote_join(&self.root, self.dir);
         let mut result = Vec::new();
         let (mut unbounded_count, mut unbounded_total) = (0usize, 0usize);
         // Most roots have a small event directory: one bounded listing avoids
         // 16 remote round trips. If it exceeds the existing 8 MiB output cap,
         // retain the original hash-prefix pages rather than relaxing that cap.
-        let mut complete =
-            match context.capture(&operation, &["lsjson", "--files-only", "--", &events]) {
-                Ok(bytes) => Some(group_listing(serde_json::from_slice(&bytes)?)),
-                Err(error) if error.kind() == StorageErrorKind::NotFound => {
-                    Some(std::array::from_fn(|_| Vec::new()))
-                }
-                Err(StorageError::OutputBoundsViolated) => None,
-                Err(error) => return Err(error.into()),
-            };
+        let mut complete = match context.capture(
+            &self.read_context(),
+            &["lsjson", "--files-only", "--", &events],
+        ) {
+            Ok(bytes) => Some(group_listing(serde_json::from_slice(&bytes)?)),
+            Err(error) if error.kind() == StorageErrorKind::NotFound => {
+                Some(std::array::from_fn(|_| Vec::new()))
+            }
+            Err(StorageError::OutputBoundsViolated) => None,
+            Err(error) => return Err(error.into()),
+        };
         for (index, prefix) in b"0123456789abcdef".iter().copied().enumerate() {
             let entries = if let Some(buckets) = complete.as_mut() {
                 std::mem::take(&mut buckets[index])
             } else {
                 let filter = format!("{}*.json", prefix as char);
                 let listing = match context.capture(
-                    &operation,
+                    &self.read_context(),
                     &[
                         "lsjson",
                         "--files-only",
@@ -192,10 +242,12 @@ impl SharedTransport {
         if !valid_id(id) {
             bail!("invalid shared event identity");
         }
-        let storage = StorageWriter::for_pool(&self.rclone, self.native_crypt);
         let address = remote_join(&self.root, &format!("{}/{id}.json", self.dir));
         // `read_metadata` stats the object itself and checks the length.
-        let bytes = storage.reader().read_metadata(&address)?;
+        let bytes = StorageReader::rclone(&self.rclone)
+            .with_deadline(std::time::Instant::now() + self.read_timeout)
+            .read_metadata(&address)
+            .map_err(|error| self.explain_timeout(error))?;
         if bytes.len() as u64 != size {
             bail!("shared event changed during listing");
         }
@@ -516,6 +568,41 @@ mod tests {
             .collect();
         assert!(missing_entries(duplicate, &Default::default(), b'a', &mut 0, &mut 0).is_err());
     }
+    #[test]
+    #[cfg(unix)]
+    fn unanswered_listing_and_read_fail_with_the_account_name() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let rclone = dir.path().join("rclone");
+        // Local config queries answer at once; every network call hangs.
+        std::fs::write(
+            &rclone,
+            r#"#!/bin/sh
+case " $* " in
+  *" config file "*) printf 'Configuration file is stored at:\n/nonexistent/rclone.conf\n' ;;
+  *" config dump "*) printf '{"slow_crypt":{"type":"crypt"}}' ;;
+  *) exec sleep 30 ;;
+esac
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&rclone, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let transport = SharedTransport::new(rclone.to_str().unwrap(), "slow_crypt:sync/v6")
+            .unwrap()
+            .with_read_timeout(std::time::Duration::from_secs(1));
+        let started = std::time::Instant::now();
+        let listed = transport.entries(&Default::default(), None);
+        let read = transport.read_verified(&"a".repeat(64), 10);
+        assert!(started.elapsed() < std::time::Duration::from_secs(8));
+        for error in [listed.unwrap_err(), read.unwrap_err()] {
+            let text = format!("{error:#}");
+            assert!(
+                text.contains("slow_crypt: drive metadata did not answer within 1 s"),
+                "{text}"
+            );
+        }
+    }
+
     #[test]
     fn root_validation_is_offline() {
         assert!(SharedTransport::new("nonexistent-rclone", "crypt:shared").is_ok());
