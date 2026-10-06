@@ -54,8 +54,10 @@ pub(crate) fn plan_with_drive(
     crate::pool::validate_pool(&target)?;
     target.remotes = crate::remote_root::apply_remote_roots(target.remotes)?;
     let inventory = crate::inventory::load_inventory()?;
+    let mut phases = Phases::start();
     let cloud = RcloneCloud::new(rclone, target.placement == Placement::Resilient);
     let (replaced, mut note) = replaced_archives(rclone, pool);
+    phases.lap("earlier migrations");
     let mut options = options.clone();
     if options.rebalance {
         let quotas = cloud
@@ -65,6 +67,7 @@ pub(crate) fn plan_with_drive(
             super::rebalance::Rebalancer::new(&target, &quotas, &|r| cloud.failure_domain(r))
                 .context("rebalance needs the quota of every pool account")?;
         options.rebalancer = Some(Arc::new(rebalancer));
+        phases.lap("account quotas");
         note.push(format!("Rebalance: shards of unaffected archives also move to follow the {} placement, from accounts at least {:.0}% fuller (by free ratio) than the destination. The old account's space is free only after the originals are retired.", target.placement.cli_value(), super::rebalance::MIN_GAP * 100.0));
     }
     let options = &options;
@@ -76,6 +79,21 @@ pub(crate) fn plan_with_drive(
     let source = super::drive_source::CloudDrive::new(rclone, pool, &plan.target);
     let drive = super::drive_plan::plan_drive(&cloud, &source, &mut plan, &mut listed, options)?;
     Ok((plan, drive))
+}
+
+/// Prints how long each planning phase took, to stderr (the GUI log; `--json`
+/// output on stdout stays clean), so a slow plan shows where its time goes.
+pub(super) struct Phases(std::time::Instant);
+impl Phases {
+    /// Starts timing the first phase.
+    pub(super) fn start() -> Self {
+        Self(std::time::Instant::now())
+    }
+    /// Reports the phase that just ended and starts the next one.
+    pub(super) fn lap(&mut self, phase: &str) {
+        eprintln!("[plan] {phase}: {:.1} s", self.0.elapsed().as_secs_f64());
+        self.0 = std::time::Instant::now();
+    }
 }
 
 /// Originals that an earlier migration of this pool already replaced
@@ -126,6 +144,9 @@ pub(super) struct RcloneCloud {
     catalog: Option<RemoteCatalog>,
     /// Copy features per rclone remote name, queried once per plan.
     features: Mutex<BTreeMap<String, Option<CopyFeatures>>>,
+    /// Account quotas of the last target asked (`None` inside: unavailable),
+    /// so one plan queries every account's `about` once, not per phase.
+    capacity: Mutex<Option<(Vec<String>, Option<crate::mount::capacity::CapacityStatus>)>>,
 }
 
 impl RcloneCloud {
@@ -141,7 +162,22 @@ impl RcloneCloud {
             admin,
             catalog,
             features: Mutex::new(BTreeMap::new()),
+            capacity: Mutex::new(None),
         }
+    }
+    /// Quotas of `target`'s accounts, queried once per plan and target.
+    fn capacity(&self, target: &PoolDefinition) -> Option<crate::mount::capacity::CapacityStatus> {
+        let Ok(mut cached) = self.capacity.lock() else {
+            return crate::mount::capacity::CapacityStatus::inspect(&self.admin, target).ok();
+        };
+        if let Some((remotes, status)) = cached.as_ref() {
+            if *remotes == target.remotes {
+                return status.clone();
+            }
+        }
+        let status = crate::mount::capacity::CapacityStatus::inspect(&self.admin, target).ok();
+        *cached = Some((target.remotes.clone(), status.clone()));
+        status
     }
 }
 
@@ -182,13 +218,13 @@ impl Cloud for RcloneCloud {
         binding.failure_domain.map(|d| d.as_str().to_owned())
     }
     fn quota_ok(&self, target: &PoolDefinition, specs: &[Vec<PhysicalSpec>]) -> Option<bool> {
-        super::estimate::quota_ok(&self.admin, target, specs)
+        super::estimate::quota_ok(|| self.capacity(target), target, specs)
     }
     fn quotas(
         &self,
         target: &PoolDefinition,
     ) -> Option<Vec<crate::storage::admin::budget::TargetBudget>> {
-        let status = crate::mount::capacity::CapacityStatus::inspect(&self.admin, target).ok()?;
+        let status = self.capacity(target)?;
         status.excluded.is_empty().then_some(status.targets)
     }
     /// `rclone backend features` of the crypt remote (Copy) and of its base
@@ -432,6 +468,7 @@ pub(super) fn plan_listed(
         target.workers.max(1)
     };
     let target_set: BTreeSet<String> = target.remotes.iter().cloned().collect();
+    let mut phases = Phases::start();
     let configured = cloud.configured();
     let mut listings = list_all(cloud, &target_set, configured.as_ref());
     // Remotes of pool archives in the inventory that left the pool.
@@ -443,6 +480,7 @@ pub(super) fn plan_listed(
         .filter(|r| !listings.contains_key(r))
         .collect();
     listings.extend(list_all(cloud, &extra, configured.as_ref()));
+    phases.lap(&format!("list {} account(s)", listings.len()));
     let enumerated = enumerate(cloud, &target_set, inventory, &listings);
     // Shard remotes of manifests found only in the cloud.
     let extra: BTreeSet<String> = enumerated
@@ -456,6 +494,7 @@ pub(super) fn plan_listed(
         .filter(|r| !listings.contains_key(r))
         .collect();
     listings.extend(list_all(cloud, &extra, configured.as_ref()));
+    phases.lap(&format!("read {} manifest(s)", enumerated.found.len()));
 
     let mut notes = Vec::new();
     for (remote, listing) in &listings {
@@ -523,6 +562,7 @@ pub(super) fn plan_listed(
         }
     }
     results.sort_by(|a, b| a.0.archive_id.cmp(&b.0.archive_id));
+    phases.lap(&format!("plan {} archive(s)", results.len()));
 
     if skipped_replaced > 0 {
         notes.push(format!(
@@ -552,6 +592,7 @@ pub(super) fn plan_listed(
     }
     let specs: Vec<Vec<PhysicalSpec>> = results.iter().map(|(_, t)| t.specs.clone()).collect();
     let quota_ok = cloud.quota_ok(&target, &specs);
+    phases.lap("account quotas");
 
     if enumerated.drive_skipped > 0 {
         notes.push(if options.skip_drive {

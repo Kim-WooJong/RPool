@@ -1,6 +1,6 @@
 [package]
 name = "rpool"
-version = "2.12.1"
+version = "2.12.2"
 edition = "2021"
 description = "Parallel sharded storage with Reed-Solomon erasure coding over rclone remotes"
 license = "MIT"

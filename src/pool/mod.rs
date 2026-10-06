@@ -3,7 +3,7 @@
 //! drive metadata, and reprocessing (re-encoding archives to a new layout).
 
 pub(crate) mod browse;
-mod browse_cache;
+pub(crate) mod browse_cache;
 pub(crate) mod browse_generations;
 mod browse_local;
 pub(crate) mod capacity;

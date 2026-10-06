@@ -210,49 +210,40 @@ pub(crate) fn growth_alert(
     })
 }
 
-/// v6 events of a saved pool generation for `rpool pool browse`, including
-/// checkpointed ones (read-only).
+/// v6 events of a saved pool generation, including checkpointed ones
+/// (read-only in the cloud). Used by migration planning, drive history and
+/// retention checks.
+///
+/// Every replica is listed (all at once), but records this PC already read
+/// for the same generation (the Library cache, `pool::browse_cache`) are not
+/// fetched again; new records are fetched several at a time. The cache is
+/// only used when it still matches the cloud (`metadata_browse`), otherwise
+/// everything is read again, so the result equals a full read.
 pub(crate) fn read_v6(
     rclone: &str,
     pool: &str,
     policy: &PoolDefinition,
     epoch: Option<&str>,
 ) -> Result<BTreeMap<String, super::shared_model::Event>> {
-    use super::pool_sync::{list_unseen, read_unseen};
-    let stores = super::pool_sync::read_stores(rclone, pool, policy, epoch)?;
-    let stores: Vec<_> = stores.iter().map(|s| s.as_ref()).collect();
-    let roots: Vec<_> = super::pool_sync::roots(pool, &policy.remotes)?
-        .into_iter()
-        .map(|root| match epoch {
-            Some(epoch) => crate::utils::remote_join(&root, &format!("epochs/{epoch}")),
-            None => root,
-        })
-        .collect();
-    let family = Family::v6();
-    let dirs = replica_dirs(rclone, &roots, policy.native_crypt, &family)?;
-    let replicas: Vec<_> = dirs.iter().map(ReplicaDirs::replica).collect();
-    let known = BTreeSet::new();
-    let unseen = list_unseen(&stores, &known)?;
-    let mut events = BTreeMap::new();
-    super::metadata_checkpoint::pull(
-        &family,
-        &replicas,
-        &mut Cache::default(),
-        unseen.gate,
-        true,
-        &mut |_, id, text| {
-            let event: super::shared_model::Event = serde_json::from_str(text)?;
-            event.validate()?;
-            if event.id()? != id {
-                bail!("checkpoint event identity mismatch");
-            }
-            events.insert(id.to_owned(), event);
-            Ok(())
-        },
-    )?;
-    let tail = read_unseen(&stores, &unseen, |id| events.contains_key(id))?;
-    events.extend(tail);
-    Ok(events)
+    use super::metadata_browse::{Snapshot, Source};
+    let source = Source::open(rclone, pool, policy, epoch)?;
+    let listed = source.list()?;
+    let cached = crate::pool::browse_cache::load(pool, policy);
+    // The cache holds one generation: reuse it only for that generation, and
+    // do not replace it with an older generation read for history.
+    let (prior, save) = match cached {
+        Some(cached) if cached.epoch.as_deref() == epoch => (cached.snapshot, true),
+        Some(_) => (Snapshot::default(), false),
+        None => (Snapshot::default(), true),
+    };
+    let outcome = source.refresh(&listed, prior)?;
+    if save && outcome.changed {
+        if let Err(error) = crate::pool::browse_cache::save(pool, policy, epoch, &outcome.snapshot)
+        {
+            eprintln!("[warning] drive metadata cache not saved: {error:#}");
+        }
+    }
+    Ok(outcome.snapshot.events)
 }
 
 /// Cheap metadata counts of a saved pool for `rpool doctor`: listings and

@@ -28,6 +28,7 @@ pub(crate) fn plan_drive(
     listed: &mut Listed,
     options: &PlanOptions,
 ) -> Result<Option<DrivePlan>> {
+    let mut phases = super::plan::Phases::start();
     let generations = match source.generations() {
         Ok(found) => found,
         Err(error) => {
@@ -40,6 +41,7 @@ pub(crate) fn plan_drive(
     let Some(generation) = generations.first().cloned() else {
         return Ok(None);
     };
+    phases.lap("drive generations");
     let mut notes = Vec::new();
     if generations.len() > 1 {
         let others: Vec<String> = generations[1..].iter().map(|g| g.label()).collect();
@@ -59,6 +61,7 @@ pub(crate) fn plan_drive(
             return Ok(None);
         }
     };
+    phases.lap(&format!("drive records ({} file(s))", view.files.len()));
     let target = plan.target.clone();
     let target_set: BTreeSet<String> = target.remotes.iter().cloned().collect();
     // A small-file pack moves once for all its members (`units`).
@@ -82,6 +85,7 @@ pub(crate) fn plan_drive(
         workers,
         &units,
     )?;
+    phases.lap(&format!("plan {} drive unit(s)", units.len()));
 
     let mut counts = Counts::default();
     let (mut download, mut upload, mut new_storage, mut record_total) = (0u64, 0u64, 0u64, 0u64);
@@ -110,6 +114,7 @@ pub(crate) fn plan_drive(
         ));
     }
     let quota_ok = cloud.quota_ok(&target, &specs);
+    phases.lap("account quotas");
     // A fresh PC streams large generations in pages (metadata checkpoints);
     // past the page size it is only slower, so this is a note, not a refusal.
     let bootstrap_ok = true;

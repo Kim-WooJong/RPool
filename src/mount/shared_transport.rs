@@ -194,11 +194,11 @@ impl SharedTransport {
         }
         let storage = StorageWriter::for_pool(&self.rclone, self.native_crypt);
         let address = remote_join(&self.root, &format!("{}/{id}.json", self.dir));
-        let metadata = storage.reader().stat(&address)?;
-        if metadata.size != size {
+        // `read_metadata` stats the object itself and checks the length.
+        let bytes = storage.reader().read_metadata(&address)?;
+        if bytes.len() as u64 != size {
             bail!("shared event changed during listing");
         }
-        let bytes = storage.reader().read_metadata(&address)?;
         validate_event(id, &bytes)?;
         Ok(bytes)
     }

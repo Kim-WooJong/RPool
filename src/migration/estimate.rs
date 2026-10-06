@@ -175,15 +175,16 @@ pub(crate) fn fits(
 /// Quota check against the pool's accounts (read-only `about` queries).
 /// None when quotas are unknown, or when the new shards do not fit only
 /// because some account could not be queried.
+/// `status` is asked only when there is something to place.
 pub(crate) fn quota_ok(
-    admin: &dyn crate::storage::admin::BackendAdmin,
+    status: impl FnOnce() -> Option<crate::mount::capacity::CapacityStatus>,
     target: &PoolDefinition,
     specs: &[Vec<PhysicalSpec>],
 ) -> Option<bool> {
     if specs.iter().all(Vec::is_empty) {
         return Some(true);
     }
-    let status = crate::mount::capacity::CapacityStatus::inspect(admin, target).ok()?;
+    let status = status()?;
     if status.targets.is_empty() {
         return None;
     }

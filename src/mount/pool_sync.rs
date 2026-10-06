@@ -378,28 +378,6 @@ impl super::virtual_drive::VirtualDrive {
     }
 }
 
-/// Read-only access for `rpool pool browse`: the v6 replicas of `pool`, used
-/// only through `collect` (listing/reading events).
-pub(crate) fn read_stores(
-    rclone: &str,
-    pool: &str,
-    policy: &PoolDefinition,
-    epoch: Option<&str>,
-) -> Result<Vec<Box<dyn EventStore>>> {
-    roots(pool, &policy.remotes)?
-        .iter()
-        .map(|root| match epoch {
-            Some(epoch) => crate::utils::remote_join(root, &format!("epochs/{epoch}")),
-            None => root.clone(),
-        })
-        .collect::<Vec<_>>()
-        .iter()
-        .map(|root| {
-            SharedTransport::new(rclone, root)
-                .map(|t| Box::new(t.with_native_crypt(policy.native_crypt)) as Box<dyn EventStore>)
-        })
-        .collect()
-}
 /// Pool-sync state reported in the mount status (GUI conflict list).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Status {

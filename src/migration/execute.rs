@@ -22,11 +22,13 @@ pub(crate) fn create_with_drive(
     options: &PlanOptions,
 ) -> Result<(Plan, Option<super::drive_model::DrivePlan>)> {
     let (plan, drive) = super::plan::plan_with_drive(rclone, pool, options)?;
+    let mut phases = super::plan::Phases::start();
     let journal = Journal::open(rclone, pool, &plan.migration_id)?;
     if let Some(drive) = &drive {
         super::drive_journal::publish_plan(&journal, drive)?;
     }
     journal.publish_plan(&plan)?;
+    phases.lap("publish plan");
     Ok((plan, drive))
 }
 
