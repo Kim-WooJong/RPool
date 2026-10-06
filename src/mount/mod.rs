@@ -9,6 +9,7 @@ pub(crate) mod adoption_fence;
 pub(crate) mod adoption_workspace;
 pub(crate) mod cache_recovery;
 pub(crate) mod capacity;
+pub(crate) mod capacity_balance;
 mod crash;
 mod dav;
 pub(crate) mod drive_generation_read;

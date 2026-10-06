@@ -108,6 +108,28 @@ pub(crate) fn run(rclone: &str, args: crate::cli::pool::PoolCapacityArgs) -> Res
         if let Some(scenario) = &c.independent_quota_scenario {
             println!("If unverified backing accounts are independent (NOT verified/admissible): total={} remaining={} logical bytes", scenario.nominal_logical_upper, scenario.remaining_logical_upper);
         }
+        if let Some(b) = c
+            .balance
+            .as_ref()
+            .filter(|b| b.groups.iter().any(|g| g.unusable > 0))
+        {
+            println!(
+                "Uneven groups: at most {} shards of each coding group per group, so data after parity fits up to {} bytes",
+                b.per_group_cap, b.usable_logical
+            );
+            for g in b.groups.iter().filter(|g| g.unusable > 0) {
+                println!(
+                    "  {}: {} of {} free bytes cannot be filled",
+                    g.group, g.unusable, g.free
+                );
+            }
+            if b.add_to_use_all > 0 {
+                println!(
+                    "  To fill every group, add at least {} bytes in {} or more new group(s), each no larger than the largest",
+                    b.add_to_use_all, b.add_groups_min
+                );
+            }
+        }
         println!("Placement-checked next-file estimate={} bytes; simulation_limited={}; namespace_usage=not_queried", c.additional_estimate, c.estimate_limited);
         println!("{}", c.note);
         for excluded in &c.excluded {

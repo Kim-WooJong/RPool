@@ -211,6 +211,38 @@ pub(crate) fn summary(ui: &mut egui::Ui, c: &CapacityStatus) {
             ));
         }
     }
+    if let Some(b) = c
+        .balance
+        .as_ref()
+        .filter(|b| b.groups.iter().any(|g| g.unusable > 0))
+    {
+        ui.label(trf(
+            "Uneven groups: one group holds at most {cap} shards of each coding group, so data after parity fits up to {usable}",
+            &[
+                ("cap", &b.per_group_cap),
+                ("usable", &format_bytes(b.usable_logical)),
+            ],
+        ));
+        for g in b.groups.iter().filter(|g| g.unusable > 0) {
+            ui.small(trf(
+                "{group}: {unusable} of {free} free cannot be filled",
+                &[
+                    ("group", &g.group),
+                    ("unusable", &format_bytes(g.unusable)),
+                    ("free", &format_bytes(g.free)),
+                ],
+            ));
+        }
+        if b.add_to_use_all > 0 {
+            ui.small(trf(
+                "To fill every group, add at least {add} in {count} or more new group(s), each no larger than the largest",
+                &[
+                    ("add", &format_bytes(b.add_to_use_all)),
+                    ("count", &b.add_groups_min),
+                ],
+            ));
+        }
+    }
     ui.label(trf(
         "Placement-checked next-file estimate: {estimate}{note}",
         &[

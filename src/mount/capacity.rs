@@ -143,6 +143,11 @@ pub(crate) struct CapacityStatus {
     /// None means the failure identities are not fully declared.
     #[serde(default)]
     pub resilient_remaining_upper: Option<u64>,
+    /// Free space the placement can never fill with the current groups, and
+    /// what to add to fill everything (Resilient and free-ratio with parity;
+    /// `None` otherwise or when outage groups are incomplete).
+    #[serde(default)]
+    pub balance: Option<super::capacity_balance::CapacityBalance>,
     #[serde(default)]
     /// Distinct outage/failure groups among eligible targets (resilient placement only).
     pub eligible_failure_groups: usize,
@@ -374,10 +379,61 @@ impl CapacityStatus {
         Ok(())
     }
 
+    /// Computes [`Self::balance`] from the current free budgets: per outage
+    /// group for Resilient (a quota shared by several groups makes it
+    /// unknown), per account for free-ratio.
+    fn update_balance(&mut self, policy: &PoolDefinition) {
+        self.balance = None;
+        let (k, m) = (policy.data_shards, policy.parity_shards);
+        if m == 0 {
+            return;
+        }
+        let budgets = crate::storage::admin::budget::BudgetSnapshot {
+            targets: self.targets.clone(),
+            rejected: vec![],
+            observed_targets: vec![],
+        }
+        .budgets();
+        let groups: Vec<(String, u64)> = match policy.placement {
+            Placement::Resilient => {
+                let mut failures = BTreeMap::<String, BTreeSet<String>>::new();
+                for target in &self.targets {
+                    let Some(failure) = &target.failure_domain else {
+                        return;
+                    };
+                    failures
+                        .entry(target.capacity_domain.clone())
+                        .or_default()
+                        .insert(failure.clone());
+                }
+                let mut free = BTreeMap::<String, u64>::new();
+                for (domain, bytes) in budgets {
+                    let Some(groups) = failures.get(&domain).filter(|g| g.len() == 1) else {
+                        return;
+                    };
+                    let entry = free
+                        .entry(groups.iter().next().unwrap().clone())
+                        .or_default();
+                    *entry = entry.saturating_add(bytes);
+                }
+                free.into_iter().collect()
+            }
+            Placement::FreeRatio => budgets.into_iter().collect(),
+            _ => return,
+        };
+        let width = k + m;
+        let cap = match policy.placement {
+            Placement::FreeRatio => m.max(width.div_ceil(groups.len().max(1))),
+            _ => m,
+        };
+        self.balance = Some(super::capacity_balance::balance(&groups, width, k, cap));
+    }
+
     /// Recomputes `additional_estimate` by binary search over whole stripe groups (capped at
     /// `MAX_SIMULATED_SHARDS`), then over a partial final group, using [`check_upload`](Self::check_upload).
     pub(crate) fn recalculate(&mut self, policy: &PoolDefinition) -> Result<()> {
         self.update_outage_bound(policy)?;
+        self.update_balance(policy);
         let shard = policy.shard_bytes()?.get();
         let k = if policy.parity_shards == 0 {
             1
