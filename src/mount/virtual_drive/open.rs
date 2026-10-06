@@ -235,25 +235,40 @@ impl VirtualDrive {
         )?;
         let (mut effective_policy, layout_deferral) =
             crate::mount::layout_refresh::resolve(&binding.policy, &current_policy, pending)?;
-        if adding && pending > 0 {
-            // Started uploads resume with the accounts they were planned with.
+        // Started uploads resume with the accounts they were planned with;
+        // a failed copy is tried again on the next mount.
+        let keep_previous = if adding && pending > 0 {
             println!("Pool accounts added: {pending} pending upload(s) use the previous accounts; the new accounts join on the next mount after they finish");
-            effective_policy.remotes = binding.policy.remotes.clone();
-            auto_roots = binding.metadata_roots.clone();
+            true
         } else if adding {
             let added = auto_roots.len() - binding.metadata_roots.len();
             println!("Pool accounts added: copying the drive metadata to {added} new account(s); file data stays where it is");
-            let copied = super::add_accounts::copy_metadata(
+            match super::add_accounts::copy_metadata(
                 rclone,
                 &binding.metadata_roots,
                 &auto_roots,
                 current_policy.native_crypt,
-            )?;
-            println!("Drive metadata copied to the new account(s): {copied} object(s)");
-            binding.metadata_roots = auto_roots.clone();
-            binding.shared = shared.clone();
-            binding.policy.remotes = current_policy.remotes.clone();
-            durable_json(&config, &binding)?;
+            ) {
+                Ok(copied) => {
+                    println!("Drive metadata copied to the new account(s): {copied} object(s)");
+                    binding.metadata_roots = auto_roots.clone();
+                    binding.shared = shared.clone();
+                    binding.policy.remotes = current_policy.remotes.clone();
+                    durable_json(&config, &binding)?;
+                    false
+                }
+                Err(error) => {
+                    eprintln!("[warning] new pool accounts not added yet ({error:#}); this mount uses the previous accounts and tries again next time");
+                    true
+                }
+            }
+        } else {
+            false
+        };
+        if keep_previous {
+            effective_policy.remotes = binding.policy.remotes.clone();
+            crate::pool::validate_pool(&effective_policy)?;
+            auto_roots = binding.metadata_roots.clone();
         }
         if serde_json::to_value(&binding.policy)? != serde_json::to_value(&effective_policy)? {
             binding.policy = effective_policy;

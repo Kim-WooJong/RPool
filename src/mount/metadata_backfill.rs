@@ -7,13 +7,17 @@
 //! at once write the same objects. Readers merge every replica, so a
 //! partially copied account never hides anything.
 //!
-//! Order per new account: checkpoint chunks, heads and marks, then the record
-//! directories, and the compaction gate record last (deletion of covered
-//! records waits for the gate on every replica). Each directory is listed
-//! again afterwards: an object some old replica still lists must now be on
-//! the new one, otherwise the copy fails and the caller keeps the old
-//! membership. Objects that vanished meanwhile (deleted by compaction on
-//! another PC) are skipped. Used by `VirtualDrive::open_internal`.
+//! Order per new account: checkpoint chunks, heads and marks, chunks once
+//! more (for a checkpoint written meanwhile), then the record directories,
+//! and the compaction gate record last (deletion of covered records waits
+//! for the gate on every replica). Each directory is listed again
+//! afterwards: every object of the first listing that some old replica still
+//! lists must now be on the new one, otherwise the copy fails and the caller
+//! keeps the old membership. Objects that vanished meanwhile (deleted by
+//! compaction) are skipped; objects published meanwhile by a PC still on the
+//! old membership are not required (readers merge every replica). A new
+//! account whose records share nothing with the pool's is refused: it holds
+//! another drive's metadata. Used by `VirtualDrive::open_internal`.
 use super::metadata_checkpoint::list_all;
 use super::metadata_dir::ObjectDir;
 use crate::prelude::*;
@@ -62,12 +66,16 @@ pub(crate) fn backfill<D: ObjectDir + Sync>(
     for (what, from, to) in fixed {
         copied += copy_dir(what, &from, to, &|_| true)?;
     }
+    // A checkpoint written while the heads were copied has its chunks now.
+    let chunks: Vec<&D> = sources.iter().map(|r| r.chunks).collect();
+    copied += copy_dir("checkpoint chunks", &chunks, target.chunks, &|_| true)?;
     for (index, own) in target.records.iter().enumerate() {
         let from: Vec<&D> = sources
             .iter()
             .map(|r| r.records.get(index).copied())
             .collect::<Option<_>>()
             .context("metadata replicas have different record directories")?;
+        refuse_foreign(&from, own)?;
         copied += copy_dir("records", &from, own, &|id| id != gate)?;
     }
     if let Some(own) = target.records.first() {
@@ -80,8 +88,27 @@ pub(crate) fn backfill<D: ObjectDir + Sync>(
     Ok(copied)
 }
 
+/// Errors when `to` already holds records but none of them is one of the
+/// pool's (`from`): the new account carries another drive's metadata (e.g.
+/// of an earlier pool with the same name), which must not be merged in.
+fn refuse_foreign<D: ObjectDir + Sync>(from: &[&D], to: &D) -> Result<()> {
+    let own = to.list()?;
+    if own.is_empty() {
+        return Ok(());
+    }
+    let dyn_from: Vec<&dyn ObjectDir> = from.iter().map(|d| *d as &dyn ObjectDir).collect();
+    let pool = list_all(&dyn_from)?;
+    if !pool.is_empty() && !own.iter().any(|(id, _)| pool.contains_key(id)) {
+        bail!(
+            "the new account already holds {} drive metadata record(s) of another drive with this pool name; use an empty account or folder (nothing was copied)",
+            own.len()
+        );
+    }
+    Ok(())
+}
+
 /// Copies the objects of `from` selected by `wanted` that `to` lacks, then
-/// verifies `to` holds every one still listed by some source.
+/// verifies `to` holds every one of them that some source still lists.
 fn copy_dir<D: ObjectDir + Sync>(
     what: &str,
     from: &[&D],
@@ -136,9 +163,10 @@ fn copy_dir<D: ObjectDir + Sync>(
     // Verify: everything a source still lists must be on `to` now.
     let now: BTreeSet<String> = to.list()?.into_iter().map(|(id, _)| id).collect();
     let still = list_all(&dyn_from)?;
+    // Objects published after the first listing are not required.
     let lacking: Vec<&String> = still
         .keys()
-        .filter(|id| wanted(id) && !now.contains(*id))
+        .filter(|id| wanted(id) && listing.contains_key(*id) && !now.contains(*id))
         .collect();
     if let Some(id) = lacking.first() {
         let reason = failures
@@ -319,6 +347,29 @@ mod tests {
         backfill(&[a.view()], &new.view(), &object_id(GATE)).unwrap();
         assert!(!new.events.ids().contains(&object_id(b"e2")));
         assert!(new.events.ids().contains(&object_id(b"e1")));
+    }
+
+    #[test]
+    fn a_new_account_with_another_drives_records_is_refused() {
+        let (a, _) = old_replicas();
+        let new = Rep::empty();
+        new.events
+            .objects
+            .lock()
+            .unwrap()
+            .insert(object_id(b"x"), b"x".to_vec());
+        let error = backfill(&[a.view()], &new.view(), &object_id(GATE)).unwrap_err();
+        assert!(format!("{error:#}").contains("another drive"), "{error:#}");
+        // A partial earlier copy (records shared with the pool) is resumed.
+        let resumed = Rep::empty();
+        resumed
+            .events
+            .objects
+            .lock()
+            .unwrap()
+            .insert(object_id(b"e1"), b"e1".to_vec());
+        backfill(&[a.view()], &resumed.view(), &object_id(GATE)).unwrap();
+        assert!(resumed.events.ids().contains(&object_id(b"e2")));
     }
 
     #[test]
