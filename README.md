@@ -1,4 +1,4 @@
-# rpool v2.14.0
+# rpool v2.14.1
 
 `rpool` is a Rust storage layer that stripes files across several
 **explicitly supplied rclone `crypt` remotes**, optionally with
@@ -121,6 +121,13 @@ are local durability points; cloud replication is asynchronous.
   or in Drive › Maintenance › Workspace backups. A backup holding exported
   local-only writes needs `--include-recovered`; one in use or still needed
   by an unfinished transition is kept.
+- Stopping a mount by signal (SIGTERM/SIGINT/SIGHUP, or closing its Windows
+  console) unmounts cleanly like the GUI's Stop. On Windows the mount's
+  rclone ends with RPool even when RPool is killed; on macOS/Linux the next
+  mount of the workspace stops an rclone a killed RPool left behind (only
+  one proven to be that workspace's orphan).
+- macOS mounts disable the NFS client's negative name cache, so a name looked
+  up at the drive root before another PC created it is found once it syncs.
 - On Windows a workspace folder cannot be renamed while a program has a file
   in it open (os error 32). Switches retry for up to a minute; if it stays
   held, stop every mount of the drive, close Explorer windows and leftover
