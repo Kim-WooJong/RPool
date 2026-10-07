@@ -6,7 +6,7 @@
 //! Sending never blocks the child: while the window is minimized or hidden
 //! the GUI may not draw (and drain) for a long time, and a blocked pipe
 //! reader would stall the child process itself (a mount, an upload) as soon
-//! as it writes a line. Past [`PENDING_MAX`] undrained events, log lines and
+//! as it writes a line. Past `PENDING_MAX` undrained events, log lines and
 //! byte progress are dropped and counted instead; the terminal events always
 //! arrive.
 
