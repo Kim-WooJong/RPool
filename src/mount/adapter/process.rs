@@ -89,7 +89,10 @@ impl MountProcess {
         // Persist uncertainty BEFORE spawning: a crash in the spawn/record gap must fail closed.
         lease.record(&LeaseState::Launching)?;
         let mut child = match command.spawn() {
-            Ok(child) => child,
+            Ok(child) => {
+                crate::utils::tie_to_this_process(&child);
+                child
+            }
             Err(error) => {
                 // spawn returned an error, so no owned child was launched.
                 lease.clear()?;
@@ -172,6 +175,12 @@ impl MountProcess {
             .lock()
             .map(|mut logs| logs.read_new())
             .unwrap_or_default()
+    }
+
+    /// True once the child exited after a requested graceful quit with a
+    /// clean status and no uncertainty is left (lease cleared).
+    pub(crate) fn exited_cleanly(&self) -> bool {
+        self.stopped && self.graceful_quit_requested && !self.shutdown_uncertain
     }
 
     /// True while the child has not exited.

@@ -45,6 +45,7 @@ mod pool_transition;
 pub(crate) mod rclone_import;
 mod shard_cache;
 mod shared_model;
+pub(crate) mod shutdown_signal;
 mod spool;
 pub(crate) mod workspace_backups;
 /// A pack member's position, used by drive migration (`migration::drive_model`).

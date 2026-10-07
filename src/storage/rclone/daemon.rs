@@ -451,6 +451,7 @@ fn start(context: &RcloneContext, fingerprint: Fingerprint, role: Role) -> Optio
     );
     command.stderr(Stdio::null());
     let child = command.spawn().ok()?;
+    crate::utils::tie_to_this_process(&child);
     let owner = format!("{}\n{}\n", std::process::id(), child.id());
     let daemon = Daemon {
         child: Mutex::new(child),
@@ -485,6 +486,7 @@ fn start(context: &RcloneContext, fingerprint: Fingerprint, role: Role) -> Optio
         .stderr(Stdio::piped())
         .creation_flags(0x08000000); // CREATE_NO_WINDOW
     let mut child = command.spawn().ok()?;
+    crate::utils::tie_to_this_process(&child);
     let stderr = child.stderr.take()?;
     let (sender, receiver) = std::sync::mpsc::channel();
     // Drains stderr for the daemon's lifetime; only the port is kept.

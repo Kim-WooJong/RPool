@@ -23,6 +23,9 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
     if args.native_read_only && frontend == crate::cli::Frontend::Dav {
         bail!("--native-read-only requires a native frontend");
     }
+    // Shutdown signals stop the mount like the stop file: clean unmount, no
+    // rclone left behind. The guard tells a Windows close event when done.
+    let _signals = crate::mount::shutdown_signal::install();
     let stop = crate::mount::lifecycle::StopControl::new(args.stop_file.clone())?;
     let generated_worker;
     let worker = if let Some(worker) = &args.pool_worker {
@@ -283,7 +286,12 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         }
     }
     let joined = maintenance.join(&drive);
-    let stopped = stopped?;
+    // A slow but clean macOS unmount (finished during the extra wait) is a
+    // normal stop, not the grace-period error recorded before it.
+    let stopped = match stopped {
+        Err(_) if mount.exited_cleanly() => Ok(crate::mount::adapter::StopReport { forced: false }),
+        other => other,
+    }?;
     println!(
         "Virtual mount stopped; forced={} pending spool/cache/history retained. Cloud replication was not drained; use sync-only separately or resume this workspace.",
         stopped.forced

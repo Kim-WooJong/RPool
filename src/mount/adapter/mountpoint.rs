@@ -97,17 +97,38 @@ pub(super) fn normalized_existing_or_parent(path: &Path) -> Result<PathBuf> {
     Ok(parent.join(name))
 }
 
+/// Stops `pid` if it is the orphaned rclone of the mount recorded in
+/// `root/.rpool/mount-identity.json`; false without that record.
+#[cfg(unix)]
+fn stop_orphan_of(root: &Path, pid: u32) -> Result<bool> {
+    let path = root.join(".rpool/mount-identity.json");
+    reject_link(&path)?;
+    let Ok(bytes) = std::fs::read(&path) else {
+        return Ok(false);
+    };
+    let identity: super::lease::MountIdentity = serde_json::from_slice(&bytes)?;
+    super::orphan::stop_orphan(pid, &identity.cache, &identity.target)
+}
+
 /// Called before reconnecting an existing DAV endpoint to an orphaned rclone.
 pub(crate) fn preflight_virtual(root: &Path) -> Result<()> {
     let path = root.join(".rpool/mount-process.json");
     reject_link(&path)?;
     if path.exists() {
-        let lease: LeaseState = serde_json::from_slice(&std::fs::read(path)?)?;
+        let lease: LeaseState = serde_json::from_slice(&std::fs::read(&path)?)?;
         match lease {
             LeaseState::Launching => {
                 bail!("uncertain previous mount launch; preserve cache and inspect process")
             }
             LeaseState::Running { pid } if process_alive(pid)? => {
+                // The rclone of a mount whose RPool was killed: stop it cleanly
+                // (only when provably this workspace's orphan, see `orphan`).
+                #[cfg(unix)]
+                if stop_orphan_of(root, pid)? {
+                    std::fs::remove_file(&path)?;
+                    sync_metadata_directory(path.parent().context("lease parent missing")?)?;
+                    return Ok(());
+                }
                 bail!("previous mount PID {pid} is still active")
             }
             _ => {}

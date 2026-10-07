@@ -101,13 +101,22 @@ impl MountLease {
                 LeaseState::ShutdownUncertain { pid } => bail!("macOS NFS shutdown for PID {pid} is uncertain; inspect kernel I/O and mount state before manually clearing {} (retain all files/cache)", lease.path.display()),
                 LeaseState::Running { pid } => {
                     if process_alive(pid).context("cannot prove previous mount process exited; lease retained")? {
+                        // A crashed RPool's orphan is stopped cleanly; anything else is left alone.
+                        #[cfg(unix)]
+                        if super::orphan::stop_orphan(pid, cache, target)? {
+                            lease.clear()?;
+                        } else {
+                            bail!("previous mount process PID {pid} may still be active; stop it before restarting this workspace");
+                        }
+                        #[cfg(not(unix))]
                         bail!("previous mount process PID {pid} may still be active; stop it before restarting this workspace");
-                    }
+                    } else {
                     #[cfg(target_os = "macos")]
                     bail!("previous macOS NFS mount process PID {pid} exited without a confirmed clean shutdown; inspect kernel I/O and mount state before manually clearing {} (retain all files/cache)", lease.path.display());
                     // The recorded PID does not exist. Never signal/kill a possibly reused PID.
                     #[cfg(not(target_os = "macos"))]
                     lease.clear_if_unmounted(target)?;
+                    }
                 }
             }
         }

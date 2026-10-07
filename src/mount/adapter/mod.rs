@@ -18,6 +18,10 @@ mod mount_log;
 mod mountpoint;
 /// rclone mount command options.
 mod options;
+/// Stops a previous mount's rclone orphaned by a crashed RPool (unix; Windows
+/// ends it with RPool through a job object).
+#[cfg(unix)]
+mod orphan;
 /// Start, poll and stop the owned rclone child.
 mod process;
 /// rclone remote-control (RC) calls.
@@ -25,6 +29,8 @@ mod rc;
 #[cfg(test)]
 mod tests;
 
+#[cfg(unix)]
+use lease::sync_metadata_directory;
 use lease::{reject_link, LeaseState, MountLease};
 pub(crate) use liveness::process_alive;
 use mount_log::{open_mount_log, MountLog};

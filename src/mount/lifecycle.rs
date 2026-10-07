@@ -29,7 +29,8 @@ impl StopControl {
         let (done, receiver) = mpsc::channel();
         let observed = flag.clone();
         let watcher = std::thread::spawn(move || loop {
-            if path.as_ref().is_some_and(|p| p.exists()) {
+            // The stop file, or SIGTERM/SIGINT/SIGHUP/console close (`shutdown_signal`).
+            if path.as_ref().is_some_and(|p| p.exists()) || super::shutdown_signal::requested() {
                 observed.store(true, Ordering::Release);
                 break;
             }
