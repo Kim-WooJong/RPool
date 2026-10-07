@@ -3,18 +3,13 @@
 use super::state::UploadTargetMode;
 use crate::gui::i18n::tr;
 use crate::gui::state::GuiState;
-use crate::gui::task::TaskRunner;
 use std::ffi::OsString;
 use std::path::Path;
 
-/// Starts `rpool put <source>` with the pool or manual target flags, plus
-/// `--id` when a single file has a typed archive ID. Called by
-/// `batch::start_next`.
-pub(crate) fn start_upload_path(
-    state: &GuiState,
-    task: &mut TaskRunner,
-    source: &Path,
-) -> Result<(), String> {
+/// Arguments of `rpool put <source>` with the pool or manual target flags,
+/// plus `--id` when a single file has a typed archive ID. Called by
+/// `batch::start_batch` for every queued file.
+pub(crate) fn upload_args(state: &GuiState, source: &Path) -> Result<Vec<OsString>, String> {
     let mut args: Vec<OsString> = vec![OsString::from("put"), source.as_os_str().to_os_string()];
     match state.upload.target_mode {
         UploadTargetMode::Pool => append_pool_target(state, &mut args)?,
@@ -25,16 +20,7 @@ pub(crate) fn start_upload_path(
         args.push(OsString::from("--id"));
         args.push(OsString::from(state.upload.archive_id.trim()));
     }
-
-    let source_name = source
-        .file_name()
-        .map(|value| value.to_string_lossy().into_owned())
-        .unwrap_or_else(|| source.display().to_string());
-    task.start_rpool(
-        format!("Upload {source_name}"),
-        &state.settings.rclone,
-        args,
-    )
+    Ok(args)
 }
 
 /// Pool target: `--pool <name> --workers N` and, when set, the one-off policy

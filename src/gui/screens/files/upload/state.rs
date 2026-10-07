@@ -97,6 +97,8 @@ pub(crate) struct UploadForm {
     pub(crate) batch_active: bool,
     /// Queue index of the file currently uploading.
     pub(crate) active_index: Option<usize>,
+    /// Queue index of each step of the running batch task.
+    pub(crate) batch_items: Vec<usize>,
     /// Pool mode: this upload's policy instead of the pool's (not saved).
     pub(crate) policy_override: Option<UploadPolicy>,
 }

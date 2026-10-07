@@ -99,6 +99,19 @@ enum TaskEvent {
     Finished(TaskOutcome),
     /// The child could not be spawned; carries the error message.
     StartFailed(String),
+    /// Step `index` of a sequence started its child.
+    StepStarted(usize),
+    /// Step `index` of a sequence ended with this outcome.
+    StepFinished(usize, TaskOutcome),
+}
+
+/// What happened to one step of a [`TaskRunner::start_rpool_sequence`] task.
+#[derive(Debug, Clone)]
+pub(crate) enum StepUpdate {
+    /// The step's child started.
+    Started(usize),
+    /// The step's child ended.
+    Finished(usize, TaskOutcome),
 }
 
 /// The single background-task slot of the GUI, held in the app state.
@@ -122,6 +135,8 @@ pub(crate) struct TaskRunner {
     last_outcome: Option<TaskOutcome>,
     /// Rate/ETA tracker for `current_task`.
     progress: ProgressTracker,
+    /// Step updates of a sequence not yet taken by its screen.
+    steps: Vec<StepUpdate>,
 }
 
 impl TaskRunner {
@@ -160,22 +175,80 @@ impl TaskRunner {
             args: task_args,
         };
 
+        self.begin(
+            TaskInfo::running(task_name, command_preview, invocation),
+            |sender, cancel| run_process(executable, full_args, sender, cancel),
+        );
+        Ok(())
+    }
+
+    /// Starts `rpool --rclone <rclone> <args>` for every step in turn on the
+    /// worker thread, so the sequence keeps going while the window does not
+    /// draw; stops after a failed or cancelled step. Step results arrive
+    /// through [`Self::take_step_updates`]. Used by the upload batch.
+    pub(crate) fn start_rpool_sequence(
+        &mut self,
+        task_name: impl Into<String>,
+        rclone: &str,
+        steps: Vec<Vec<OsString>>,
+    ) -> Result<(), String> {
+        if self.running {
+            return Err(tr("another rpool operation is already running").to_string());
+        }
+        let executable = std::env::current_exe().map_err(|error| {
+            trf(
+                "cannot locate the current rpool executable: {error}",
+                &[("error", &error)],
+            )
+        })?;
+        let task_name = task_name.into();
+        let runs: Vec<Vec<OsString>> = steps
+            .iter()
+            .map(|args| {
+                let mut full = vec![OsString::from("--rclone"), OsString::from(rclone)];
+                full.extend(args.iter().cloned());
+                full
+            })
+            .collect();
+        let preview = runs
+            .first()
+            .map(|args| format_command(&executable, args))
+            .unwrap_or_default();
+        let invocation = TaskInvocation {
+            task_name: task_name.clone(),
+            args: Vec::new(),
+        };
+        self.steps.clear();
+        self.begin(
+            TaskInfo::running(task_name, preview, invocation),
+            |sender, cancel| run_sequence(executable, runs, sender, cancel),
+        );
+        Ok(())
+    }
+
+    /// Step results of the running/last sequence since the previous call.
+    pub(crate) fn take_step_updates(&mut self) -> Vec<StepUpdate> {
+        std::mem::take(&mut self.steps)
+    }
+
+    /// Resets the log and state for `task` and runs `work` on a worker thread.
+    fn begin(
+        &mut self,
+        task: TaskInfo,
+        work: impl FnOnce(EventSender, Arc<AtomicBool>) + Send + 'static,
+    ) {
         self.logs.clear();
         self.last_outcome = None;
-        self.current_task = Some(TaskInfo::running(task_name, command_preview, invocation));
+        self.current_task = Some(task);
         self.progress.reset();
-
         let (sender, receiver, backlog) = EventSender::channel();
         let cancel_flag = Arc::new(AtomicBool::new(false));
         let worker_cancel = Arc::clone(&cancel_flag);
-
-        thread::spawn(move || run_process(executable, full_args, sender, worker_cancel));
-
+        thread::spawn(move || work(sender, worker_cancel));
         self.receiver = Some(receiver);
         self.backlog = Some(backlog);
         self.cancel_flag = Some(cancel_flag);
         self.running = true;
-        Ok(())
     }
 
     /// Drains pending worker events: appends logs (trimmed to stay bounded),
@@ -250,6 +323,10 @@ impl TaskRunner {
                     self.last_outcome = Some(outcome);
                     terminal_status = Some(status);
                     break;
+                }
+                TaskEvent::StepStarted(index) => self.steps.push(StepUpdate::Started(index)),
+                TaskEvent::StepFinished(index, outcome) => {
+                    self.steps.push(StepUpdate::Finished(index, outcome));
                 }
                 TaskEvent::StartFailed(message) => {
                     self.logs.push(LogLine {
@@ -353,9 +430,67 @@ fn run_process(
     sender: EventSender,
     cancel_flag: Arc<AtomicBool>,
 ) {
-    let mut command = Command::new(&executable);
+    let event = match run_child(&executable, &args, &sender, &cancel_flag) {
+        Ok(outcome) => TaskEvent::Finished(outcome),
+        Err(message) => TaskEvent::StartFailed(message),
+    };
+    let _ = sender.send(event);
+}
+
+/// Worker thread body of a sequence: runs each step's child in turn,
+/// reporting step starts and outcomes, and stops after a failed or
+/// cancelled step. The task's outcome is the last step's.
+fn run_sequence(
+    executable: std::path::PathBuf,
+    runs: Vec<Vec<OsString>>,
+    sender: EventSender,
+    cancel_flag: Arc<AtomicBool>,
+) {
+    let mut last = TaskOutcome {
+        success: true,
+        code: Some(0),
+        cancelled: false,
+    };
+    for (index, args) in runs.iter().enumerate() {
+        if cancel_flag.load(Ordering::Relaxed) {
+            last = TaskOutcome {
+                success: false,
+                code: None,
+                cancelled: true,
+            };
+            break;
+        }
+        let _ = sender.send(TaskEvent::StepStarted(index));
+        last = run_child(&executable, args, &sender, &cancel_flag).unwrap_or_else(|message| {
+            let _ = sender.send(TaskEvent::Log(LogLine {
+                kind: LogKind::System,
+                text: message,
+            }));
+            TaskOutcome {
+                success: false,
+                code: None,
+                cancelled: false,
+            }
+        });
+        let _ = sender.send(TaskEvent::StepFinished(index, last.clone()));
+        if !last.success {
+            break;
+        }
+    }
+    let _ = sender.send(TaskEvent::Finished(last));
+}
+
+/// Runs one child to its end, streaming its output; `Err` when it could not
+/// be started.
+fn run_child(
+    executable: &std::path::Path,
+    args: &[OsString],
+    sender: &EventSender,
+    cancel_flag: &AtomicBool,
+) -> Result<TaskOutcome, String> {
+    let mut command = Command::new(executable);
     command
-        .args(&args)
+        .args(args)
         .env(PROGRESS_ENV, "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -363,15 +498,9 @@ fn run_process(
     configure_process_group(&mut command);
     configure_no_console(&mut command);
 
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) => {
-            let _ = sender.send(TaskEvent::StartFailed(format!(
-                "failed to start rpool child process: {error}"
-            )));
-            return;
-        }
-    };
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("failed to start rpool child process: {error}"))?;
 
     let stdout_thread = child.stdout.take().map(|stdout| {
         let sender = sender.clone();
@@ -409,12 +538,11 @@ fn run_process(
         let _ = handle.join();
     }
 
-    let outcome = TaskOutcome {
+    Ok(TaskOutcome {
         success: status.as_ref().is_some_and(|value| value.success()) && !cancelled,
         code: status.as_ref().and_then(|value| value.code()),
         cancelled,
-    };
-    let _ = sender.send(TaskEvent::Finished(outcome));
+    })
 }
 
 /// Puts the child in its own process group so cancel can signal the whole tree.
@@ -607,6 +735,42 @@ mod bounded_output_tests {
             lines,
             ["[oversized output line omitted]", "writeback completed"]
         );
+    }
+
+    /// A sequence runs every step on the worker thread with nobody draining,
+    /// reports each step and stops after the first failed one.
+    #[cfg(unix)]
+    #[test]
+    fn a_sequence_runs_steps_in_turn_and_stops_at_a_failure() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let fake = dir.path().join("rpool");
+        // `--rclone R <word>`: prints the word, fails for "bad".
+        std::fs::write(&fake, "#!/bin/sh\necho \"$3\"\n[ \"$3\" != bad ]\n").unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let runs: Vec<Vec<OsString>> = ["one", "two", "bad", "never"]
+            .iter()
+            .map(|w| vec!["--rclone".into(), "r".into(), (*w).into()])
+            .collect();
+        let (sender, receiver, _) = EventSender::channel();
+        let worker = thread::spawn(move || {
+            run_sequence(fake, runs, sender, Arc::new(AtomicBool::new(false)))
+        });
+        worker.join().unwrap();
+        let mut steps = Vec::new();
+        let mut logs = Vec::new();
+        let mut last = None;
+        for event in receiver.try_iter() {
+            match event {
+                TaskEvent::StepFinished(i, o) => steps.push((i, o.success)),
+                TaskEvent::Log(line) => logs.push(line.text),
+                TaskEvent::Finished(o) => last = Some(o.success),
+                _ => {}
+            }
+        }
+        assert_eq!(steps, [(0, true), (1, true), (2, false)]);
+        assert_eq!(logs, ["one", "two", "bad"]);
+        assert_eq!(last, Some(false));
     }
 
     /// Nobody drains (the window does not draw): the reader keeps consuming
