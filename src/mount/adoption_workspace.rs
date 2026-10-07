@@ -73,7 +73,7 @@ pub(crate) fn switch(
             backup.display()
         );
     }
-    fs::rename(workspace, &backup)?;
+    crate::utils::rename_dir(workspace, &backup)?;
     #[cfg(unix)]
     File::open(backup.parent().context("workspace parent missing")?)?.sync_all()?;
     let exported = exported

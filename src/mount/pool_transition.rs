@@ -104,12 +104,12 @@ fn activate(journal_path: &Path, journal: &mut Journal) -> Result<()> {
             if !journal.workspace.exists() {
                 bail!("transition source missing");
             }
-            fs::rename(&journal.workspace, &journal.backup)?;
+            crate::utils::rename_dir(&journal.workspace, &journal.backup)?;
             sync_parent(&journal.workspace)?;
         } else if journal.workspace.exists() {
             bail!("transition activation paths are ambiguous; all workspaces retained");
         }
-        fs::rename(&journal.stage, &journal.workspace)?;
+        crate::utils::rename_dir(&journal.stage, &journal.workspace)?;
         sync_parent(&journal.workspace)?;
     } else if !journal.workspace.exists() || !journal.backup.exists() {
         bail!("transition activation paths missing; all remaining data retained");

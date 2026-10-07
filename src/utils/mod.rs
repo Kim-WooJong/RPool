@@ -13,6 +13,8 @@ mod local_offset;
 mod path;
 /// Case-insensitive `*`/`?` wildcard matching.
 mod pattern;
+/// Workspace directory renames that wait out briefly held files (Windows).
+mod rename_dir;
 /// Current unix time.
 mod time;
 /// Argument checks for CLI options.
@@ -26,5 +28,6 @@ pub(crate) use json::{json_u64, prune_unknown_keys, read_json, save_json_atomic}
 pub(crate) use local_offset::{local_offset_seconds, offset_label};
 pub(crate) use path::{append_suffix, make_archive_id, relative_remote_object, remote_join};
 pub(crate) use pattern::wildcard_match;
+pub(crate) use rename_dir::rename_dir;
 pub(crate) use time::now_unix;
 pub(crate) use validation::ensure_positive;
