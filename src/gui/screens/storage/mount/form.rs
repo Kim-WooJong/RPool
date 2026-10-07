@@ -58,6 +58,8 @@ pub(crate) struct MountForm {
     pub(super) frontend: crate::cli::Frontend,
     /// Mount read-only (`--native-read-only`, native frontends only).
     pub(super) native_read_only: bool,
+    /// Drive › Maintenance › Workspace backups.
+    pub(super) backups: super::backups_card::BackupsView,
 }
 
 /// Pseudo action for [`MountForm::spec_for`]: account recovery.
@@ -94,6 +96,7 @@ impl Default for MountForm {
             recovery_reprocess_plan: String::new(),
             frontend: Default::default(),
             native_read_only: false,
+            backups: Default::default(),
         }
     }
 }

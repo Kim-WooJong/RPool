@@ -68,7 +68,10 @@ pub(crate) fn switch_then_decide(
             adoption.migration_id
         );
         if let Some(switched) = super::adoption_workspace::switch(rclone, workspace, &adoption)? {
-            println!("Previous workspace kept as {}", switched.backup.display());
+            println!(
+                "Previous workspace kept as {} (delete it later in Drive > Maintenance > Workspace backups, or with `rpool drive backups`)",
+                switched.backup.display()
+            );
             for change in &switched.local_only {
                 eprintln!("[warning] only on this PC, not in the migrated drive: {change}");
             }

@@ -68,6 +68,43 @@ pub(crate) enum DriveCommands {
         #[arg(long)]
         cancel: bool,
     },
+    /// Backups a workspace switch left next to a workspace: list or remove.
+    Backups(BackupsArgs),
+}
+
+#[derive(Args, Debug)]
+/// Arguments of `rpool drive backups`.
+pub(crate) struct BackupsArgs {
+    #[command(subcommand)]
+    /// Selected `backups` subcommand.
+    pub(crate) command: BackupsCommands,
+}
+
+#[derive(Subcommand, Debug)]
+/// Subcommands of `rpool drive backups`.
+pub(crate) enum BackupsCommands {
+    /// List the backups of a workspace (size, kind, exported local writes).
+    List {
+        /// The drive workspace whose backups are listed.
+        #[arg(long)]
+        workspace: PathBuf,
+        /// Print JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Delete one backup folder (never the workspace itself).
+    Remove {
+        /// The drive workspace the backup belongs to.
+        #[arg(long)]
+        workspace: PathBuf,
+        /// Backup folder to delete, as `list` shows it.
+        #[arg(long)]
+        backup: PathBuf,
+        /// Also delete exported local-only writes (recovered-writes/), which
+        /// may exist nowhere else.
+        #[arg(long)]
+        include_recovered: bool,
+    },
 }
 
 #[derive(Args, Debug)]

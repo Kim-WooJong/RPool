@@ -194,5 +194,15 @@
   "macFUSE not installed — install macFUSE for the native drive (then restart RPool); WebDAV is used meanwhile.": "macFUSE가 설치되지 않았어요 — 네이티브 드라이브를 쓰려면 macFUSE를 설치하고 RPool을 다시 시작하세요. 그동안은 WebDAV를 사용해요.",
   "Download macFUSE": "macFUSE 다운로드",
   "rclone's whole-file cache, used only with the WebDAV frontend (on top of the shard cache). Open files and unsaved writes may exceed it. Native frontends (WinFsp, FUSE, macFUSE) do not use it.": "WebDAV 방식에서만 쓰는 rclone의 파일 단위 캐시예요(샤드 캐시와 별도). 열린 파일이나 아직 저장 중인 파일은 이 크기를 잠깐 넘을 수 있어요. 네이티브 방식(WinFsp, FUSE, macFUSE)에서는 쓰지 않아요.",
-  "With the WebDAV frontend, rclone's file cache tries to leave this much free disk space. Native frontends do not use it.": "WebDAV 방식에서 rclone 파일 캐시가 이만큼의 디스크 여유 공간을 남기려고 해요. 네이티브 방식에서는 쓰지 않아요."
+  "With the WebDAV frontend, rclone's file cache tries to leave this much free disk space. Native frontends do not use it.": "WebDAV 방식에서 rclone 파일 캐시가 이만큼의 디스크 여유 공간을 남기려고 해요. 네이티브 방식에서는 쓰지 않아요.",
+  "Workspace backups": "워크스페이스 백업",
+  "Folders the workspace switches after pool changes left next to this workspace. The drive's data is in the cloud; a backup only keeps the old local state. Delete them once the drive works.": "풀 변경 후 워크스페이스를 전환하면서 이 워크스페이스 옆에 남긴 폴더예요. 드라이브 데이터는 클라우드에 있고, 백업에는 예전 로컬 상태만 있어요. 드라이브가 잘 동작하면 지우세요.",
+  "No backups next to this workspace.": "이 워크스페이스 옆에 백업이 없어요.",
+  "{count} backup(s), {size} in all": "백업 {count}개, 합계 {size}",
+  "before a pool migration": "풀 마이그레이션 전",
+  "before Apply pool changes": "풀 변경 적용 전",
+  "{n} local-only file(s) in recovered-writes/ may exist nowhere else; copy what you need into the drive first.": "recovered-writes/의 이 PC 전용 파일 {n}개는 다른 곳에 없을 수 있어요. 필요한 파일은 먼저 드라이브에 복사하세요.",
+  "Also delete the exported local-only files": "내보낸 이 PC 전용 파일도 삭제",
+  "Delete…": "삭제…",
+  "Backup deleted; {size} freed.": "백업을 삭제했어요. {size}를 확보했어요."
 }

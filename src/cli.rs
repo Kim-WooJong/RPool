@@ -35,8 +35,8 @@ use clap::{Parser, Subcommand};
 pub(crate) use config_sync::{ConfigArgs, ConfigCommands, ExportArgs, ImportArgs};
 pub(crate) use doctor::DoctorArgs;
 pub(crate) use drive::{
-    DriveArgs, DriveCommands, DriveTarget, RetentionArgs, RetentionCommands, TrashArgs,
-    TrashCommands, VersionsArgs, VersionsCommands,
+    BackupsArgs, BackupsCommands, DriveArgs, DriveCommands, DriveTarget, RetentionArgs,
+    RetentionCommands, TrashArgs, TrashCommands, VersionsArgs, VersionsCommands,
 };
 pub(crate) use history::{HistoryArgs, HistoryCommands};
 pub(crate) use inventory::{InventoryArgs, InventoryCommands};

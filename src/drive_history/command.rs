@@ -6,14 +6,20 @@ use super::model::{
 use super::ops::{Op, PurgeReport, RestoreReport};
 use super::restore::Action;
 use crate::cli::{
-    DriveArgs, DriveCommands, DriveTarget, RetentionArgs, RetentionCommands, TrashArgs,
-    TrashCommands, VersionsArgs, VersionsCommands,
+    BackupsArgs, BackupsCommands, DriveArgs, DriveCommands, DriveTarget, RetentionArgs,
+    RetentionCommands, TrashArgs, TrashCommands, VersionsArgs, VersionsCommands,
 };
 use crate::prelude::*;
 
 /// Operation name and target recorded in `rpool history`.
 pub(crate) fn describe(args: &DriveArgs) -> (String, Option<String>) {
     let (name, pool) = match &args.command {
+        DriveCommands::Backups(BackupsArgs { command }) => {
+            return match command {
+                BackupsCommands::List { .. } => ("drive-backups-list".into(), None),
+                BackupsCommands::Remove { .. } => ("drive-backups-remove".into(), None),
+            };
+        }
         DriveCommands::Trash(TrashArgs { command }) => match command {
             TrashCommands::List { target } => ("drive-trash-list", &target.pool),
             TrashCommands::Restore { target, .. } => ("drive-trash-restore", &target.pool),
@@ -152,7 +158,7 @@ pub(crate) fn op(command: &DriveCommands, now: u64) -> Result<Option<(Op, DriveT
             }),
             target.clone(),
         ),
-        DriveCommands::Retention(_) => return Ok(None),
+        DriveCommands::Retention(_) | DriveCommands::Backups(_) => return Ok(None),
     }))
 }
 
@@ -162,6 +168,9 @@ pub(crate) fn op(command: &DriveCommands, now: u64) -> Result<Option<(Op, DriveT
 pub(crate) fn run(rclone: &str, args: DriveArgs) -> Result<()> {
     if let DriveCommands::Retention(RetentionArgs { command }) = &args.command {
         return retention(command);
+    }
+    if let DriveCommands::Backups(BackupsArgs { command }) = &args.command {
+        return backups(command);
     }
     let (op, target) = op(&args.command, crate::utils::now_unix())?.context("drive command")?;
     let (value, notes) =
@@ -174,6 +183,49 @@ pub(crate) fn run(rclone: &str, args: DriveArgs) -> Result<()> {
         return Ok(());
     }
     print_text(&op, value)
+}
+
+/// `rpool drive backups list|remove`: the workspace's backup folders.
+fn backups(command: &BackupsCommands) -> Result<()> {
+    use crate::mount::workspace_backups::{list, remove};
+    use crate::presentation::format_bytes;
+    match command {
+        BackupsCommands::List { workspace, json } => {
+            let found = list(workspace)?;
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&found)?);
+            } else if found.is_empty() {
+                println!("no backups next to {}", workspace.display());
+            } else {
+                for b in &found {
+                    println!(
+                        "{}  {:?}  {}{}",
+                        b.path.display(),
+                        b.kind,
+                        format_bytes(b.bytes),
+                        if b.recovered_files > 0 {
+                            format!("  {} exported local-only write(s)", b.recovered_files)
+                        } else {
+                            String::new()
+                        }
+                    );
+                }
+            }
+        }
+        BackupsCommands::Remove {
+            workspace,
+            backup,
+            include_recovered,
+        } => {
+            let freed = remove(workspace, backup, *include_recovered)?;
+            println!(
+                "removed {} ({} freed)",
+                backup.display(),
+                format_bytes(freed)
+            );
+        }
+    }
+    Ok(())
 }
 
 /// `rpool drive retention show|set`: update/load the pool's retention and

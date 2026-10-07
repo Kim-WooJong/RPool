@@ -46,6 +46,7 @@ pub(crate) mod rclone_import;
 mod shard_cache;
 mod shared_model;
 mod spool;
+pub(crate) mod workspace_backups;
 /// A pack member's position, used by drive migration (`migration::drive_model`).
 pub(crate) use shared_model::PackSlice;
 /// Synthetic metadata for read-only listing tests outside `mount`.

@@ -3,6 +3,7 @@
 //! Pool-change and recovery steps live in Storage › Account changes
 //! (`transitions`).
 mod args;
+mod backups_card;
 mod cache_recovery;
 mod capacity_panel;
 mod conflicts;

@@ -194,5 +194,15 @@
   "macFUSE not installed — install macFUSE for the native drive (then restart RPool); WebDAV is used meanwhile.": "未安装 macFUSE — 如需原生驱动器请安装 macFUSE（然后重启 RPool）；在此期间使用 WebDAV。",
   "Download macFUSE": "下载 macFUSE",
   "rclone's whole-file cache, used only with the WebDAV frontend (on top of the shard cache). Open files and unsaved writes may exceed it. Native frontends (WinFsp, FUSE, macFUSE) do not use it.": "仅在 WebDAV 方式下使用的 rclone 整文件缓存（独立于分片缓存）。打开的文件和尚未保存完的文件可能暂时超过此大小。原生方式（WinFsp、FUSE、macFUSE）不使用它。",
-  "With the WebDAV frontend, rclone's file cache tries to leave this much free disk space. Native frontends do not use it.": "在 WebDAV 方式下，rclone 文件缓存会尽量保留这么多磁盘可用空间。原生方式不使用它。"
+  "With the WebDAV frontend, rclone's file cache tries to leave this much free disk space. Native frontends do not use it.": "在 WebDAV 方式下，rclone 文件缓存会尽量保留这么多磁盘可用空间。原生方式不使用它。",
+  "Workspace backups": "工作区备份",
+  "Folders the workspace switches after pool changes left next to this workspace. The drive's data is in the cloud; a backup only keeps the old local state. Delete them once the drive works.": "池变更后切换工作区时留在此工作区旁的文件夹。驱动器数据在云端，备份只保留旧的本地状态。确认驱动器正常后即可删除。",
+  "No backups next to this workspace.": "此工作区旁没有备份。",
+  "{count} backup(s), {size} in all": "{count} 个备份，共 {size}",
+  "before a pool migration": "池迁移之前",
+  "before Apply pool changes": "应用池变更之前",
+  "{n} local-only file(s) in recovered-writes/ may exist nowhere else; copy what you need into the drive first.": "recovered-writes/ 中有 {n} 个仅在本机的文件可能别处没有；请先把需要的复制到驱动器。",
+  "Also delete the exported local-only files": "同时删除导出的仅本机文件",
+  "Delete…": "删除…",
+  "Backup deleted; {size} freed.": "已删除备份，释放 {size}。"
 }
