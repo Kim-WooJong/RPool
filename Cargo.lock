@@ -3326,6 +3326,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "windows-sys 0.60.2",
  "winfsp_wrs",
  "winfsp_wrs_build",
  "zeroize",
