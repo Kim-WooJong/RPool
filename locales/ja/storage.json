@@ -375,5 +375,7 @@
   "Slow run: shards moved at once (archives then one at a time). 0 = the pool's workers.": "低速実行: 一度に移すシャード数です（アーカイブは1つずつ処理されます）。0 = プールのワーカー数。",
   "Shards at once": "同時シャード数",
   "Bandwidth limit of the whole run, rclone --bwlimit syntax with timetables, e.g. 10M or 01:00,20M 08:00,2M. Empty = no limit.": "実行全体の帯域制限です。rclone --bwlimit 形式で時間帯指定もできます。例: 10M または 01:00,20M 08:00,2M。空欄 = 制限なし。",
-  "Bandwidth": "帯域"
+  "Bandwidth": "帯域",
+  "Connected providers in pool {pool} · {count} of {all}": "プール {pool} の接続済みプロバイダー · {all} 件中 {count} 件",
+  "No connected provider belongs to this pool. Choose all crypt remotes as the scope to see every provider.": "このプールに属する接続済みプロバイダーはありません。すべて表示するには範囲をすべての crypt リモートにしてください。"
 }

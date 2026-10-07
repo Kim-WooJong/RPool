@@ -375,5 +375,7 @@
   "Slow run: shards moved at once (archives then one at a time). 0 = the pool's workers.": "천천히 실행: 한 번에 옮기는 샤드 수예요 (이때 아카이브는 하나씩 처리해요). 0 = 풀의 작업자 수.",
   "Shards at once": "동시 샤드 수",
   "Bandwidth limit of the whole run, rclone --bwlimit syntax with timetables, e.g. 10M or 01:00,20M 08:00,2M. Empty = no limit.": "이번 실행 전체의 대역폭 제한이에요. rclone --bwlimit 형식이며 시간대 지정도 돼요. 예: 10M 또는 01:00,20M 08:00,2M. 비우면 제한 없음.",
-  "Bandwidth": "대역폭"
+  "Bandwidth": "대역폭",
+  "Connected providers in pool {pool} · {count} of {all}": "풀 {pool}의 연결된 공급자 · {all}개 중 {count}개",
+  "No connected provider belongs to this pool. Choose all crypt remotes as the scope to see every provider.": "이 풀에 속한 연결된 공급자가 없어요. 모든 공급자를 보려면 범위를 전체 crypt 원격으로 바꾸세요."
 }

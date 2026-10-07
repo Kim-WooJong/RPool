@@ -227,11 +227,25 @@ fn connect_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) 
 /// "Connected providers" card: provider cards in a responsive grid, and the
 /// handling of a card's button (encryption, limits, name encoding, keep-alive).
 fn list_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
-    let count = state.backing_remotes.len();
+    // A pool as the health monitor's scope also narrows the list to its providers.
+    let count = model::pool_scope(state).map_or(state.backing_remotes.len(), |s| s.len());
+    let scoped = !state.providers.health_pool.trim().is_empty();
     let mut refresh = false;
+    let title = if scoped {
+        trf(
+            "Connected providers in pool {pool} · {count} of {all}",
+            &[
+                ("pool", &state.providers.health_pool.trim()),
+                ("count", &count),
+                ("all", &state.backing_remotes.len()),
+            ],
+        )
+    } else {
+        trf("Connected providers · {count}", &[("count", &count)])
+    };
     let clicked = theme::card_section(
         ui,
-        &trf("Connected providers · {count}", &[("count", &count)]),
+        &title,
         None,
         |ui| {
             refresh = ui
@@ -240,7 +254,14 @@ fn list_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
         },
         |ui| {
             if count == 0 {
-                theme::hint(ui, tr("No providers yet. Connect one above."));
+                theme::hint(
+                    ui,
+                    if scoped {
+                        tr("No connected provider belongs to this pool. Choose all crypt remotes as the scope to see every provider.")
+                    } else {
+                        tr("No providers yet. Connect one above.")
+                    },
+                );
                 return None::<(card::CardAction, String)>;
             }
             let running = task.is_running()

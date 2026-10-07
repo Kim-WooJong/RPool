@@ -42,9 +42,15 @@ impl ProviderCard<'_> {
 /// whether automatic encryption setup is running now.
 pub(crate) fn cards(state: &GuiState, running: bool) -> Vec<ProviderCard<'_>> {
     let form = &state.providers;
+    let scope = pool_scope(state);
     state
         .backing_remotes
         .iter()
+        .filter(|name| {
+            scope
+                .as_ref()
+                .is_none_or(|names| names.contains(name.as_str()))
+        })
         .map(|name| {
             let missing = form.missing_encryption.contains(name);
             let status = super::encryption_status(
@@ -83,6 +89,35 @@ pub(crate) fn cards(state: &GuiState, running: bool) -> Vec<ProviderCard<'_>> {
         .collect()
 }
 
+/// With a pool chosen as the health monitor's scope, the providers that
+/// pool uses: the backing remotes of its crypt remotes (or the remote itself
+/// when it is a backing remote). `None` = no pool scope, show every provider.
+pub(crate) fn pool_scope(state: &GuiState) -> Option<std::collections::BTreeSet<&str>> {
+    let pool = state.providers.health_pool.trim();
+    if pool.is_empty() {
+        return None;
+    }
+    let definition = state.pool_definitions.get(pool)?;
+    let name = |remote: &str| remote.split_once(':').map_or(remote, |(n, _)| n).to_owned();
+    let used: std::collections::BTreeSet<String> =
+        definition.remotes.iter().map(|r| name(r)).collect();
+    Some(
+        state
+            .backing_remotes
+            .iter()
+            .filter(|backing| {
+                used.contains(backing.as_str())
+                    || state
+                        .provider_details
+                        .crypts
+                        .get(backing.as_str())
+                        .is_some_and(|crypts| crypts.iter().any(|c| used.contains(&name(c))))
+            })
+            .map(String::as_str)
+            .collect(),
+    )
+}
+
 /// Account name of a capacity report. Reports name the remote with its colon
 /// and, for backends whose quota depends on the folder (SFTP, WebDAV, …),
 /// with the provider's default path too: `koofr_1:/data` belongs to `koofr_1`.
@@ -93,6 +128,26 @@ fn report_account(remote: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pool_scope_shows_only_that_pools_providers() {
+        let mut state = GuiState::new(Default::default(), Default::default(), Default::default());
+        super::super::sample::providers(&mut state);
+        state.pool_definitions.insert(
+            "family".into(),
+            crate::models::PoolDefinition {
+                remotes: vec!["gdrive_2_crypt:".into(), "pcloud_crypt:rpool".into()],
+                ..Default::default()
+            },
+        );
+        assert_eq!(cards(&state, false).len(), 7);
+        state.providers.health_pool = "family".into();
+        let names: Vec<&str> = cards(&state, false).iter().map(|c| c.name).collect();
+        assert_eq!(names, ["gdrive_2", "pcloud"]);
+        // An unknown pool (e.g. just removed) falls back to every provider.
+        state.providers.health_pool = "gone".into();
+        assert_eq!(cards(&state, false).len(), 7);
+    }
 
     #[test]
     fn cards_join_kind_crypts_usage_and_status() {

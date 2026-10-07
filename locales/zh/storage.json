@@ -375,5 +375,7 @@
   "Slow run: shards moved at once (archives then one at a time). 0 = the pool's workers.": "慢速运行：同时移动的分片数（归档将逐个处理）。0 = 池的工作线程数。",
   "Shards at once": "同时分片数",
   "Bandwidth limit of the whole run, rclone --bwlimit syntax with timetables, e.g. 10M or 01:00,20M 08:00,2M. Empty = no limit.": "整个运行的带宽限制，使用 rclone --bwlimit 语法，支持时间表，例如 10M 或 01:00,20M 08:00,2M。留空 = 不限制。",
-  "Bandwidth": "带宽"
+  "Bandwidth": "带宽",
+  "Connected providers in pool {pool} · {count} of {all}": "池 {pool} 的已连接提供商 · {all} 个中的 {count} 个",
+  "No connected provider belongs to this pool. Choose all crypt remotes as the scope to see every provider.": "没有属于该池的已连接提供商。要查看全部，请将范围改为所有 crypt 远程。"
 }
