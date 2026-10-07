@@ -114,7 +114,7 @@ impl Fence {
                 f.migration_id
             )),
             Fence::Superseded(a) => Some(format!(
-                "this workspace is on the previous drive generation ({}): pool migration {} moved the drive to a new layout. Nothing was deleted. Switch this PC with `rpool pool migrate adopt {pool} --id {} --workspace <this workspace>` (keeps this workspace as a backup and exports local-only writes)",
+                "this workspace is on the previous drive generation ({}): pool migration {} moved the drive to a new layout. Nothing was deleted. Mounting this workspace switches it automatically; or switch it with `rpool pool migrate adopt {pool} --id {} --workspace <this workspace>` (both keep this workspace as a backup and export local-only writes)",
                 a.source.label(),
                 a.migration_id,
                 a.migration_id

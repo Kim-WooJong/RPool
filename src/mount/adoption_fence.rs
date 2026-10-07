@@ -3,8 +3,11 @@
 //! - Opening a NEW pool-sync workspace of a pool whose drive was adopted
 //!   initializes it on the adopted epoch, so a PC without the old workspace
 //!   opens the migrated drive directly.
-//! - Opening a workspace on a superseded generation is refused with the
-//!   command that switches it (`pool migrate adopt --workspace`).
+//! - Mounting a workspace on a superseded generation switches it first, as
+//!   `pool migrate adopt --workspace` would (`adoption_workspace::switch`:
+//!   the old workspace becomes a sibling backup, local-only writes are
+//!   exported into it), then opens a new workspace on the adopted epoch.
+//!   Other openers still refuse it with that command.
 //! - While a migration has frozen the workspace's generation, a mount may run
 //!   but every publication (`VirtualDrive::sync`) is refused: changes stay in
 //!   the local spool. Publication re-checks at most every [`CHECK_INTERVAL`];
@@ -47,7 +50,39 @@ pub(crate) fn workspace_generation(root: &Path) -> Result<Option<GenerationRef>>
 pub(crate) fn before_open(rclone: &str, pool: &str, workspace: &Path) -> Result<Option<String>> {
     let known = crate::migration::drive_journal::known(rclone, pool)
         .context("cannot check this pool's migrations before mounting; local data is retained")?;
-    open_decision(workspace_generation(workspace)?, &known, pool)
+    switch_then_decide(rclone, workspace, &known, pool)
+}
+
+/// [`before_open`] once the migrations are `known`: switches a workspace on
+/// a superseded generation (see the module docs), then decides how to open.
+pub(crate) fn switch_then_decide(
+    rclone: &str,
+    workspace: &Path,
+    known: &Known,
+    pool: &str,
+) -> Result<Option<String>> {
+    let mut generation = workspace_generation(workspace)?;
+    if let Some(Fence::Superseded(adoption)) = generation.as_ref().map(|g| fence(g, known)) {
+        println!(
+            "Pool migration {} moved this drive to a new layout: switching this workspace automatically (the old one is kept as a backup)",
+            adoption.migration_id
+        );
+        if let Some(switched) = super::adoption_workspace::switch(rclone, workspace, &adoption)? {
+            println!("Previous workspace kept as {}", switched.backup.display());
+            for change in &switched.local_only {
+                eprintln!("[warning] only on this PC, not in the migrated drive: {change}");
+            }
+            if !switched.exported.is_empty() {
+                eprintln!(
+                    "[warning] {} local-only file(s) exported to {}; copy them into the drive after it is mounted (each has a .json receipt naming its drive path)",
+                    switched.exported.len(),
+                    switched.backup.join("recovered-writes").display()
+                );
+            }
+        }
+        generation = workspace_generation(workspace)?;
+    }
+    open_decision(generation, known, pool)
 }
 
 /// Decides how to open a workspace bound to `generation`: a fresh workspace (`None`) may get

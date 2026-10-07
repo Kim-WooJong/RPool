@@ -178,6 +178,33 @@ mod tests {
         assert!(switch("no-rclone", &ws, &adoption()).unwrap().is_none());
     }
 
+    /// Mounting a superseded workspace switches it and opens the adopted epoch.
+    #[test]
+    fn mounting_a_superseded_workspace_switches_it_automatically() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path().join("drive");
+        workspace(&ws, None);
+        let known = crate::migration::drive_generations::Known {
+            adoptions: vec![adoption()],
+            ..Default::default()
+        };
+        let epoch = crate::mount::adoption_fence::switch_then_decide("no-rclone", &ws, &known, "p")
+            .unwrap();
+        assert_eq!(
+            epoch,
+            Some("e".repeat(64)),
+            "a fresh workspace on the adopted epoch"
+        );
+        assert!(!ws.exists());
+        let backup = dir
+            .path()
+            .join(format!(".drive.migration-backup-{}", "e".repeat(12)));
+        assert!(
+            backup.join("recovered-writes").is_dir(),
+            "local-only writes exported"
+        );
+    }
+
     #[test]
     fn workspace_on_another_generation_is_left_alone() {
         let dir = tempfile::tempdir().unwrap();
