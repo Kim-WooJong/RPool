@@ -1,7 +1,14 @@
 //! Runs GUI operations as child `rpool` processes (the current executable with
 //! `--rclone` and the task's arguments). A worker thread streams stdout/stderr
-//! lines and progress events through a bounded channel; the GUI drains it with
+//! lines and progress events through a channel; the GUI drains it with
 //! [`TaskRunner::poll`] each frame. Only one task runs at a time.
+//!
+//! Sending never blocks the child: while the window is minimized or hidden
+//! the GUI may not draw (and drain) for a long time, and a blocked pipe
+//! reader would stall the child process itself (a mount, an upload) as soon
+//! as it writes a line. Past [`PENDING_MAX`] undrained events, log lines and
+//! byte progress are dropped and counted instead; the terminal events always
+//! arrive.
 
 use super::progress::ProgressTracker;
 use super::{JobStatus, LogKind, LogLine, TaskInfo, TaskInvocation};
@@ -10,8 +17,9 @@ use crate::progress::{parse_line as parse_progress_line, ProgressEvent, PROGRESS
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -25,6 +33,60 @@ pub(crate) struct TaskOutcome {
     pub(crate) code: Option<i32>,
     /// The user cancelled the task.
     pub(crate) cancelled: bool,
+}
+
+/// Undrained events after which droppable ones (logs, byte progress) are
+/// skipped rather than queued.
+const PENDING_MAX: usize = 10_000;
+
+/// Counters shared by an [`EventSender`] and the runner draining it.
+#[derive(Default)]
+struct Backlog {
+    /// Events sent and not yet drained.
+    pending: AtomicUsize,
+    /// Droppable events skipped since the last drain.
+    dropped: AtomicUsize,
+}
+
+/// Non-blocking sender of task events (see the module docs).
+#[derive(Clone)]
+struct EventSender {
+    /// Unbounded channel to the runner.
+    sender: Sender<TaskEvent>,
+    /// Shared backlog counters.
+    backlog: Arc<Backlog>,
+}
+
+impl EventSender {
+    /// A sender and the receiver/backlog the runner keeps.
+    fn channel() -> (Self, Receiver<TaskEvent>, Arc<Backlog>) {
+        let (sender, receiver) = mpsc::channel();
+        let backlog = Arc::new(Backlog::default());
+        (
+            Self {
+                sender,
+                backlog: Arc::clone(&backlog),
+            },
+            receiver,
+            backlog,
+        )
+    }
+    /// Queues `event` without blocking; a droppable event past
+    /// [`PENDING_MAX`] is counted as dropped instead. Errors only when the
+    /// runner is gone.
+    fn send(&self, event: TaskEvent) -> Result<(), ()> {
+        let droppable = matches!(
+            event,
+            TaskEvent::Log(_)
+                | TaskEvent::Progress(ProgressEvent::Advance { .. } | ProgressEvent::Items { .. })
+        );
+        if droppable && self.backlog.pending.load(Ordering::Relaxed) >= PENDING_MAX {
+            self.backlog.dropped.fetch_add(1, Ordering::Relaxed);
+            return Ok(());
+        }
+        self.backlog.pending.fetch_add(1, Ordering::Relaxed);
+        self.sender.send(event).map_err(|_| ())
+    }
 }
 
 /// Messages from the worker thread to the GUI.
@@ -44,6 +106,8 @@ enum TaskEvent {
 pub(crate) struct TaskRunner {
     /// Event channel of the running task; `None` when idle.
     receiver: Option<Receiver<TaskEvent>>,
+    /// Backlog counters of `receiver`.
+    backlog: Option<Arc<Backlog>>,
     /// Set to request cancellation of the running task.
     cancel_flag: Option<Arc<AtomicBool>>,
     /// A task is in progress (cleared by `poll` on a terminal event).
@@ -101,13 +165,14 @@ impl TaskRunner {
         self.current_task = Some(TaskInfo::running(task_name, command_preview, invocation));
         self.progress.reset();
 
-        let (sender, receiver) = mpsc::sync_channel(1024);
+        let (sender, receiver, backlog) = EventSender::channel();
         let cancel_flag = Arc::new(AtomicBool::new(false));
         let worker_cancel = Arc::clone(&cancel_flag);
 
         thread::spawn(move || run_process(executable, full_args, sender, worker_cancel));
 
         self.receiver = Some(receiver);
+        self.backlog = Some(backlog);
         self.cancel_flag = Some(cancel_flag);
         self.running = true;
         Ok(())
@@ -118,10 +183,28 @@ impl TaskRunner {
     /// terminal status once, when the task has just finished. Called every frame.
     pub(crate) fn poll(&mut self) -> Option<JobStatus> {
         let mut terminal_status = None;
+        if let Some(dropped) = self
+            .backlog
+            .as_ref()
+            .map(|b| b.dropped.swap(0, Ordering::Relaxed))
+            .filter(|n| *n > 0)
+        {
+            self.logs.push(LogLine {
+                kind: LogKind::System,
+                text: format!(
+                    "[{dropped} output line(s) skipped while the window was not drawing]"
+                ),
+            });
+        }
 
         while let Some(received) = self.receiver.as_ref().map(Receiver::try_recv) {
             let event = match received {
-                Ok(event) => event,
+                Ok(event) => {
+                    if let Some(backlog) = &self.backlog {
+                        backlog.pending.fetch_sub(1, Ordering::Relaxed);
+                    }
+                    event
+                }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
                     if terminal_status.is_none() {
@@ -189,6 +272,7 @@ impl TaskRunner {
         if terminal_status.is_some() {
             self.running = false;
             self.receiver = None;
+            self.backlog = None;
             self.cancel_flag = None;
         }
 
@@ -266,7 +350,7 @@ impl TaskRunner {
 fn run_process(
     executable: std::path::PathBuf,
     args: Vec<OsString>,
-    sender: SyncSender<TaskEvent>,
+    sender: EventSender,
     cancel_flag: Arc<AtomicBool>,
 ) {
     let mut command = Command::new(&executable);
@@ -393,7 +477,7 @@ fn stream_lines<R: std::io::Read>(
     reader: R,
     kind: LogKind,
     parse_progress: bool,
-    sender: SyncSender<TaskEvent>,
+    sender: EventSender,
 ) {
     let mut reader = BufReader::new(reader);
     loop {
@@ -489,7 +573,7 @@ impl TaskRunner {
     /// Delivers a finished event to a [`Self::fake_running`] runner; the next
     /// `poll` reports it.
     pub(crate) fn fake_finish(&mut self, success: bool) {
-        let (sender, receiver) = mpsc::sync_channel(1);
+        let (sender, receiver, backlog) = EventSender::channel();
         sender
             .send(TaskEvent::Finished(TaskOutcome {
                 success,
@@ -498,6 +582,7 @@ impl TaskRunner {
             }))
             .unwrap();
         self.receiver = Some(receiver);
+        self.backlog = Some(backlog);
     }
 }
 
@@ -509,7 +594,7 @@ mod bounded_output_tests {
     fn oversized_line_does_not_swallow_following_status() {
         let mut input = vec![b'x'; 40_000];
         input.extend_from_slice(b"\nwriteback completed\r\n");
-        let (sender, receiver) = mpsc::sync_channel(4);
+        let (sender, receiver, _) = EventSender::channel();
         stream_lines(input.as_slice(), LogKind::System, false, sender);
         let lines: Vec<_> = receiver
             .into_iter()
@@ -522,5 +607,32 @@ mod bounded_output_tests {
             lines,
             ["[oversized output line omitted]", "writeback completed"]
         );
+    }
+
+    /// Nobody drains (the window does not draw): the reader keeps consuming
+    /// the child's output instead of blocking it, drops the excess and still
+    /// delivers the final event.
+    #[test]
+    fn an_undrained_runner_never_blocks_the_child_output() {
+        let mut input = Vec::new();
+        for i in 0..(PENDING_MAX + 5_000) {
+            input.extend_from_slice(format!("line {i}\n").as_bytes());
+        }
+        let (sender, receiver, backlog) = EventSender::channel();
+        let finisher = sender.clone();
+        let reader =
+            thread::spawn(move || stream_lines(input.as_slice(), LogKind::Stdout, false, sender));
+        reader.join().unwrap();
+        finisher
+            .send(TaskEvent::Finished(TaskOutcome {
+                success: true,
+                code: Some(0),
+                cancelled: false,
+            }))
+            .unwrap();
+        assert_eq!(backlog.dropped.load(Ordering::Relaxed), 5_000);
+        let events: Vec<_> = receiver.try_iter().collect();
+        assert_eq!(events.len(), PENDING_MAX + 1);
+        assert!(matches!(events.last(), Some(TaskEvent::Finished(_))));
     }
 }
