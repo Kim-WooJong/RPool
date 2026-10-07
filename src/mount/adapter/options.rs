@@ -30,6 +30,21 @@ pub(in crate::mount) fn vfs_cache_policy() -> (&'static str, &'static str) {
     ("full", "60s")
 }
 
+/// Options passed through to the kernel mount (`rclone … -o`).
+///
+/// macOS NFS client: `nonegnamecache`. Its negative name cache ("no such
+/// name") is dropped only when the parent directory's mtime changes, and
+/// rclone keeps the mount root's mtime at the mount start. A name looked up
+/// at the root before it existed (e.g. a folder another PC created later)
+/// otherwise stayed "not found" until the next mount, although listed.
+pub(in crate::mount) fn kernel_mount_options() -> &'static [&'static str] {
+    if cfg!(target_os = "macos") {
+        &["-o", "nonegnamecache"]
+    } else {
+        &[]
+    }
+}
+
 /// rclone subcommand for a native mount: `nfsmount` on macOS, `mount` elsewhere.
 pub(super) fn native_mount_command() -> &'static str {
     if cfg!(target_os = "macos") {

@@ -560,3 +560,15 @@ fn rejects_overlap_nonempty_and_symlink_targets() {
     config.target = link;
     assert!(validate_mountpoint(&config).is_err());
 }
+
+/// macOS NFS mounts disable the negative name cache, which the fixed root
+/// mtime of rclone's VFS would otherwise never invalidate.
+#[test]
+fn macos_nfs_mount_disables_the_negative_name_cache() {
+    let options = kernel_mount_options();
+    if cfg!(target_os = "macos") {
+        assert_eq!(options, ["-o", "nonegnamecache"]);
+    } else {
+        assert!(options.is_empty());
+    }
+}

@@ -67,6 +67,7 @@ impl MountProcess {
         if let Some(name) = config.volume_name.as_deref().map(volume_label) {
             command.arg("--volname").arg(name);
         }
+        command.args(kernel_mount_options());
         configure_cache(
             &mut command,
             config.vfs_cache_gib,

@@ -31,7 +31,7 @@ use mount_log::{open_mount_log, MountLog};
 pub(crate) use mountpoint::{preflight_virtual, validate_mountpoint};
 #[cfg(target_os = "macos")]
 use options::check_nfsmount_version;
-use options::{configure_cache, native_mount_command};
+use options::{configure_cache, kernel_mount_options, native_mount_command};
 pub(in crate::mount) use options::{vfs_cache_policy, volume_label};
 pub(in crate::mount) use rc::drain_writeback;
 use rc::{base64, rc_call};
