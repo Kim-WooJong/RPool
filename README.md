@@ -1,4 +1,4 @@
-# rpool v2.13.0
+# rpool v2.14.0
 
 `rpool` is a Rust storage layer that stripes files across several
 **explicitly supplied rclone `crypt` remotes**, optionally with
@@ -109,6 +109,23 @@ are local durability points; cloud replication is asynchronous.
 - Every account keeps 1/64 of its space (at most 1 GiB) free for the drive
   metadata, which goes to every account; shards and capacity figures leave it
   out, so a full pool keeps syncing.
+- **After a pool migration, mount as usual.** A workspace still on the drive
+  generation a migration replaced is switched by its next mount (as
+  `pool migrate adopt --workspace` does): the old workspace stays next to it
+  as `.<name>.migration-backup-<epoch>`, writes that existed only on this PC
+  are exported into its `recovered-writes/`, and a fresh workspace opens the
+  migrated drive.
+- **Workspace backups** left by such switches and by `--apply-pool-changes`
+  (`.<name>.pool-backup-<epoch>`) are listed and deleted with
+  `rpool drive backups list|remove --workspace W [--backup B] [--include-recovered]`
+  or in Drive › Maintenance › Workspace backups. A backup holding exported
+  local-only writes needs `--include-recovered`; one in use or still needed
+  by an unfinished transition is kept.
+- On Windows a workspace folder cannot be renamed while a program has a file
+  in it open (os error 32). Switches retry for up to a minute; if it stays
+  held, stop every mount of the drive, close Explorer windows and leftover
+  `rpool.exe`/`rclone.exe` processes (Resource Monitor › CPU › Associated
+  Handles shows which program), then retry. Nothing is changed meanwhile.
 
 Full description, recovery and limits: [docs/MOUNT.md](docs/MOUNT.md).
 
@@ -591,17 +608,22 @@ options still apply, for example `rpool --rclone C:\Tools\rclone.exe`.
   `rpool-gui.exe`, built next to `rpool.exe`, starts the GUI with no window
   at all; use it for shortcuts. Every rclone and task process already runs
   without a window.
+- **Jobs keep running in the background**: tasks and mounts run as child
+  processes whose output never waits for the window to draw, so a
+  minimized or hidden GUI does not pause them.
 - **Old options are tidied**: at start the GUI removes options earlier
   versions no longer use from its settings and the pool definitions, and
   keeps the previous file as `<name>.bak`.
 
 - **Overview**: capacity, files, health, pools, warnings, recent jobs.
 - **Files**: Library (file-explorer view of the drive, Trash, Versions,
-  Roll back), Upload, Restore.
+  Roll back), Upload (a queue of files uploads one after another on a
+  worker, also while the window is minimized), Restore.
 - **Drive**: mount, sync, import, recovery and cache settings per pool;
   several pools mounted at once with a "Mounted pools" strip.
 - **Monitoring**: live traffic per mounted pool and account, history.
-- **Storage**: Providers (cards with usage, limits, keep-alive, speed test),
+- **Storage**: Providers (cards with usage, limits, keep-alive, speed test;
+  a pool chosen as the health scope shows only that pool's providers),
   Pools ("New pool" or load one; policy, capacity, drive metadata, trash &
   versions, speed test; a new pool never overwrites an existing name),
   Account changes (pool migration wizard).
@@ -622,6 +644,7 @@ Storage operations run the same CLI code as a child process
 | `gui` | Native console (default without a subcommand) |
 | `mount` | Online drive; also `mount monitor` |
 | `drive trash\|versions\|rollback\|retention` | Drive history |
+| `drive backups list\|remove` | Workspace backups left by switches |
 | `put` / `get` | Upload / restore one archive |
 | `verify` / `status` / `usage` | Shard checks, recoverability, quotas |
 | `pool set\|list\|show\|remove\|capacity\|browse` | Pool definitions and capacity |
