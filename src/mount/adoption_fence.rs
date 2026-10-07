@@ -67,7 +67,9 @@ pub(crate) fn switch_then_decide(
             "Pool migration {} moved this drive to a new layout: switching this workspace automatically (the old one is kept as a backup)",
             adoption.migration_id
         );
-        if let Some(switched) = super::adoption_workspace::switch(rclone, workspace, &adoption)? {
+        if let Some(switched) =
+            super::adoption_workspace::switch_locked(rclone, workspace, &adoption)?
+        {
             println!(
                 "Previous workspace kept as {} (delete it later in Drive > Maintenance > Workspace backups, or with `rpool drive backups`)",
                 switched.backup.display()

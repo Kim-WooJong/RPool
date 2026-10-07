@@ -33,7 +33,20 @@ pub(crate) fn switch(
     workspace: &Path,
     adoption: &DriveAdoption,
 ) -> Result<Option<Switched>> {
+    // Standalone caller (`pool migrate adopt --workspace`): take the
+    // transition lock. The mount path already holds it (`mount::run`) and
+    // calls `switch_locked` instead, so it does not deadlock on itself.
     let _lock = lock_workspace_transition(workspace)?;
+    switch_locked(rclone, workspace, adoption)
+}
+
+/// [`switch`] without taking the transition lock; the caller must already
+/// hold it for `workspace`.
+pub(crate) fn switch_locked(
+    rclone: &str,
+    workspace: &Path,
+    adoption: &DriveAdoption,
+) -> Result<Option<Switched>> {
     assert_no_incomplete_transition(workspace)?;
     let Some(generation) = workspace_generation(workspace)? else {
         if workspace.join("virtual.json").exists() {
@@ -188,6 +201,9 @@ mod tests {
             adoptions: vec![adoption()],
             ..Default::default()
         };
+        // The mount already holds the transition lock when it reaches the
+        // fence; the auto-switch must not deadlock trying to retake it.
+        let _held = lock_workspace_transition(&ws).unwrap();
         let epoch = crate::mount::adoption_fence::switch_then_decide("no-rclone", &ws, &known, "p")
             .unwrap();
         assert_eq!(
