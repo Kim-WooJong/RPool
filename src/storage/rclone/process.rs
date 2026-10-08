@@ -194,7 +194,36 @@ pub(super) fn classify_mutation(text: &[u8]) -> StorageError {
             detail: "rclone write rejected by provider rate limit (not performed)".into(),
         };
     }
-    StorageError::unknown_outcome("rclone mutation did not acknowledge success")
+    match mutation_hint(text) {
+        Some(hint) => StorageError::unknown_outcome(format!(
+            "rclone mutation did not acknowledge success ({hint})"
+        )),
+        None => StorageError::unknown_outcome("rclone mutation did not acknowledge success"),
+    }
+}
+
+/// A fixed-vocabulary reason for a failed write, read from rclone's error
+/// text; the text itself is never exposed. The outcome stays unknown.
+fn mutation_hint(text: &[u8]) -> Option<&'static str> {
+    let text = String::from_utf8_lossy(text).to_ascii_lowercase();
+    let has = |needles: &[&str]| needles.iter().any(|n| text.contains(n));
+    if has(&["setmodtime", "chtimes", "set modification time"]) {
+        Some("provider refused setting the modification time")
+    } else if has(&["permission denied", "access denied", "forbidden"]) {
+        Some("permission denied by the provider")
+    } else if has(&["unauthorized", "authentication", "invalid_grant", "token expired"]) {
+        Some("provider authentication failed")
+    } else if has(&["no space left", "quota exceeded", "quotaexceeded", "insufficient storage"]) {
+        Some("provider storage is full")
+    } else if has(&["directory not found", "no such file", "file does not exist"]) {
+        Some("target folder not found")
+    } else if has(&["connection refused", "connection reset", "no route to host", "handshake failed", "broken pipe", "unexpected eof"]) {
+        Some("connection to the provider failed")
+    } else if has(&["timeout", "timed out"]) {
+        Some("provider timed out")
+    } else {
+        None
+    }
 }
 
 /// Turns a failed rclone exit into a [`StorageError`] from its exit code and stderr.

@@ -936,3 +936,14 @@ fn write_account_reports_the_bottom_backend_type() {
         ("missing".into(), String::new())
     );
 }
+
+#[test]
+fn failed_mutations_name_a_fixed_reason_without_rclone_text() {
+    let text = |stderr: &[u8]| process::classify_mutation(stderr).to_string();
+    let denied = text(b"ERROR : /mnt/HDD1/secret-name: Failed to copy: permission denied");
+    assert!(denied.contains("unknown outcome") && denied.contains("permission denied by the provider"));
+    assert!(!denied.contains("secret-name"));
+    assert!(text(b"sftp: SetModTime failed: permission denied").contains("modification time"));
+    assert!(text(b"dial tcp: connection refused").contains("connection to the provider failed"));
+    assert!(text(b"something odd").ends_with("did not acknowledge success"));
+}
