@@ -63,7 +63,19 @@ impl MountProcess {
             .env("RCLONE_WEBDAV_USER", "")
             .env("RCLONE_WEBDAV_PASS", "")
             .env("RCLONE_WEBDAV_BEARER_TOKEN_COMMAND", "")
-            .args(["--dir-cache-time", "2s", "--vfs-read-chunk-size", "0"]);
+            // `--buffer-size 0`: rclone's default 16 MiB read-ahead buffer
+            // would pull ~16 MiB whenever a file is merely touched (Finder
+            // icon/Quick Look preview, Spotlight), downloading shards no one
+            // opened. RPool does its own shard read-ahead on detected
+            // sequential reads, so reads track what is actually read.
+            .args([
+                "--dir-cache-time",
+                "2s",
+                "--vfs-read-chunk-size",
+                "0",
+                "--buffer-size",
+                "0",
+            ]);
         if let Some(name) = config.volume_name.as_deref().map(volume_label) {
             command.arg("--volname").arg(name);
         }
