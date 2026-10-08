@@ -39,7 +39,9 @@ pub(crate) struct LocationChange {
 /// Objects under a location; `None` when the folder does not exist yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 struct Size {
+    /// Number of objects.
     count: u64,
+    /// Total size in bytes.
     bytes: u64,
 }
 
@@ -195,7 +197,8 @@ fn nested(a: &str, b: &str) -> bool {
 }
 
 /// `rclone size --json` of a location; `None` when the folder is missing
-/// (rclone exit code 3).
+/// (rclone exit code 3, or a "not found" error from backends that exit 1).
+/// Other failures carry rclone's error lines.
 fn size(executable: &Path, location: &str) -> Result<Option<Size>> {
     let mut cmd = clean_command(executable);
     cmd.args(["size", "--json", "--"]).arg(location);
@@ -204,16 +207,36 @@ fn size(executable: &Path, location: &str) -> Result<Option<Size>> {
         return Ok(None);
     }
     if !output.status.success() {
-        bail!("cannot list {location}");
+        let detail = error_lines(&output.stderr);
+        if detail.to_ascii_lowercase().contains("not found") {
+            return Ok(None);
+        }
+        bail!("cannot list {location}: {detail}");
     }
     serde_json::from_slice(&output.stdout)
         .map(Some)
         .context("invalid rclone size response")
 }
 
+/// The last few non-empty lines of rclone's stderr, joined with ` | `.
+fn error_lines(stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    match lines.len() {
+        0 => "rclone gave no error text".to_string(),
+        n => lines[n.saturating_sub(3)..].join(" | "),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn error_lines_keeps_the_last_three() {
+        assert_eq!(error_lines(b""), "rclone gave no error text");
+        assert_eq!(error_lines(b"a\n\nb\nc\nd\n"), "b | c | d");
+    }
 
     fn remotes(entries: &[(&str, &str, &str)]) -> BTreeMap<String, (String, String)> {
         entries
