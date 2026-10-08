@@ -34,9 +34,12 @@ pub(crate) struct LocationChange {
     pub(crate) moved_bytes: u64,
     /// Whether anything was changed (false when the location is the same).
     pub(crate) changed: bool,
+    /// The old folder could not be listed (permission denied), so it was
+    /// repointed without checking for files; rclone's reason.
+    pub(crate) unchecked: Option<String>,
 }
 
-/// Objects under a location; `None` when the folder does not exist yet.
+/// Objects under a location.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 struct Size {
     /// Number of objects.
@@ -79,7 +82,16 @@ pub(crate) fn set_provider_location(
         return Ok(change);
     }
     if !change.crypts.is_empty() {
-        let old = size(executable, &change.from)?.unwrap_or(Size { count: 0, bytes: 0 });
+        let old = match size(executable, &change.from)? {
+            Listing::Known(size) => size,
+            Listing::Missing => Size { count: 0, bytes: 0 },
+            Listing::Denied(reason) if !move_existing => {
+                eprintln!("[location] {} cannot be listed ({reason}); repointing without checking for files", change.from);
+                change.unchecked = Some(reason);
+                Size { count: 0, bytes: 0 }
+            }
+            Listing::Denied(reason) => bail!("cannot move files out of {}: it cannot be listed ({reason}). Change the location without moving, or fix the folder's permissions.", change.from),
+        };
         if old.count > 0 {
             if !move_existing {
                 bail!(
@@ -90,10 +102,12 @@ pub(crate) fn set_provider_location(
             if nested(&change.from, &change.to) {
                 bail!("cannot move files between {} and {}: one folder contains the other", change.from, change.to);
             }
-            if let Some(target) = size(executable, &change.to)? {
-                if target.count > 0 {
-                    bail!("{} already holds {} file(s); choose an empty folder", change.to, target.count);
+            match size(executable, &change.to)? {
+                Listing::Known(target) if target.count > 0 => {
+                    bail!("{} already holds {} file(s); choose an empty folder", change.to, target.count)
                 }
+                Listing::Denied(reason) => bail!("cannot move files into {}: it cannot be listed ({reason})", change.to),
+                _ => {}
             }
             let mut mover = clean_command(executable);
             mover.args(["move", "--delete-empty-src-dirs", "--"]);
@@ -102,8 +116,8 @@ pub(crate) fn set_provider_location(
             if !status.success() {
                 bail!("rclone move from {} to {} failed; nothing was repointed, files may be split between both folders. Re-run to finish the move.", change.from, change.to);
             }
-            let left = size(executable, &change.from)?.map_or(0, |s| s.count);
-            let arrived = size(executable, &change.to)?.unwrap_or(Size { count: 0, bytes: 0 });
+            let left = size(executable, &change.from)?.known(&change.from)?.count;
+            let arrived = size(executable, &change.to)?.known(&change.to)?;
             if left != 0 || arrived.count != old.count || arrived.bytes != old.bytes {
                 bail!("move check failed: {} file(s) left in {}, {} of {} file(s) in {}; nothing was repointed", left, change.from, arrived.count, old.count, change.to);
             }
@@ -196,26 +210,56 @@ fn nested(a: &str, b: &str) -> bool {
     root(&a) || root(&b) || a.starts_with(&b) || b.starts_with(&a)
 }
 
-/// `rclone size --json` of a location; `None` when the folder is missing
-/// (rclone exit code 3, or a "not found" error from backends that exit 1).
-/// Other failures carry rclone's error lines.
-fn size(executable: &Path, location: &str) -> Result<Option<Size>> {
+/// What `rclone size` found at a location.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Listing {
+    /// Objects and bytes under the folder.
+    Known(Size),
+    /// The folder does not exist (yet).
+    Missing,
+    /// Listing was refused (permission denied); rclone's reason.
+    Denied(String),
+}
+
+impl Listing {
+    /// Counts a missing folder as empty; a denied listing is an error.
+    fn known(self, location: &str) -> Result<Size> {
+        match self {
+            Listing::Known(size) => Ok(size),
+            Listing::Missing => Ok(Size { count: 0, bytes: 0 }),
+            Listing::Denied(reason) => bail!("cannot list {location}: {reason}"),
+        }
+    }
+}
+
+/// `rclone size --json` of a location. Exit code 3 or a "not found" error is
+/// a missing folder, a permission error is [`Listing::Denied`]; other
+/// failures carry rclone's error lines.
+fn size(executable: &Path, location: &str) -> Result<Listing> {
     let mut cmd = clean_command(executable);
     cmd.args(["size", "--json", "--"]).arg(location);
     let output = cmd.output().context("cannot start rclone size")?;
     if output.status.code() == Some(3) {
-        return Ok(None);
+        return Ok(Listing::Missing);
     }
     if !output.status.success() {
-        let detail = error_lines(&output.stderr);
-        if detail.to_ascii_lowercase().contains("not found") {
-            return Ok(None);
-        }
-        bail!("cannot list {location}: {detail}");
+        return classify_failure(location, error_lines(&output.stderr));
     }
     serde_json::from_slice(&output.stdout)
-        .map(Some)
+        .map(Listing::Known)
         .context("invalid rclone size response")
+}
+
+/// Sorts a failed listing by rclone's error text.
+fn classify_failure(location: &str, detail: String) -> Result<Listing> {
+    let lower = detail.to_ascii_lowercase();
+    if lower.contains("permission denied") || lower.contains("access denied") || lower.contains("forbidden") {
+        return Ok(Listing::Denied(detail));
+    }
+    if lower.contains("not found") {
+        return Ok(Listing::Missing);
+    }
+    bail!("cannot list {location}: {detail}")
 }
 
 /// The last few non-empty lines of rclone's stderr, joined with ` | `.
@@ -231,6 +275,16 @@ fn error_lines(stderr: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn listing_failures_are_classified() {
+        let denied = classify_failure("nas:/mnt/HDD1", "ERROR : lost+found: permission denied".into()).unwrap();
+        assert!(matches!(denied, Listing::Denied(_)));
+        assert!(denied.known("nas:/mnt/HDD1").is_err());
+        assert_eq!(classify_failure("nas:/x", "directory not found".into()).unwrap(), Listing::Missing);
+        assert!(classify_failure("nas:/x", "connection refused".into()).is_err());
+        assert_eq!(Listing::Missing.known("nas:/x").unwrap(), Size { count: 0, bytes: 0 });
+    }
 
     #[test]
     fn error_lines_keeps_the_last_three() {

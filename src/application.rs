@@ -370,6 +370,9 @@ fn dispatch(cli: Cli) -> Result<()> {
                     } else {
                         println!("Crypt remotes now at the new folder: {}", change.crypts.join(", "));
                     }
+                    if let Some(reason) = &change.unchecked {
+                        println!("The old folder could not be listed ({reason}); it was not checked for files. Files stored there are hidden until you move them yourself.");
+                    }
                     if change.moved_files > 0 {
                         println!("Moved {} file(s), {} bytes.", change.moved_files, change.moved_bytes);
                     }
