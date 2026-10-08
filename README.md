@@ -1,4 +1,4 @@
-# rpool v2.14.3
+# rpool v2.15.0
 
 `rpool` is a Rust storage layer that stripes files across several
 **explicitly supplied rclone `crypt` remotes**, optionally with
@@ -192,7 +192,7 @@ A pool stores reusable remotes and upload policy:
 
 ```text
 rpool pool set NAME --remote R... [--data-shards K --parity-shards M] [--shard-mib N] \
-  [--placement round-robin|free-ratio|resilient|capacity-first] [--native-crypt] [--max-object-bytes N]
+  [--placement round-robin|free-ratio|resilient|proportional|capacity-first] [--native-crypt] [--max-object-bytes N]
 rpool pool list | show NAME | remove NAME
 rpool pool capacity [NAME]          # capacity with saved or unsaved options; no mount
 rpool pool browse NAME              # list the drive read-only from cloud metadata
@@ -393,6 +393,14 @@ are marked complete.
   at least five distinct resolved targets. Distinct account names are not proof
   of independent providers; unknown mappings fail closed. This protects against
   one target's loss within the coding budget, not two cloud outages.
+- **proportional** (GUI: "Proportional fill (no provider-outage guarantee)"):
+  spreads each coding group across **every account with free space** (for read
+  parallelism), then lets larger accounts take the remainder once smaller ones
+  fill. No per-account cap for durability, so losing one account may make a
+  file unrecoverable; use it when read speed matters more than surviving an
+  account loss. Uploads never fail for lack of an even spread — placement falls
+  back to filling by free space. `pool migrate plan --rebalance` evens out
+  groups that an earlier version had concentrated (e.g. 9,3,0,0 → spread).
 - **capacity-first** (GUI: "Capacity-first (no provider-outage guarantee)"):
   spends the largest remaining independent account budget first. K+M coding and
   quota checks remain, but a group may have more than M shards on one provider,
