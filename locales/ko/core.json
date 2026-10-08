@@ -234,7 +234,7 @@
   "{n}h ago": "{n}시간 전",
   "{n}d ago": "{n}일 전",
   "Proportional fill (no provider-outage guarantee)": "비율 채우기 (공급자 장애 보장 없음)",
-  "Proportional fill: shards go to the accounts with the most free space by ratio, with no per-account limit. Reed-Solomon parity remains, but losing one account may make a file unrecoverable.": "비율 채우기: 계정당 제한 없이 여유 공간 비율이 가장 높은 계정에 샤드를 넣어요. Reed-Solomon 패리티는 유지되지만, 계정 하나를 잃으면 파일을 복구하지 못할 수 있어요.",
+  "Proportional fill: each coding group is spread across every account with free space (for read speed), then larger accounts take the remainder once smaller ones fill; no per-account cap for durability. Reed-Solomon parity remains, but losing one account may make a file unrecoverable.": "비율 채우기: 코딩 그룹을 여유 공간이 있는 모든 계정에 퍼뜨리고(읽기 속도용), 작은 계정이 차면 큰 계정이 나머지를 가져가요. 내구성용 계정당 상한은 없어요. Reed-Solomon 패리티는 유지되지만, 계정 하나를 잃으면 파일을 복구하지 못할 수 있어요.",
   "Free-space ratio: shards go to the accounts with the most free space by ratio, but one account holds at most M shards of each coding group, so losing one account stays recoverable when the pool has enough accounts.": "여유 공간 비율: 여유 공간 비율이 높은 계정에 샤드를 우선 넣되, 코딩 그룹마다 한 계정에 최대 M개까지만 넣어요. 계정 수가 충분하면 계정 하나를 잃어도 복구할 수 있어요.",
   "Uneven groups: one group holds at most {cap} shards of each coding group, so data after parity fits up to {usable}": "그룹 용량 불균형: 한 그룹은 코딩 그룹마다 샤드를 최대 {cap}개까지만 가질 수 있어, 패리티를 뺀 데이터는 최대 {usable}까지 들어가요",
   "{group}: {unusable} of {free} free cannot be filled": "{group}: 남은 공간 {free} 중 {unusable}는 채울 수 없어요",

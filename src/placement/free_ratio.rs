@@ -44,6 +44,15 @@ pub(crate) fn allocate(
     specs: &[PhysicalSpec],
     parity: Option<usize>,
 ) -> Result<Vec<usize>> {
+    // Proportional (no cap): spread each coding group across every account
+    // with room (fewest-first) for read parallelism, instead of piling the
+    // whole group onto the emptiest account (9,3,0,0). Fall back to the
+    // ratio-first order when spreading a mixed-size partial group would
+    // strand a shard, so an upload never fails where ratio-first would place.
+    if parity.is_none() {
+        return allocate_ordered(snapshot, specs, None, true)
+            .or_else(|_| allocate_ordered(snapshot, specs, None, false));
+    }
     let ratio_first = allocate_ordered(snapshot, specs, parity, false);
     match parity {
         Some(m) if m > 0 && ratio_first.is_err() => allocate_ordered(snapshot, specs, parity, true),
@@ -273,11 +282,45 @@ mod tests {
     }
 
     #[test]
-    fn proportional_fill_has_no_per_account_cap() {
-        let snap = snapshot(&[1_000, 100]);
+    fn proportional_spreads_across_every_account_with_room() {
+        // 12 shards, four equally free accounts: spread evenly (3,3,3,3) for
+        // read parallelism, never 9,3,0,0.
+        let snap = snapshot(&[1_000, 1_000, 1_000, 1_000]);
         let specs = vec![PhysicalSpec { group: 0, size: 10 }; 12];
         let assigned = allocate(&snap, &specs, None).unwrap();
-        assert!(assigned.iter().filter(|i| **i == 0).count() > 3);
+        let count = |t: usize| assigned.iter().filter(|i| **i == t).count();
+        assert!((0..4).all(|t| count(t) == 3), "{assigned:?}");
+    }
+
+    #[test]
+    fn proportional_uneven_room_uses_all_accounts_bigger_takes_more() {
+        // A small account still gets at least one shard; larger accounts hold
+        // more, and placement never fails.
+        let snap = snapshot(&[1_000, 1_000, 1_000, 120]);
+        let specs = vec![PhysicalSpec { group: 0, size: 10 }; 12];
+        let assigned = allocate(&snap, &specs, None).unwrap();
+        let count = |t: usize| assigned.iter().filter(|i| **i == t).count();
+        assert!(
+            (0..4).all(|t| count(t) >= 1),
+            "every account used: {assigned:?}"
+        );
+        assert!(
+            count(0) >= count(3),
+            "bigger holds at least as much: {assigned:?}"
+        );
+    }
+
+    #[test]
+    fn proportional_skips_a_full_account_without_failing() {
+        let snap = snapshot(&[1_000, 0, 1_000]);
+        let specs = vec![PhysicalSpec { group: 0, size: 10 }; 6];
+        let assigned = allocate(&snap, &specs, None).unwrap();
+        assert_eq!(
+            assigned.iter().filter(|i| **i == 1).count(),
+            0,
+            "full skipped"
+        );
+        assert_eq!(assigned.len(), 6);
     }
 
     #[test]

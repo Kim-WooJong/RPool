@@ -117,13 +117,15 @@ fn forced_shards_get_a_destination_and_later_archives_see_the_quota() {
     let target = pool(Placement::Proportional, &["a", "b"]);
     let quotas = [quota("a", 3 * GIB, 10 * GIB), quota("b", 8 * GIB, 10 * GIB)];
     let rb = Rebalancer::new(&target, &quotas, &|_| None).unwrap();
-    // Shard 0 sits on a removed remote and must move.
+    // Shard 0 sits on a removed remote and must move. The group is a=2, b=3;
+    // the spread cap ceil(6/2)=3 keeps b at 3, so the forced shard evens it
+    // out onto a (read-parallel spread) rather than piling a 4th onto b.
     let m = manifest(&["old", "a", "a", "b", "b", "b"], GIB);
     let (moves, _) = rb.plan(&m, &BTreeSet::from([0]));
-    assert_eq!(moves.get(&0).map(String::as_str), Some("b:"));
-    // b has no longer any real lead over a.
+    assert_eq!(moves.get(&0).map(String::as_str), Some("a:"));
+    // Later archives see the quota the forced shard consumed on a.
     let budgets = rb.budgets.lock().unwrap();
-    assert!(budgets["b"] < 8 * GIB);
+    assert!(budgets["a"] < 3 * GIB);
 }
 
 #[test]
@@ -134,4 +136,47 @@ fn unknown_quota_or_outage_group_refuses_to_guess() {
     let quotas = [quota("a", 1, 2), quota("b", 1, 2)];
     assert!(Rebalancer::new(&target, &quotas, &|_| None).is_err());
     assert!(Rebalancer::new(&target, &quotas, &|r| Some(r.to_owned())).is_ok());
+}
+
+#[test]
+fn proportional_spreads_a_concentrated_group_and_is_idempotent() {
+    // 6 shards piled on one account (5,1,0,0) across four equal accounts;
+    // proportional rebalancing spreads them so every account holds some and
+    // none keeps more than ceil(6/4)=2, for read parallelism.
+    let target = pool(Placement::Proportional, &["a", "b", "c", "d"]);
+    let quotas = [
+        quota("a", 10 * GIB, 10 * GIB),
+        quota("b", 10 * GIB, 10 * GIB),
+        quota("c", 10 * GIB, 10 * GIB),
+        quota("d", 10 * GIB, 10 * GIB),
+    ];
+    let rb = Rebalancer::new(&target, &quotas, &|_| None).unwrap();
+    let m = manifest(&["a", "a", "a", "a", "a", "b"], GIB);
+    let (moves, _) = rb.plan(&m, &BTreeSet::new());
+    // Apply the moves to see the resulting layout.
+    let placed: Vec<String> = (0..m.shards.len())
+        .map(|i| {
+            moves
+                .get(&(i as u32))
+                .cloned()
+                .unwrap_or_else(|| m.shards[i].remote.clone())
+        })
+        .collect();
+    let per = |who: &str| placed.iter().filter(|r| *r == who).count();
+    for who in ["a:", "b:", "c:", "d:"] {
+        assert!(per(who) >= 1, "every account used: {placed:?}");
+        assert!(per(who) <= 2, "{who} over spread cap: {placed:?}");
+    }
+    // Idempotent: rebuilding a manifest from the new layout moves nothing more.
+    let next: Vec<String> = placed
+        .iter()
+        .map(|s| s.trim_end_matches(':').to_owned())
+        .collect();
+    let next: Vec<&str> = next.iter().map(String::as_str).collect();
+    let rb2 = Rebalancer::new(&target, &quotas, &|_| None).unwrap();
+    let m2 = manifest(&next, GIB);
+    assert!(
+        rb2.plan(&m2, &BTreeSet::new()).0.is_empty(),
+        "already spread"
+    );
 }

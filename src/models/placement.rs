@@ -49,7 +49,7 @@ impl Placement {
         match self {
             Self::Resilient => Some("Resilient: each declared outage group holds at most M shards per coding group. Independent outage groups are required."),
             Self::FreeRatio => Some("Free-space ratio: shards go to the accounts with the most free space by ratio, but one account holds at most M shards of each coding group, so losing one account stays recoverable when the pool has enough accounts."),
-            Self::Proportional => Some("Proportional fill: shards go to the accounts with the most free space by ratio, with no per-account limit. Reed-Solomon parity remains, but losing one account may make a file unrecoverable."),
+            Self::Proportional => Some("Proportional fill: each coding group is spread across every account with free space (for read speed), then larger accounts take the remainder once smaller ones fill; no per-account cap for durability. Reed-Solomon parity remains, but losing one account may make a file unrecoverable."),
             Self::CapacityFirst => Some("Capacity-first: uses large account quotas without an outage-group shard limit. Reed-Solomon parity remains, but losing one account or provider may make a file unrecoverable."),
             _ => None,
         }

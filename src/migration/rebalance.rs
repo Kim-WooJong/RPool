@@ -24,6 +24,9 @@ struct Account {
     capacity_domain: String,
     /// Account size in bytes (at least 1), the free-ratio denominator.
     total: u64,
+    /// This PC's lower limit of shards per coding group on this account
+    /// (`AccountLimits::max_group_shards`); `None` = the placement's own.
+    shard_cap: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -73,6 +76,7 @@ impl Rebalancer {
                 key,
                 capacity_domain: quota.capacity_domain.clone(),
                 total: quota.total.max(1),
+                shard_cap: quota.shard_cap,
             });
         }
         if accounts.is_empty() {
@@ -99,7 +103,12 @@ impl Rebalancer {
             Placement::RoundRobin => Some(even),
             Placement::FreeRatio => (parity > 0).then(|| parity.max(even)),
             Placement::Resilient => (parity > 0).then_some(parity),
-            Placement::Proportional | Placement::CapacityFirst => None,
+            // Spread each coding group across the accounts for read
+            // parallelism (no durability cap): hold at most ceil(size/keys),
+            // so an account over its share gives the excess to emptier ones.
+            // Bigger accounts still take more only once smaller ones fill.
+            Placement::Proportional => Some(even),
+            Placement::CapacityFirst => None,
         }
     }
 
@@ -147,6 +156,7 @@ impl Rebalancer {
                         let count = counts.get(&account.key).copied().unwrap_or(0);
                         budgets[&account.capacity_domain] >= size
                             && cap.is_none_or(|m| count < m)
+                            && account.shard_cap.is_none_or(|m| count < m)
                             && exclude != Some(account.key.as_str())
                     })
                     .max_by(|&a, &b| {
