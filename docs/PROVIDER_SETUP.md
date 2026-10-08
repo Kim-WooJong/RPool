@@ -28,7 +28,7 @@ New crypt backing locations use the configured path exactly:
 
 For example, provider `server` with remote default `/data` creates a crypt pointing at `server:/data`. No `rpool` or unique child folder is added. Without a per-provider default, the backing is `server:`; `/` produces `server:/`. Leading `/`, spaces and Unicode are preserved. Historical encryption `root` settings in saved files are ignored; the former hidden `--root` option has been removed.
 
-The separate **Global crypt folder fallback** is a plaintext path inside an already-created crypt remote; it is not the physical backing base. Changing a remote default does not relocate previously created crypts or rotate their keys. Existing crypts created at an unwanted location need a separate, explicit migration; this fix only changes new creation.
+The separate **Global crypt folder fallback** is a plaintext path inside an already-created crypt remote; it is not the physical backing base. Changing a remote default with `rpool remote-root set` does not relocate previously created crypts or rotate their keys. To move a provider together with its crypts, use **Storage › Providers › Location › Change…** (`rpool provider location --remote NAME --path PATH`): crypts that pointed at the old folder are repointed, and files already there are moved only with `--move-existing` (into an empty folder, verified before repointing).
 
 Select **Set up encryption**, choose a connected base provider and a unique encrypted-provider name. The dialog displays its backing location. RPool creates a new crypt remote pointing at that location; it does not convert existing files or rotate existing keys.
 

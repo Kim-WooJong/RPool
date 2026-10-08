@@ -22,6 +22,8 @@ pub(crate) enum CardAction {
     KeepAlive,
     /// Open the "Name encoding" dialog for this provider's crypts.
     NameEncoding,
+    /// Open the "Location" dialog (where RPool stores data on the provider).
+    Location,
 }
 
 /// Text colour of a limits line tone.
@@ -118,6 +120,18 @@ pub(crate) fn show(ui: &mut egui::Ui, card: &ProviderCard<'_>, idle: bool) -> Op
                         .clicked()
                 {
                     action = Some(CardAction::SetupEncryption);
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.label(egui::RichText::new(tr("Location")).small().color(p.muted));
+                let location = format!("{}:{}", card.name, card.location.unwrap_or_default());
+                ui.add(egui::Label::new(egui::RichText::new(location).small().monospace()).truncate());
+                if ui
+                    .add_enabled(idle, egui::Button::new(tr("Change…")).small())
+                    .on_hover_text(tr("Change the folder RPool uses on this provider; its encrypted providers follow."))
+                    .clicked()
+                {
+                    action = Some(CardAction::Location);
                 }
             });
             limits_section(ui, card);

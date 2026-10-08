@@ -94,6 +94,24 @@ pub(crate) enum ProviderCommands {
         /// Print JSON instead of text.
         json: bool,
     },
+    /// Change where a provider stores RPool data (its default path) and
+    /// repoint the crypt remotes that wrap the old folder. A folder that
+    /// already holds files is refused unless `--move-existing`, which moves
+    /// them into the new (empty) folder first.
+    Location {
+        /// Base provider name, without colon.
+        #[arg(long)]
+        remote: String,
+        /// New folder on the provider, e.g. /disk2/rpool; empty for its root.
+        #[arg(long, allow_hyphen_values = true)]
+        path: String,
+        #[arg(long)]
+        /// Move files already stored at the old folder to the new one.
+        move_existing: bool,
+        #[arg(long)]
+        /// Print JSON instead of text.
+        json: bool,
+    },
     /// Check provider accessibility, latency, and quota information.
     Health {
         /// Select remotes by name/path; accessibility is checked at each remote root.

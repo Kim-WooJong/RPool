@@ -6,7 +6,6 @@ use crate::gui::settings;
 use crate::gui::state::GuiState;
 use crate::gui::theme;
 use crate::models::Placement;
-use crate::remote_root::{load_remote_root_store, remove_remote_root, set_remote_root};
 use eframe::egui;
 
 /// Tab id of General (language, rclone path, retries, diagnostics export).
@@ -55,7 +54,7 @@ pub(crate) fn show(
                                 .desired_width(ui.available_width().min(240.0)),
                         );
                     });
-                    show_remote_roots(ui, state);
+                    theme::hint(ui, tr("Each provider's own folder is set on its card in Storage › Providers (Location › Change…); encrypted providers follow it there."));
                     save_row(ui, state);
                 });
             });
@@ -188,111 +187,6 @@ fn pool_defaults(ui: &mut egui::Ui, state: &mut GuiState) {
             );
         },
     );
-}
-
-/// Per-remote default path editor: lists the stored roots with Remove and adds
-/// or replaces one, writing through `remote_root` and reloading the list.
-fn show_remote_roots(ui: &mut egui::Ui, state: &mut GuiState) {
-    ui.label(egui::RichText::new(tr("Per-remote default paths")).strong());
-    theme::hint(ui, tr("Use this when the root of a remote is not the correct storage location. Explicit paths always override this default."));
-    theme::hint(ui, tr("Example: Instance › /data/crypt makes capacity checks use Instance:/data/crypt instead of Instance:."));
-
-    let rows: Vec<(String, String)> = state
-        .remote_roots
-        .iter()
-        .map(|(name, path)| (name.clone(), path.clone()))
-        .collect();
-    let mut remove = None;
-    egui::Grid::new("remote-root-list")
-        .num_columns(3)
-        .spacing([16.0, 6.0])
-        .show(ui, |ui| {
-            ui.strong(tr("Remote"));
-            ui.strong(tr("Default path"));
-            ui.label("");
-            ui.end_row();
-            for (name, path) in rows {
-                ui.monospace(format!("{name}:"));
-                ui.monospace(path);
-                if ui.small_button(tr("Remove")).clicked() {
-                    remove = Some(name);
-                }
-                ui.end_row();
-            }
-        });
-
-    if let Some(name) = remove {
-        let notice = match remove_remote_root(&name) {
-            Ok(path) => {
-                reload_remote_roots(state);
-                trf(
-                    "Removed {name}: default path from {path}",
-                    &[("name", &name), ("path", &path.display())],
-                )
-            }
-            Err(error) => trf(
-                "Failed to remove remote default path: {error}",
-                &[("error", &format!("{error:#}"))],
-            ),
-        };
-        state.settings_notice = Some(notice);
-    }
-
-    ui.add_space(6.0);
-    ui.horizontal_wrapped(|ui| {
-        ui.add(
-            egui::TextEdit::singleline(&mut state.remote_root_name)
-                .hint_text("Instance")
-                .desired_width(180.0),
-        );
-        ui.add(
-            egui::TextEdit::singleline(&mut state.remote_root_path)
-                .hint_text("/data/crypt")
-                .desired_width(260.0),
-        );
-        if ui.button(tr("Set / replace")).clicked() {
-            let name = state.remote_root_name.trim().to_string();
-            let path = state.remote_root_path.trim().to_string();
-            if name.is_empty() || path.is_empty() {
-                state.settings_notice =
-                    Some(tr("Enter both a remote name and default path.").to_string());
-            } else {
-                let notice = match set_remote_root(&name, &path) {
-                    Ok(config) => {
-                        reload_remote_roots(state);
-                        state.remote_root_name.clear();
-                        state.remote_root_path.clear();
-                        trf(
-                            "Saved {name}: › {path} in {config}",
-                            &[
-                                ("name", &name),
-                                ("path", &path),
-                                ("config", &config.display()),
-                            ],
-                        )
-                    }
-                    Err(error) => trf(
-                        "Failed to save remote default path: {error}",
-                        &[("error", &format!("{error:#}"))],
-                    ),
-                };
-                state.settings_notice = Some(notice);
-            }
-        }
-    });
-}
-
-/// Re-reads the remote root store into `GuiState::remote_roots`; errors go to the settings notice.
-fn reload_remote_roots(state: &mut GuiState) {
-    match load_remote_root_store() {
-        Ok(store) => state.remote_roots = store.roots,
-        Err(error) => {
-            state.settings_notice = Some(trf(
-                "Failed to reload remote default paths: {error}",
-                &[("error", &format!("{error:#}"))],
-            ))
-        }
-    }
 }
 
 /// Card wrapper around `encryption_body`.

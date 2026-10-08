@@ -21,6 +21,8 @@ pub(crate) struct ProviderCard<'a> {
     pub(crate) tone: StatusTone,
     /// Encryption is missing: offer manual setup for this provider.
     pub(crate) missing: bool,
+    /// Default path RPool uses on this provider (`remote_roots`), if set.
+    pub(crate) location: Option<&'a str>,
     /// Upload budget, pause and activity of this account.
     pub(crate) limits: Option<&'a crate::provider::limits_view::AccountStatus>,
 }
@@ -71,6 +73,7 @@ pub(crate) fn cards(state: &GuiState, running: bool) -> Vec<ProviderCard<'_>> {
             ProviderCard {
                 name,
                 kind: state.provider_details.kinds.get(name).map(String::as_str),
+                location: state.remote_roots.get(name).map(String::as_str),
                 crypts: state
                     .provider_details
                     .crypts

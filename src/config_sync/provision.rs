@@ -125,7 +125,7 @@ impl CryptSetup {
 }
 /// rclone command with inherited `RCLONE_*` overrides removed (except the
 /// config path and password) and quiet, non-interactive logging.
-fn clean_command(executable: &Path) -> Command {
+pub(super) fn clean_command(executable: &Path) -> Command {
     let mut cmd = Command::new(executable);
     for (key, _) in std::env::vars_os() {
         let upper = key.to_string_lossy().to_ascii_uppercase();
@@ -148,7 +148,7 @@ fn clean_command(executable: &Path) -> Command {
 }
 /// Absolute path of the existing rclone config (`rclone config file`); errors
 /// when no config file exists yet.
-fn config_path(executable: &Path) -> Result<PathBuf> {
+pub(super) fn config_path(executable: &Path) -> Result<PathBuf> {
     let mut cmd = clean_command(executable);
     cmd.args(["config", "file"]);
     let raw = execute(&mut cmd, |_| Ok(()), Output::Memory(64 * 1024))?;
@@ -228,7 +228,7 @@ fn candidate(
     Ok(result)
 }
 /// Provisioning lock file, removed on drop.
-struct Lock(PathBuf);
+pub(super) struct Lock(pub(super) PathBuf);
 impl Drop for Lock {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.0);

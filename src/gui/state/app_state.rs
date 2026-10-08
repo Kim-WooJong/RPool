@@ -76,10 +76,6 @@ pub(crate) struct GuiState {
     pub(crate) settings_notice: Option<String>,
     /// Per-remote default paths (remote name → path).
     pub(crate) remote_roots: BTreeMap<String, String>,
-    /// Remote name text box of the per-remote default path editor.
-    pub(crate) remote_root_name: String,
-    /// Path text box of the per-remote default path editor.
-    pub(crate) remote_root_path: String,
     /// Saved pool names, sorted.
     pub(crate) pool_names: Vec<String>,
     /// Saved pool definitions by name.
@@ -129,8 +125,6 @@ impl GuiState {
             usage_error: None,
             settings_notice: None,
             remote_roots,
-            remote_root_name: String::new(),
-            remote_root_path: String::new(),
             pool_names,
             pool_definitions,
         }

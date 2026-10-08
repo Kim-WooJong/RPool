@@ -238,5 +238,6 @@
   "Free-space ratio: shards go to the accounts with the most free space by ratio, but one account holds at most M shards of each coding group, so losing one account stays recoverable when the pool has enough accounts.": "空き容量比率: 空き容量の比率が高いアカウントを優先しますが、各コーディンググループで 1 アカウントあたり最大 M 個までに制限します。アカウント数が十分なら、アカウントを 1 つ失っても復元できます。",
   "Uneven groups: one group holds at most {cap} shards of each coding group, so data after parity fits up to {usable}": "グループ容量の偏り: 1つのグループは各コーディンググループのシャードを最大{cap}個までしか持てないため、パリティを除くデータは最大{usable}まで入ります",
   "{group}: {unusable} of {free} free cannot be filled": "{group}: 空き{free}のうち{unusable}は使えません",
-  "To fill every group, add at least {add} in {count} or more new group(s), each no larger than the largest": "すべてのグループを使い切るには、最大のグループ以下の新しいグループを{count}個以上、合計{add}以上追加してください"
+  "To fill every group, add at least {add} in {count} or more new group(s), each no larger than the largest": "すべてのグループを使い切るには、最大のグループ以下の新しいグループを{count}個以上、合計{add}以上追加してください",
+  "Each provider's own folder is set on its card in Storage › Providers (Location › Change…); encrypted providers follow it there.": "プロバイダーごとのフォルダーはストレージ › プロバイダーの各カード（場所 › 変更…）で設定します。暗号化プロバイダーもそこで追従します。"
 }

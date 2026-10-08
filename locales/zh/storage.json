@@ -377,5 +377,17 @@
   "Bandwidth limit of the whole run, rclone --bwlimit syntax with timetables, e.g. 10M or 01:00,20M 08:00,2M. Empty = no limit.": "整个运行的带宽限制，使用 rclone --bwlimit 语法，支持时间表，例如 10M 或 01:00,20M 08:00,2M。留空 = 不限制。",
   "Bandwidth": "带宽",
   "Connected providers in pool {pool} · {count} of {all}": "池 {pool} 的已连接提供商 · {all} 个中的 {count} 个",
-  "No connected provider belongs to this pool. Choose all crypt remotes as the scope to see every provider.": "没有属于该池的已连接提供商。要查看全部，请将范围改为所有 crypt 远程。"
+  "No connected provider belongs to this pool. Choose all crypt remotes as the scope to see every provider.": "没有属于该池的已连接提供商。要查看全部，请将范围改为所有 crypt 远程。",
+  "Location": "位置",
+  "Change…": "更改…",
+  "Change the folder RPool uses on this provider; its encrypted providers follow.": "更改 RPool 在此提供商上使用的文件夹；其加密提供商随之更新。",
+  "Storage location": "存储位置",
+  "The folder on this provider where RPool stores its encrypted data. Encrypted providers that use the current folder move with it; keys stay the same.": "RPool 在此提供商上存储加密数据的文件夹。使用当前文件夹的加密提供商会随之移动，密钥保持不变。",
+  "Current": "当前",
+  "New folder on {provider}:": "{provider} 上的新文件夹：",
+  "Leave empty to use the provider's root folder.": "留空则使用提供商的根文件夹。",
+  "If the current folder already holds files, RPool refuses unless you move them along. Moving needs an empty new folder and may take long for large data; stop mounts and uploads that use this provider first.": "如果当前文件夹已有文件，除非一并移动，否则 RPool 会拒绝。移动需要空的新文件夹，数据量大时可能耗时较长；请先停止使用此提供商的挂载和上传。",
+  "Move files already stored to the new folder": "将已存储的文件移动到新文件夹",
+  "Change location": "更改位置",
+  "Changing the location of {provider}. See Jobs for the result.": "正在更改 {provider} 的位置。结果见作业。"
 }

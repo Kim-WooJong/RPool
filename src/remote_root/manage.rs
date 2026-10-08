@@ -27,7 +27,7 @@ pub(crate) fn remove_remote_root(remote: &str) -> Result<PathBuf> {
 
 /// Trims a root path and strips trailing slashes (keeping `/` as is); an empty
 /// path is rejected so users remove the override instead.
-fn normalize_root(path: &str) -> Result<String> {
+pub(crate) fn normalize_root(path: &str) -> Result<String> {
     let value = path.trim();
     if value.is_empty() {
         bail!("remote default path cannot be empty; remove the override instead");

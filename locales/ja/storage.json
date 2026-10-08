@@ -377,5 +377,17 @@
   "Bandwidth limit of the whole run, rclone --bwlimit syntax with timetables, e.g. 10M or 01:00,20M 08:00,2M. Empty = no limit.": "実行全体の帯域制限です。rclone --bwlimit 形式で時間帯指定もできます。例: 10M または 01:00,20M 08:00,2M。空欄 = 制限なし。",
   "Bandwidth": "帯域",
   "Connected providers in pool {pool} · {count} of {all}": "プール {pool} の接続済みプロバイダー · {all} 件中 {count} 件",
-  "No connected provider belongs to this pool. Choose all crypt remotes as the scope to see every provider.": "このプールに属する接続済みプロバイダーはありません。すべて表示するには範囲をすべての crypt リモートにしてください。"
+  "No connected provider belongs to this pool. Choose all crypt remotes as the scope to see every provider.": "このプールに属する接続済みプロバイダーはありません。すべて表示するには範囲をすべての crypt リモートにしてください。",
+  "Location": "場所",
+  "Change…": "変更…",
+  "Change the folder RPool uses on this provider; its encrypted providers follow.": "このプロバイダーで RPool が使うフォルダーを変更します。暗号化プロバイダーも追従します。",
+  "Storage location": "保存場所",
+  "The folder on this provider where RPool stores its encrypted data. Encrypted providers that use the current folder move with it; keys stay the same.": "このプロバイダーで RPool が暗号化データを保存するフォルダーです。現在のフォルダーを使う暗号化プロバイダーも一緒に移り、鍵はそのままです。",
+  "Current": "現在",
+  "New folder on {provider}:": "{provider} の新しいフォルダー:",
+  "Leave empty to use the provider's root folder.": "空欄にするとプロバイダーのルートフォルダーを使います。",
+  "If the current folder already holds files, RPool refuses unless you move them along. Moving needs an empty new folder and may take long for large data; stop mounts and uploads that use this provider first.": "現在のフォルダーに既にファイルがある場合、一緒に移動しない限り RPool は拒否します。移動には空の新しいフォルダーが必要で、大きなデータでは時間がかかります。先にこのプロバイダーを使うマウントとアップロードを停止してください。",
+  "Move files already stored to the new folder": "保存済みのファイルを新しいフォルダーへ移動",
+  "Change location": "場所を変更",
+  "Changing the location of {provider}. See Jobs for the result.": "{provider} の場所を変更中です。結果はジョブで確認してください。"
 }

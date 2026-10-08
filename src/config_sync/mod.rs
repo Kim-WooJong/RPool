@@ -33,3 +33,5 @@ mod secret_process;
 pub(crate) mod transaction;
 
 pub(crate) mod provision;
+/// Changing a provider's storage location with its crypt remotes.
+pub(crate) mod relocate;

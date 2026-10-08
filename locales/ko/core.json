@@ -238,5 +238,6 @@
   "Free-space ratio: shards go to the accounts with the most free space by ratio, but one account holds at most M shards of each coding group, so losing one account stays recoverable when the pool has enough accounts.": "여유 공간 비율: 여유 공간 비율이 높은 계정에 샤드를 우선 넣되, 코딩 그룹마다 한 계정에 최대 M개까지만 넣어요. 계정 수가 충분하면 계정 하나를 잃어도 복구할 수 있어요.",
   "Uneven groups: one group holds at most {cap} shards of each coding group, so data after parity fits up to {usable}": "그룹 용량 불균형: 한 그룹은 코딩 그룹마다 샤드를 최대 {cap}개까지만 가질 수 있어, 패리티를 뺀 데이터는 최대 {usable}까지 들어가요",
   "{group}: {unusable} of {free} free cannot be filled": "{group}: 남은 공간 {free} 중 {unusable}는 채울 수 없어요",
-  "To fill every group, add at least {add} in {count} or more new group(s), each no larger than the largest": "모든 그룹을 채우려면 가장 큰 그룹보다 크지 않은 새 그룹 {count}개 이상으로 최소 {add}를 추가하세요"
+  "To fill every group, add at least {add} in {count} or more new group(s), each no larger than the largest": "모든 그룹을 채우려면 가장 큰 그룹보다 크지 않은 새 그룹 {count}개 이상으로 최소 {add}를 추가하세요",
+  "Each provider's own folder is set on its card in Storage › Providers (Location › Change…); encrypted providers follow it there.": "공급자별 폴더는 저장소 › 공급자의 각 카드(위치 › 변경…)에서 설정해요. 암호화 공급자도 거기서 함께 바뀌어요."
 }

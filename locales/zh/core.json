@@ -238,5 +238,6 @@
   "Free-space ratio: shards go to the accounts with the most free space by ratio, but one account holds at most M shards of each coding group, so losing one account stays recoverable when the pool has enough accounts.": "可用空间比例：优先放到可用空间比例高的账户，但每个编码组在一个账户上最多放 M 个分片。账户数量足够时，丢失一个账户仍可恢复。",
   "Uneven groups: one group holds at most {cap} shards of each coding group, so data after parity fits up to {usable}": "组容量不均：每个组在每个编码组中最多只能存放 {cap} 个分片，因此扣除校验后的数据最多可容纳 {usable}",
   "{group}: {unusable} of {free} free cannot be filled": "{group}：剩余 {free} 中有 {unusable} 无法使用",
-  "To fill every group, add at least {add} in {count} or more new group(s), each no larger than the largest": "若要用满所有组，请添加至少 {count} 个不大于最大组的新组，总计至少 {add}"
+  "To fill every group, add at least {add} in {count} or more new group(s), each no larger than the largest": "若要用满所有组，请添加至少 {count} 个不大于最大组的新组，总计至少 {add}",
+  "Each provider's own folder is set on its card in Storage › Providers (Location › Change…); encrypted providers follow it there.": "每个提供商的文件夹在 存储 › 提供商 的卡片中设置（位置 › 更改…）；其加密提供商随之更新。"
 }

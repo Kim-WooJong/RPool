@@ -347,6 +347,38 @@ fn dispatch(cli: Cli) -> Result<()> {
                 }
                 Ok(())
             }
+            ProviderCommands::Location {
+                remote,
+                path,
+                move_existing,
+                json,
+            } => {
+                let change = crate::config_sync::relocate::set_provider_location(
+                    std::path::Path::new(&cli.rclone),
+                    &remote,
+                    &path,
+                    move_existing,
+                )?;
+                if json {
+                    println!("{}", serde_json::to_string(&change)?);
+                } else if !change.changed {
+                    println!("{}: location is already {}.", change.provider, change.to);
+                } else {
+                    println!("{}: location {} -> {}", change.provider, change.from, change.to);
+                    if change.crypts.is_empty() {
+                        println!("No crypt remote used the old folder.");
+                    } else {
+                        println!("Crypt remotes now at the new folder: {}", change.crypts.join(", "));
+                    }
+                    if change.moved_files > 0 {
+                        println!("Moved {} file(s), {} bytes.", change.moved_files, change.moved_bytes);
+                    }
+                    if !change.skipped.is_empty() {
+                        println!("Left unchanged (another folder): {}", change.skipped.join(", "));
+                    }
+                }
+                Ok(())
+            }
             ProviderCommands::Health {
                 remotes,
                 pool,

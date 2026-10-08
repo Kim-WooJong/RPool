@@ -120,6 +120,10 @@ pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> 
                 "provider-name-encoding".to_string(),
                 Some(format!("{remote}: {encoding}")),
             ),
+            ProviderCommands::Location { remote, path, .. } => (
+                "provider-location".to_string(),
+                Some(format!("{remote}: {path}")),
+            ),
             ProviderCommands::Health { pool, .. } => ("provider-health".to_string(), pool.clone()),
             ProviderCommands::SpeedTest { remotes, .. } => {
                 ("provider-speed-test".to_string(), Some(remotes.join(", ")))

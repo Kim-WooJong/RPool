@@ -15,10 +15,12 @@ mod grid;
 pub(crate) mod limits_cache;
 mod limits_dialog;
 mod limits_model;
+mod location;
 mod model;
 mod name_encoding;
 
 pub(crate) use limits_model::wait as wait_text;
+pub(crate) use location::LOCATION_TASK;
 pub(crate) use name_encoding::{combo as encoding_combo, index_of as encoding_index};
 #[cfg(any(test, debug_assertions))]
 pub(crate) mod sample;
@@ -80,6 +82,8 @@ pub(crate) struct ProviderForm {
     pub(crate) limits_editor: limits_dialog::LimitsEditor,
     /// State of the "Name encoding" dialog.
     pub(crate) name_encoding: name_encoding::Editor,
+    /// State of the "Location" dialog.
+    pub(crate) location: location::Editor,
 }
 
 impl ProviderForm {
@@ -164,6 +168,12 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     name_encoding::show(
         ui.ctx(),
         &mut state.providers.name_encoding,
+        &state.settings.rclone,
+        task,
+    );
+    location::show(
+        ui.ctx(),
+        &mut state.providers.location,
         &state.settings.rclone,
         task,
     );
@@ -338,6 +348,10 @@ fn list_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
                 .cloned()
                 .unwrap_or_default();
             state.providers.name_encoding = name_encoding::Editor::open_for(&crypts);
+        }
+        Some((card::CardAction::Location, name)) => {
+            let root = state.remote_roots.get(&name).map(String::as_str);
+            state.providers.location = location::Editor::open_for(&name, root);
         }
         Some((card::CardAction::KeepAlive, name)) => {
             state.providers.setup_notice = Some(match start_keepalive(state, task, &name) {

@@ -467,6 +467,7 @@ rpool provider limits show|set|reset|bandwidth|keepalive-days|default-uploads|de
 rpool provider keepalive ...
 rpool provider ensure-encryption | encrypt --name N --provider P ...
 rpool provider drain FILE.rpool.json --from old-crypt:rpool --to new-crypt:rpool [--dry-run] [--delete-source] [--allow-risky]
+rpool provider location --remote NAME --path PATH [--move-existing] [--json]
 rpool remote-root list | set REMOTE PATH | remove REMOTE
 ```
 
@@ -519,6 +520,14 @@ rpool remote-root list | set REMOTE PATH | remove REMOTE
   It does not rewrite rclone crypt configuration. Paths inside rclone virtual
   remote configuration (`remote = Instance:/data/crypt`) are preserved for quota
   lookup.
+- **location** moves a provider's default path *and* the crypt remotes that
+  wrap it: `rpool provider location --remote Instance --path /disk2/rpool`
+  repoints every crypt whose backing was the old folder (crypts at another
+  folder are left alone and listed). If the old folder holds files it is
+  refused unless `--move-existing`, which `rclone move`s them into an empty new
+  folder, checks counts and bytes, and only then repoints the crypts. Keys stay
+  the same and names stay readable. GUI: Storage › Providers › card ›
+  Location › Change….
 
 ## Maintenance
 
@@ -666,7 +675,7 @@ Storage operations run the same CLI code as a child process
 | `pool migrate plan\|run\|status\|lost\|abandon\|adopt\|retire\|restore` | Pool change migration |
 | `pool plan-reprocess` / `pool reprocess` | Copy-only reprocessing |
 | `pool speed-test` / `pool compact` | Speed test, metadata checkpoints |
-| `provider health\|limits\|keepalive\|speed-test\|encrypt\|ensure-encryption\|drain` | Provider operations |
+| `provider health\|limits\|keepalive\|speed-test\|encrypt\|ensure-encryption\|name-encoding\|location\|drain` | Provider operations |
 | `remote-root list\|set\|remove` | Per-remote default paths |
 | `manifest verify\|replicate\|recover` | Manifest replicas |
 | `inventory add\|rebuild\|list\|find\|info` | Local archive index |

@@ -143,7 +143,15 @@ impl RpoolGui {
         }
         let automatic = self.task.task_name() == Some(AUTO_ENCRYPTION_TASK);
         let provisioning = self.task.task_name() == Some("Create encrypted provider");
+        let relocating = self.task.task_name() == Some(storage::providers::LOCATION_TASK);
         let task_finished = self.task.poll();
+        if relocating && task_finished.is_some() {
+            // Even a failed move may have changed folders; show what is saved now.
+            if let Ok(store) = crate::remote_root::load_remote_root_store() {
+                self.state.remote_roots = store.roots;
+            }
+            self.refresh_pending = true;
+        }
         if provisioning && task_finished == Some(JobStatus::Completed) {
             self.refresh_pending = true;
             self.state.providers.setup_notice = Some(tr("Encrypted provider created. Provider list refreshed automatically; back up your rclone configuration before uploading.").into());
