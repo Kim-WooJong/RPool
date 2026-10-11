@@ -18,10 +18,12 @@ mod view_model;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use format::rate as format_rate;
 pub(crate) use state::{CardTab, MonitoringState};
 
 use crate::gui::i18n::tr;
 use crate::gui::state::{GuiState, Page};
+use crate::gui::task::TaskRunner;
 use crate::gui::theme;
 use crate::gui::widgets::{status_badge, StatusTone};
 use eframe::egui;
@@ -36,7 +38,7 @@ pub(crate) fn state_poll_interval() -> Duration {
 /// Draws the Monitoring page: polls `state.monitoring`, keeps repainting
 /// while traffic moves, and shows one card per running mount (or a hint with
 /// an Open Drive button when none). Called by the app for the Monitoring page.
-pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
+pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &TaskRunner) {
     let now = Instant::now();
     let now_unix = crate::utils::now_unix();
     let monitoring = &mut state.monitoring;
@@ -57,7 +59,11 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
                 "Live and past network traffic of every mounted pool, per cloud account.",
             )),
         );
+        let has_task_traffic = task_traffic(ui, task);
         if monitoring.mounts.is_empty() {
+            if has_task_traffic {
+                return;
+            }
             theme::card_section(
                 ui,
                 tr("Nothing to monitor"),
@@ -92,6 +98,51 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
             .manage_pending_workspace(pool, workspace, &mut state.settings);
         state.page = Page::Drive;
     }
+}
+
+/// The GUI's current (or last completed) CLI upload/migration task is a
+/// separate process from a mounted drive and has no mount status file.
+fn task_traffic(ui: &mut egui::Ui, runner: &TaskRunner) -> bool {
+    let task = runner.current_task().or_else(|| runner.last_task());
+    let Some(task) = task.filter(|task| !task.progress.storage_traffic.is_empty()) else {
+        return false;
+    };
+    theme::card_section(
+        ui,
+        tr("Task storage traffic"),
+        Some(&task.name),
+        |_| {},
+        |ui| {
+            for remote in &task.progress.storage_traffic {
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong(&remote.remote);
+                    if remote.last_upload_storage_full {
+                        status_badge(ui, tr("Storage full"), StatusTone::Error);
+                    } else if remote.capacity_no_space {
+                        status_badge(ui, tr("No upload space"), StatusTone::Error);
+                    }
+                    if remote.last_upload_error.is_some() {
+                        status_badge(ui, tr("Upload error"), StatusTone::Warning);
+                    }
+                });
+                if let Some(error) = &remote.last_upload_error {
+                    ui.label(
+                        egui::RichText::new(error)
+                            .small()
+                            .color(theme::pal(ui).danger),
+                    );
+                }
+                ui.label(format!(
+                    "↑ {} · ↓ {}",
+                    format::rate(remote.upload_rate_10s),
+                    format::rate(remote.download_rate_10s)
+                ));
+                ui.separator();
+            }
+        },
+    );
+    ui.add_space(theme::SUBSECTION_GAP);
+    true
 }
 
 /// One mount card: header badges, live summary, Live / History tabs, and the

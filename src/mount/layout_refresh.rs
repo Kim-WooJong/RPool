@@ -211,6 +211,22 @@ mod tests {
     }
 
     #[test]
+    fn changed_placement_uses_saved_rule_after_a_safe_remount() {
+        let saved = policy();
+        let mut current = saved.clone();
+        current.placement = Placement::CapacityFirst;
+        let (effective, deferral) = resolve(&saved, &current, 0).unwrap();
+        assert_eq!(effective.placement, Placement::CapacityFirst);
+        assert!(deferral.is_none());
+        let (effective, deferral) = resolve(&saved, &current, 1).unwrap();
+        assert_eq!(effective.placement, saved.placement);
+        assert_eq!(
+            deferral.unwrap().requested.placement,
+            Placement::CapacityFirst
+        );
+    }
+
+    #[test]
     fn changed_layout_with_pending_plans_keeps_previous_layout() {
         for marker in [
             "upload/eligible-k/f.rpool.upload.json",

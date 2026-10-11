@@ -32,6 +32,10 @@ pub(crate) fn plan_drive(
     let generations = match source.generations() {
         Ok(found) => found,
         Err(error) => {
+            if options.reapply_placement {
+                return Err(error)
+                    .context("cannot reapply placement: included drive could not be checked");
+            }
             plan.notes.push(format!(
                 "the drive could not be checked ({error:#}); it is not part of this plan. Plan again when every account is reachable"
             ));
@@ -54,6 +58,10 @@ pub(crate) fn plan_drive(
     let view = match source.view(&generation) {
         Ok(view) => view,
         Err(error) => {
+            if options.reapply_placement {
+                return Err(error)
+                    .context("cannot reapply placement: included drive could not be read");
+            }
             plan.notes.push(format!(
                 "the drive ({}) could not be read ({error:#}); it is not part of this plan",
                 generation.label()
@@ -95,7 +103,7 @@ pub(crate) fn plan_drive(
         match entry.action {
             Action::Unaffected => counts.unaffected += 1,
             Action::Relocate => counts.relocate += 1,
-            Action::Reencode => counts.reencode += 1,
+            Action::Reencode | Action::ReapplyPlacement => counts.reencode += 1,
             Action::Lost => counts.lost += 1,
             Action::Unknown => counts.unknown += 1,
         }

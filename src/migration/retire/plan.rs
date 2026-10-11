@@ -348,16 +348,19 @@ pub(crate) fn select(
         .collect();
     for entry in &plan.entries {
         match (entry.action, state.get(&entry.archive_id)) {
-            (Action::Relocate | Action::Reencode, Some(Progress::Switched(record))) => {
-                original(world, entry, record, include_removed, &mut out)
+            (
+                Action::Relocate | Action::Reencode | Action::ReapplyPlacement,
+                Some(Progress::Switched(record)),
+            ) => original(world, entry, record, include_removed, &mut out),
+            (Action::Relocate | Action::Reencode | Action::ReapplyPlacement | Action::Lost, _) => {
+                out.kept.push(kept(
+                    &entry.archive_id,
+                    ItemKind::Original,
+                    &entry.original_name,
+                    KeepReason::Lost,
+                    "not replaced; the original is kept".into(),
+                ))
             }
-            (Action::Relocate | Action::Reencode | Action::Lost, _) => out.kept.push(kept(
-                &entry.archive_id,
-                ItemKind::Original,
-                &entry.original_name,
-                KeepReason::Lost,
-                "not replaced; the original is kept".into(),
-            )),
             _ => {}
         }
     }

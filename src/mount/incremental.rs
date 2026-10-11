@@ -124,6 +124,14 @@ pub(crate) fn upload(
         &crate::storage::admin::RcloneAdmin::inherited(rclone),
         policy,
     )?;
+    // A base written under a different placement can violate FreeRatio's
+    // per-account group bound. In that case a full upload is required; merely
+    // reusing unchanged groups would publish a new manifest with the old risk.
+    if policy.placement == Placement::FreeRatio
+        && !retained_groups_fit_free_ratio(base, &status.targets, policy.parity_shards)
+    {
+        return Ok(None);
+    }
     upload_with(
         policy,
         source,
@@ -144,6 +152,37 @@ pub(crate) fn upload(
             .map(|_| ())
         },
     )
+}
+
+fn retained_groups_fit_free_ratio(
+    base: &Manifest,
+    targets: &[crate::storage::admin::budget::TargetBudget],
+    parity: usize,
+) -> bool {
+    let by_remote: BTreeMap<_, _> = targets.iter().map(|t| (t.remote.as_str(), t)).collect();
+    let backings: BTreeSet<_> = targets.iter().map(|t| t.backing.as_str()).collect();
+    let mut groups = BTreeMap::<u32, Vec<&Shard>>::new();
+    for shard in &base.shards {
+        groups.entry(shard.group).or_default().push(shard);
+    }
+    groups.values().all(|shards| {
+        let built_in =
+            (parity > 0).then(|| parity.max(shards.len().div_ceil(backings.len().max(1))));
+        let mut counts = BTreeMap::<&str, usize>::new();
+        for shard in shards {
+            let Some(target) = by_remote.get(shard.remote.as_str()) else {
+                return false;
+            };
+            let count = counts.entry(target.backing.as_str()).or_default();
+            *count += 1;
+            if built_in.is_some_and(|cap| *count > cap)
+                || target.shard_cap.is_some_and(|cap| *count > cap)
+            {
+                return false;
+            }
+        }
+        true
+    })
 }
 #[allow(clippy::too_many_arguments)] // established internal API; a params struct would only add indirection
 /// Body of [`upload`] with injectable verify, group-upload and publish steps (for tests).
@@ -821,6 +860,32 @@ mod tests {
             coding,
             shards,
         }
+    }
+    #[test]
+    fn free_ratio_does_not_retain_concentrated_old_groups() {
+        use crate::storage::admin::budget::TargetBudget;
+        let mut base = manifest(2, true);
+        let targets: Vec<_> = ["a:", "b:", "c:"]
+            .into_iter()
+            .map(|name| TargetBudget {
+                remote: name.into(),
+                backing: name.into(),
+                capacity_domain: name.into(),
+                failure_domain: None,
+                declared: true,
+                total: 100,
+                free: 100,
+                shard_cap: None,
+            })
+            .collect();
+        for shard in &mut base.shards {
+            shard.remote = "a:".into();
+        }
+        assert!(!retained_groups_fit_free_ratio(&base, &targets, 1));
+        for (shard, name) in base.shards.iter_mut().zip(["a:", "b:", "c:"]) {
+            shard.remote = name.into();
+        }
+        assert!(retained_groups_fit_free_ratio(&base, &targets, 1));
     }
     #[test]
     fn rs_composition_rebases_parity_and_preserves_old_group() {

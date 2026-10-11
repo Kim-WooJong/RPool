@@ -28,7 +28,15 @@ pub(crate) fn plan_free_ratio_with_admin(
     if !snapshot.rejected.is_empty() {
         bail!("quota planning unavailable: {:?}", snapshot.rejected);
     }
-    allocate(&snapshot, specs, cap)
+    let assigned = allocate(&snapshot, specs, cap);
+    if assigned.is_err() {
+        for target in &snapshot.targets {
+            if target.free == 0 {
+                crate::storage::rclone::traffic::note_capacity_no_space(&target.remote);
+            }
+        }
+    }
+    assigned
 }
 
 /// Pick the target with the highest free ratio for every shard. With

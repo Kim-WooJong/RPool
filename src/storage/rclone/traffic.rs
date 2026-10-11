@@ -87,6 +87,8 @@ pub(crate) struct Counters {
     verified: AtomicU64,
     /// Bytes received from rclone (reads and listings).
     received: AtomicU64,
+    /// Bytes copied entirely inside one provider, without local transfer.
+    server_side: AtomicU64,
     /// Uploads in progress now.
     active_uploads: AtomicU32,
     /// Downloads in progress now.
@@ -105,6 +107,10 @@ pub(crate) struct Counters {
     failing_since: AtomicU64,
     /// Only written on failures, which are rare.
     last_error: Mutex<Option<(String, u64)>>,
+    /// Last failed upload, separate from read/listing successes and errors.
+    last_upload_error: Mutex<Option<(String, u64, bool)>>,
+    /// Quota preflight found no shard-upload space on this named target.
+    capacity_no_space: AtomicU64,
     /// Upload bytes per second, for recent rates.
     upload: Ring,
     /// Download bytes per second, for recent rates.
@@ -122,6 +128,8 @@ pub(crate) struct Traffic {
     pub verified_bytes: u64,
     /// Bytes received from rclone: data reads and metadata listings.
     pub received_bytes: u64,
+    /// Provider-side copies, not counted as local upload/download.
+    pub server_side_bytes: u64,
     /// Uploads in progress.
     pub active_uploads: u32,
     /// Downloads in progress.
@@ -142,6 +150,12 @@ pub(crate) struct Traffic {
     pub last_error: Option<String>,
     /// Unix seconds of the last failure text.
     pub last_error_unix: Option<u64>,
+    /// Sanitized last failed upload (not replaced by read/listing errors).
+    pub last_upload_error: Option<String>,
+    pub last_upload_error_unix: Option<u64>,
+    /// Whether that failed upload had specific provider-capacity evidence.
+    pub last_upload_storage_full: bool,
+    pub capacity_no_space_unix: Option<u64>,
     /// Upload bytes/s over the last complete second.
     pub upload_rate_1s: f64,
     /// Upload bytes/s averaged over the last 10 complete seconds.
@@ -165,11 +179,17 @@ impl Counters {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone();
+        let upload_error = self
+            .last_upload_error
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
         Traffic {
             sent_bytes: self.sent.load(Relaxed),
             acked_bytes: self.acked.load(Relaxed),
             verified_bytes: self.verified.load(Relaxed),
             received_bytes: self.received.load(Relaxed),
+            server_side_bytes: self.server_side.load(Relaxed),
             active_uploads: self.active_uploads.load(Relaxed),
             active_downloads: self.active_downloads.load(Relaxed),
             ok_ops: self.ok_ops.load(Relaxed),
@@ -180,6 +200,10 @@ impl Counters {
             failing_since_unix: nonzero(&self.failing_since),
             last_error_unix: error.as_ref().map(|(_, at)| *at),
             last_error: error.map(|(text, _)| text),
+            last_upload_error_unix: upload_error.as_ref().map(|(_, at, _)| *at),
+            last_upload_storage_full: upload_error.as_ref().is_some_and(|(_, _, full)| *full),
+            last_upload_error: upload_error.map(|(text, _, _)| text),
+            capacity_no_space_unix: nonzero(&self.capacity_no_space),
             upload_rate_1s: self.upload.rate(now, 1),
             upload_rate_10s: self.upload.rate(now, 10),
             download_rate_1s: self.download.rate(now, 1),
@@ -205,6 +229,15 @@ impl Counters {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((text, now));
     }
+
+    fn failed_upload(&self, now: u64, error: &StorageError) {
+        let full = super::process::is_storage_full(error);
+        let text = one_line(&error.to_string());
+        *self
+            .last_upload_error
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((text, now, full));
+    }
 }
 
 /// First line of a classified error, bounded. Never raw rclone stderr: the
@@ -223,6 +256,13 @@ pub(crate) fn now_unix() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs())
+}
+
+/// Records a named quota preflight observation; this is not a failed remote
+/// operation and must not increment failed-op counters.
+pub(crate) fn note_capacity_no_space(remote: &str) {
+    let name = super::remote_name(remote).unwrap_or(remote);
+    counters(name).capacity_no_space.store(now_unix(), Relaxed);
 }
 
 /// Process-wide map from remote name to its counters.
@@ -266,6 +306,40 @@ pub(crate) fn snapshot_at(remote: &str, now: u64) -> Traffic {
         .get(name)
         .map(|counters| counters.snapshot(now))
         .unwrap_or_default()
+}
+
+/// All remotes observed by this process, in stable name order.
+pub(crate) fn snapshot_all(now: u64) -> Vec<(String, Traffic)> {
+    let guard = table()
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut rows: Vec<_> = guard
+        .iter()
+        .map(|(name, counters)| (name.clone(), counters.snapshot(now)))
+        .collect();
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    rows
+}
+
+/// Credits a successful `rclone copyto` whose bytes never cross RPool's pipes.
+/// Streamed copies are credited when complete; provider copies are separate.
+pub(crate) fn credit_copy(source: &str, destination: &str, bytes: u64, server_side: bool) {
+    let Ok(to) = super::remote_name(destination) else {
+        return;
+    };
+    if server_side {
+        counters(to).server_side.fetch_add(bytes, Relaxed);
+    } else {
+        if let Ok(from) = super::remote_name(source) {
+            let source = counters(from);
+            source.received.fetch_add(bytes, Relaxed);
+            source.download.add(now_unix(), bytes);
+        }
+        let destination = counters(to);
+        destination.sent.fetch_add(bytes, Relaxed);
+        destination.acked.fetch_add(bytes, Relaxed);
+        destination.upload.add(now_unix(), bytes);
+    }
 }
 
 /// Credits `bytes` of a verified upload readback to the remote of `address`.
@@ -384,7 +458,12 @@ impl Op {
         match result {
             Ok(_) => counters.succeeded(now),
             Err(error) => match counts_as_failure(error) {
-                Some(true) => counters.failed(now, error),
+                Some(true) => {
+                    counters.failed(now, error);
+                    if self.direction == Direction::Upload {
+                        counters.failed_upload(now, error);
+                    }
+                }
                 Some(false) => counters.succeeded(now),
                 None => {}
             },
@@ -432,6 +511,22 @@ impl std::io::Write for Metered<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copyto_credits_streamed_and_provider_copies_separately() {
+        let source = "traffic-test-copy-source:shard";
+        let destination = "traffic-test-copy-destination:shard";
+        credit_copy(source, destination, 1024, false);
+        assert_eq!(snapshot(source).received_bytes, 1024);
+        assert_eq!(snapshot(destination).sent_bytes, 1024);
+        assert_eq!(snapshot(destination).acked_bytes, 1024);
+        credit_copy(source, destination, 2048, true);
+        assert_eq!(snapshot(source).received_bytes, 1024);
+        assert_eq!(snapshot(destination).sent_bytes, 1024);
+        assert_eq!(snapshot(destination).server_side_bytes, 2048);
+        let rows = snapshot_all(now_unix());
+        assert!(rows.windows(2).all(|pair| pair[0].0 <= pair[1].0));
+    }
 
     #[test]
     fn ring_rates_use_complete_seconds_and_forget_old_slots() {
@@ -505,6 +600,28 @@ mod tests {
         assert_eq!(snapshot("traffic-test-never-used"), Traffic::default());
         credit_verified("traffic-test-outcomes:a/b", 9);
         assert_eq!(snapshot("traffic-test-outcomes:").verified_bytes, 9);
+    }
+
+    #[test]
+    fn failed_upload_keeps_its_named_capacity_cause_after_successful_read() {
+        let remote = "traffic-test-capacity-cause";
+        let full = crate::storage::rclone::process::classify_mutation(b"storageQuotaExceeded");
+        Op::begin(Some(remote), Direction::Upload).finish(&Err::<(), _>(full));
+        Op::begin(Some(remote), Direction::Download).finish(&Ok::<(), StorageError>(()));
+        let traffic = snapshot(remote);
+        assert!(traffic.last_upload_storage_full);
+        assert!(traffic
+            .last_upload_error
+            .unwrap()
+            .contains("storage is full"));
+    }
+
+    #[test]
+    fn preflight_no_space_is_attributed_to_the_pool_remote() {
+        note_capacity_no_space("traffic-test-no-space:pool");
+        let value = snapshot("traffic-test-no-space:");
+        assert!(value.capacity_no_space_unix.is_some());
+        assert_eq!(value.failed_ops, 0);
     }
 
     #[test]

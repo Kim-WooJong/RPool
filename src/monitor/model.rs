@@ -95,6 +95,17 @@ pub(crate) struct RemoteTraffic {
     pub last_error: Option<String>,
     /// Time of `last_error`, Unix seconds.
     pub last_error_unix: Option<u64>,
+    /// Last failed upload, independently of read/listing errors.
+    #[serde(default)]
+    pub last_upload_error: Option<String>,
+    #[serde(default)]
+    pub last_upload_error_unix: Option<u64>,
+    /// The last failed upload had explicit storage-capacity evidence.
+    #[serde(default)]
+    pub last_upload_storage_full: bool,
+    /// Quota preflight found no upload space at this target.
+    #[serde(default)]
+    pub capacity_no_space_unix: Option<u64>,
 }
 
 /// Local changes not yet in the cloud.
@@ -147,6 +158,10 @@ pub(crate) enum AlertKind {
     /// Uploads to the account wait for its daily upload limit (the
     /// message says when they resume).
     UploadLimit,
+    /// A named storage reported capacity exhaustion on its last upload.
+    StorageFull,
+    /// The named storage had no available shard-upload budget at preflight.
+    NoUploadSpace,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

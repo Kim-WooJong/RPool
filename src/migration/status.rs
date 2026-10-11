@@ -54,7 +54,10 @@ pub(crate) fn summarize(plan: &Plan, records: &[Record]) -> MigrationStatus {
     let (mut to_move, mut switched, mut verified, mut failed_unknown, mut movable_left) =
         (0, 0, 0, 0, 0);
     for entry in &plan.entries {
-        if !matches!(entry.action, Action::Relocate | Action::Reencode) {
+        if !matches!(
+            entry.action,
+            Action::Relocate | Action::Reencode | Action::ReapplyPlacement
+        ) {
             continue;
         }
         to_move += 1;

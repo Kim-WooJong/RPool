@@ -16,6 +16,7 @@ mod run_step;
 pub(crate) mod state;
 #[cfg(test)]
 pub(crate) mod tests;
+mod transfer_view;
 
 pub(crate) use state::MigrationForm;
 

@@ -64,6 +64,32 @@ impl AlertState {
             }
         }
         for (remote, traffic) in remotes {
+            if pending_files > 0
+                && traffic.last_upload_storage_full
+                && traffic
+                    .last_upload_error_unix
+                    .is_some_and(|at| now.saturating_sub(at) <= 3_600)
+            {
+                alerts.push(Alert {
+                    kind: AlertKind::StorageFull,
+                    remote: Some((*remote).to_owned()),
+                    since_unix: traffic.last_upload_error_unix.unwrap_or(now),
+                    message: format!("{remote}: a recent upload failed: provider storage is full"),
+                });
+            }
+            if pending_files > 0
+                && !traffic.last_upload_storage_full
+                && traffic
+                    .capacity_no_space_unix
+                    .is_some_and(|at| now.saturating_sub(at) <= 3_600)
+            {
+                alerts.push(Alert {
+                    kind: AlertKind::NoUploadSpace,
+                    remote: Some((*remote).to_owned()),
+                    since_unix: traffic.capacity_no_space_unix.unwrap_or(now),
+                    message: format!("{remote}: quota preflight found no upload space"),
+                });
+            }
             let failed_before = self
                 .failed_seen
                 .insert((*remote).to_owned(), traffic.failed_ops);
@@ -175,6 +201,33 @@ mod tests {
         assert!(alerts[0].message.contains("timed out"));
         assert_eq!(state.evaluate(1064, &[("a:", &t)], 0).len(), 1);
         assert!(state.evaluate(1065, &[("a:", &t)], 0).is_empty());
+    }
+
+    #[test]
+    fn full_upload_names_only_the_failing_storage_while_data_waits() {
+        let mut state = AlertState::default();
+        let mut full = Traffic::default();
+        full.last_upload_error_unix = Some(1_000);
+        full.last_upload_storage_full = true;
+        let other = Traffic::default();
+        let remotes = [("full:", &full), ("other:", &other)];
+        let alerts = state.evaluate(1_001, &remotes, 1);
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].kind, AlertKind::StorageFull);
+        assert_eq!(alerts[0].remote.as_deref(), Some("full:"));
+        assert!(state.evaluate(1_002, &remotes, 0).is_empty());
+    }
+
+    #[test]
+    fn quota_preflight_names_only_the_storage_without_upload_space() {
+        let mut state = AlertState::default();
+        let mut full = Traffic::default();
+        full.capacity_no_space_unix = Some(1_000);
+        let other = Traffic::default();
+        let alerts = state.evaluate(1_001, &[("full:", &full), ("other:", &other)], 1);
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].kind, AlertKind::NoUploadSpace);
+        assert_eq!(alerts[0].remote.as_deref(), Some("full:"));
     }
 
     #[test]

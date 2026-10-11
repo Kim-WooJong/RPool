@@ -1,7 +1,7 @@
 //! Rebalance (opt-in, `pool migrate plan --rebalance`): chooses shard moves
-//! that bring existing archives in line with the pool's current placement and
-//! spread used space by free ratio, e.g. after adding an account or changing
-//! the placement. Planning only: the moves are stored per entry and the run
+//! that repair account limits and sufficiently large free-ratio gaps, e.g.
+//! after adding an account. It does not replay fresh-upload placement; use
+//! `--reapply-placement` for that. Planning only: moves are stored per entry and the run
 //! relocates exactly those shards to exactly those remotes.
 //!
 //! One shared state walks the archives in planning order, so each decision
@@ -216,36 +216,48 @@ impl Rebalancer {
                     capped += 1;
                 }
             }
-            // 3. Free-ratio balance: move from the fullest account while the
-            //    gap is real and the move does not overshoot.
+            // 3. Free-ratio balance: try the fullest source with a feasible
+            //    destination. A rejected pair must not hide another move.
             if self.placement == Placement::RoundRobin {
                 continue;
             }
             loop {
-                let source = members
+                let choice = members
                     .iter()
                     .copied()
                     .filter(|&i| !moves.contains_key(&manifest.shards[i].index))
-                    .filter_map(|i| at[&i].map(|a| (i, a)))
+                    .filter_map(|i| {
+                        let from = at[&i]?;
+                        let size = manifest.shards[i].size;
+                        let src = &self.accounts[from];
+                        let src_free = budgets[&src.capacity_domain];
+                        let to = (0..self.accounts.len())
+                            .filter(|&to| {
+                                let dst = &self.accounts[to];
+                                let count = counts.get(&dst.key).copied().unwrap_or(0);
+                                let dst_free = budgets[&dst.capacity_domain];
+                                dst_free >= size
+                                    && cap.is_none_or(|m| count < m)
+                                    && dst.shard_cap.is_none_or(|m| count < m)
+                                    && src.key != dst.key
+                                    && src.capacity_domain != dst.capacity_domain
+                                    && ratio(&budgets, to) - ratio(&budgets, from) > MIN_GAP
+                                    && (dst_free - size) as f64 / dst.total as f64
+                                        >= (src_free + size) as f64 / src.total as f64
+                            })
+                            .max_by(|&a, &b| {
+                                ratio(&budgets, a)
+                                    .total_cmp(&ratio(&budgets, b))
+                                    .then(b.cmp(&a))
+                            })?;
+                        Some((i, from, to))
+                    })
                     .min_by(|x, y| {
                         ratio(&budgets, x.1)
                             .total_cmp(&ratio(&budgets, y.1))
                             .then(x.0.cmp(&y.0))
                     });
-                let Some((i, from)) = source else { break };
-                let size = manifest.shards[i].size;
-                let key = self.accounts[from].key.clone();
-                let Some(to) = best(&budgets, &counts, size, Some(&key)) else {
-                    break;
-                };
-                let (src, dst) = (&self.accounts[from], &self.accounts[to]);
-                let (bs, bd) = (budgets[&src.capacity_domain], budgets[&dst.capacity_domain]);
-                let gap = ratio(&budgets, to) - ratio(&budgets, from);
-                let after =
-                    (bd - size) as f64 / dst.total as f64 >= (bs + size) as f64 / src.total as f64;
-                if gap <= MIN_GAP || !after || src.capacity_domain == dst.capacity_domain {
-                    break;
-                }
+                let Some((i, _, to)) = choice else { break };
                 self.apply(
                     manifest,
                     &mut budgets,

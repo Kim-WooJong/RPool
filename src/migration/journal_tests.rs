@@ -1,5 +1,5 @@
 use super::*;
-use crate::migration::model::{Counts, RecordState};
+use crate::migration::model::{Action, Counts, RecordState};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// In-memory replica; `down` makes every call fail like an unreachable remote.
@@ -87,6 +87,7 @@ fn plan(id: &str, created: u64) -> Plan {
         created_unix: created,
         created_by: "pc-a".into(),
         target: policy(),
+        reapply_placement: false,
         entries: vec![],
         counts: Counts::default(),
         download_bytes: 1,
@@ -98,6 +99,18 @@ fn plan(id: &str, created: u64) -> Plan {
         quota_ok: Some(true),
         notes: vec![],
     }
+}
+
+#[test]
+fn older_plans_default_to_no_reapply_and_new_action_is_distinct() {
+    let mut old = serde_json::to_value(plan("m1", 10)).unwrap();
+    old.as_object_mut().unwrap().remove("reapply_placement");
+    let old: Plan = serde_json::from_value(old).unwrap();
+    assert!(!old.reapply_placement);
+    assert_eq!(
+        serde_json::to_value(Action::ReapplyPlacement).unwrap(),
+        serde_json::json!("reapply-placement")
+    );
 }
 
 fn record(entry: &str, state: RecordState, ts: u64) -> Record {

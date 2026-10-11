@@ -206,8 +206,8 @@ pub(crate) enum ProbeMode {
 /// Subcommands of `rpool pool migrate`.
 pub(crate) enum MigrateCommands {
     /// Plan a migration to the saved pool policy and publish it to the cloud
-    /// journal. Reads only; no archive data is written. Includes the pool's
-    /// drive (its visible files) when it has one.
+    /// journal. No archive data is changed, but a cloud plan record is written.
+    /// Includes the pool's drive (its visible files) when it has one.
     Plan {
         /// Saved pool name.
         pool: String,
@@ -227,12 +227,16 @@ pub(crate) enum MigrateCommands {
         /// Leave the pool's drive out (archives only).
         #[arg(long)]
         no_drive: bool,
-        /// Also move shards of unaffected archives so existing data follows
-        /// the pool's current placement and spreads by free ratio (after
-        /// adding an account or changing the placement). Needs every
-        /// account's quota.
+        /// Move shards of unaffected archives when account limits or a
+        /// sufficiently large free-space-ratio gap call for it. A placement
+        /// change alone may still plan zero moves. Needs every account's quota.
         #[arg(long)]
         rebalance: bool,
+        /// Re-upload every nonempty existing file using the saved pool's
+        /// current placement. Requires full download, temporary local disk,
+        /// and new cloud space until the originals are retired.
+        #[arg(long, conflicts_with = "rebalance")]
+        reapply_placement: bool,
         #[arg(long)]
         /// Print JSON instead of text.
         json: bool,
@@ -552,7 +556,7 @@ mod capacity_tests {
         use super::{MigrateCommands as M, ProbeMode};
         assert!(matches!(
             migrate(&["plan", "p", "--probe", "full", "--download-mib-s", "10", "--upload-mib-s", "5", "--json"]),
-            M::Plan { ref pool, probe: ProbeMode::Full, download_mib_s: Some(d), upload_mib_s: Some(u), measure_speed: false, json: true, no_drive: false, rebalance: false }
+            M::Plan { ref pool, probe: ProbeMode::Full, download_mib_s: Some(d), upload_mib_s: Some(u), measure_speed: false, json: true, no_drive: false, rebalance: false, reapply_placement: false }
                 if pool == "p" && d == 10.0 && u == 5.0
         ));
         assert!(matches!(
@@ -566,6 +570,24 @@ mod capacity_tests {
                 ..
             }
         ));
+        assert!(matches!(
+            migrate(&["plan", "p", "--reapply-placement"]),
+            M::Plan {
+                reapply_placement: true,
+                rebalance: false,
+                ..
+            }
+        ));
+        assert!(crate::cli::Cli::try_parse_from([
+            "rpool",
+            "pool",
+            "migrate",
+            "plan",
+            "p",
+            "--rebalance",
+            "--reapply-placement"
+        ])
+        .is_err());
         assert!(matches!(
             migrate(&["run", "p", "--id", "m1", "--stop-file", "/tmp/stop"]),
             M::Run { ref pool, ref id, stop_file: Some(ref s), take_over: false, parallel: None, transfers: None, bwlimit: None } if pool == "p" && id == "m1" && s.ends_with("stop")

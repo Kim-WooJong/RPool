@@ -29,9 +29,13 @@ pub(crate) struct PlanOptions {
     /// Leave the pool's drive out (archives only). The drive is planned by
     /// default when the pool has one.
     pub skip_drive: bool,
-    /// Also move shards of otherwise unaffected archives so they follow the
-    /// pool's current placement and spread by free ratio (see `rebalance`).
+    /// Also move shards of otherwise unaffected archives to repair account
+    /// limits or sufficiently large free-ratio gaps (see `rebalance`).
     pub rebalance: bool,
+    /// Restore and re-upload every nonempty selected archive with the target
+    /// pool's current placement, even when coding and shard size are unchanged.
+    /// Unlike `rebalance`, this runs the same placement path as a new upload.
+    pub reapply_placement: bool,
     /// Shared rebalance state, set by the planner when `rebalance` is on.
     pub(crate) rebalancer: Option<Arc<super::rebalance::Rebalancer>>,
 }
@@ -45,6 +49,9 @@ pub(crate) fn plan_with_drive(
     pool: &str,
     options: &PlanOptions,
 ) -> Result<(Plan, Option<super::drive_model::DrivePlan>)> {
+    if options.rebalance && options.reapply_placement {
+        bail!("choose either rebalance or reapply placement, not both");
+    }
     let store = crate::pool::load_pool_store()?;
     let mut target = store
         .pools
@@ -57,6 +64,9 @@ pub(crate) fn plan_with_drive(
     let mut phases = Phases::start();
     let cloud = RcloneCloud::new(rclone, target.placement == Placement::Resilient);
     let (replaced, mut note) = replaced_archives(rclone, pool);
+    if options.reapply_placement {
+        note.push("Reapply placement: every nonempty selected file is restored and fully re-uploaded using the saved pool placement. This requires temporary local disk and additional cloud space until the verified originals are retired; it does not merely move changed shards.".into());
+    }
     phases.lap("earlier migrations");
     let mut options = options.clone();
     if options.rebalance {
@@ -68,7 +78,7 @@ pub(crate) fn plan_with_drive(
                 .context("rebalance needs the quota of every pool account")?;
         options.rebalancer = Some(Arc::new(rebalancer));
         phases.lap("account quotas");
-        note.push(format!("Rebalance: shards of unaffected archives also move to follow the {} placement, from accounts at least {:.0}% fuller (by free ratio) than the destination. The old account's space is free only after the originals are retired.", target.placement.cli_value(), super::rebalance::MIN_GAP * 100.0));
+        note.push(format!("Rebalance: shards of unaffected archives may move to satisfy the {} placement or an explicit account shard limit. Additional free-ratio moves require a destination more than {:.0} percentage points freer and a whole-shard move that does not reverse the ratio gap. The old account's space is free only after the originals are retired.", target.placement.cli_value(), super::rebalance::MIN_GAP * 100.0));
     }
     let options = &options;
     let (mut plan, mut listed) = plan_listed(&cloud, pool, target, &inventory, options, &replaced)?;
@@ -317,11 +327,22 @@ pub(super) fn plan_entry(
     workers: usize,
 ) -> Result<(Entry, Transfer)> {
     let manifest = &loaded.manifest;
-    let reencode = reencode_reason(manifest, target);
+    let mut reencode = reencode_reason(manifest, target);
+    if options.reapply_placement && manifest.original_size > 0 {
+        let reason = "reapply current placement by full restore and re-upload";
+        reencode = Some(reencode.map_or_else(
+            || reason.to_owned(),
+            |existing| format!("{existing}, {reason}"),
+        ));
+    }
     let (mut moving, move_reasons) =
         shards_to_move(manifest, target, target_set, &|r| cloud.failure_domain(r));
     let mut base = if reencode.is_some() {
-        Action::Reencode
+        if options.reapply_placement {
+            Action::ReapplyPlacement
+        } else {
+            Action::Reencode
+        }
     } else if !moving.is_empty() {
         Action::Relocate
     } else {
@@ -577,7 +598,7 @@ pub(super) fn plan_listed(
         match entry.action {
             Action::Unaffected => counts.unaffected += 1,
             Action::Relocate => counts.relocate += 1,
-            Action::Reencode => counts.reencode += 1,
+            Action::Reencode | Action::ReapplyPlacement => counts.reencode += 1,
             Action::Lost => counts.lost += 1,
             Action::Unknown => counts.unknown += 1,
         }
@@ -656,6 +677,7 @@ pub(super) fn plan_listed(
         created_unix: crate::utils::now_unix(),
         created_by: pc_name(),
         target,
+        reapply_placement: options.reapply_placement,
         entries: results.into_iter().map(|(e, _)| e).collect(),
         counts,
         download_bytes: download,

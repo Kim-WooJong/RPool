@@ -1,6 +1,6 @@
 # Project State
 
-Updated: 2026-10-01
+Updated: 2026-10-12
 
 ## Project
 
@@ -8,10 +8,41 @@ RPool is a Rust GUI/CLI sharded archive tool and online drive over encrypted
 rclone remotes. Canonical source is the Git checkout `artifacts/rpool`; build and
 test only in working copies under `projects/rpool/` with `CARGO_TARGET_DIR`
 outside the source tree. Windows is the primary intended GUI platform; executed
-tests run on macOS and Linux (Docker). Version 1.0.0 (2026-10-01); later work goes under
+tests run on macOS and Linux (Docker). This Mac Studio currently has no RPool pool
+in use: it is for development and local/fake-storage testing, not live-pool
+validation. Version 2.17.0 (2026-10-12); later work goes under
 "Unreleased" in CHANGELOG.md, which is the detailed history.
 
 ## Current Status
+
+The placement migration change adds explicit `--reapply-placement` / GUI
+"Reapply placement (re-upload all files)" to restore and re-upload existing
+archives and included drive files under the saved pool placement policy. It
+preserves originals until verification and switch. This is distinct from
+conservative `--rebalance`, which may correctly plan zero moves after a policy
+change. The affected pool is on another PC; no live migration has run here.
+
+The migration run and drive adoption screens now show per-storage upload and
+download rates (10-second averages), cumulative bytes, active transfer state,
+failures/retries, and provider-side copy bytes for the current CLI run. The
+separate migration process sends traffic snapshots through the GUI progress
+protocol. `rclone copyto` streamed moves, which bypassed the existing byte
+counters, are credited at completion to both source and destination. Last-run
+totals stay visible until another task replaces them. These are per-PC,
+per-run traffic measurements, not the migration's overall completion fraction.
+
+Placement-policy changes now have explicit effective-time rules: direct `put`
+uses the saved policy; a running drive uses its mounted policy until a safe
+remount, and saved pending plans keep their original targets until completed.
+Existing archives require `--reapply-placement`; the GUI blocks starting a
+migration plan whose frozen target placement no longer matches the saved pool.
+Free-ratio incremental uploads reject retained shard groups that violate the
+current backing-account shard cap. Monitoring names a storage whose upload
+failed with explicit provider-full evidence or whose quota preflight found zero
+upload space, and preserves the sanitized upload error separately from ordinary
+read/listing errors. The GUI also shows these per-storage task results without
+a mounted pool. Capacity observations do not prove that other storages are
+healthy, nor that a live transfer succeeded.
 
 What exists:
 
@@ -80,14 +111,47 @@ Known limits:
   60 s VFS write-back, not bounded (`docs/MOUNT_WRITE_ROADMAP.md`).
 - Pool migration phase 3 (drive adoption) is unit-tested, not yet run with real
   remotes on several PCs.
+- There is no RPool pool in use on this Mac Studio. Do not treat local compile,
+  unit/integration, or fake-storage results as validation against the user's
+  live pool; validate the migration on the PC hosting that pool when available.
 
 ## Latest validation
+
+2026-10-11 placement-policy/monitoring work: source-matched verification copy
+passed `cargo check --all-targets` and `cargo test --bin rpool -- --skip
+randomized_traces_match_the_reference_model_through_crashes` (1,105 passed,
+0 failed, 60 ignored, 1 filtered). This includes changed-placement safe-remount,
+pending-plan deferral, free-ratio retained-shard cap, provider-full
+classification, and named Monitoring alerts. All locale JSON parsed and
+`git diff --check` was clean. No live pool or cloud upload was available on
+this Mac, so the actual other-PC placement and full-provider display remain
+runtime validation items.
+
+2026-10-11 migration traffic UI: `cargo check --all-targets` passed; traffic,
+progress protocol, GUI translation, migration screen, relocation, and layout
+tests passed (including 12 storage rows at 440 px). After adding the final
+copy-timing hint, all three locale JSON files and its translations were checked
+directly; a repeat i18n test run stalled before any test started while macOS
+`syspolicyd`/`trustd` were heavily loaded (an independent `codesign` lookup
+stalled too). The live pool on the other PC was not used; actual cloud rates
+and provider-side-copy behavior still need validation there. Repository-wide
+`cargo fmt --check` reports only pre-existing format differences in unrelated
+application/config-sync/rclone files; the new migration traffic files were
+formatted.
+
+2026-10-11 reapply-placement work: local Rust test suite passed (1,094 tests)
+and release compilation passed in a source-matched verification copy. No live
+pool migration, cloud transfer, or other-PC runtime validation was performed.
 
 2026-10-01 documentation cleanup (this working copy): `cargo build` passed;
 `cargo test --locked --bin rpool`: 890 passed / 0 failed / 44 ignored with a non-symlink TMPDIR (with `TMPDIR=/tmp`, a symlink on macOS, 3 lock/path tests fail, a known fixture limitation). Docker and cloud runs were
 not repeated for this change.
 
 ## Resume
+
+For placement migration, start from `src/migration/plan.rs` and the current
+implementation in the canonical checkout. Keep the live-pool validation limitation above
+explicit; the active pool is on another PC, not this Mac.
 
 Next work from ROADMAP.md: Windows runtime validation of WinFsp, drive data
 reclamation, macOS native frontend after the NFS host is recovered, bucket

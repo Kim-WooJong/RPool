@@ -205,7 +205,7 @@ impl Effects for DriveEffects<'_> {
                 );
                 (r.manifest, r.manifest_locations)
             }
-            Action::Reencode => crate::pool::reencode_manifest(
+            Action::Reencode | Action::ReapplyPlacement => crate::pool::reencode_manifest(
                 self.rclone,
                 &entry.source,
                 &file.manifest,

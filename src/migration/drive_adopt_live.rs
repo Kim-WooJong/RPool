@@ -70,6 +70,7 @@ impl AdoptIo for LiveAdopt<'_> {
         let workers = target.workers.max(1);
         let options = PlanOptions {
             workers,
+            reapply_placement: self.plan.reapply_placement,
             ..Default::default()
         };
         let classified = classify(

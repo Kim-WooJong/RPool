@@ -175,6 +175,23 @@ fn fresh_run_claims_verifies_and_switches_every_movable_entry() {
 }
 
 #[test]
+fn reapply_placement_entry_uses_the_verified_migration_state_machine() {
+    let p = plan(vec![entry("fresh", Action::ReapplyPlacement, 1)]);
+    let f = fake();
+    let s = run_core(&p, &[], "pc1", &f, Some(1)).unwrap();
+    assert_eq!(s.switched_now, 1);
+    assert_eq!(f.log().built, vec!["fresh"]);
+    assert_eq!(
+        states(&f, "fresh"),
+        vec![
+            RecordState::Claimed,
+            RecordState::Verified,
+            RecordState::Switched
+        ]
+    );
+}
+
+#[test]
 fn resume_skips_switched_reverifies_verified_and_retries_claimed() {
     let p = plan(vec![
         entry("s", Action::Relocate, 1),

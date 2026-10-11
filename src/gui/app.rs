@@ -331,7 +331,7 @@ impl eframe::App for RpoolGui {
             Page::Drive => storage::mount::show(ui, &mut self.state),
             Page::Files => files::show(ui, &mut self.state, &mut self.task),
             Page::Storage => storage::show(ui, &mut self.state, &mut self.task),
-            Page::Monitoring => monitoring::show(ui, &mut self.state),
+            Page::Monitoring => monitoring::show(ui, &mut self.state, &self.task),
             Page::Jobs => jobs::show(ui, &mut self.state, &mut self.task),
             Page::Maintenance => maintenance::show(ui, &mut self.state, &mut self.task),
             Page::Settings => settings::show(ui, &mut self.state, &mut self.task),

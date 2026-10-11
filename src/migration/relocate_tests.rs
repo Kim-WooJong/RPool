@@ -373,6 +373,28 @@ fn pinned_shards_move_to_their_rebalance_destination_and_the_rest_stay() {
 }
 
 #[test]
+fn unbounded_relocation_keeps_pinned_concentration_above_parity() {
+    let fixture = Fixture::new(&["a:", "b:", "c:"], SIZE);
+    let before = fixture.old_objects();
+    let writer = fixture.writer();
+    let pool = target(&["a:", "b:", "c:"], Placement::FreeRatioUnbounded);
+    let pinned: BTreeMap<u32, String> = fixture
+        .manifest
+        .shards
+        .iter()
+        .map(|shard| (shard.index, "a:".to_owned()))
+        .collect();
+    let relocated = run_pinned(&fixture, &writer, None, &pool, &["a", "b", "c"], &pinned).unwrap();
+    assert!(relocated
+        .manifest
+        .shards
+        .iter()
+        .all(|shard| shard.remote == "a:"));
+    assert_eq!(fixture.restore(&writer, &relocated.manifest), fixture.bytes);
+    assert_eq!(fixture.old_objects(), before);
+}
+
+#[test]
 fn resilient_relocation_respects_outage_groups() {
     // a: and b: share outage group x; the source put one shard of each group on each.
     let fixture = Fixture::new(&["a:", "b:", "c:"], SIZE);

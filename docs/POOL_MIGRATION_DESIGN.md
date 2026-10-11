@@ -268,7 +268,11 @@ reuses reprocess, maintenance, placement and pool_transition internals.
    - `lost`: some group has fewer than K readable shards.
    - `unknown`: a provider error. Never counted as lost.
 
-   Adding a remote moves nothing unless `--rebalance` is given.
+   Adding a remote moves nothing unless `--rebalance` is given. That option
+   repairs account limits and large free-ratio gaps; it does not replay the
+   current upload allocator. `--reapply-placement` instead fully restores and
+   re-uploads each nonempty selected file (including visible drive files) with
+   the saved pool placement, even when coding and shard size are unchanged.
 4. **Probe.** Quick mode lists each remote once and compares sizes. Deep mode
    hashes the affected entries or all entries. A removed account that is still
    readable is copied verbatim, which is cheaper and safer than decoding.

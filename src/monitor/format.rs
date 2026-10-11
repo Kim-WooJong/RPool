@@ -46,6 +46,8 @@ fn alert_label(kind: AlertKind) -> &'static str {
         AlertKind::Unreachable => "UNREACHABLE",
         AlertKind::MetadataGrowing => "METADATA",
         AlertKind::UploadLimit => "UPLOAD LIMIT",
+        AlertKind::StorageFull => "STORAGE FULL",
+        AlertKind::NoUploadSpace => "NO UPLOAD SPACE",
     }
 }
 
@@ -201,6 +203,10 @@ mod tests {
                 last_ok_unix: Some(990),
                 last_error: Some("rclone timed out".into()),
                 last_error_unix: Some(970),
+                last_upload_error: None,
+                last_upload_error_unix: None,
+                last_upload_storage_full: false,
+                capacity_no_space_unix: None,
             }],
             queue: QueueStatus {
                 pending_files: 3,

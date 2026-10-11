@@ -110,6 +110,14 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         .strong(),
     );
     summary(ui, &plan);
+    let stale_placement = state
+        .pool_definitions
+        .get(&plan.pool)
+        .is_some_and(|saved| saved.placement != plan.target.placement);
+    if stale_placement {
+        let (_, color) = theme::warning_colors(ui.visuals().dark_mode);
+        ui.colored_label(color, tr("The pool placement changed after this plan was made. Make a new plan to use the saved placement."));
+    }
     let drive = state.migration.drive_plan.clone();
     match &drive {
         Some(drive) => super::drive_part::review(ui, drive),
@@ -131,7 +139,8 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         let can_start = idle
             && (movable > 0 || drive.is_some())
             && plan.quota_ok != Some(false)
-            && drive_quota != Some(false);
+            && drive_quota != Some(false)
+            && !stale_placement;
         if theme::primary_button(ui, can_start, tr("Start migration")).clicked() {
             let id = plan.migration_id.clone();
             if let Err(error) = state.migration.start_run(task, &state.settings.rclone, &id) {

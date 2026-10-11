@@ -96,6 +96,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -104,9 +108,22 @@ jobs:
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS.txt
 
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          version="${TAG#v}"
+          awk -v version="$version" '
+            /^## / {
+              if (found) exit
+              if ($2 == version) { found = 1; print; next }
+            }
+            found { print }
+            END { if (!found) exit 1 }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
           name: RPool ${{ env.TAG }}
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
           files: dist/*

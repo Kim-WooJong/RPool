@@ -44,7 +44,10 @@ fn alert_banner(ui: &mut egui::Ui, kind: AlertKind, text: &str) {
         AlertKind::Stalled | AlertKind::MetadataGrowing | AlertKind::UploadLimit => {
             theme::warning_colors(dark)
         }
-        AlertKind::Errors | AlertKind::Unreachable => theme::error_colors(dark),
+        AlertKind::Errors
+        | AlertKind::Unreachable
+        | AlertKind::StorageFull
+        | AlertKind::NoUploadSpace => theme::error_colors(dark),
     };
     egui::Frame::new()
         .fill(fill)

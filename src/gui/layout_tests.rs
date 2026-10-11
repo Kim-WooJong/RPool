@@ -45,7 +45,7 @@ fn page(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner, usage: &
         Page::Drive => storage::mount::show(ui, state),
         Page::Files => files::show(ui, state, task),
         Page::Storage => storage::show(ui, state, task),
-        Page::Monitoring => monitoring::show(ui, state),
+        Page::Monitoring => monitoring::show(ui, state, &crate::gui::task::TaskRunner::default()),
         Page::Maintenance => maintenance::show(ui, state, task),
         Page::Jobs => jobs::show(ui, state, task),
         Page::Settings => settings::show(ui, state, task),

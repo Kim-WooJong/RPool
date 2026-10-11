@@ -4,6 +4,8 @@
 mod emitter;
 /// Event types, environment flag and line prefix shared by both sides.
 mod protocol;
+mod traffic;
 
 pub(crate) use emitter::{advance, enabled, finish, items, start};
-pub(crate) use protocol::{parse_line, ProgressEvent, PROGRESS_ENV};
+pub(crate) use protocol::{parse_line, ProgressEvent, StorageTraffic, PROGRESS_ENV};
+pub(crate) use traffic::TrafficReporter;

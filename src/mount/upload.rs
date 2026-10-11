@@ -139,13 +139,25 @@ pub(super) fn upload_eligible_tracked(
             let free = budgets
                 .get_mut(&target.capacity_domain)
                 .context("saved target has no quota")?;
-            *free = free
-                .checked_sub(shard.size)
-                .context("insufficient quota to resume saved placement")?;
+            if *free < shard.size {
+                crate::storage::rclone::traffic::note_capacity_no_space(&shard.remote);
+                bail!(
+                    "insufficient quota to resume saved placement on {}",
+                    shard.remote
+                );
+            }
+            *free -= shard.size;
         }
         crate::placement::validate_resilient_plan(rclone, &plan)?;
     } else {
-        status.check_upload(policy, size)?;
+        if let Err(error) = status.check_upload(policy, size) {
+            for target in &status.targets {
+                if target.free == 0 {
+                    crate::storage::rclone::traffic::note_capacity_no_space(&target.remote);
+                }
+            }
+            return Err(error);
+        }
         let coding = (size > 0 && policy.parity_shards > 0).then(|| Coding {
             algorithm: RS_ALGORITHM.into(),
             data_shards: policy.data_shards,

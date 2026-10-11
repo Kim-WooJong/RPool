@@ -30,6 +30,10 @@ fn remote(name: &str, backend: &str) -> RemoteTraffic {
         last_ok_unix: None,
         last_error: None,
         last_error_unix: None,
+        last_upload_error: None,
+        last_upload_error_unix: None,
+        last_upload_storage_full: false,
+        capacity_no_space_unix: None,
     }
 }
 

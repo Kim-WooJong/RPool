@@ -36,7 +36,15 @@ pub(crate) fn assign_remotes(
             if !snapshot.rejected.is_empty() {
                 bail!("Quota planning unavailable: {:?}", snapshot.rejected);
             }
-            let assigned = assign_with_budget(&snapshot, specs, placement, parity_shards)?;
+            let assigned = assign_with_budget(&snapshot, specs, placement, parity_shards);
+            if assigned.is_err() {
+                for target in &snapshot.targets {
+                    if target.free == 0 {
+                        crate::storage::rclone::traffic::note_capacity_no_space(&target.remote);
+                    }
+                }
+            }
+            let assigned = assigned?;
             // Budget query may deduplicate/reorder targets. Never interpret its
             // indexes against the caller's original remote list.
             assigned

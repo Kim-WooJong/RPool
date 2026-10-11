@@ -135,6 +135,26 @@ pub(super) fn is_upload_limit(error: &StorageError) -> bool {
     matches!(error, StorageError::RateLimited { detail, .. } if detail == UPLOAD_LIMIT_DETAIL)
 }
 
+/// Only explicit storage-capacity evidence qualifies for a full-storage
+/// diagnostic. Generic API quota and daily upload limits do not.
+pub(crate) fn is_storage_full(error: &StorageError) -> bool {
+    matches!(error, StorageError::UnknownOutcome { detail }
+        if detail == "rclone mutation did not acknowledge success (provider storage is full)")
+}
+
+fn storage_full_reported(text: &str) -> bool {
+    [
+        "storagequotaexceeded",
+        "storage quota has been exceeded",
+        "storage quota exceeded",
+        "insufficient storage",
+        "no space left on device",
+        "disk quota exceeded",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
+}
+
 /// Explicit authentication/permission evidence in an rclone error message.
 pub(super) fn denial(text: &str) -> Option<StorageError> {
     let text = text.to_ascii_lowercase();
@@ -209,15 +229,27 @@ fn mutation_hint(text: &[u8]) -> Option<&'static str> {
     let has = |needles: &[&str]| needles.iter().any(|n| text.contains(n));
     if has(&["setmodtime", "chtimes", "set modification time"]) {
         Some("provider refused setting the modification time")
+    } else if storage_full_reported(&text) {
+        Some("provider storage is full")
     } else if has(&["permission denied", "access denied", "forbidden"]) {
         Some("permission denied by the provider")
-    } else if has(&["unauthorized", "authentication", "invalid_grant", "token expired"]) {
+    } else if has(&[
+        "unauthorized",
+        "authentication",
+        "invalid_grant",
+        "token expired",
+    ]) {
         Some("provider authentication failed")
-    } else if has(&["no space left", "quota exceeded", "quotaexceeded", "insufficient storage"]) {
-        Some("provider storage is full")
     } else if has(&["directory not found", "no such file", "file does not exist"]) {
         Some("target folder not found")
-    } else if has(&["connection refused", "connection reset", "no route to host", "handshake failed", "broken pipe", "unexpected eof"]) {
+    } else if has(&[
+        "connection refused",
+        "connection reset",
+        "no route to host",
+        "handshake failed",
+        "broken pipe",
+        "unexpected eof",
+    ]) {
         Some("connection to the provider failed")
     } else if has(&["timeout", "timed out"]) {
         Some("provider timed out")

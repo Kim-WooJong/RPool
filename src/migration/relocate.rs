@@ -366,7 +366,17 @@ impl Work<'_> {
         let from = &self.source.shards[i];
         let to = &self.manifest.shards[i];
         let provider = copier.server_side(&from.object, &to.object);
+        let source_name = (!provider)
+            .then(|| crate::storage::rclone::remote_name(&from.object).ok())
+            .flatten();
+        let _source_activity = source_name.map(|name| {
+            crate::storage::rclone::traffic::Op::begin(
+                Some(name),
+                crate::storage::rclone::traffic::Direction::Download,
+            )
+        });
         copier.copy(&from.object, &to.object)?;
+        crate::storage::rclone::traffic::credit_copy(&from.object, &to.object, to.size, provider);
         if provider {
             self.server_side.fetch_add(to.size, Ordering::Relaxed);
         } else {
@@ -690,6 +700,14 @@ pub(super) fn relocate_with_storage(
         })
         .collect::<Result<_>>()?;
     let (bound, strict) = match &source.coding {
+        Some(_)
+            if matches!(
+                target.placement,
+                Placement::FreeRatioUnbounded | Placement::CapacityFirst
+            ) =>
+        {
+            (usize::MAX, false)
+        }
         Some(coding) => (
             coding.parity_shards,
             target.placement == Placement::Resilient,

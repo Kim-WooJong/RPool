@@ -40,6 +40,32 @@ fn action(plan: &Plan, id: &str) -> Action {
 }
 
 #[test]
+fn reapply_placement_reuploads_archives_without_other_policy_changes() {
+    let (cloud, _) = fixture();
+    let mut target = policy(&ALL, MIB, 2, 1);
+    target.placement = Placement::FreeRatioUnbounded;
+    let options = PlanOptions {
+        reapply_placement: true,
+        ..Default::default()
+    };
+    let plan = plan_with(&cloud, "main", target, &InventoryStore::default(), &options).unwrap();
+    assert!(plan.reapply_placement);
+    assert_eq!(plan.counts.reencode, 3);
+    assert_eq!(plan.counts.unaffected, 0);
+    assert!(plan.entries.iter().all(|entry| {
+        entry.action == Action::ReapplyPlacement
+            && entry.moves.is_empty()
+            && entry
+                .detail
+                .as_deref()
+                .unwrap_or("")
+                .contains("reapply current placement")
+    }));
+    assert!(plan.new_storage_bytes > 0);
+    assert!(plan.upload_bytes > 0);
+}
+
+#[test]
 fn removing_one_remote_relocates_without_loss_and_lists_each_remote_once() {
     let (mut cloud, _) = fixture();
     cloud.wipe("d:");

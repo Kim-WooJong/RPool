@@ -47,8 +47,20 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, _task: &mut TaskRunn
                 ui.end_row();
 
                 ui.label(tr("Placement"));
-                ui.checkbox(&mut state.migration.rebalance, tr("Rebalance existing data"))
-                    .on_hover_text(tr("Also moves shards of files that need no other change, so existing data follows the pool's current placement and fills accounts by free space. Use it after adding an account or changing the placement. Needs every account's quota; moved shards take extra space until the originals are cleaned up."));
+                ui.vertical(|ui| {
+                    if ui.checkbox(&mut state.migration.rebalance, tr("Rebalance existing data"))
+                        .on_hover_text(tr("Moves shards only when account limits or a sufficiently large free-space ratio gap call for it. A placement change alone may still plan zero moves."))
+                        .changed() && state.migration.rebalance
+                    {
+                        state.migration.reapply_placement = false;
+                    }
+                    if ui.checkbox(&mut state.migration.reapply_placement, tr("Reapply placement (re-upload all files)"))
+                        .on_hover_text(tr("Restores and fully re-uploads every nonempty selected file using the pool's saved placement. This can transfer all data and needs temporary local disk and additional cloud space until originals are retired."))
+                        .changed() && state.migration.reapply_placement
+                    {
+                        state.migration.rebalance = false;
+                    }
+                });
                 ui.end_row();
 
                 ui.label(tr("Speed"));
@@ -84,7 +96,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, _task: &mut TaskRunn
         let can = !planning && !state.migration.pool.is_empty();
         if theme::primary_button(ui, can, tr("Create plan"))
             .on_hover_text(tr(
-                "Read-only check of every archive, then the plan is saved in the cloud journal.",
+                "Checks every archive without changing its data, then saves the plan in the cloud journal.",
             ))
             .clicked()
         {

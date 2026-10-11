@@ -33,5 +33,22 @@
   "original layout": "元の構成",
   "layout {epoch}": "構成 {epoch}",
   "Rebalance existing data": "既存データのリバランス",
-  "Also moves shards of files that need no other change, so existing data follows the pool's current placement and fills accounts by free space. Use it after adding an account or changing the placement. Needs every account's quota; moved shards take extra space until the originals are cleaned up.": "他の変更が不要なファイルのシャードも移動し、既存データがプールの現在の配置方式に従い、空き容量に合わせてアカウントを埋めるようにします。アカウントを追加したり配置方式を変更した後に使用してください。すべてのアカウントの容量情報が必要で、移動したシャードは元データを整理するまで追加の容量を使います。"
+  "Moves shards only when account limits or a sufficiently large free-space ratio gap call for it. A placement change alone may still plan zero moves.": "アカウントごとのシャード制限を超える場合や、空き容量率に十分な差がある場合にのみ移動します。配置方式の変更だけでは移動が 0 件になることがあります。",
+  "Reapply placement (re-upload all files)": "配置を再適用（全ファイルを再アップロード）",
+  "Restores and fully re-uploads every nonempty selected file using the pool's saved placement. This can transfer all data and needs temporary local disk and additional cloud space until originals are retired.": "選択した空でないファイルを復元し、保存済みのプール配置方式で全て再アップロードします。全データの転送が発生し、元データを整理するまで一時的なローカルディスクと追加のクラウド容量が必要です。",
+  "Transfer by storage": "ストレージ別転送",
+  "The pool placement changed after this plan was made. Make a new plan to use the saved placement.": "この計画の作成後にプールの配置方式が変更されました。保存済みの配置を使うには新しい計画を作成してください。",
+  "Storage full": "ストレージ容量不足",
+  "No upload space": "アップロード領域なし",
+  "Traffic on this PC during this run. Rates are 10-second averages; provider-side copies do not use this PC's bandwidth.": "この実行中の、このPCの転送量です。速度は10秒平均で、クラウド内コピーはこのPCの帯域を使いません。",
+  "Waiting for storage traffic…": "ストレージの転送情報を待機中…",
+  "Not in the new layout": "新しい構成に含まれません",
+  "↑ {rate} · {bytes} uploaded": "↑ {rate} · アップロード {bytes}",
+  "↓ {rate} · {bytes} downloaded": "↓ {rate} · ダウンロード {bytes}",
+  "{bytes} copied in cloud": "クラウド内コピー {bytes}",
+  "Last run on this PC": "このPCでの前回の実行",
+  "{failed} failed · {retries} retries": "失敗 {failed} 件 · 再試行 {retries} 回",
+  "Checks every archive without changing its data, then saves the plan in the cloud journal.": "すべてのアーカイブをデータを変更せずに確認し、計画をクラウドジャーナルに保存します。",
+  "Totals include metadata and verification reads.": "累計にはメタデータと検証のための再読み込みも含まれます。",
+  "Copy transfer bytes appear after each shard finishes.": "コピー転送量は各シャードの完了後に反映されます。"
 }

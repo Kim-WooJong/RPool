@@ -160,6 +160,10 @@ impl Sampler {
                 last_ok_unix: t.last_ok_unix,
                 last_error: t.last_error.clone(),
                 last_error_unix: t.last_error_unix,
+                last_upload_error: t.last_upload_error.clone(),
+                last_upload_error_unix: t.last_upload_error_unix,
+                last_upload_storage_full: t.last_upload_storage_full,
+                capacity_no_space_unix: t.capacity_no_space_unix,
             })
             .collect();
         let status = NetStatus {

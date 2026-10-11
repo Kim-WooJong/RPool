@@ -168,7 +168,10 @@ pub(crate) fn other_migrations(sources: &Sources<'_>, refs: &mut References) {
             continue;
         }
         for entry in &plan.entries {
-            if matches!(entry.action, Action::Relocate | Action::Reencode) {
+            if matches!(
+                entry.action,
+                Action::Relocate | Action::Reencode | Action::ReapplyPlacement
+            ) {
                 refs.add_text(&label, &entry.archive_id);
             }
         }

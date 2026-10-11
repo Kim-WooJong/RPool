@@ -123,7 +123,12 @@ pub(crate) fn observe(
     let switched: Vec<(&Entry, &Record)> = plan
         .entries
         .iter()
-        .filter(|e| matches!(e.action, Action::Relocate | Action::Reencode))
+        .filter(|e| {
+            matches!(
+                e.action,
+                Action::Relocate | Action::Reencode | Action::ReapplyPlacement
+            )
+        })
         .filter_map(|e| match state.get(&e.archive_id) {
             Some(Progress::Switched(r)) => Some((e, r)),
             _ => None,

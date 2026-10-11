@@ -79,6 +79,22 @@ impl ProgressTracker {
                 self.started_at = None;
                 self.transferred_for_rate = 0;
             }
+            ProgressEvent::Traffic { remotes } => {
+                for remote in remotes {
+                    if let Some(previous) = progress
+                        .storage_traffic
+                        .iter_mut()
+                        .find(|r| r.remote == remote.remote)
+                    {
+                        *previous = remote;
+                    } else {
+                        progress.storage_traffic.push(remote);
+                    }
+                }
+                progress
+                    .storage_traffic
+                    .sort_by(|a, b| a.remote.cmp(&b.remote));
+            }
             ProgressEvent::Finish => {
                 if let Some(total) = progress.total_bytes {
                     progress.completed_bytes = Some(total);
@@ -115,5 +131,58 @@ impl ProgressTracker {
                 None
             };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::progress::StorageTraffic;
+
+    #[test]
+    fn traffic_batches_merge_and_item_events_do_not_erase_them() {
+        let row = |remote: &str, sent_bytes| StorageTraffic {
+            remote: remote.into(),
+            sent_bytes,
+            received_bytes: 0,
+            server_side_bytes: 0,
+            upload_rate_10s: 0.0,
+            download_rate_10s: 0.0,
+            active_uploads: 0,
+            active_downloads: 0,
+            failed_ops: 0,
+            retries: 0,
+            last_upload_error: None,
+            last_upload_storage_full: false,
+            capacity_no_space: false,
+        };
+        let mut tracker = ProgressTracker::default();
+        let mut progress = TaskProgress::default();
+        tracker.apply(
+            &mut progress,
+            ProgressEvent::Traffic {
+                remotes: vec![row("z", 1)],
+            },
+        );
+        tracker.apply(
+            &mut progress,
+            ProgressEvent::Traffic {
+                remotes: vec![row("a", 2)],
+            },
+        );
+        tracker.apply(
+            &mut progress,
+            ProgressEvent::Traffic {
+                remotes: vec![row("z", 3)],
+            },
+        );
+        tracker.apply(
+            &mut progress,
+            ProgressEvent::Items {
+                completed_items: 1,
+                total_items: 2,
+            },
+        );
+        assert_eq!(progress.storage_traffic, vec![row("a", 2), row("z", 3)]);
     }
 }

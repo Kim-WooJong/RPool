@@ -65,8 +65,11 @@ fn world() -> World {
 
 /// The same pool with `files` (planned and published like [`world`]).
 fn world_with(cloud: FakeCloud, files: Vec<DriveFile>) -> World {
+    world_with_options(cloud, files, PlanOptions::default())
+}
+
+fn world_with_options(cloud: FakeCloud, files: Vec<DriveFile>, options: PlanOptions) -> World {
     let drive = FakeDrive::new(files);
-    let options = PlanOptions::default();
     let (mut plan, mut listed) = plan_listed(
         &cloud,
         "p",
@@ -273,7 +276,10 @@ impl AdoptIo for FakeIo<'_> {
             target,
             &set,
             &listings,
-            &PlanOptions::default(),
+            &PlanOptions {
+                reapply_placement: w.plan.reapply_placement,
+                ..Default::default()
+            },
             1,
             files,
         )?;
@@ -455,6 +461,39 @@ fn files_changed_after_planning_are_caught_up_on_adoption() {
     let state = progress(&w.journal("cache-a").records().unwrap());
     assert!(matches!(
         state.get(&entry_key("moved1.bin", "rev2-moved1.bin")),
+        Some(Progress::Switched(_))
+    ));
+}
+
+#[test]
+fn reapply_placement_also_reuploads_drive_files_added_after_planning() {
+    let original = payload('1', &TARGET);
+    let mut cloud = FakeCloud::default();
+    cloud.store(&original, &[]);
+    let mut w = world_with_options(
+        cloud,
+        vec![drive_file("old.txt", "rev1-old", original)],
+        PlanOptions {
+            reapply_placement: true,
+            ..Default::default()
+        },
+    );
+    assert!(w.plan.reapply_placement);
+    assert_eq!(planned(&w, "old.txt").action, Action::ReapplyPlacement);
+    w.run("pc-a", "cache-a");
+    let fresh = payload('2', &TARGET);
+    w.cloud.store(&fresh, &[]);
+    w.drive
+        .files
+        .lock()
+        .unwrap()
+        .push(drive_file("new.txt", "rev1-new", fresh.clone()));
+    w.adopt("cache-a", false).unwrap();
+    let files = seen(&w, &w.new_generation());
+    assert_ne!(files["new.txt"].manifest.archive_id, fresh.archive_id);
+    let state = progress(&w.journal("cache-a").records().unwrap());
+    assert!(matches!(
+        state.get(&entry_key("new.txt", "rev1-new")),
         Some(Progress::Switched(_))
     ));
 }

@@ -2,6 +2,7 @@
 //! invocation that started it and its log lines. Produced by
 //! `super::TaskRunner` and read by the job and progress widgets.
 
+use crate::progress::StorageTraffic;
 use std::ffi::OsString;
 
 /// Lifecycle state of a task.
@@ -35,6 +36,8 @@ pub(crate) struct TaskProgress {
     pub(crate) current_item: Option<usize>,
     /// Total number of items.
     pub(crate) total_items: Option<usize>,
+    /// Latest cumulative traffic for each remote seen in this CLI run.
+    pub(crate) storage_traffic: Vec<StorageTraffic>,
 }
 
 impl TaskProgress {

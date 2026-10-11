@@ -78,7 +78,11 @@ impl EventSender {
         let droppable = matches!(
             event,
             TaskEvent::Log(_)
-                | TaskEvent::Progress(ProgressEvent::Advance { .. } | ProgressEvent::Items { .. })
+                | TaskEvent::Progress(
+                    ProgressEvent::Advance { .. }
+                        | ProgressEvent::Items { .. }
+                        | ProgressEvent::Traffic { .. }
+                )
         );
         if droppable && self.backlog.pending.load(Ordering::Relaxed) >= PENDING_MAX {
             self.backlog.dropped.fetch_add(1, Ordering::Relaxed);
@@ -798,5 +802,26 @@ mod bounded_output_tests {
         let events: Vec<_> = receiver.try_iter().collect();
         assert_eq!(events.len(), PENDING_MAX + 1);
         assert!(matches!(events.last(), Some(TaskEvent::Finished(_))));
+    }
+
+    #[test]
+    fn traffic_updates_are_droppable_but_completion_is_not() {
+        let (sender, receiver, backlog) = EventSender::channel();
+        for _ in 0..(PENDING_MAX + 1) {
+            sender
+                .send(TaskEvent::Progress(ProgressEvent::Traffic {
+                    remotes: Vec::new(),
+                }))
+                .unwrap();
+        }
+        sender
+            .send(TaskEvent::Finished(TaskOutcome {
+                success: true,
+                code: Some(0),
+                cancelled: false,
+            }))
+            .unwrap();
+        assert_eq!(backlog.dropped.load(Ordering::Relaxed), 1);
+        assert_eq!(receiver.try_iter().count(), PENDING_MAX + 1);
     }
 }

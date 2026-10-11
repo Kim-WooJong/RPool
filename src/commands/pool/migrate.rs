@@ -25,6 +25,7 @@ pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
             measure_speed,
             no_drive,
             rebalance,
+            reapply_placement,
             json,
         } => plan(
             rclone,
@@ -35,6 +36,7 @@ pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
             measure_speed,
             no_drive,
             rebalance,
+            reapply_placement,
             json,
         ),
         MigrateCommands::Run {
@@ -45,18 +47,21 @@ pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
             parallel,
             transfers,
             bwlimit,
-        } => execute::run(
-            rclone,
-            &pool,
-            &id,
-            &execute::RunOptions {
-                stop_file,
-                take_over,
-                parallel,
-                transfers: transfers.map(|n| n as usize),
-                bwlimit,
-            },
-        ),
+        } => {
+            let _traffic = crate::progress::TrafficReporter::start();
+            execute::run(
+                rclone,
+                &pool,
+                &id,
+                &execute::RunOptions {
+                    stop_file,
+                    take_over,
+                    parallel,
+                    transfers: transfers.map(|n| n as usize),
+                    bwlimit,
+                },
+            )
+        }
         MigrateCommands::Status { pool, id, json } => {
             let list = status::status(rclone, &pool, id.as_deref())?;
             let rows = list
@@ -194,6 +199,7 @@ fn adopt(
     workspace: Option<&std::path::Path>,
     options: &execute::RunOptions,
 ) -> Result<()> {
+    let _traffic = crate::progress::TrafficReporter::start();
     let adoption = drive_adopt::adopt(rclone, pool, id, accept_lost, options)?;
     if !adoption.dropped.is_empty() {
         println!(
@@ -273,6 +279,7 @@ fn plan(
     measure_speed: bool,
     no_drive: bool,
     rebalance: bool,
+    reapply_placement: bool,
     json: bool,
 ) -> Result<()> {
     let definition = crate::pool::load_pool_store()?
@@ -311,6 +318,7 @@ fn plan(
         workers,
         skip_drive: no_drive,
         rebalance,
+        reapply_placement,
         ..Default::default()
     };
     let (plan, drive) = execute::create_with_drive(rclone, pool, &options)?;

@@ -89,6 +89,35 @@ fn drive_files_are_classified_like_archives() {
 }
 
 #[test]
+fn reapply_placement_reuploads_visible_drive_files_without_moving_lost_ones() {
+    let (cloud, source) = drive();
+    let options = PlanOptions {
+        reapply_placement: true,
+        ..Default::default()
+    };
+    let (mut plan, mut listed) = plan_listed(
+        &cloud,
+        "main",
+        policy(&["a:x", "b:x", "c:x"], MIB, 2, 1),
+        &InventoryStore::default(),
+        &options,
+        &BTreeSet::new(),
+    )
+    .unwrap();
+    let drive = plan_drive(&cloud, &source, &mut plan, &mut listed, &options)
+        .unwrap()
+        .unwrap();
+    assert_eq!(drive.counts.reencode, 2);
+    assert_eq!(drive.counts.lost, 1);
+    assert_eq!(drive.counts.unaffected, 0);
+    assert!(drive
+        .entries
+        .iter()
+        .filter(|entry| entry.action == Action::ReapplyPlacement)
+        .all(|entry| entry.moves.is_empty() && entry.upload_bytes > 0));
+}
+
+#[test]
 fn unreadable_drive_is_left_out_with_a_note() {
     let (cloud, mut source) = drive();
     source.fail = true;
@@ -98,6 +127,26 @@ fn unreadable_drive_is_left_out_with_a_note() {
         .notes
         .iter()
         .any(|n| n.contains("drive could not be checked")));
+}
+
+#[test]
+fn reapply_placement_refuses_to_skip_an_unreadable_included_drive() {
+    let (cloud, mut source) = drive();
+    source.fail = true;
+    let options = PlanOptions {
+        reapply_placement: true,
+        ..Default::default()
+    };
+    let (mut plan, mut listed) = plan_listed(
+        &cloud,
+        "main",
+        policy(&["a:x", "b:x", "c:x"], MIB, 2, 1),
+        &InventoryStore::default(),
+        &options,
+        &BTreeSet::new(),
+    )
+    .unwrap();
+    assert!(plan_drive(&cloud, &source, &mut plan, &mut listed, &options).is_err());
 }
 
 struct NoDrive;

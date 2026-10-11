@@ -64,6 +64,18 @@ pub(crate) fn alert_text(alert: &Alert) -> String {
         (AlertKind::UploadLimit, None) => {
             tr("An account reached its upload limit — uploads wait and resume automatically").into()
         }
+        (AlertKind::StorageFull, Some(remote)) => trf(
+            "{remote}: a recent upload failed because storage was full; pending data is kept locally",
+            &[("remote", &remote)],
+        ),
+        (AlertKind::StorageFull, None) =>
+            tr("A recent upload failed because storage was full; pending data is kept locally").into(),
+        (AlertKind::NoUploadSpace, Some(remote)) => trf(
+            "{remote}: quota check found no upload space; pending data is kept locally",
+            &[("remote", &remote)],
+        ),
+        (AlertKind::NoUploadSpace, None) =>
+            tr("Quota check found no upload space; pending data is kept locally").into(),
     }
 }
 

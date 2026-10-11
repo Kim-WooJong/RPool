@@ -120,6 +120,13 @@ pub(crate) fn run(
     if plan.migration_id != migration_id || plan.pool != pool {
         bail!("journal plan does not belong to {pool}/{migration_id}");
     }
+    if crate::pool::load_pool_store()
+        .ok()
+        .and_then(|store| store.pools.get(pool).cloned())
+        .is_some_and(|saved| saved.placement != plan.target.placement)
+    {
+        eprintln!("[warning] saved pool placement differs from this migration's frozen target; this run keeps the planned placement. Make a new plan to use the saved placement");
+    }
     let parallel = options.throttle(&mut plan)?;
     let options = &RunOptions {
         parallel,
@@ -350,7 +357,12 @@ fn margin(entry: &Entry) -> Option<i64> {
 pub(crate) fn order(entries: &[Entry]) -> Vec<&Entry> {
     let mut out: Vec<&Entry> = entries
         .iter()
-        .filter(|e| matches!(e.action, Action::Relocate | Action::Reencode))
+        .filter(|e| {
+            matches!(
+                e.action,
+                Action::Relocate | Action::Reencode | Action::ReapplyPlacement
+            )
+        })
         .collect();
     out.sort_by(|a, b| {
         let key = |e: &Entry| (margin(e).is_none(), margin(e).unwrap_or(i64::MAX), e.size);
@@ -890,7 +902,7 @@ impl Effects for LiveEffects<'_> {
                 );
                 (r.manifest, r.manifest_locations)
             }
-            Action::Reencode => crate::pool::reencode_manifest(
+            Action::Reencode | Action::ReapplyPlacement => crate::pool::reencode_manifest(
                 self.rclone,
                 &entry.source,
                 &manifest,
@@ -994,6 +1006,7 @@ pub(crate) mod tests_support {
             created_unix: 100,
             created_by: "pc1".into(),
             target: crate::models::PoolDefinition::default(),
+            reapply_placement: false,
             entries,
             counts: Counts::default(),
             download_bytes: 0,

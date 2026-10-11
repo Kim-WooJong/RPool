@@ -1,4 +1,4 @@
-# rpool v2.16.0
+# rpool v2.17.0
 
 `rpool` is a Rust storage layer that stripes files across several
 **explicitly supplied rclone `crypt` remotes**, optionally with
@@ -222,6 +222,15 @@ To spread existing data onto a newly added account, plan with `--rebalance`
 `--transfers N` moves N shards at once (archives one at a time), and
 `--bwlimit` caps the whole run in rclone syntax with timetables, e.g.
 `--bwlimit "01:00,20M 08:00,2M"`; both are in the GUI run step.
+`--rebalance` only moves shards for account limits or sufficiently large
+free-space-ratio gaps, so changing placement alone can produce zero moves.
+To apply the saved placement as a **fresh upload** to all existing files, use
+`--reapply-placement` instead (GUI: "Reapply placement (re-upload all files)").
+It restores and re-uploads every nonempty file, including visible drive files
+when the drive is included, even if coding and shard size did not change.
+Review its full transfer and new-storage estimates before running; the local
+work directory also needs room to restore each file. Originals remain until
+the migration is verified and retired. The two options are mutually exclusive.
 Planning prints how long each phase took (`[plan] …: N s`) and reuses the
 drive records this PC already read.
 
@@ -414,8 +423,8 @@ are marked complete.
   so a whole-provider outage can make an archive unrecoverable.
 
 `put` warns when a plan places more than M shards of a group on one provider.
-Changing a pool's placement affects future uploads only; use pool migration to
-move existing archives. Declare shared quotas and outage groups with
+Changing a pool's placement affects new uploads; use pool migration with
+`--reapply-placement` to move existing archives. Declare shared quotas and outage groups with
 `--capacity-domain`/`--failure-domain` or Storage › Pools (stored in
 `provider_domains.json`). See [Pool capacity](docs/POOL_CAPACITY.md).
 Upgrade every PC using a shared pool before saving the new
@@ -720,9 +729,10 @@ preserved formats are listed in
 - The WinFsp frontend, the Windows seal/flush fix and the Windows rclone daemon
   path are compiled for Windows but not yet run on Windows. macOS has no
   native frontend (WebDAV over NFS).
-- Network monitoring covers mounted pools only, per mount process. Speed tests
-  run remotes one after another; prompt Ctrl-C cleanup is described for macOS
-  and Linux only.
+- Mounted-pool monitoring is per mount process; the GUI also shows per-storage
+  traffic and upload errors for its current or last CLI task. Speed tests run
+  remotes one after another; prompt Ctrl-C cleanup is described for macOS and
+  Linux only.
 - On bucket backends `put` to crypt still fails (a missing key stats as a
   directory).
 - `rclone about` support varies by backend; unsupported values show `n/a`.

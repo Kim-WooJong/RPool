@@ -33,5 +33,22 @@
   "original layout": "原始布局",
   "layout {epoch}": "布局 {epoch}",
   "Rebalance existing data": "重新平衡现有数据",
-  "Also moves shards of files that need no other change, so existing data follows the pool's current placement and fills accounts by free space. Use it after adding an account or changing the placement. Needs every account's quota; moved shards take extra space until the originals are cleaned up.": "也移动无需其他更改的文件的分片，使现有数据遵循池当前的放置方式，并按可用空间填充账户。在添加账户或更改放置方式后使用。需要所有账户的配额信息；移动的分片在清理原始数据前会占用额外空间。"
+  "Moves shards only when account limits or a sufficiently large free-space ratio gap call for it. A placement change alone may still plan zero moves.": "仅在超出账户分片限制或可用空间比例差距足够大时移动分片。只更改放置策略仍可能规划出零次移动。",
+  "Reapply placement (re-upload all files)": "重新应用放置策略（重新上传所有文件）",
+  "Restores and fully re-uploads every nonempty selected file using the pool's saved placement. This can transfer all data and needs temporary local disk and additional cloud space until originals are retired.": "按存储池保存的放置策略恢复并重新上传所有非空的已选文件。这可能传输全部数据，且在清理原始文件前需要临时本地磁盘和额外云端空间。",
+  "Transfer by storage": "按存储查看传输",
+  "The pool placement changed after this plan was made. Make a new plan to use the saved placement.": "创建此计划后，池的布局方式已更改。要使用已保存的布局，请重新制定计划。",
+  "Storage full": "存储空间不足",
+  "No upload space": "无可用上传空间",
+  "Traffic on this PC during this run. Rates are 10-second averages; provider-side copies do not use this PC's bandwidth.": "本次运行中此电脑的传输量。速率为10秒平均值；云端内部复制不占用此电脑的带宽。",
+  "Waiting for storage traffic…": "正在等待存储传输信息…",
+  "Not in the new layout": "不在新布局中",
+  "↑ {rate} · {bytes} uploaded": "↑ {rate} · 已上传 {bytes}",
+  "↓ {rate} · {bytes} downloaded": "↓ {rate} · 已下载 {bytes}",
+  "{bytes} copied in cloud": "云端内部复制 {bytes}",
+  "Last run on this PC": "此电脑的上次运行",
+  "{failed} failed · {retries} retries": "失败 {failed} 次 · 重试 {retries} 次",
+  "Checks every archive without changing its data, then saves the plan in the cloud journal.": "在不更改数据的情况下检查每个归档，然后将计划保存到云端日志。",
+  "Totals include metadata and verification reads.": "累计量包含元数据和验证性读取。",
+  "Copy transfer bytes appear after each shard finishes.": "复制传输量会在每个分片完成后更新。"
 }

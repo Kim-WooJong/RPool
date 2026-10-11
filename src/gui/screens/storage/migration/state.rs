@@ -115,6 +115,8 @@ pub(crate) struct MigrationForm {
     pub(crate) include_drive: IncludeDrive,
     /// Also move shards of unaffected archives (`--rebalance`).
     pub(crate) rebalance: bool,
+    /// Fully re-upload existing files under the saved pool placement.
+    pub(crate) reapply_placement: bool,
     /// Manual speeds, MiB/s; 0 = unknown.
     pub(crate) download_mib_s: f64,
     /// Manual upload speed, MiB/s; 0 = unknown.
@@ -202,6 +204,7 @@ impl MigrationForm {
             workers,
             skip_drive: !self.include_drive.0,
             rebalance: self.rebalance,
+            reapply_placement: self.reapply_placement,
             ..Default::default()
         }
     }
@@ -737,8 +740,8 @@ pub(crate) fn short_id(id: &str) -> &str {
     id.get(..12).unwrap_or(id)
 }
 
-/// Whether a saved pool change affects stored data (remotes, K, M, shard
-/// size or native crypt), so a migration should be offered.
+/// Whether a saved pool change can affect stored data (remotes, K, M, shard
+/// size, placement or native crypt), so a migration should be offered.
 pub(crate) fn policy_change_affects_data(old: &PoolDefinition, new: &PoolDefinition) -> bool {
     let set = |p: &PoolDefinition| {
         p.remotes
@@ -747,6 +750,7 @@ pub(crate) fn policy_change_affects_data(old: &PoolDefinition, new: &PoolDefinit
             .collect::<std::collections::BTreeSet<_>>()
     };
     set(old) != set(new)
+        || old.placement != new.placement
         || old.data_shards != new.data_shards
         || old.parity_shards != new.parity_shards
         || old.shard_size != new.shard_size

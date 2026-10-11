@@ -214,7 +214,8 @@ fn migration_hint(ui: &mut egui::Ui, state: &mut GuiState) {
         .inner_margin(egui::Margin::same(10))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.colored_label(fg, trf("'{name}' changed how data is stored. Existing archives still use the old accounts or coding until they are migrated.", &[("name", &name)]));
+            ui.colored_label(fg, trf("'{name}' changed how data is stored. Existing archives keep their previous layout until migrated.", &[("name", &name)]));
+            ui.colored_label(fg, tr("A running drive keeps its previous placement until remounted; pending uploads may defer the change. Existing archives keep their old placement unless you choose Reapply placement in the migration plan."));
             ui.horizontal_wrapped(|ui| {
                 if theme::primary_button(ui, true, tr("Plan migration now")).clicked() {
                     state.migration.select_pool(&name);

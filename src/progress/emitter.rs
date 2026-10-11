@@ -2,6 +2,7 @@
 //! (the GUI task runner) set [`PROGRESS_ENV`]. Used by long CLI operations
 //! such as reprocess, scan/repair and speed tests.
 use super::protocol::{ProgressEvent, PROGRESS_ENV, PROGRESS_PREFIX};
+use super::StorageTraffic;
 use std::io::Write;
 use std::sync::Mutex;
 
@@ -40,6 +41,11 @@ pub(crate) fn enabled() -> bool {
 /// Signals that the operation finished, so the GUI can close its progress bar.
 pub(crate) fn finish() {
     emit(&ProgressEvent::Finish);
+}
+
+/// Replaces the GUI's per-storage traffic snapshot.
+pub(crate) fn traffic(remotes: Vec<StorageTraffic>) {
+    emit(&ProgressEvent::Traffic { remotes });
 }
 
 /// Writes one `PROGRESS_PREFIX` + JSON line to stderr; a no-op when progress is

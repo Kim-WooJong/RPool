@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.17.0 — 2026-10-12
+
+- Add explicit `pool migrate plan --reapply-placement` (also in the GUI) to
+  restore and re-upload existing archives and included drive files using the
+  saved placement policy. Unlike `--rebalance`, it reapplies the allocator even
+  when the coding, shard size and accounts are unchanged. Originals remain
+  until migration verification and retirement; review the full transfer,
+  storage and local work-space estimates before running it.
+- Show per-storage upload/download rates, transferred bytes and failures while
+  migration runs or drive data is adopted, retaining the last task's totals.
+  Streamed `rclone copyto` moves are counted at completion; provider-side copies
+  are shown separately.
+- Name the affected storage in Monitoring when an upload reports explicit
+  provider-full evidence or quota preflight finds no upload space. GUI task
+  traffic is visible even without a mounted drive. Generic API/daily upload
+  limits are not labeled as full storage.
+- Clarify when changed placement takes effect: new direct uploads use the
+  saved policy, running drives use their mounted policy until a safe remount,
+  and pending plans retain their original targets. Guard against starting a
+  stale GUI migration plan and against retaining free-ratio shard groups that
+  violate the current backing-account cap.
+
+Compatibility: Existing migration plans still load, but older binaries cannot
+read plans created with `--reapply-placement`; upgrade every PC that may inspect
+or run those plans first. Update the GUI and mount binaries together for the new
+Monitoring alerts, since an older GUI may not read a status containing them.
+
+Validation: macOS `cargo check --all-targets` and 1,105 local tests passed
+(60 ignored; one long randomized trace excluded from the final rerun). This
+Mac has no live RPool pool: other-PC placement migration, cloud transfer rates
+and a real full-provider response are not yet runtime-validated.
+
 ## 2.16.0 — 2026-10-11
 
 - Add `free-ratio-unbounded` placement (GUI: "Free-space ratio (no provider-outage

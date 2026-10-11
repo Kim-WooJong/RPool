@@ -124,6 +124,37 @@ fn a_balanced_pool_moves_nothing() {
 }
 
 #[test]
+fn balance_tries_another_destination_when_the_freest_one_would_overshoot() {
+    let target = pool(Placement::FreeRatioUnbounded, &["a", "b", "c"]);
+    let quotas = [
+        quota("a", 400 * GIB, 1000 * GIB),
+        quota("b", 9 * GIB, 10 * GIB),
+        quota("c", 800 * GIB, 1000 * GIB),
+    ];
+    let rb = Rebalancer::new(&target, &quotas, &|_| None).unwrap();
+    let m = manifest(&["a", "a", "a", "a", "a", "a"], 6 * GIB);
+    let (moves, _) = rb.plan(&m, &BTreeSet::new());
+    assert!(!moves.is_empty(), "a -> c remains feasible");
+    assert!(moves.values().all(|remote| remote == "c:"), "{moves:?}");
+}
+
+#[test]
+fn balance_tries_another_source_when_the_fullest_one_would_overshoot() {
+    let target = pool(Placement::FreeRatioUnbounded, &["a", "b", "c"]);
+    let quotas = [
+        quota("a", 2 * GIB, 10 * GIB),
+        quota("b", 400 * GIB, 1000 * GIB),
+        quota("c", 800 * GIB, 1000 * GIB),
+    ];
+    let rb = Rebalancer::new(&target, &quotas, &|_| None).unwrap();
+    let m = manifest(&["a", "b", "b", "b", "b", "b"], 6 * GIB);
+    let (moves, _) = rb.plan(&m, &BTreeSet::new());
+    assert!(!moves.is_empty(), "b -> c remains feasible");
+    assert!(!moves.contains_key(&0), "a cannot move without overshoot");
+    assert!(moves.values().all(|remote| remote == "c:"), "{moves:?}");
+}
+
+#[test]
 fn over_cap_accounts_give_up_shards_even_without_a_free_space_gap() {
     // Round robin over three accounts: at most 2 shards of the group each.
     let target = pool(Placement::RoundRobin, &["a", "b", "c"]);

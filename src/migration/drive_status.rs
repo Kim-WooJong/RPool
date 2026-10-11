@@ -48,7 +48,10 @@ pub(crate) fn summarize(
             lost.insert(entry.key.clone(), row(entry, entry.losses.clone(), "plan"));
             continue;
         }
-        if !matches!(entry.action, Action::Relocate | Action::Reencode) {
+        if !matches!(
+            entry.action,
+            Action::Relocate | Action::Reencode | Action::ReapplyPlacement
+        ) {
             continue;
         }
         to_move += 1;

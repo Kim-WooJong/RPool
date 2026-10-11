@@ -33,6 +33,7 @@ pub(crate) fn put(
     pool_name: Option<String>,
     native_crypt: bool,
 ) -> Result<()> {
+    let _traffic = crate::progress::TrafficReporter::start();
     let original = source.canonicalize()?;
     put_with_storage(
         &StorageWriter::for_pool(rclone, native_crypt),
@@ -304,17 +305,18 @@ fn put_source(
         |job| match job {
             UploadJob::Data(p) => {
                 let _slot = slot();
-                Ok(UploadResult::Stored(upload_one_data_shard(
-                    storage,
-                    &snapshot_path,
-                    p,
-                    1,
-                )?))
+                let remote = p.remote.clone();
+                Ok(UploadResult::Stored(
+                    upload_one_data_shard(storage, &snapshot_path, p, 1)
+                        .with_context(|| format!("upload to {remote} failed"))?,
+                ))
             }
             UploadJob::Parity { item, .. } => {
                 let _slot = slot();
                 let shard = shard_from_plan(&item.plan, item.blake3.clone());
-                storage.write_file(&item.path, 0, &shard, 1)?;
+                storage
+                    .write_file(&item.path, 0, &shard, 1)
+                    .with_context(|| format!("upload to {} failed", shard.remote))?;
                 Ok(UploadResult::Stored(shard))
             }
             UploadJob::Encode(group) => {

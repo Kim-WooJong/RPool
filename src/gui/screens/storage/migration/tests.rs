@@ -66,6 +66,7 @@ pub(crate) fn sample_plan(pool: &str) -> Plan {
         created_unix: 0,
         created_by: "pc".into(),
         target: PoolDefinition::default(),
+        reapply_placement: false,
         entries: vec![entry("x", Action::Relocate), lost_entry],
         counts: Counts {
             unaffected: 4,
@@ -437,6 +438,8 @@ fn adoption_outcome_updates_the_wizard() {
     assert!(!form.plan_options(1).skip_drive);
     form.include_drive.0 = false;
     assert!(form.plan_options(1).skip_drive);
+    form.reapply_placement = true;
+    assert!(form.plan_options(1).reapply_placement);
 }
 
 #[test]
@@ -488,6 +491,7 @@ fn only_data_changes_offer_a_migration() {
     );
     for change in [
         |p: &mut PoolDefinition| p.remotes.push("c:".into()),
+        |p: &mut PoolDefinition| p.placement = crate::models::Placement::FreeRatioUnbounded,
         |p: &mut PoolDefinition| p.data_shards += 1,
         |p: &mut PoolDefinition| p.parity_shards += 1,
         |p: &mut PoolDefinition| p.native_crypt = !p.native_crypt,
@@ -521,6 +525,10 @@ fn storage_strings_have_korean_translations() {
     assert_eq!(
         tr_in(Language::Korean, "Account identities"),
         "계정 식별 정보"
+    );
+    assert_eq!(
+        tr_in(Language::Korean, "Reapply placement (re-upload all files)"),
+        "배치 방식 다시 적용(모든 파일 재업로드)"
     );
     assert_eq!(tr_in(Language::Japanese, "Lost files"), "損失ファイル");
     assert_eq!(tr_in(Language::Chinese, "Storage pools"), "存储池");

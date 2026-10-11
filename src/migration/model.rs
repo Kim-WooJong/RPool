@@ -12,6 +12,10 @@ pub(crate) enum Action {
     Relocate,
     /// Coding changed (K, M, shard size or native crypt): re-encode.
     Reencode,
+    /// Explicit full re-upload to apply the current placement. Separate from
+    /// `Reencode` so older binaries refuse a plan they cannot carry through
+    /// drive adoption catch-up correctly.
+    ReapplyPlacement,
     /// Some group has fewer than K readable shards: cannot be recovered.
     Lost,
     /// A provider error prevented the check; retry later. Never treated as lost.
@@ -118,6 +122,9 @@ pub(crate) struct Plan {
     pub created_by: String,
     /// The pool policy to migrate to (the saved pool at plan time).
     pub target: PoolDefinition,
+    /// Catch-up drive files must also be re-uploaded under the target policy.
+    #[serde(default)]
+    pub reapply_placement: bool,
     /// One entry per archive of the pool.
     pub entries: Vec<Entry>,
     /// Entry counts per action.

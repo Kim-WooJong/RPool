@@ -44,6 +44,12 @@ pub(crate) fn run(
     if affects {
         println!("Stored archives are affected: run `rpool pool migrate plan {name}`");
     }
+    if previous
+        .as_ref()
+        .is_some_and(|old| old.placement != placement)
+    {
+        println!("Placement changed: new direct uploads use it; running drives keep their previous layout until remounted, and pending upload plans may defer it further. Existing archives keep their previous placement; use `pool migrate plan --reapply-placement` to rewrite them.");
+    }
     Ok(())
 }
 

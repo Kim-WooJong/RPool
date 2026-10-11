@@ -122,13 +122,16 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     }
     if running {
         if let Some(current) = task.current_task() {
-            if let Some(fraction) = current.progress.fraction() {
-                ui.add(egui::ProgressBar::new(fraction).text(tr("current entry")));
-            }
+            super::transfer_view::show(ui, state, &current.progress.storage_traffic);
         }
         if let Some(line) = task.logs().last() {
             theme::hint(ui, &line.text);
         }
+    } else if let Some(previous) =
+        super::transfer_view::last_task(task, super::state::RUN_TASK, &id)
+    {
+        theme::hint(ui, tr("Last run on this PC"));
+        super::transfer_view::show(ui, state, &previous.progress.storage_traffic);
     }
 
     let idle = !task.is_running();
