@@ -154,6 +154,11 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                                 );
                                 ui.selectable_value(
                                     &mut draft.placement,
+                                    Placement::FreeRatioUnbounded,
+                                    crate::gui::i18n::tr(Placement::FreeRatioUnbounded.label()),
+                                );
+                                ui.selectable_value(
+                                    &mut draft.placement,
                                     Placement::Proportional,
                                     crate::gui::i18n::tr(Placement::Proportional.label()),
                                 );

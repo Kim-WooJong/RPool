@@ -11,6 +11,7 @@ CLI:
 rpool pool capacity my-pool --json
 rpool pool capacity my-pool --placement=resilient --data-shards=8 --parity-shards=2
 rpool pool capacity my-pool --placement=capacity-first --data-shards=8 --parity-shards=2
+rpool pool capacity my-pool --placement=free-ratio-unbounded --data-shards=8 --parity-shards=2
 rpool pool capacity --remote=crypt-a: --remote=crypt-b: --shard-mib=64 --parity-shards=0
 ```
 
@@ -62,6 +63,12 @@ small-file padding, and concurrent writers can reduce actual writable bytes.
   limit**. Losing one account or provider can therefore lose more than `M` shards
   of a coding group and make files unrecoverable. This is not a provider-outage
   recovery mode. Outage-group declarations are not required for this placement.
+- **Free-space ratio without outage guarantee** (`--placement=free-ratio-unbounded`)
+  chooses by remaining free-space **percentage**, not absolute free bytes.
+  It removes the built-in `M`-shard account limit from `free-ratio`, while
+  retaining quota checks, similar-percentage group sharing, and any explicit
+  per-account shard limit. Losing one account can therefore make files
+  unrecoverable; this is not a provider-outage recovery mode.
 
 For example, one 2 TiB account plus three 2 GiB accounts with `K=3, M=1` can
 make the strict Resilient writable bound much smaller than the coding-only

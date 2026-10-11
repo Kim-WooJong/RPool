@@ -1,5 +1,5 @@
 //! Quota-driven placement: free-ratio (with a per-account cap per coding
-//! group), proportional (ratio only) and capacity-first, all over a live
+//! group), unbounded free-ratio, proportional and capacity-first, all over a live
 //! `BudgetSnapshot` of the targets. Called through `placement::assign`.
 
 use crate::prelude::*;
@@ -58,6 +58,18 @@ pub(crate) fn allocate(
         Some(m) if m > 0 && ratio_first.is_err() => allocate_ordered(snapshot, specs, parity, true),
         _ => ratio_first,
     }
+}
+
+/// Free-ratio preference without the parity-based per-account cap. Unlike
+/// proportional placement, do not force every coding group across all accounts.
+/// If ratio-first strands a mixed-size group, retry with the same quota and
+/// explicitly configured account limits but a spread-first order.
+pub(crate) fn allocate_ratio_unbounded(
+    snapshot: &crate::storage::admin::budget::BudgetSnapshot,
+    specs: &[PhysicalSpec],
+) -> Result<Vec<usize>> {
+    allocate_ordered(snapshot, specs, None, false)
+        .or_else(|_| allocate_ordered(snapshot, specs, None, true))
 }
 
 /// Accounts within this share of the best free ratio count as equally free

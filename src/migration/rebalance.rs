@@ -102,6 +102,7 @@ impl Rebalancer {
         match self.placement {
             Placement::RoundRobin => Some(even),
             Placement::FreeRatio => (parity > 0).then(|| parity.max(even)),
+            Placement::FreeRatioUnbounded => None,
             Placement::Resilient => (parity > 0).then_some(parity),
             // Spread each coding group across the accounts for read
             // parallelism (no durability cap): hold at most ceil(size/keys),
@@ -184,28 +185,35 @@ impl Rebalancer {
                     placed += 1;
                 }
             }
-            // 2. Keys over the placement's limit give up their excess shards.
-            if let Some(m) = cap {
-                for &i in members {
-                    let Some(from) = at[&i] else { continue };
-                    let key = self.accounts[from].key.clone();
-                    if counts.get(&key).copied().unwrap_or(0) <= m
-                        || moves.contains_key(&manifest.shards[i].index)
-                    {
-                        continue;
-                    }
-                    if let Some(to) = best(&budgets, &counts, manifest.shards[i].size, Some(&key)) {
-                        self.apply(
-                            manifest,
-                            &mut budgets,
-                            &mut counts,
-                            &mut at,
-                            &mut moves,
-                            i,
-                            to,
-                        );
-                        capped += 1;
-                    }
+            // 2. Keys over either the placement or an explicit account limit
+            // give up their excess shards. This also applies when the policy
+            // itself has no outage cap.
+            for &i in members {
+                let Some(from) = at[&i] else { continue };
+                let Some(limit) = [cap, self.accounts[from].shard_cap]
+                    .into_iter()
+                    .flatten()
+                    .min()
+                else {
+                    continue;
+                };
+                let key = self.accounts[from].key.clone();
+                if counts.get(&key).copied().unwrap_or(0) <= limit
+                    || moves.contains_key(&manifest.shards[i].index)
+                {
+                    continue;
+                }
+                if let Some(to) = best(&budgets, &counts, manifest.shards[i].size, Some(&key)) {
+                    self.apply(
+                        manifest,
+                        &mut budgets,
+                        &mut counts,
+                        &mut at,
+                        &mut moves,
+                        i,
+                        to,
+                    );
+                    capped += 1;
                 }
             }
             // 3. Free-ratio balance: move from the fullest account while the
@@ -258,8 +266,7 @@ impl Rebalancer {
         }
         if capped > 0 {
             reasons.push(format!(
-                "rebalance: {capped} shard(s) over the {} limit per account",
-                self.placement.cli_value()
+                "rebalance: {capped} shard(s) over a per-account shard limit"
             ));
         }
         if balanced > 0 {

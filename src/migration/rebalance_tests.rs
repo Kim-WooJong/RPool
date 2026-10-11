@@ -84,6 +84,33 @@ fn a_new_empty_account_takes_shards_up_to_the_parity_limit() {
 }
 
 #[test]
+fn unbounded_free_ratio_rebalance_respects_only_explicit_account_caps() {
+    let mut quotas = [quota("a", 9 * GIB, 10 * GIB), quota("b", 2 * GIB, 10 * GIB)];
+    let m = manifest(&["a", "a", "a", "a", "a", "a"], GIB / 16);
+    let uncapped = Rebalancer::new(
+        &pool(Placement::FreeRatioUnbounded, &["a", "b"]),
+        &quotas,
+        &|_| None,
+    )
+    .unwrap();
+    assert!(uncapped.plan(&m, &BTreeSet::new()).0.is_empty());
+
+    let capped =
+        Rebalancer::new(&pool(Placement::FreeRatio, &["a", "b"]), &quotas, &|_| None).unwrap();
+    assert!(!capped.plan(&m, &BTreeSet::new()).0.is_empty());
+
+    quotas[0].shard_cap = Some(1);
+    let explicit = Rebalancer::new(
+        &pool(Placement::FreeRatioUnbounded, &["a", "b"]),
+        &quotas,
+        &|_| None,
+    )
+    .unwrap();
+    let (moves, _) = explicit.plan(&m, &BTreeSet::new());
+    assert_eq!(count(&moves, "b:"), 5, "{moves:?}");
+}
+
+#[test]
 fn a_balanced_pool_moves_nothing() {
     let target = pool(Placement::FreeRatio, &["a", "b", "c"]);
     let quotas = [

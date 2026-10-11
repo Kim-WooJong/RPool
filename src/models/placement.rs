@@ -12,6 +12,8 @@ pub(crate) enum Placement {
     RoundRobin,
     /// Highest free ratio first, at most M shards per account per group.
     FreeRatio,
+    /// Highest free ratio first, without a built-in per-account outage bound.
+    FreeRatioUnbounded,
     /// Highest free ratio first with no per-account shard limit.
     Proportional,
     /// Require each resolved backing target to hold at most M shards per group.
@@ -26,6 +28,7 @@ impl Placement {
         match self {
             Self::RoundRobin => "round-robin",
             Self::FreeRatio => "free-ratio",
+            Self::FreeRatioUnbounded => "free-ratio-unbounded",
             Self::Proportional => "proportional",
             Self::Resilient => "resilient",
             Self::CapacityFirst => "capacity-first",
@@ -37,6 +40,7 @@ impl Placement {
         match self {
             Self::RoundRobin => "Round robin",
             Self::FreeRatio => "Free-space ratio",
+            Self::FreeRatioUnbounded => "Free-space ratio (no provider-outage guarantee)",
             Self::Proportional => "Proportional fill (no provider-outage guarantee)",
             Self::Resilient => "Resilient (provider-outage bound)",
             Self::CapacityFirst => "Capacity-first (no provider-outage guarantee)",
@@ -49,6 +53,7 @@ impl Placement {
         match self {
             Self::Resilient => Some("Resilient: each declared outage group holds at most M shards per coding group. Independent outage groups are required."),
             Self::FreeRatio => Some("Free-space ratio: shards go to the accounts with the most free space by ratio, but one account holds at most M shards of each coding group, so losing one account stays recoverable when the pool has enough accounts."),
+            Self::FreeRatioUnbounded => Some("Free-space ratio without outage guarantee: shards prefer accounts with the highest free-space percentage, without the M-shard per-account limit. Accounts with similar percentages still share a coding group; a configured account shard limit still applies. Losing one account may make a file unrecoverable."),
             Self::Proportional => Some("Proportional fill: each coding group is spread across every account with free space (for read speed), then larger accounts take the remainder once smaller ones fill; no per-account cap for durability. Reed-Solomon parity remains, but losing one account may make a file unrecoverable."),
             Self::CapacityFirst => Some("Capacity-first: uses large account quotas without an outage-group shard limit. Reed-Solomon parity remains, but losing one account or provider may make a file unrecoverable."),
             _ => None,
@@ -77,6 +82,14 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<Placement>("\"capacity-first\"").unwrap(),
             Placement::CapacityFirst
+        );
+        assert_eq!(
+            serde_json::to_string(&Placement::FreeRatioUnbounded).unwrap(),
+            "\"free-ratio-unbounded\""
+        );
+        assert_eq!(
+            <Placement as ValueEnum>::from_str("free-ratio-unbounded", true).unwrap(),
+            Placement::FreeRatioUnbounded
         );
     }
 }

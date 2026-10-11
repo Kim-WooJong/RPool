@@ -118,17 +118,22 @@ fn pool_override(ui: &mut egui::Ui, state: &mut GuiState) {
             ui.end_row();
             ui.label(tr("Placement"));
             egui::ComboBox::from_id_salt("upload-override-placement")
-                .selected_text(policy.placement.label())
+                .selected_text(tr(policy.placement.label()))
                 .show_ui(ui, |ui| {
                     use crate::models::Placement;
                     for placement in [
                         Placement::RoundRobin,
                         Placement::FreeRatio,
+                        Placement::FreeRatioUnbounded,
                         Placement::Proportional,
                         Placement::Resilient,
                         Placement::CapacityFirst,
                     ] {
-                        ui.selectable_value(&mut policy.placement, placement, placement.label());
+                        ui.selectable_value(
+                            &mut policy.placement,
+                            placement,
+                            tr(placement.label()),
+                        );
                     }
                 });
             ui.end_row();

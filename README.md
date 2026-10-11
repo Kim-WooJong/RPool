@@ -192,7 +192,7 @@ A pool stores reusable remotes and upload policy:
 
 ```text
 rpool pool set NAME --remote R... [--data-shards K --parity-shards M] [--shard-mib N] \
-  [--placement round-robin|free-ratio|resilient|proportional|capacity-first] [--native-crypt] [--max-object-bytes N]
+  [--placement round-robin|free-ratio|free-ratio-unbounded|resilient|proportional|capacity-first] [--native-crypt] [--max-object-bytes N]
 rpool pool list | show NAME | remove NAME
 rpool pool capacity [NAME]          # capacity with saved or unsaved options; no mount
 rpool pool browse NAME              # list the drive read-only from cloud metadata
@@ -381,9 +381,16 @@ are marked complete.
   remote names; separate aliases are not resolved and outage tolerance is not
   enforced.
 - **free-ratio**: queries `rclone about --json`, accounts for data and parity
-  bytes, first minimizes same-group shards per provider, then uses remaining
-  free-space ratio. Quota pressure fails planning rather than concentrating a
-  coded group.
+  bytes, prefers accounts with the highest remaining free-space percentage,
+  and limits each account to at most `max(M, ceil((K+M)/accounts))` shards of a
+  coding group. Accounts with similar percentages share a group for parallelism.
+  Quota pressure fails planning rather than relaxing the group limit.
+- **free-ratio-unbounded** (GUI: "Free-space ratio (no provider-outage guarantee)"):
+  uses the same free-percentage priority and similar-percentage sharing, but
+  has no built-in `M`-shard account limit. It may put more than `M` shards of a
+  group on one account, so losing that account can make the file unrecoverable.
+  An explicitly configured per-account shard limit still applies. It does not
+  allocate exact byte shares proportional to each account's free capacity.
 - **resilient** (GUI: "Resilient (provider-outage bound)"): crypt/alias/chunker
   chains are resolved to backing sections, and a coding group places **at most
   M shards in one declared failure domain**. Among eligible quota domains the
@@ -411,6 +418,10 @@ Changing a pool's placement affects future uploads only; use pool migration to
 move existing archives. Declare shared quotas and outage groups with
 `--capacity-domain`/`--failure-domain` or Storage › Pools (stored in
 `provider_domains.json`). See [Pool capacity](docs/POOL_CAPACITY.md).
+Upgrade every PC using a shared pool before saving the new
+`free-ratio-unbounded` value: older binaries cannot read that policy name.
+An active drive may defer a changed placement until pending uploads finish and
+the drive is reopened.
 
 Resilient and free-ratio put at most a fixed share of each coding group on
 one group/account, so one account much larger than the rest keeps space no

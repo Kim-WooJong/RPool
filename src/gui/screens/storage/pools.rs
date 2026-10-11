@@ -314,6 +314,11 @@ fn policy_card(ui: &mut egui::Ui, state: &mut GuiState, task: &TaskRunner) {
                             );
                             ui.selectable_value(
                                 &mut state.pools.placement,
+                                Placement::FreeRatioUnbounded,
+                                crate::gui::i18n::tr(Placement::FreeRatioUnbounded.label()),
+                            );
+                            ui.selectable_value(
+                                &mut state.pools.placement,
                                 Placement::Proportional,
                                 crate::gui::i18n::tr(Placement::Proportional.label()),
                             );

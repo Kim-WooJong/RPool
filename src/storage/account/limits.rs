@@ -54,8 +54,8 @@ pub(crate) struct AccountLimits {
     pub inactivity_warn_days: Option<u32>,
     /// At most this many shards of one coding group on this account, below
     /// the placement's own limit (e.g. 1 for a slow account, so uploads do
-    /// not queue on it). Applies to Resilient and free-ratio placement on
-    /// this PC; never raises the outage bound.
+    /// not queue on it). Applies to Resilient and ratio-based quota placement
+    /// on this PC; never raises a policy's outage bound.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_group_shards: Option<u32>,
 }

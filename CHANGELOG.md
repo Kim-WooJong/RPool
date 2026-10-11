@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Add `free-ratio-unbounded` placement (GUI: "Free-space ratio (no provider-outage
+  guarantee)"). It prioritizes the highest remaining free-space percentage
+  without the built-in M-shard per-account limit, while retaining quota checks,
+  similar-percentage sharing and explicit account shard limits. The existing
+  `free-ratio` policy is unchanged. Older binaries cannot load a pool saved
+  with the new policy; upgrade other PCs before selecting it.
+
 ## 1.0.0 — 2026-10-01
 
 Major version: the old drive modes were removed (see the first entry), so

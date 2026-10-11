@@ -3,7 +3,7 @@
 
 /// Placement policies and relocation slot assignment.
 mod assign;
-/// Quota-driven free-ratio, proportional and capacity-first allocation.
+/// Quota-driven capped/unbounded free-ratio, proportional and capacity-first allocation.
 mod free_ratio;
 
 pub(crate) use assign::validate_resilient_plan;

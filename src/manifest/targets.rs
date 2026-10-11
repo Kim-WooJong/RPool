@@ -26,6 +26,7 @@ pub(crate) fn publication_remotes(
         placement,
         crate::models::Placement::Resilient
             | crate::models::Placement::FreeRatio
+            | crate::models::Placement::FreeRatioUnbounded
             | crate::models::Placement::Proportional
             | crate::models::Placement::CapacityFirst
     ) {
@@ -76,6 +77,14 @@ mod tests {
         );
         assert_eq!(
             publication_remotes(&manifest, &requested, crate::models::Placement::FreeRatio),
+            vec!["usable:"]
+        );
+        assert_eq!(
+            publication_remotes(
+                &manifest,
+                &requested,
+                crate::models::Placement::FreeRatioUnbounded
+            ),
             vec!["usable:"]
         );
         assert_eq!(

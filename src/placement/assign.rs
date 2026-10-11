@@ -1,5 +1,5 @@
 //! Shard-to-remote assignment for every placement policy: round robin,
-//! free-ratio / proportional / capacity-first (quota-driven, see
+//! free-ratio / unbounded free-ratio / proportional / capacity-first (quota-driven, see
 //! `free_ratio`) and Resilient (quota plus outage-group parity bound), and the
 //! minimal-move slot assignment used when archives are relocated. Used by
 //! upload planning, capacity estimates, speed-test estimates and migration.
@@ -27,7 +27,7 @@ pub(crate) fn assign_remotes(
         ),
         Placement::FreeRatio => plan_free_ratio(rclone, remotes, specs, parity_shards),
         Placement::Proportional => plan_free_ratio(rclone, remotes, specs, None),
-        Placement::Resilient | Placement::CapacityFirst => {
+        Placement::FreeRatioUnbounded | Placement::Resilient | Placement::CapacityFirst => {
             use crate::storage::admin::{BackendAdmin, RcloneAdmin};
             let admin = RcloneAdmin::inherited(rclone);
             let catalog = admin.catalog()?;
@@ -76,6 +76,9 @@ pub(crate) fn assign_with_budget(
 ) -> Result<Vec<usize>> {
     let assignments = match placement {
         Placement::FreeRatio => super::free_ratio::allocate(snapshot, specs, parity)?,
+        Placement::FreeRatioUnbounded => {
+            super::free_ratio::allocate_ratio_unbounded(snapshot, specs)?
+        }
         Placement::Proportional => super::free_ratio::allocate(snapshot, specs, None)?,
         Placement::CapacityFirst => super::free_ratio::allocate_capacity_first(snapshot, specs)?,
         Placement::RoundRobin => balanced_assign(
@@ -683,6 +686,41 @@ mod tests {
         let mut aliases = snapshot(&[2 * gib, 2 * gib]);
         aliases.targets[1].capacity_domain = aliases.targets[0].capacity_domain.clone();
         assert!(assign_with_budget(&aliases, &specs, Placement::CapacityFirst, Some(1)).is_err());
+    }
+    #[test]
+    fn unbounded_free_ratio_prefers_percentage_without_a_parity_cap() {
+        // Account 0 has the better free percentage; account 1 has more bytes.
+        let mut s = snapshot(&[900, 5_000]);
+        s.targets[1].total = 10_000;
+        let specs = vec![PhysicalSpec { group: 0, size: 1 }; 4];
+        let place = |mode| assign_with_budget(&s, &specs, mode, Some(1)).unwrap();
+        assert_eq!(place(Placement::FreeRatioUnbounded), vec![0; 4]);
+        assert_eq!(
+            place(Placement::FreeRatio)
+                .iter()
+                .filter(|&&i| i == 0)
+                .count(),
+            2
+        );
+        assert_eq!(
+            place(Placement::Proportional)
+                .iter()
+                .filter(|&&i| i == 0)
+                .count(),
+            2
+        );
+        assert_eq!(place(Placement::CapacityFirst), vec![1; 4]);
+
+        // Removing the policy's M cap must not remove an explicit account cap.
+        s.targets[0].shard_cap = Some(1);
+        assert_eq!(
+            assign_with_budget(&s, &specs, Placement::FreeRatioUnbounded, Some(1))
+                .unwrap()
+                .iter()
+                .filter(|&&i| i == 0)
+                .count(),
+            1
+        );
     }
     #[test]
     fn two_choice_prefers_lower_projected_utilization_not_raw_free_bytes() {

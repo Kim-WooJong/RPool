@@ -54,7 +54,7 @@ pub(crate) enum LimitsCommands {
         inactivity_warn_days: Option<u32>,
         /// At most this many shards of one coding group on this account, below
         /// the placement's limit (e.g. `1` for a slow account; `0` clears).
-        /// Resilient and free-ratio placement.
+        /// Resilient and ratio-based quota placement.
         #[arg(long)]
         max_group_shards: Option<u32>,
     },
