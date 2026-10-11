@@ -208,7 +208,7 @@ fn view_model_from_sample_status() {
     let live = view.live.unwrap();
     assert_eq!(live.uptime, "Up 5h 12m");
     assert_eq!(live.last_sync, "Last sync 1m ago");
-    assert_eq!(live.queue, "37 files, 782.01 MiB waiting");
+    assert_eq!(live.queue, "37 changes, 782.01 MiB waiting");
     assert_eq!(live.queue_oldest.as_deref(), Some("oldest since 4m 20s"));
     assert_eq!(live.activity, Activity::Uploading);
     assert_eq!(live.alerts.len(), 3);

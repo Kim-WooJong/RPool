@@ -60,6 +60,8 @@ pub(crate) struct MountForm {
     pub(super) native_read_only: bool,
     /// Drive › Maintenance › Workspace backups.
     pub(super) backups: super::backups_card::BackupsView,
+    /// Drive › Maintenance › Pending uploads.
+    pub(super) pending_queue: super::pending_queue_card::PendingQueueView,
 }
 
 /// Pseudo action for [`MountForm::spec_for`]: account recovery.
@@ -97,11 +99,23 @@ impl Default for MountForm {
             frontend: Default::default(),
             native_read_only: false,
             backups: Default::default(),
+            pending_queue: Default::default(),
         }
     }
 }
 
 impl MountForm {
+    /// Opens offline pending-write management for a mounted pool/workspace.
+    pub(crate) fn manage_pending_workspace(
+        &mut self,
+        pool: String,
+        workspace: String,
+        settings: &mut crate::gui::settings::GuiSettings,
+    ) {
+        self.select_pool(pool, settings);
+        self.workspace = workspace;
+        self.tab = crate::gui::state::DriveTab::Maintenance;
+    }
     /// This PC's drive workspace of `pool`, when the Drive page has one set
     /// (pool migration offers to switch it after adopting the drive).
     pub(crate) fn workspace_of(&self, pool: &str) -> Option<String> {

@@ -41,4 +41,6 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
         ui.add_space(theme::SECTION_GAP);
         super::backups_card::show(ui, form);
     });
+    ui.add_space(theme::SECTION_GAP);
+    super::pending_queue_card::show(ui, form);
 }

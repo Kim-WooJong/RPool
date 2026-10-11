@@ -20,6 +20,7 @@ mod move_image;
 mod open;
 /// Small-file packs: many small writes uploaded as one archive.
 mod pack;
+pub(crate) mod pending_cancel;
 mod read;
 mod recovery;
 mod rename;

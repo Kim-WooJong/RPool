@@ -235,9 +235,9 @@ fn live_view(status: &NetStatus, now: u64) -> LiveView {
             tr("Nothing waiting to upload").into()
         } else {
             trf(
-                "{files} files, {bytes} waiting",
+                "{changes} changes, {bytes} waiting",
                 &[
-                    ("files", &queue.pending_files),
+                    ("changes", &queue.pending_files),
                     ("bytes", &format::bytes(queue.pending_bytes)),
                 ],
             )

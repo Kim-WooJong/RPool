@@ -92,6 +92,7 @@ pub(crate) fn family_status(now: u64) -> NetStatus {
             pending_files: 37,
             pending_bytes: 820_000_000,
             oldest_pending_unix: Some(now - 260),
+            items: None,
         },
         last_sync_unix: Some(now - 90),
         alerts: vec![
@@ -138,6 +139,7 @@ pub(crate) fn photos_status(now: u64) -> NetStatus {
             pending_files: 4,
             pending_bytes: 96_000_000,
             oldest_pending_unix: Some(now - 600),
+            items: None,
         },
         last_sync_unix: Some(now - 7_200),
         alerts: vec![Alert {

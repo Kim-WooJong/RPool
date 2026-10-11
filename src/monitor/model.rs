@@ -100,12 +100,35 @@ pub(crate) struct RemoteTraffic {
 /// Local changes not yet in the cloud.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct QueueStatus {
-    /// Files waiting for upload.
+    /// Pending changes (writes and deletions, including multiple revisions of a file).
     pub pending_files: u64,
     /// Bytes waiting for upload.
     pub pending_bytes: u64,
     /// Change time of the oldest pending file, Unix seconds.
     pub oldest_pending_unix: Option<u64>,
+    /// `None` from an older mount that does not expose individual changes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub items: Option<Vec<QueueItem>>,
+}
+
+/// One durable pending change, in namespace acknowledgement order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct QueueItem {
+    /// Stable intent identity; a path can have several pending revisions.
+    pub id: String,
+    /// Relative path shown on the mounted drive.
+    pub path: String,
+    /// A write has spool bytes; a deletion has none.
+    pub operation: QueueOperation,
+    pub size: u64,
+    pub since_unix: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum QueueOperation {
+    Write,
+    Delete,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

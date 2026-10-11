@@ -206,6 +206,7 @@ mod tests {
                 pending_files: 3,
                 pending_bytes: 2048,
                 oldest_pending_unix: Some(700),
+                items: None,
             },
             last_sync_unix: Some(940),
             alerts: vec![Alert {

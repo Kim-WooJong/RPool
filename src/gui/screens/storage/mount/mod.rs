@@ -15,6 +15,7 @@ mod layout_notice;
 mod log;
 mod maintenance;
 mod options;
+mod pending_queue_card;
 mod session;
 #[cfg(test)]
 pub(crate) mod session_tests;

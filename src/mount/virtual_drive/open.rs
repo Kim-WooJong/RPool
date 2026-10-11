@@ -224,6 +224,7 @@ impl VirtualDrive {
             bail!("existing virtual workspace lost its primary namespace; preserve spool and use recovery");
         }
         let mut state = Namespace::load(&root, worker)?;
+        pending_cancel::resume(&root, &mut state)?;
         state.version = FORMAT_VERSION;
         state.save(&root)?;
         let cache = ShardCache::new(root.join("clean-cache"), cache_limit)?;

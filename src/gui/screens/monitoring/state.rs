@@ -24,6 +24,8 @@ pub(crate) enum CardTab {
     /// Live rates and sparklines (the default).
     #[default]
     Live,
+    /// Individual pending drive changes.
+    Queue,
     /// History bar charts.
     History,
 }

@@ -7,6 +7,7 @@ mod format;
 mod history;
 mod history_view;
 mod live_view;
+mod queue_view;
 mod ring;
 #[cfg(any(test, debug_assertions))]
 pub(crate) mod sample;
@@ -47,6 +48,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
         state::STATUS_EVERY
     });
     let mut open_drive = false;
+    let mut manage_pending = None;
     theme::page_body(ui, "monitoring", |ui| {
         theme::page_header(
             ui,
@@ -75,10 +77,19 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
             return;
         }
         for index in 0..monitoring.mounts.len() {
-            mount_card(ui, monitoring, index, now, now_unix);
+            if mount_card(ui, monitoring, index, now, now_unix) {
+                let entry = &monitoring.mounts[index].entry;
+                manage_pending = Some((entry.pool.clone(), entry.workspace.clone()));
+            }
         }
     });
     if open_drive {
+        state.page = Page::Drive;
+    }
+    if let Some((pool, workspace)) = manage_pending {
+        state
+            .mount
+            .manage_pending_workspace(pool, workspace, &mut state.settings);
         state.page = Page::Drive;
     }
 }
@@ -92,12 +103,13 @@ fn mount_card(
     index: usize,
     now: Instant,
     now_unix: u64,
-) {
+) -> bool {
     let mount = &monitoring.mounts[index];
     let view = view_model::mount_view(&mount.entry, mount.status.as_ref(), now_unix);
     let subtitle = view.mountpoint.clone();
     let mut tab = mount.tab;
     let mut range = mount.range;
+    let mut manage_pending = false;
     ui.push_id(("monitoring-card", &mount.entry.id), |ui| {
         theme::card_section(
             ui,
@@ -121,12 +133,17 @@ fn mount_card(
                     &mut tab,
                     &[
                         (CardTab::Live, tr("Live")),
+                        (CardTab::Queue, tr("Queue")),
                         (CardTab::History, tr("History")),
                     ],
                 );
                 let mount = &monitoring.mounts[index];
                 match tab {
                     CardTab::Live => live_view::remotes(ui, live, &mount.rings, now_unix),
+                    CardTab::Queue => {
+                        manage_pending =
+                            queue_view::show(ui, &mount.status.as_ref().unwrap().queue, now_unix)
+                    }
                     CardTab::History => range = history_view::show(ui, range, &mount.history),
                 }
             },
@@ -138,4 +155,5 @@ fn mount_card(
     if tab == CardTab::History {
         monitoring.ensure_history(index, now, now_unix);
     }
+    manage_pending
 }

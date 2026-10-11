@@ -319,7 +319,7 @@ pub(super) fn net_monitor(
     args: &crate::cli::MountArgs,
     frontend: crate::cli::Frontend,
 ) -> crate::monitor::runtime::MountMonitor {
-    use crate::monitor::{runtime, sampler::PendingItem};
+    use crate::monitor::{model::QueueOperation, runtime, sampler::PendingItem};
     let queue_drive = drive.clone();
     let queue: runtime::QueueFn = Box::new(move || {
         let Ok(state) = queue_drive.state.lock() else {
@@ -330,6 +330,12 @@ pub(super) fn net_monitor(
             .iter()
             .map(|intent| PendingItem {
                 id: intent.id.clone(),
+                path: intent.path.clone(),
+                operation: if intent.spool.is_some() {
+                    QueueOperation::Write
+                } else {
+                    QueueOperation::Delete
+                },
                 size: intent.size,
                 spool: intent
                     .spool

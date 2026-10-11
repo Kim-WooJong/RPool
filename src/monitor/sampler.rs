@@ -2,7 +2,9 @@
 //! the drive's queue, and the per-minute [`HistoryPoint`]s. Pure apart from
 //! the `mtime` callback, so it is tested with a fake clock.
 use super::alerts::AlertState;
-use super::model::{HistoryPoint, NetStatus, QueueStatus, RemoteTraffic, STATUS_VERSION};
+use super::model::{
+    HistoryPoint, NetStatus, QueueItem, QueueOperation, QueueStatus, RemoteTraffic, STATUS_VERSION,
+};
 use crate::storage::rclone::traffic::Traffic;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -12,6 +14,9 @@ use std::path::PathBuf;
 pub(crate) struct PendingItem {
     /// Stable id of the pending item (tracks its first-seen time).
     pub id: String,
+    /// Relative path of the change.
+    pub path: String,
+    pub operation: QueueOperation,
     /// Bytes to upload (0 for deletions).
     pub size: u64,
     /// Spool file, whose modification time dates the item.
@@ -228,6 +233,18 @@ impl Sampler {
             pending_files: pending.len() as u64,
             pending_bytes: pending.iter().map(|item| item.size).sum(),
             oldest_pending_unix: self.first_seen.values().min().copied(),
+            items: Some(
+                pending
+                    .iter()
+                    .map(|item| QueueItem {
+                        id: item.id.clone(),
+                        path: item.path.clone(),
+                        operation: item.operation,
+                        size: item.size,
+                        since_unix: self.first_seen[&item.id],
+                    })
+                    .collect(),
+            ),
         }
     }
 }
@@ -255,12 +272,16 @@ mod tests {
         let pending = [
             PendingItem {
                 id: "i1".into(),
+                path: "first.bin".into(),
+                operation: QueueOperation::Write,
                 size: 10,
                 spool: Some("/spool/i1".into()),
             },
             PendingItem {
                 id: "i2".into(),
-                size: 5,
+                path: "first.bin".into(),
+                operation: QueueOperation::Delete,
+                size: 0,
                 spool: None,
             },
         ];
@@ -278,8 +299,24 @@ mod tests {
             status.queue,
             QueueStatus {
                 pending_files: 2,
-                pending_bytes: 15,
+                pending_bytes: 10,
                 oldest_pending_unix: Some(800),
+                items: Some(vec![
+                    QueueItem {
+                        id: "i1".into(),
+                        path: "first.bin".into(),
+                        operation: QueueOperation::Write,
+                        size: 10,
+                        since_unix: 800
+                    },
+                    QueueItem {
+                        id: "i2".into(),
+                        path: "first.bin".into(),
+                        operation: QueueOperation::Delete,
+                        size: 0,
+                        since_unix: 1000
+                    },
+                ]),
             }
         );
         assert_eq!(status.remotes.len(), 2);
@@ -304,7 +341,18 @@ mod tests {
             |_| None,
         );
         assert_eq!(status.queue.oldest_pending_unix, Some(1000));
-        assert_eq!(status.queue.pending_bytes, 5);
+        assert_eq!(status.queue.pending_bytes, 0);
+    }
+
+    #[test]
+    fn older_queue_status_has_no_item_details() {
+        let status: QueueStatus = serde_json::from_value(serde_json::json!({
+            "pending_files": 1,
+            "pending_bytes": 4,
+            "oldest_pending_unix": 800
+        }))
+        .unwrap();
+        assert_eq!(status.items, None);
     }
 
     #[test]
@@ -352,6 +400,8 @@ mod tests {
         let mut sampler = Sampler::new("p", vec!["a:".into()], 0);
         let pending = [PendingItem {
             id: "x".into(),
+            path: "x".into(),
+            operation: QueueOperation::Write,
             size: 1,
             spool: None,
         }];

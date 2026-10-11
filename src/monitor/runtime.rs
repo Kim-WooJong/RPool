@@ -253,6 +253,8 @@ mod tests {
         let remote = "monitor-runtime-test:";
         let pending = Arc::new(Mutex::new(vec![PendingItem {
             id: "i".into(),
+            path: "queued.bin".into(),
+            operation: crate::monitor::model::QueueOperation::Write,
             size: 42,
             spool: None,
         }]));
