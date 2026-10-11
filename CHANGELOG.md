@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.16.0 — 2026-10-11
 
 - Add `free-ratio-unbounded` placement (GUI: "Free-space ratio (no provider-outage
   guarantee)"). It prioritizes the highest remaining free-space percentage
@@ -8,6 +8,11 @@
   similar-percentage sharing and explicit account shard limits. The existing
   `free-ratio` policy is unchanged. Older binaries cannot load a pool saved
   with the new policy; upgrade other PCs before selecting it.
+- Show pending online-drive uploads in the GUI and allow selected local pending
+  writes to be cancelled safely.
+- Classify unknown rclone write outcomes with stable reasons for permission,
+  authentication, full storage, missing folders, connection, timeout and
+  modification-time failures, without exposing provider error text.
 
 ## 1.0.0 — 2026-10-01
 
