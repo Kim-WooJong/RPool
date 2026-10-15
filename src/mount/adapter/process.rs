@@ -6,6 +6,18 @@ impl MountProcess {
     /// Validates paths, takes the mount lease, and spawns rclone mounting the drive's WebDAV
     /// server with a private log and an authenticated loopback RC port. Called by `virtual_drive::run`.
     pub(crate) fn start(config: MountConfig) -> Result<Self> {
+        // Before anything stats the mountpoint: a volume whose NFS server is
+        // gone would hang that stat, so release one this workspace left behind.
+        #[cfg(target_os = "macos")]
+        super::release::clear_stale_volume(
+            &config
+                .anchor_dir
+                .parent()
+                .context("workspace root missing")?
+                .join(".rpool"),
+            &super::mountpoint::normalized_existing_or_parent(&config.cache_dir)?,
+            &config.target,
+        )?;
         validate_mountpoint(&config)?;
         #[cfg(target_os = "macos")]
         check_nfsmount_version(&config.rclone)?;
@@ -132,27 +144,54 @@ impl MountProcess {
             stopped: false,
             graceful_quit_requested: false,
             shutdown_uncertain: false,
+            end: None,
             lease,
         })
     }
 
-    /// Non-blocking exit check. On exit clears the lease, except on macOS without a confirmed
-    /// graceful quit, where it records `ShutdownUncertain` and returns an error.
+    /// Non-blocking exit check; an exit is settled by [`Self::settle`].
     pub(crate) fn poll(&mut self) -> Result<Option<ExitStatus>> {
         let status = self.child.try_wait()?;
-        if let Some(_exit) = &status {
-            self.stopped = true;
-            #[cfg(target_os = "macos")]
-            if !self.graceful_quit_requested || !_exit.success() {
-                self.lease.record(&LeaseState::ShutdownUncertain {
-                    pid: self.child.id(),
-                })?;
-                self.shutdown_uncertain = true;
-                bail!("macOS NFS process exited without a confirmed graceful unmount ({_exit}); mount lease retained for OS I/O inspection");
-            }
-            self.lease.clear_if_unmounted(&self.target)?;
+        if let Some(exit) = status {
+            self.settle(exit)?;
         }
         Ok(status)
+    }
+
+    /// Records how the exited child ended and clears the lease once nothing
+    /// of the mount remains. On macOS the NFS server is gone with rclone, so a
+    /// volume still listed is released first (`release::release_dead_mount`):
+    /// a hard NFS mount without its server hangs every app that touches it.
+    /// Only a volume that cannot be released keeps `ShutdownUncertain`.
+    fn settle(&mut self, exit: ExitStatus) -> Result<()> {
+        self.stopped = true;
+        let requested = self.graceful_quit_requested && exit.success();
+        #[cfg(target_os = "macos")]
+        if !matches!(super::release::release_dead_mount(&self.target), Ok(true)) {
+            self.lease.record(&LeaseState::ShutdownUncertain {
+                pid: self.child.id(),
+            })?;
+            self.shutdown_uncertain = true;
+            bail!(
+                "macOS NFS server exited ({exit}) but its volume at {0} is still attached; mount lease retained. Run `diskutil unmount force {0}`, then mount again",
+                self.target.display()
+            );
+        }
+        self.lease.clear_if_unmounted(&self.target)?;
+        self.shutdown_uncertain = false;
+        self.end = Some(if requested {
+            NativeEnd::Requested
+        } else if exit.success() {
+            NativeEnd::Ejected
+        } else {
+            NativeEnd::Lost
+        });
+        Ok(())
+    }
+
+    /// How the child ended; `None` while running or unsettled.
+    pub(crate) fn end(&self) -> Option<NativeEnd> {
+        self.end
     }
 
     /// Accessibility alone is insufficient on Unix because the mount directory preexists.
@@ -183,16 +222,17 @@ impl MountProcess {
 
     /// New redacted rclone log lines since the last call.
     pub(crate) fn logs(&self) -> Vec<String> {
+        // A panic caught in the mount loop must not silence the log for the stop.
         self.logs
             .lock()
-            .map(|mut logs| logs.read_new())
-            .unwrap_or_default()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .read_new()
     }
 
-    /// True once the child exited after a requested graceful quit with a
-    /// clean status and no uncertainty is left (lease cleared).
-    pub(crate) fn exited_cleanly(&self) -> bool {
-        self.stopped && self.graceful_quit_requested && !self.shutdown_uncertain
+    /// True once the child exited and was settled with nothing of the mount
+    /// left (lease cleared), however it ended.
+    pub(crate) fn settled(&self) -> bool {
+        self.stopped && !self.shutdown_uncertain && self.end.is_some()
     }
 
     /// True while the child has not exited.
@@ -208,12 +248,8 @@ impl MountProcess {
         loop {
             match self.child.try_wait()? {
                 Some(status) => {
-                    self.stopped = true;
-                    // Same criteria as a timely graceful stop; otherwise the lease stays.
-                    if self.graceful_quit_requested && status.success() {
-                        self.lease.clear_if_unmounted(&self.target)?;
-                        self.shutdown_uncertain = false;
-                    }
+                    // Same settlement as a timely exit; an unreleasable volume keeps the lease.
+                    self.settle(status)?;
                     return Ok(true);
                 }
                 None if Instant::now() >= deadline => return Ok(false),

@@ -36,11 +36,67 @@ impl VirtualFs {
         }
         Err(FsError::NotFound)
     }
+
+    /// Entries of the directory `path` in the visible view, by name; a file
+    /// is `Forbidden`. Explicit (empty) folders are listed too.
+    pub(super) fn list(&self, path: &str) -> FsResult<BTreeMap<String, Meta>> {
+        if !self.stat(path)?.directory {
+            return Err(FsError::Forbidden);
+        }
+        let prefix = if path.is_empty() {
+            String::new()
+        } else {
+            format!("{path}/")
+        };
+        let view = self.drive.visible().map_err(failure)?;
+        let mut entries = BTreeMap::new();
+        for (child, file) in view.children(&prefix) {
+            let meta = match file {
+                Some((id, size)) => Meta {
+                    size,
+                    directory: false,
+                    tag: id.into(),
+                },
+                None => Meta {
+                    size: 0,
+                    directory: true,
+                    tag: format!("dir-{child}"),
+                },
+            };
+            entries.insert(child, meta);
+        }
+        for name in view.directories() {
+            if let Some(relative) = name.strip_prefix(&prefix) {
+                let child = relative.split('/').next().unwrap_or("");
+                if !child.is_empty() {
+                    entries.entry(child.into()).or_insert(Meta {
+                        size: 0,
+                        directory: true,
+                        tag: format!("dir-{child}"),
+                    });
+                }
+            }
+        }
+        Ok(entries)
+    }
+}
+
+/// Runs namespace work on tokio's blocking pool. It takes the drive's state
+/// lock, which writers hold across local disk syncs; on the server's two
+/// async workers such waits stalled every other request, and rclone's NFS
+/// server answers the Mac's requests one at a time behind them.
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> FsResult<T> + Send + 'static,
+) -> FsResult<T> {
+    tokio::task::spawn_blocking(work).await.map_err(failure)?
 }
 
 impl DavFileSystem for VirtualFs {
     fn metadata<'a>(&'a self, p: &'a DavPath) -> FsFuture<'a, Box<dyn DavMetaData>> {
-        Box::pin(async move { Ok(Box::new(self.stat(&path(p)?)?) as _) })
+        Box::pin(async move {
+            let (fs, p) = (self.clone(), path(p)?);
+            Ok(Box::new(blocking(move || fs.stat(&p)).await?) as _)
+        })
     }
     fn read_dir<'a>(
         &'a self,
@@ -48,44 +104,8 @@ impl DavFileSystem for VirtualFs {
         _: ReadDirMeta,
     ) -> FsFuture<'a, FsStream<Box<dyn DavDirEntry>>> {
         Box::pin(async move {
-            let p = path(p)?;
-            if !self.stat(&p)?.directory {
-                return Err(FsError::Forbidden);
-            }
-            let prefix = if p.is_empty() {
-                String::new()
-            } else {
-                format!("{p}/")
-            };
-            let view = self.drive.visible().map_err(failure)?;
-            let mut entries = BTreeMap::new();
-            for (child, file) in view.children(&prefix) {
-                let meta = match file {
-                    Some((id, size)) => Meta {
-                        size,
-                        directory: false,
-                        tag: id.into(),
-                    },
-                    None => Meta {
-                        size: 0,
-                        directory: true,
-                        tag: format!("dir-{child}"),
-                    },
-                };
-                entries.insert(child, meta);
-            }
-            for name in view.directories() {
-                if let Some(relative) = name.strip_prefix(&prefix) {
-                    let child = relative.split('/').next().unwrap_or("");
-                    if !child.is_empty() {
-                        entries.entry(child.into()).or_insert(Meta {
-                            size: 0,
-                            directory: true,
-                            tag: format!("dir-{child}"),
-                        });
-                    }
-                }
-            }
+            let (fs, p) = (self.clone(), path(p)?);
+            let entries = blocking(move || fs.list(&p)).await?;
             let entries: Vec<FsResult<Box<dyn DavDirEntry>>> = entries
                 .into_iter()
                 .map(|(name, meta)| Ok(Box::new(Entry { name, meta }) as _))
@@ -183,20 +203,26 @@ impl DavFileSystem for VirtualFs {
     }
     fn create_dir<'a>(&'a self, p: &'a DavPath) -> FsFuture<'a, ()> {
         Box::pin(async move {
-            let p = path(p)?;
-            if self.stat(&p).is_ok() {
-                return Err(FsError::Exists);
-            }
-            self.drive.create_directory(&p).map_err(failure)
+            let (fs, p) = (self.clone(), path(p)?);
+            blocking(move || {
+                if fs.stat(&p).is_ok() {
+                    return Err(FsError::Exists);
+                }
+                fs.drive.create_directory(&p).map_err(failure)
+            })
+            .await
         })
     }
     fn remove_file<'a>(&'a self, p: &'a DavPath) -> FsFuture<'a, ()> {
         Box::pin(async move {
-            let p = path(p)?;
-            if self.stat(&p)?.directory {
-                return Err(FsError::Forbidden);
-            }
-            self.drive.delete(&p).map_err(failure)
+            let (fs, p) = (self.clone(), path(p)?);
+            blocking(move || {
+                if fs.stat(&p)?.directory {
+                    return Err(FsError::Forbidden);
+                }
+                fs.drive.delete(&p).map_err(failure)
+            })
+            .await
         })
     }
     fn remove_dir<'a>(&'a self, p: &'a DavPath) -> FsFuture<'a, ()> {
@@ -205,28 +231,28 @@ impl DavFileSystem for VirtualFs {
             if p.is_empty() {
                 return Err(FsError::Forbidden);
             }
-            match self.drive.remove_directory(&p).map_err(failure)? {
+            let drive = self.drive.clone();
+            blocking(move || match drive.remove_directory(&p).map_err(failure)? {
                 true => Ok(()),
                 false => Err(FsError::Exists),
-            }
+            })
+            .await
         })
     }
     fn rename<'a>(&'a self, from: &'a DavPath, to: &'a DavPath) -> FsFuture<'a, ()> {
         Box::pin(async move {
             let from = path(from)?;
             let to = path(to)?;
-            let drive = self.drive.clone();
-            let directory = self.stat(&from)?.directory;
-            tokio::task::spawn_blocking(move || {
-                if directory {
-                    drive.rename_directory(&from, &to)
+            let fs = self.clone();
+            blocking(move || {
+                if fs.stat(&from)?.directory {
+                    fs.drive.rename_directory(&from, &to)
                 } else {
-                    drive.rename_file(&from, &to)
+                    fs.drive.rename_file(&from, &to)
                 }
                 .map_err(failure)
             })
             .await
-            .map_err(failure)?
         })
     }
     fn get_quota(&self) -> FsFuture<'_, (u64, Option<u64>)> {
@@ -241,7 +267,8 @@ impl DavFileSystem for VirtualFs {
             // properties become its synthetic 1 PiB Statfs fallback. Advertise
             // only confirmed namespace usage and zero *additional* writable
             // bytes while cloud capacity is unverified, not an invented quota.
-            let used = self.drive.visible_used().map_err(failure)?;
+            let drive = self.drive.clone();
+            let used = blocking(move || drive.visible_used().map_err(failure)).await?;
             if !self.quota_unavailable.swap(true, Ordering::AcqRel) {
                 eprintln!("Virtual drive capacity unavailable or stale: Explorer shows 0 additional free bytes until verification succeeds. This does not mean the cloud pool is full; existing reads remain available.");
             }

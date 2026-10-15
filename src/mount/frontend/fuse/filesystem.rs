@@ -1,5 +1,7 @@
 //! `fuser::Filesystem` over `FsCore`. Paths come from the inode table; every
 //! data operation goes through a core handle.
+#[cfg(target_os = "macos")]
+use super::bounded::Bounded;
 use super::detached::Detached;
 use super::errno::errno;
 use super::inodes::Inodes;
@@ -34,6 +36,18 @@ const RENAME_NOREPLACE: u32 = libc::RENAME_EXCL;
 
 /// The `fuser::Filesystem` implementation; created by `fuse::session` per mount.
 pub(super) struct RpoolFs {
+    /// State shared with requests answered off the session thread.
+    shared: Arc<Shared>,
+    /// Seals (`release`, `fsync`) replying off the request loop.
+    seals: Detached,
+    /// Reads, writes and resizes, which may wait for a cloud download,
+    /// answered off the session thread within macFUSE's limit (`bounded`).
+    #[cfg(target_os = "macos")]
+    slow: Bounded,
+}
+
+/// The parts of [`RpoolFs`] every request needs.
+pub(super) struct Shared {
     /// Shared filesystem core every operation goes through.
     core: Arc<FsCore>,
     /// Inode ↔ path table.
@@ -46,8 +60,13 @@ pub(super) struct RpoolFs {
     gid: u32,
     /// Mount start time, reported as every entry's timestamps.
     started: SystemTime,
-    /// Seals (`release`, `fsync`) replying off the request loop.
-    seals: Detached,
+}
+
+impl std::ops::Deref for RpoolFs {
+    type Target = Shared;
+    fn deref(&self) -> &Shared {
+        &self.shared
+    }
 }
 
 /// `parent/name` drive path; rejects non-UTF-8, empty, `.`, `..` and names with `/`.
@@ -72,15 +91,43 @@ impl RpoolFs {
     pub(super) fn new(core: Arc<FsCore>, mountpoint: &Path, read_only: bool) -> Result<Self> {
         let owner = fs::metadata(mountpoint).context("mountpoint must exist")?;
         Ok(Self {
-            core,
-            inodes: Mutex::new(Inodes::new()),
-            read_only,
-            uid: owner.uid(),
-            gid: owner.gid(),
-            started: SystemTime::now(),
+            shared: Arc::new(Shared {
+                core,
+                inodes: Mutex::new(Inodes::new()),
+                read_only,
+                uid: owner.uid(),
+                gid: owner.gid(),
+                started: SystemTime::now(),
+            }),
             seals: Detached::default(),
+            #[cfg(target_os = "macos")]
+            slow: Bounded::default(),
         })
     }
+    /// Answers a request that may wait for a cloud download: on macOS from a
+    /// worker, with `expire` at the answer deadline (`bounded`); elsewhere
+    /// inline on the session's threads.
+    fn run_slow<R, T>(
+        &self,
+        reply: R,
+        expire: impl FnOnce(R) + Send + 'static,
+        work: impl FnOnce() -> T + Send + 'static,
+        finish: impl FnOnce(R, T) + Send + 'static,
+    ) where
+        R: Send + 'static,
+        T: 'static,
+    {
+        #[cfg(target_os = "macos")]
+        self.slow.run(reply, expire, work, finish);
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = expire;
+            finish(reply, work());
+        }
+    }
+}
+
+impl Shared {
     /// Locks the inode table, ignoring poisoning.
     fn inodes(&self) -> std::sync::MutexGuard<'_, Inodes> {
         self.inodes
@@ -155,8 +202,11 @@ impl RpoolFs {
 
 impl Filesystem for RpoolFs {
     fn destroy(&mut self) {
-        // Every sealing reply is sent before the session ends.
+        // Every sealing reply is sent before the session ends; slow requests
+        // get a bounded wait.
         self.seals.wait_idle();
+        #[cfg(target_os = "macos")]
+        self.slow.wait_idle();
     }
 
     fn lookup(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
@@ -191,19 +241,31 @@ impl Filesystem for RpoolFs {
         _flags: Option<fuser::BsdFileFlags>,
         reply: ReplyAttr,
     ) {
-        let result = (|| {
-            let path = self.path(ino)?;
-            if let Some(size) = size {
-                self.writable()?;
-                self.truncate(&path, fh, size).map_err(errno)?;
-            }
-            // Mode, owner and times are not stored; report the current attributes.
-            self.entry(&path)
-        })();
-        match result {
-            Ok(attr) => reply.attr(&TTL, &attr),
-            Err(e) => reply.error(e),
+        // Mode, owner and times are not stored; report the current attributes.
+        let Some(size) = size else {
+            return match self.path(ino).and_then(|p| self.entry(&p)) {
+                Ok(attr) => reply.attr(&TTL, &attr),
+                Err(e) => reply.error(e),
+            };
+        };
+        if let Err(e) = self.writable() {
+            return reply.error(e);
         }
+        // A resize that keeps bytes copies the file first (maybe a download).
+        let shared = self.shared.clone();
+        self.run_slow(
+            reply,
+            |reply: ReplyAttr| reply.error(Errno::ETIMEDOUT),
+            move || {
+                let path = shared.path(ino)?;
+                shared.truncate(&path, fh, size).map_err(errno)?;
+                shared.entry(&path)
+            },
+            |reply, result| match result {
+                Ok(attr) => reply.attr(&TTL, &attr),
+                Err(e) => reply.error(e),
+            },
+        );
     }
 
     fn mkdir(
@@ -358,10 +420,17 @@ impl Filesystem for RpoolFs {
         _lock_owner: Option<LockOwner>,
         reply: ReplyData,
     ) {
-        match self.core.read_at(handle(fh), offset, size as usize) {
-            Ok(bytes) => reply.data(&bytes),
-            Err(e) => reply.error(errno(e)),
-        }
+        // A file that is not cached waits for its cloud download.
+        let (core, fh) = (self.core.clone(), handle(fh));
+        self.run_slow(
+            reply,
+            |reply: ReplyData| reply.error(Errno::ETIMEDOUT),
+            move || core.read_at(fh, offset, size as usize),
+            |reply, result| match result {
+                Ok(bytes) => reply.data(&bytes),
+                Err(e) => reply.error(errno(e)),
+            },
+        );
     }
 
     fn write(
@@ -379,10 +448,17 @@ impl Filesystem for RpoolFs {
         if self.read_only {
             return reply.error(Errno::EROFS);
         }
-        match self.core.write_at(handle(fh), offset, data) {
-            Ok(n) => reply.written(n as u32),
-            Err(e) => reply.error(errno(e)),
-        }
+        // The first write into an existing file copies it (maybe a download).
+        let (core, fh, data) = (self.core.clone(), handle(fh), data.to_vec());
+        self.run_slow(
+            reply,
+            |reply: ReplyWrite| reply.error(Errno::ETIMEDOUT),
+            move || core.write_at(fh, offset, &data),
+            |reply, result| match result {
+                Ok(n) => reply.written(n as u32),
+                Err(e) => reply.error(errno(e)),
+            },
+        );
     }
 
     fn flush(

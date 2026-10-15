@@ -103,15 +103,24 @@ fn path_key(value: &str) -> PathBuf {
     }
 }
 
-/// Comparable key of a mountpoint: `X:` for a drive letter, else the
-/// resolved path; `None` when empty.
+/// Comparable key of a mountpoint: `X:` for a drive letter, else the path
+/// normalized lexically; `None` when empty. It never touches the file
+/// system: this runs on the UI thread every frame, and a stat of a mounted
+/// volume whose server hangs (macOS NFS) froze the whole window.
 fn mount_key(value: &str) -> Option<String> {
     if value.trim().is_empty() {
         return None;
     }
     Some(match drive_letter(value) {
         Some(letter) => format!("{letter}:"),
-        None => path_key(value).to_string_lossy().into_owned(),
+        None => {
+            let joined: PathBuf = Path::new(value.trim()).components().collect();
+            if cfg!(windows) {
+                joined.to_string_lossy().replace('/', "\\").to_lowercase()
+            } else {
+                joined.to_string_lossy().into_owned()
+            }
+        }
     })
 }
 

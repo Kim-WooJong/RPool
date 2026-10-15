@@ -49,8 +49,17 @@ impl std::fmt::Display for NativeStartFailed {
     }
 }
 
-/// Whether `error` came from a native frontend failing to mount.
+/// Whether `error` came from a native frontend failing to mount, so that
+/// nothing of it is left. An unanswered macFUSE attempt may still complete
+/// and is not such a failure: the process must end instead of mounting WebDAV.
 pub(crate) fn native_start_failed(error: &anyhow::Error) -> bool {
+    #[cfg(target_os = "macos")]
+    if error
+        .downcast_ref::<super::fuse::macfuse::MountAbandoned>()
+        .is_some()
+    {
+        return false;
+    }
     error.downcast_ref::<NativeStartFailed>().is_some()
 }
 
@@ -97,7 +106,11 @@ pub(crate) fn run_native(drive: Arc<VirtualDrive>, run: NativeRun<'_>) -> Result
             return Ok(());
         }
         if !mount.alive() {
-            bail!("native filesystem was unmounted externally; local data retained");
+            // An eject (Finder, `umount`) ends the session cleanly and is a
+            // normal stop; a session that failed reports its error from
+            // `stop` below.
+            println!("The drive was unmounted outside RPool (for example ejected in Finder), so this mount stops. Local data is retained; mount again to continue.");
+            return Ok(());
         }
         if !run.read_only {
             maintenance.poll(&drive, &run.report, &run.stop.flag)?;
@@ -124,7 +137,13 @@ mod tests {
         assert!(native_start_failed(&start));
         assert!(native_start_failed(&start.context("outer")));
         assert!(!native_start_failed(&anyhow!(
-            "native filesystem was unmounted externally"
+            "FUSE unmount failed; state retained"
         )));
+        #[cfg(target_os = "macos")]
+        assert!(!native_start_failed(
+            &anyhow!("no answer")
+                .context(super::super::fuse::macfuse::MountAbandoned)
+                .context(NativeStartFailed)
+        ));
     }
 }

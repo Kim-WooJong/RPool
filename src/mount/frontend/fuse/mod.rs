@@ -1,9 +1,14 @@
 //! FUSE frontend (native mount M5) over `FsCore`, using `fuser`. On Linux it
-//! mounts without libfuse; on macOS it mounts through macFUSE (FSKit backend
+//! mounts without libfuse; on macOS it mounts through macFUSE (kernel backend
 //! first), loaded at runtime (`macfuse`). The last close (`release`) and
 //! `fsync` are the local durability points; per-descriptor `flush` does not
 //! seal. Both reply from a worker thread (`detached`) after the seal, so one
-//! large file's seal never stalls the session's request loop.
+//! large file's seal never stalls the session's request loop. On macOS,
+//! reads, writes and resizes also reply from workers, within macFUSE's
+//! request time limit (`bounded`).
+/// Off-loop replies with a deadline (macOS).
+#[cfg(target_os = "macos")]
+mod bounded;
 /// Off-loop seal replies.
 mod detached;
 /// Core error → errno mapping.
@@ -89,37 +94,63 @@ fn session(
 }
 
 #[cfg(target_os = "macos")]
-/// macOS: mounts through macFUSE and serves the descriptor on one session thread;
-/// unmounts again if the session cannot start.
+/// How long a new macFUSE session may take to answer the kernel and appear
+/// in the mount table.
+const MOUNTED_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+#[cfg(target_os = "macos")]
+/// macOS: mounts through macFUSE and serves the descriptor on one session
+/// thread. The mount counts only once the OS lists it (the kernel mount
+/// completes after the session answers INIT); otherwise it is undone and
+/// reported as a start failure.
 fn session(
     core: Arc<FsCore>,
     mountpoint: &Path,
     volume: &str,
     read_only: bool,
 ) -> Result<FuseMount> {
+    // The mount table lists real paths (`/tmp` is `/private/tmp`). The root
+    // of a dead volume still answers stat, so this cannot hang.
+    let mountpoint = &mountpoint
+        .canonicalize()
+        .unwrap_or_else(|_| mountpoint.components().collect());
+    macfuse::clear_dead_volume(mountpoint)?;
     let fs = filesystem::RpoolFs::new(core, mountpoint, read_only)?;
     let (fd, backend) = macfuse::mount(mountpoint, volume, read_only)?;
     let mut config = Config::default();
     config.acl = SessionACL::Owner;
     // fuser runs one event loop thread outside Linux.
     config.n_threads = Some(1);
-    let started =
-        fuser::Session::from_fd(fs, fd, SessionACL::Owner, config).and_then(fuser::Session::spawn);
-    match started {
-        Ok(session) => {
+    let session = fuser::Session::from_fd(fs, fd, SessionACL::Owner, config)
+        .and_then(fuser::Session::spawn)
+        .map_err(|e| anyhow!("macFUSE session failed to start: {e}"))?;
+    let deadline = std::time::Instant::now() + MOUNTED_WAIT;
+    loop {
+        if crate::mount::adapter::macos_mount_source(mountpoint)?.is_some() {
             println!(
                 "macFUSE {backend:?} backend serving {}",
                 mountpoint.display()
             );
-            Ok(FuseMount {
+            return Ok(FuseMount {
                 session,
                 mountpoint: mountpoint.to_path_buf(),
-            })
+            });
         }
-        Err(e) => {
+        if session.guard.is_finished() || std::time::Instant::now() >= deadline {
+            let ended = session.guard.is_finished();
             let _ = macfuse::unmount(mountpoint);
-            Err(anyhow!("macFUSE session failed to start: {e}"))
+            let _ = session.join();
+            bail!(
+                "macFUSE did not complete the mount at {} ({})",
+                mountpoint.display(),
+                if ended {
+                    "the kernel ended the session"
+                } else {
+                    "no answer within 30 s"
+                }
+            );
         }
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
 }
 

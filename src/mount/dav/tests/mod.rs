@@ -28,6 +28,44 @@ fn request(
     String::from_utf8(bytes).unwrap()
 }
 
+/// Requests waiting for the namespace lock run on the blocking pool, so the
+/// server keeps answering others: rclone's NFS server queues all of a Mac's
+/// requests behind each one. Requests beyond the limit wait for a slot and
+/// are then served; idle keep-alive connections hold no slot, so a new
+/// request is answered while many of them stay open.
+#[test]
+fn waiting_requests_and_idle_connections_never_stall_others() {
+    use std::time::{Duration, Instant};
+    let temp = tempfile::tempdir().unwrap();
+    let drive = Arc::new(super::super::virtual_drive::fixture(temp.path()));
+    let server = Arc::new(Server::start(drive.clone()).unwrap());
+    let listing = || {
+        let server = server.clone();
+        std::thread::spawn(move || request(&server, "PROPFIND", "/", "Depth: 1\r\n", b"", true))
+    };
+    let guard = drive.state.lock().unwrap();
+    let waiting: Vec<_> = (0..REQUEST_LIMIT + 2).map(|_| listing()).collect();
+    std::thread::sleep(Duration::from_millis(300));
+    let started = Instant::now();
+    let unrelated = request(&server, "GET", "/file", "", b"", false);
+    assert!(unrelated.starts_with("HTTP/1.1 401"), "{unrelated}");
+    assert!(started.elapsed() < Duration::from_secs(5));
+    drop(guard);
+    for listed in waiting {
+        let listed = listed.join().unwrap();
+        assert!(listed.starts_with("HTTP/1.1 207"), "{listed}");
+    }
+    let idle: Vec<_> = (0..REQUEST_LIMIT + 8)
+        .map(|_| std::net::TcpStream::connect(server.address).unwrap())
+        .collect();
+    std::thread::sleep(Duration::from_millis(300));
+    let started = Instant::now();
+    let listed = listing().join().unwrap();
+    assert!(listed.starts_with("HTTP/1.1 207"), "{listed}");
+    assert!(started.elapsed() < Duration::from_secs(5));
+    drop(idle);
+}
+
 #[test]
 fn fragmented_write_is_one_seal_and_short_body_is_not_sealed() {
     let temp = tempfile::tempdir().unwrap();

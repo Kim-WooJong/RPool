@@ -5,6 +5,46 @@
 // `cargo clippy` fails on a missing one. Tests are exempt.
 #![cfg_attr(not(test), warn(clippy::missing_docs_in_private_items))]
 
+// The print macros below shadow std's in the whole crate (textual scope, so
+// they must stay above every `mod`). std's versions panic once stdout or
+// stderr is closed (GUI gone, terminal closed); these ignore the error, see
+// `utils::console`. Tests keep std's macros so libtest still captures output.
+/// `println!` that never panics on a closed stdout.
+#[cfg(not(test))]
+macro_rules! println {
+    () => {
+        $crate::utils::console::out_line(format_args!(""))
+    };
+    ($($arg:tt)*) => {
+        $crate::utils::console::out_line(format_args!($($arg)*))
+    };
+}
+/// `print!` that never panics on a closed stdout.
+#[cfg(not(test))]
+macro_rules! print {
+    ($($arg:tt)*) => {
+        $crate::utils::console::out(format_args!($($arg)*))
+    };
+}
+/// `eprintln!` that never panics on a closed stderr.
+#[cfg(not(test))]
+macro_rules! eprintln {
+    () => {
+        $crate::utils::console::err_line(format_args!(""))
+    };
+    ($($arg:tt)*) => {
+        $crate::utils::console::err_line(format_args!($($arg)*))
+    };
+}
+/// `eprint!` that never panics on a closed stderr.
+#[cfg(not(test))]
+#[allow(unused_macros, reason = "kept so a future eprint! cannot panic either")]
+macro_rules! eprint {
+    ($($arg:tt)*) => {
+        $crate::utils::console::err(format_args!($($arg)*))
+    };
+}
+
 /// Command-line parsing and dispatch to the subcommands.
 mod application;
 /// clap definitions of all subcommands and options.

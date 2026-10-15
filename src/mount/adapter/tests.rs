@@ -47,30 +47,95 @@ fn lease_survives_owner_drop_and_uncertain_launch_blocks_restart() {
     let path = lease.path.clone();
     drop(lease);
     assert!(path.exists());
+    // A process whose command line is an rclone mount of this workspace
+    // keeps an uncertain launch refused.
+    #[cfg(unix)]
+    let mut survivor = Command::new("/bin/sh")
+        .arg("-c")
+        .arg("sleep 30; true")
+        .args(["nfsmount", ":webdav:", "/m", "--cache-dir"])
+        .arg(&cache)
+        .spawn()
+        .unwrap();
     assert!(MountLease::prepare(&files, &cache, &target, &dav()).is_err());
+    assert!(path.exists());
+    #[cfg(unix)]
+    {
+        survivor.kill().unwrap();
+        survivor.wait().unwrap();
+        // Nothing of the launch survives: the workspace reopens.
+        let reopened = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
+        assert!(!path.exists());
+        drop(reopened);
+    }
 }
 
+/// A recorded PID that runs this workspace's rclone mount under a live
+/// owner blocks the restart and is never signalled. On Unix a recorded PID
+/// that now runs anything else was reused: the workspace reopens once no
+/// rclone or volume of it is left.
 #[test]
 fn active_pid_blocks_restart_without_sending_signal() {
     let (_root, _other, files, cache, target) = lease_fixture();
+    #[cfg(unix)]
+    {
+        // Command line of an rclone mount of this workspace; its owner (this
+        // test binary, `rpool-…`) is alive.
+        let mut mount = Command::new("/bin/sh")
+            .arg("-c")
+            .arg("sleep 30; true")
+            .args(["nfsmount", ":webdav:", "/m", "--cache-dir"])
+            .arg(&cache)
+            .spawn()
+            .unwrap();
+        let lease = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
+        lease
+            .record(&LeaseState::Running { pid: mount.id() })
+            .unwrap();
+        let path = lease.path.clone();
+        drop(lease);
+        assert!(MountLease::prepare(&files, &cache, &target, &dav()).is_err());
+        assert!(mount.try_wait().unwrap().is_none(), "never signalled");
+        assert!(path.exists());
+        mount.kill().unwrap();
+        mount.wait().unwrap();
+    }
     let lease = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
     lease
         .record(&LeaseState::Running {
             pid: std::process::id(),
         })
         .unwrap();
+    let path = lease.path.clone();
     drop(lease);
     assert!(process_alive(std::process::id()).unwrap());
-    assert!(MountLease::prepare(&files, &cache, &target, &dav()).is_err());
+    let reopened = MountLease::prepare(&files, &cache, &target, &dav());
+    if cfg!(unix) {
+        drop(reopened.unwrap());
+        assert!(!path.exists());
+    } else {
+        assert!(reopened.is_err());
+    }
     assert!(process_alive(0).is_err());
 }
 
+/// An NFS server that does not quit in time is never killed and keeps the
+/// lease while it lives; once it is gone and no volume is left, the next
+/// start reopens the workspace instead of refusing until manual cleanup.
 #[cfg(target_os = "macos")]
 #[test]
-fn uncertain_nfs_shutdown_never_kills_child_or_clears_lease() {
+fn uncertain_nfs_shutdown_never_kills_child_and_recovers_once_gone() {
     let (_root, _other, files, cache, target) = lease_fixture();
     let lease = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
-    let child = Command::new("/bin/sleep").arg("60").spawn().unwrap();
+    // A synthetic NFS server: the command line of an rclone mount of this
+    // workspace, owned by this (live) test process.
+    let child = Command::new("/bin/sh")
+        .arg("-c")
+        .arg("sleep 60; true")
+        .args(["nfsmount", ":webdav:", "/m", "--cache-dir"])
+        .arg(&cache)
+        .spawn()
+        .unwrap();
     let pid = child.id();
     lease.record(&LeaseState::Running { pid }).unwrap();
     let lease_path = lease.path.clone();
@@ -86,6 +151,7 @@ fn uncertain_nfs_shutdown_never_kills_child_or_clears_lease() {
         stopped: false,
         graceful_quit_requested: false,
         shutdown_uncertain: false,
+        end: None,
         lease,
     };
     assert!(process.stop_with_grace(Duration::from_millis(1)).is_err());
@@ -99,38 +165,79 @@ fn uncertain_nfs_shutdown_never_kills_child_or_clears_lease() {
         libc::kill(pid as i32, libc::SIGKILL);
         libc::waitpid(pid as i32, std::ptr::null_mut(), 0);
     }
-    assert!(MountLease::prepare(&files, &cache, &target, &dav()).is_err());
+    let reopened = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
+    assert!(!lease_path.exists());
+    drop(reopened);
 }
 
+/// An rclone that exits on its own without leaving a volume settles: a
+/// clean exit is an eject outside RPool, a failing one a lost server. The
+/// lease is cleared either way, so the next start needs no manual cleanup.
 #[cfg(target_os = "macos")]
 #[test]
-fn unexpected_nfs_child_exit_retains_lease_even_without_mount_table_entry() {
-    let (_root, _other, files, cache, target) = lease_fixture();
-    let lease = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
-    let child = Command::new("/usr/bin/true").spawn().unwrap();
-    lease
-        .record(&LeaseState::Running { pid: child.id() })
-        .unwrap();
-    let path = lease.path.clone();
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
-    drop(listener);
-    let mut process = MountProcess {
-        child,
-        target: target.clone(),
-        address,
-        credential: "synthetic".into(),
-        logs: Mutex::new(MountLog::new(PathBuf::from("unused-mount.log"), Vec::new())),
-        stopped: false,
-        graceful_quit_requested: false,
-        shutdown_uncertain: false,
-        lease,
-    };
-    process.child.wait().unwrap();
-    assert!(process.poll().is_err());
-    drop(process);
-    assert!(path.exists());
-    assert!(MountLease::prepare(&files, &cache, &target, &dav()).is_err());
+fn unexpected_nfs_child_exit_without_volume_settles_and_clears_lease() {
+    for (program, expected) in [
+        ("/usr/bin/true", NativeEnd::Ejected),
+        ("/usr/bin/false", NativeEnd::Lost),
+    ] {
+        let (_root, _other, files, cache, target) = lease_fixture();
+        let lease = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
+        let child = Command::new(program).spawn().unwrap();
+        lease
+            .record(&LeaseState::Running { pid: child.id() })
+            .unwrap();
+        let path = lease.path.clone();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let mut process = MountProcess {
+            child,
+            target: target.clone(),
+            address,
+            credential: "synthetic".into(),
+            logs: Mutex::new(MountLog::new(PathBuf::from("unused-mount.log"), Vec::new())),
+            stopped: false,
+            graceful_quit_requested: false,
+            shutdown_uncertain: false,
+            end: None,
+            lease,
+        };
+        process.child.wait().unwrap();
+        assert!(process.poll().unwrap().is_some());
+        assert_eq!(process.end(), Some(expected));
+        assert!(process.settled());
+        assert!(!path.exists());
+        drop(process);
+        drop(MountLease::prepare(&files, &cache, &target, &dav()).unwrap());
+    }
+}
+
+/// A stale volume is only released when it is this workspace's recorded
+/// rclone NFS volume; a mountpoint with any other mount is refused, and a
+/// free one passes untouched.
+#[cfg(target_os = "macos")]
+#[test]
+fn stale_volume_check_refuses_foreign_mounts_and_passes_free_mountpoints() {
+    let (root, _other, _files, cache, target) = lease_fixture();
+    let metadata = root.path().join(".rpool");
+    release::clear_stale_volume(&metadata, &cache, &target).unwrap();
+    // `/` is always mounted and is not an rclone NFS volume.
+    let error = release::clear_stale_volume(&metadata, &cache, Path::new("/"))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("already has a mounted volume"), "{error}");
+    // Lease recovery leaves a live or unrelated volume at a recorded
+    // mountpoint alone: it is not this workspace's and is never unmounted.
+    assert_eq!(
+        release::previous_mount_remains(&cache, &[Path::new("/"), &target]).unwrap(),
+        None
+    );
+    assert!(macos_mount_attached(Path::new("/")).unwrap());
+    // A trailing separator names the same mountpoint.
+    let error = release::clear_stale_volume(&metadata, &cache, Path::new("/System/Volumes/Data/"))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("already has a mounted volume"), "{error}");
 }
 
 #[cfg(target_os = "macos")]
@@ -211,6 +318,7 @@ fn forced_stop_reaps_owned_child_and_preserves_cache() {
         stopped: false,
         graceful_quit_requested: false,
         shutdown_uncertain: false,
+        end: None,
         lease,
     };
     let report = process.stop().unwrap();
@@ -407,6 +515,7 @@ fn late_graceful_exit_is_awaited_without_killing_and_then_clears_lease() {
         stopped: false,
         graceful_quit_requested: true,
         shutdown_uncertain: true,
+        end: None,
         lease,
     };
     assert!(process.is_running());
@@ -418,9 +527,11 @@ fn late_graceful_exit_is_awaited_without_killing_and_then_clears_lease() {
     assert!(!lease_path.exists());
 }
 
+/// A late exit that RPool did not request settles like a timely one: with
+/// no volume left the lease is cleared and the end is reported as an eject.
 #[cfg(unix)]
 #[test]
-fn late_exit_without_graceful_quit_keeps_uncertain_lease() {
+fn late_exit_without_graceful_quit_settles_when_no_volume_remains() {
     let (_root, _other, files, cache, target) = lease_fixture();
     let lease = MountLease::prepare(&files, &cache, &target, &dav()).unwrap();
     let child = Command::new("/bin/sh")
@@ -443,13 +554,16 @@ fn late_exit_without_graceful_quit_keeps_uncertain_lease() {
         stopped: false,
         graceful_quit_requested: false,
         shutdown_uncertain: true,
+        end: None,
         lease,
     };
     assert!(process.wait_for_exit(Duration::from_secs(10)).unwrap());
-    assert!(process.shutdown_uncertain);
-    assert!(lease_path.exists());
+    assert!(!process.shutdown_uncertain);
+    assert_eq!(process.end(), Some(NativeEnd::Ejected));
+    assert!(process.settled());
+    assert!(!lease_path.exists());
     drop(process);
-    assert!(lease_path.exists());
+    assert!(!lease_path.exists());
 }
 
 #[cfg(unix)]
@@ -562,12 +676,13 @@ fn rejects_overlap_nonempty_and_symlink_targets() {
 }
 
 /// macOS NFS mounts disable the negative name cache, which the fixed root
-/// mtime of rclone's VFS would otherwise never invalidate.
+/// mtime of rclone's VFS would otherwise never invalidate, and keep file
+/// locks local (rclone's NFS server has no lock service).
 #[test]
 fn macos_nfs_mount_disables_the_negative_name_cache() {
     let options = kernel_mount_options();
     if cfg!(target_os = "macos") {
-        assert_eq!(options, ["-o", "nonegnamecache"]);
+        assert_eq!(options, ["-o", "nonegnamecache", "-o", "locallocks"]);
     } else {
         assert!(options.is_empty());
     }

@@ -55,7 +55,7 @@ server.
 
 | Frontend | Platform | Notes |
 |---|---|---|
-| `fuse` | Linux, macOS | Native, over the filesystem core; `fsync` and the last `close` are the local durability points. On macOS it needs [macFUSE](https://macfuse.github.io/) (loaded at runtime, so builds and Macs without it still work and `auto` uses WebDAV). The FSKit backend (macFUSE 5+, macOS 15.4+) is tried first, then the kernel backend. Mounted with `volname=<pool>`, `noappledouble` and `noapplexattr` (no `._*`/`.DS_Store` files or `com.apple.*` xattrs reach the drive); xattrs are refused cleanly. When macFUSE is installed but cannot mount (for example its file system extension is not yet enabled), `--frontend auto` continues with WebDAV, except with `--native-read-only`; an explicit `--frontend fuse` fails with the approval steps. Not yet mounted on a Mac. |
+| `fuse` | Linux, macOS | Native, over the filesystem core; `fsync` and the last `close` are the local durability points. On macOS it needs [macFUSE](https://macfuse.github.io/) (loaded at runtime, so builds and Macs without it still work and `auto` uses WebDAV). The kernel backend is tried first (it needs the macFUSE kernel extension allowed; on Apple silicon also reduced security). The FSKit backend (macFUSE 5+, macOS 15.4+) is used only when the kernel backend fails and macFUSE's FSKit extension is enabled (System Settings > General > Login Items & Extensions > File System Extensions): while it is disabled macFUSE waits forever instead of failing, so it is not tried. Each attempt waits at most 30 s; an attempt macFUSE never answers ends the mount process (no WebDAV fallback at that mountpoint). macFUSE ejects a drive when one request stays unanswered longer than its `daemon_timeout` (60 s by default), so RPool mounts with `daemon_timeout=600`: reads, writes and resizes, which may wait for a cloud download, reply from worker threads and get `ETIMEDOUT` after 480 s while the download continues (open the file again later); other requests on the volume do not wait for them. A Finder eject stops the mount normally. A volume left behind by a killed mount process (it answers "Device not configured") is removed by the next mount. Mounted with `volname=<pool>`, `noappledouble` and `noapplexattr` (no `._*`/`.DS_Store` files or `com.apple.*` xattrs reach the drive); xattrs are refused cleanly. When macFUSE is installed but cannot mount, `--frontend auto` continues with WebDAV, except with `--native-read-only`; an explicit `--frontend fuse` fails with the approval steps. Verified with macFUSE 5.4 (kernel backend) on macOS 27 with local test remotes; the FSKit backend is untested. |
 | `winfsp` | Windows | Native, same core; needs WinFsp installed (DLL is delay-loaded). Compiled, not yet run on Windows. |
 | `dav` | all | rclone mount/VFS (`--vfs-cache-mode full`, 60 s write-back) over the authenticated loopback WebDAV server. The macOS choice without macFUSE (`rclone nfsmount`). |
 
@@ -173,9 +173,21 @@ corrupt primary namespace fails closed instead of silently reverting.
 - `--cleanup-cache` (**Trim clean cache**) trims verified clean shards and
   committed spool without readers. Pending, partial and unknown writes stay.
 - A lease in `.rpool/mount-process.json` blocks a second mount of the same
-  workspace. If an error names it, first confirm in the OS that no rclone
-  process or mount uses the workspace; only then remove **that file alone**.
-  Keep `mount-identity.json`, the spool and the VFS cache.
+  workspace. After a mount that did not stop cleanly (crash, killed process,
+  reboot), the next start reopens the workspace by itself once no rclone
+  process of it runs and no volume of it is left; its unsent saves are
+  recovered from the VFS cache. If an error still names the lease, first
+  confirm in the OS that no rclone process or mount uses the workspace; only
+  then remove **that file alone**. Keep `mount-identity.json`, the spool and
+  the VFS cache.
+- macOS (WebDAV frontend over rclone's NFS server): when that server ends
+  unexpectedly, RPool force-unmounts the volume it leaves behind, so Finder
+  and other apps get errors instead of hanging until a reboot. An eject in
+  Finder (or macOS "Disconnect") stops the mount; mount again to continue.
+  File locks stay local to the Mac (`locallocks`). Reads of files that are not
+  cached yet wait for the cloud download, and rclone's NFS server answers one
+  request at a time, so Finder can stall (macOS may report the server as not
+  responding) until such a download finishes.
 - Unmount cancels remote operations and stops the mount without a full sync;
   pending spool and uncertain uploads are kept and reported, never shown as
   uploaded. Use `--sync-only` to finish replication without mounting.

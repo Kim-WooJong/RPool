@@ -142,11 +142,11 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         }
         match drive.refresh_capacity() {
             Ok(status) => {
+                // Never print while holding the namespace lock.
+                let pending = drive.state.lock().unwrap().pending.len();
                 println!(
                     "Virtual namespace: logical_used={} additional_estimate={} pending={}",
-                    status.logical_used,
-                    status.additional_estimate,
-                    drive.state.lock().unwrap().pending.len()
+                    status.logical_used, status.additional_estimate, pending
                 );
                 if let Some(path) = &status_file {
                     if let Err(e) = durable_json(path, &status) {
@@ -224,13 +224,22 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         std::time::Duration::from_secs(args.interval_seconds),
     );
     let report: Arc<dyn Fn() + Send + Sync> = report;
-    let outcome: Result<()> = (|| {
+    // A panic in the loop must still reach the stop sequence below: unwinding
+    // past it dropped the WebDAV backend while rclone kept serving the kernel
+    // mount, which then hung every app touching the volume.
+    let outcome: Result<()> = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         loop {
             for line in mount.logs() {
                 eprintln!("{line}");
             }
             if let Some(code) = mount.poll()? {
-                bail!("virtual mount exited {code}; spool and cache retained");
+                match mount.end() {
+                    Some(crate::mount::adapter::NativeEnd::Ejected) => {
+                        println!("The drive was unmounted outside RPool (for example ejected in the file manager), or its mount process was stopped, so this mount stops. Local data and cache are retained; mount again to continue.");
+                        break;
+                    }
+                    _ => bail!("the native mount (rclone) ended unexpectedly ({code}); its volume was released so apps do not hang. Spool and VFS cache retained; mount again to recover unsent saves"),
+                }
             }
             if stop.requested() {
                 break;
@@ -251,7 +260,17 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
             std::thread::sleep(std::time::Duration::from_millis(250));
         }
         Ok(())
-    })();
+    }))
+    .unwrap_or_else(|panic| {
+        let text = panic
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| panic.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+            .unwrap_or_else(|| "unknown panic".into());
+        Err(anyhow!(
+            "virtual mount loop failed ({text}); stopping the mount, local data retained"
+        ))
+    });
     stop.cancel();
     println!(
         "Stopping native mount and cancelling remote work; pending local data will be retained"
@@ -286,12 +305,22 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         }
     }
     let joined = maintenance.join(&drive);
-    // A slow but clean macOS unmount (finished during the extra wait) is a
-    // normal stop, not the grace-period error recorded before it.
+    // A slow macOS unmount that finished during the extra wait, with nothing
+    // of the mount left, is a normal stop, not the grace-period error recorded before it.
     let stopped = match stopped {
-        Err(_) if mount.exited_cleanly() => Ok(crate::mount::adapter::StopReport { forced: false }),
+        Err(_) if mount.settled() => Ok(crate::mount::adapter::StopReport { forced: false }),
         other => other,
-    }?;
+    };
+    let stopped = match stopped {
+        Ok(report) => report,
+        // The loop's error names the cause (for example a volume that could
+        // not be released); the stop error would only hide it.
+        Err(error) if outcome.is_err() => {
+            eprintln!("{error:#}");
+            return outcome;
+        }
+        Err(error) => return Err(error),
+    };
     println!(
         "Virtual mount stopped; forced={} pending spool/cache/history retained. Cloud replication was not drained; use sync-only separately or resume this workspace.",
         stopped.forced

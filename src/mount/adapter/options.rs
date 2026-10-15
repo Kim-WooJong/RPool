@@ -37,9 +37,15 @@ pub(in crate::mount) fn vfs_cache_policy() -> (&'static str, &'static str) {
 /// rclone keeps the mount root's mtime at the mount start. A name looked up
 /// at the root before it existed (e.g. a folder another PC created later)
 /// otherwise stayed "not found" until the next mount, although listed.
+///
+/// `locallocks`: file locks stay in the Mac's kernel. Without it every lock
+/// (Office, Finder copies) is sent as NLM to localhost, where rclone's NFS
+/// server has no lock service; each request waited for its timeout and fed
+/// the client's "server not responding" state. The volume has exactly one
+/// client, so local locking is exact.
 pub(in crate::mount) fn kernel_mount_options() -> &'static [&'static str] {
     if cfg!(target_os = "macos") {
-        &["-o", "nonegnamecache"]
+        &["-o", "nonegnamecache", "-o", "locallocks"]
     } else {
         &[]
     }

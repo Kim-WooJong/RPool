@@ -2,6 +2,63 @@
 
 ## Unreleased
 
+- Fix the macOS macFUSE frontend, which never mounted: with macFUSE 5,
+  libfuse's `fuse_mount_compat25` fails at once, so every macFUSE mount failed
+  and `--frontend auto` (the GUI default) silently used WebDAV over rclone's
+  NFS server instead. RPool now mounts through `fuse_mount`:
+  - The kernel backend is tried first; FSKit only when its extension is
+    enabled (a disabled one made macFUSE wait forever). Each attempt is
+    bounded (30 s).
+  - macFUSE ejects the whole drive when one request stays unanswered longer
+    than its `daemon_timeout` (default 60 s; reproduced: "Socket is not
+    connected"), so one slow cloud download would unmount it. RPool now
+    mounts with `daemon_timeout=600`, and reads, writes and resizes (which
+    may download a file first) reply from up to 16 worker threads, queue
+    beyond that, and are answered with `ETIMEDOUT` after 480 s while the
+    download continues. Other requests on the volume no longer wait for them
+    (macFUSE serves the session on one thread).
+  - The mount counts only once macOS lists it; an attempt macFUSE never
+    answers ends the process instead of falling back to WebDAV at the same
+    mountpoint. fuser serves a duplicate of libfuse's descriptor, which
+    libfuse may close itself after a late mount failure.
+  - A Finder eject is a normal stop. A disconnected volume left by a killed
+    mount process is removed by the next mount instead of blocking it (also
+    through symlinked paths such as `/tmp`).
+  - rclone is started by absolute path, so Rust spawns it with posix_spawn;
+    the fork it used otherwise made macFUSE's libfuse print "forking a
+    threaded process is unsafe" hundreds of times a minute.
+- Fix macOS mounts that unmounted by themselves after a while and left
+  Finder, terminals or the whole Mac hanging:
+  - Console output never panics any more. When the GUI that started a mount
+    was closed or force-quit, the next log line of the mount process panicked
+    on the closed pipe; unwinding skipped the graceful stop and dropped the
+    WebDAV backend while rclone still served the NFS volume. A panic in the
+    mount loop now also goes through the normal stop.
+  - When rclone's NFS server ends without RPool's quit request (crash,
+    signal, eject), RPool releases the volume it leaves behind (force-unmount
+    once the server is gone) instead of leaving a hard NFS mount that hangs
+    every app touching it. A Finder eject stops the mount normally. Only a
+    dead rclone NFS volume (from `localhost`, served by no running rclone) is
+    ever force-unmounted; live or other volumes are refused or left alone.
+  - After a mount that did not stop cleanly, the next mount (CLI and GUI)
+    reopens the workspace by itself once no rclone process of it runs and no
+    dead volume of it is left (one at its recorded mountpoint is released
+    first); a recorded PID that was reused by another program no longer
+    blocks it. Before, every such start was refused until the lease file was
+    removed by hand. An orphaned rclone of the workspace is first unmounted
+    normally, so the kernel can flush pending writes into it, and only then
+    stopped.
+  - Mount macOS NFS volumes with `locallocks`: rclone's NFS server has no
+    lock service, so every lock waited for a timeout and fed "server not
+    responding".
+  - The WebDAV backend runs namespace work (listings, stat, mkdir, delete,
+    rename, quota) off its two async workers, so a request waiting for the
+    namespace lock no longer stalls all others. It limits concurrent
+    requests (32, each until its response is sent) instead of connections:
+    the 33rd connection used to be dropped unanswered, and idle keep-alive
+    connections no longer hold a slot.
+  - The GUI no longer resolves mountpoint paths on the file system every
+    frame; that stat froze the window when a mounted volume hung.
 - Keep a mounted drive's folders after their last file is deleted or moved:
   promote the file's implied parent folders into the local, durable namespace.
   Replicate explicit folders through a separate immutable cloud record tree, so
@@ -33,6 +90,27 @@ warnings-denied release checking, focused two-PC/folder conflict, Library and
 migration tests, and the full local suite after source-matching the locale
 files (1,120 passed, 60 ignored, one long trace filtered). Live cloud and
 Windows WinFsp cross-PC behavior remain untested.
+The macOS mount-hang fix passed macOS `cargo check --all-targets`, the
+Windows cross check, the three real-rclone loopback WebDAV tests and the full
+local suite (1,125 passed, 60 ignored, one long trace filtered), plus a
+warnings-denied release build. A new DAV test stalls on the previous server
+(requests time out) and passes now. An independent review's findings (force
+unmounts that could reach unrelated volumes, connection-held slots) are
+fixed. No live NFS mount was run; the force-unmount path is untested against
+a real dead server, and Linux `ps -A -ww` is used but was not run on Linux.
+The macFUSE fix passed the five kernel-level FUSE tests (first time on a Mac;
+macFUSE 5.4 kernel backend, macOS 27), the 15 real-rclone storage tests, the
+full local suite and the Windows cross check, plus an isolated end-to-end
+mount with local rclone crypt remotes: writes, renames, upload without
+plaintext, clean stop, read-back from the remotes after a cache cleanup,
+Finder-style eject (exit 0) and restart after `kill -9`. The FSKit backend and
+a live cloud pool were not tested. Reads and writes are moved off the session
+thread on macOS only; Linux FUSE is unchanged.
+A throttled-rclone run (16 KiB/s, empty cache) read a 3 MB file in 182 s
+through macFUSE with correct bytes and the drive stayed mounted (macFUSE's old
+60 s default would have ejected it); other folders and files answered in
+milliseconds meanwhile. The file being downloaded, and listings that stat
+it, wait for the download (macOS locks that file during the read).
 
 ## 2.17.0 — 2026-10-12
 

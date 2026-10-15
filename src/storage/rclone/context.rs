@@ -100,10 +100,38 @@ impl RcloneContext {
     pub(crate) fn inherited(executable: &str) -> Self {
         Self::new(executable.into(), ConfigSelection::Inherited)
     }
+    /// The executable to start: a bare name (`rclone`) resolved through this
+    /// context's `PATH` (Unix). A bare name with an explicit `PATH` makes Rust
+    /// spawn with fork+exec instead of posix_spawn, and macFUSE's libfuse
+    /// (loaded by a macFUSE mount) warns on every fork, flooding the mount log.
+    /// Unresolvable names are returned unchanged.
+    fn program(&self) -> PathBuf {
+        #[cfg(unix)]
+        if self.executable.components().count() == 1 {
+            use std::os::unix::ffi::OsStrExt;
+            let path = self
+                .environment
+                .iter()
+                .find(|(key, _)| key == "PATH")
+                .map(|(_, value)| value.clone());
+            if let Some(path) = path {
+                for directory in std::env::split_paths(&path).filter(|d| d.is_absolute()) {
+                    let candidate = directory.join(&self.executable);
+                    // Executable by this user, as the PATH search would decide.
+                    let executable = std::ffi::CString::new(candidate.as_os_str().as_bytes())
+                        .is_ok_and(|c| unsafe { libc::access(c.as_ptr(), libc::X_OK) } == 0);
+                    if executable && std::fs::metadata(&candidate).is_ok_and(|m| m.is_file()) {
+                        return candidate;
+                    }
+                }
+            }
+        }
+        self.executable.clone()
+    }
     /// The rclone command with exactly this context's executable, config and
     /// environment (also what the read daemon starts with).
     pub(super) fn base_command(&self, args: &[OsString]) -> Command {
-        let mut command = Command::new(&self.executable);
+        let mut command = Command::new(self.program());
         command.env_clear().envs(self.environment.iter().cloned());
         if let ConfigSelection::File(path) = &self.config {
             command.arg("--config").arg(path);

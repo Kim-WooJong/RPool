@@ -97,39 +97,74 @@ pub(super) fn normalized_existing_or_parent(path: &Path) -> Result<PathBuf> {
     Ok(parent.join(name))
 }
 
-/// Stops `pid` if it is the orphaned rclone of the mount recorded in
-/// `root/.rpool/mount-identity.json`; false without that record.
+/// What a live recorded rclone `pid` of the mount recorded in
+/// `root/.rpool/mount-identity.json` turned out to be.
 #[cfg(unix)]
-fn stop_orphan_of(root: &Path, pid: u32) -> Result<bool> {
-    let path = root.join(".rpool/mount-identity.json");
-    reject_link(&path)?;
-    let Ok(bytes) = std::fs::read(&path) else {
-        return Ok(false);
+enum RecordedPid {
+    /// It now runs something else: the PID was reused after rclone ended.
+    Reused,
+    /// It was this workspace's orphan and has been stopped and unmounted.
+    Stopped,
+    /// This workspace's rclone still runs with a live owner (or no record).
+    Active,
+}
+
+/// Classifies a live recorded `pid`, stopping it when it is this workspace's
+/// orphaned rclone (see `orphan`). A reused PID is never signalled.
+#[cfg(unix)]
+fn stop_orphan_of(root: &Path, pid: u32) -> Result<RecordedPid> {
+    let Some(identity) = super::lease::read_identity(&root.join(".rpool"))? else {
+        return Ok(RecordedPid::Active);
     };
-    let identity: super::lease::MountIdentity = serde_json::from_slice(&bytes)?;
-    super::orphan::stop_orphan(pid, &identity.cache, &identity.target)
+    if !super::orphan::runs_workspace_mount(pid, &identity.cache) {
+        return Ok(RecordedPid::Reused);
+    }
+    Ok(
+        if super::orphan::stop_orphan(pid, &identity.cache, &identity.target)? {
+            RecordedPid::Stopped
+        } else {
+            RecordedPid::Active
+        },
+    )
 }
 
 /// Called before reconnecting an existing DAV endpoint to an orphaned rclone.
+/// A recorded rclone that still runs is stopped when it is this workspace's
+/// orphan, else refused; an unknown launch is refused while any rclone of
+/// this workspace runs. Everything else is decided by `MountLease::prepare`.
 pub(crate) fn preflight_virtual(root: &Path) -> Result<()> {
     let path = root.join(".rpool/mount-process.json");
     reject_link(&path)?;
     if path.exists() {
         let lease: LeaseState = serde_json::from_slice(&std::fs::read(&path)?)?;
         match lease {
-            LeaseState::Launching => {
-                bail!("uncertain previous mount launch; preserve cache and inspect process")
-            }
-            LeaseState::Running { pid } if process_alive(pid)? => {
+            LeaseState::Running { pid } | LeaseState::ShutdownUncertain { pid }
+                if process_alive(pid)? =>
+            {
                 // The rclone of a mount whose RPool was killed: stop it cleanly
                 // (only when provably this workspace's orphan, see `orphan`).
+                // A reused PID leaves the lease to `MountLease::prepare`.
                 #[cfg(unix)]
-                if stop_orphan_of(root, pid)? {
-                    std::fs::remove_file(&path)?;
-                    sync_metadata_directory(path.parent().context("lease parent missing")?)?;
-                    return Ok(());
+                match stop_orphan_of(root, pid)? {
+                    RecordedPid::Reused => return Ok(()),
+                    RecordedPid::Stopped => {
+                        std::fs::remove_file(&path)?;
+                        sync_metadata_directory(path.parent().context("lease parent missing")?)?;
+                        return Ok(());
+                    }
+                    RecordedPid::Active => {}
                 }
                 bail!("previous mount PID {pid} is still active")
+            }
+            LeaseState::Launching => {
+                #[cfg(unix)]
+                if let Some(identity) = super::lease::read_identity(&root.join(".rpool"))? {
+                    if !super::release::no_workspace_rclone(&identity.cache)? {
+                        bail!("an rclone mount of this workspace from an interrupted launch is still running; stop it before mounting again (cache retained)");
+                    }
+                }
+                #[cfg(not(unix))]
+                bail!("uncertain previous mount launch; preserve cache and inspect process")
             }
             _ => {}
         }

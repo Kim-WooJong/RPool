@@ -3,6 +3,8 @@
 //! matching, time and argument validation. Callers use the re-exports below.
 /// Long-lived rclone children end with RPool (Windows job object).
 mod child_lifetime;
+/// Console output that ignores closed stdout/stderr (see the crate-root macros).
+pub(crate) mod console;
 mod durable;
 /// Positional read/write that leaves the file cursor alone.
 mod file_io;

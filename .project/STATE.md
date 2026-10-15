@@ -1,6 +1,6 @@
 # Project State
 
-Updated: 2026-10-12
+Updated: 2026-10-15
 
 ## Project
 
@@ -14,6 +14,63 @@ validation. Version 2.17.0 (2026-10-12); later work goes under
 "Unreleased" in CHANGELOG.md, which is the detailed history.
 
 ## Current Status
+
+macOS mount hang fix (2026-10-15, source + local tests only). Reported: a
+mount works, then unmounts by itself and Finder/terminal/the Mac freeze. The
+last Mac session (2026-10-07, CLI 2.14.1) died without a lease update; the Mac
+was hard-rebooted twice that day; kernel logs had already expired. Root causes
+found in source (not reproduced live): print macros panicking on a closed GUI
+pipe and unwinding past the stop, which dropped WebDAV under a live rclone NFS
+server; hard NFS volumes left behind when rclone ended; leases refusing every
+restart after any unclean end; NLM locks to an rclone server without lock
+service; namespace waits on the DAV server's two async workers; GUI stat of
+mountpoints every frame. All are fixed (see CHANGELOG Unreleased). Still
+inherent: rclone 1.75's NFS server (go-nfs v0.0.4) answers one request at a
+time, so an uncached cloud read stalls the whole volume until it finishes.
+The macFUSE frontend avoids that and now works: it had never mounted because
+macFUSE 5's `fuse_mount_compat25` fails, so `auto` (GUI default) always fell
+back to WebDAV/NFS. It now mounts through `fuse_mount` (kernel backend first,
+FSKit only when enabled), replies to reads off the single session thread, and
+was verified on this Mac (macFUSE 5.4 kernel backend) with the kernel-level
+FUSE tests and an isolated local-remote e2e (`projects/rpool/fuse-e2e-mac.sh`).
+Not yet tested with a live cloud pool or the FSKit backend. macFUSE's
+default 60 s `daemon_timeout` ejected the drive on one slow request
+(reproduced); mounts now use 600 s and RPool answers slow reads/writes within
+480 s from worker threads. Remaining: the macOS kernel locks a file while it is
+read, so a cloud-only file being downloaded (whole shard first, see
+`shard_cache.rs`) blocks stats/listings that touch that file until the shard
+arrives; range reads would need a shard-integrity design decision.
+
+Cloud-synced empty folders are implemented in the current source: mkdir,
+last-file deletion or move-out, rename, and rmdir update immutable folder
+records under a sibling metadata tree. Updated PCs pull those records; mounted
+and unmounted GUI Library views include explicit empty folders. File events
+remain compatible with older clients, which keep syncing files but cannot
+display or publish the shared empty folders. Folder/file name collisions are
+resolved in favor of files instead of blocking pull. Account backfill and
+drive-generation adoption carry the folder records. Source-level tests passed
+on macOS, but a live cloud cross-PC and Windows WinFsp test are still needed.
+Unreadable or newer folder records are skipped during ordinary pull and Library
+browse so they cannot block file events; generation migration remains strict.
+
+Long-running RPool GUI/transfer freeze mitigation is implemented but not proven on the
+affected Windows PC. Conversion re-upload now reads its private restored file
+directly, avoiding an additional full-file temporary snapshot. The GUI now
+uses scheduled refresh for the always-visible task indicator and migration
+status, budgets task event handling per frame, and bounds all task logs. Expert
+source review found that the expanded console also laid out all 2,000 retained
+lines per frame; it now lays out visible rows only. eframe's `App::logic` now
+polls child output and completion while the window is minimized, with a timer
+rescheduled from logic and after visible UI actions start tasks. Migration cloud
+status refresh remains a screen/UI operation and may run on restoration.
+On the affected Windows PC,
+CPU/memory usage was low and working-drive free space was sufficient; the
+whole-desktop slowdown was observed when the long-backgrounded GUI was restored.
+OpenGL/Windows display-path delay is plausible but unproven. Expert source
+review also found potentially high aggregate transfer concurrency and
+repeated full journal scans in the *migration* path. Reprocessing instead runs
+archives sequentially using the frozen target worker count. Neither path is
+established as the cause of the reported whole-PC freeze.
 
 The placement migration change adds explicit `--reapply-placement` / GUI
 "Reapply placement (re-upload all files)" to restore and re-upload existing
@@ -99,11 +156,12 @@ How it is verified:
 Known limits:
 
 - WinFsp frontend, Windows seal/flush fix and the Windows rclone daemon path are
-  compiled, never run on Windows. macOS has no native frontend; the old macOS
+  compiled, never run on Windows. macOS native frontend = macFUSE (kernel backend verified 2026-10-15); the old macOS
   4 GiB NFS test workspace (`projects/rpool/4g-e2e-fdb991f6/`) is blocked on OS
   recovery and must not be reused or cleaned.
 - Pool sync is eventual; no distributed locking or cross-PC open-handle
-  coherence; empty folders are local; payload history accumulates until a
+  coherence. Older clients do not sync empty folders. Folder record history
+  is immutable and not yet compacted; payload history accumulates until a
   reclamation exists.
 - `put` to crypt over S3-like bucket backends fails (missing key stats as a
   directory).
@@ -116,6 +174,38 @@ Known limits:
   live pool; validate the migration on the PC hosting that pool when available.
 
 ## Latest validation
+
+2026-10-15 macOS mount-hang fix: source-matched `projects/rpool/mount-hang-fix`
+passed macOS `cargo check --all-targets`, the Windows cross check (1.98.1
+toolchain), the three ignored real-rclone loopback WebDAV tests, the full
+suite (1,125 passed, 60 ignored, one long randomized trace filtered) and a
+warnings-denied release build. No clippy warnings in changed files; changed
+files are rustfmt-clean. The new DAV stall test was confirmed to fail on the
+previous server. An adversarial expert review's findings were fixed. No live
+NFS mount, force-unmount of a real dead server, Linux `ps -A -ww`, or Windows
+runtime test was run. The release build is installed in `~/.cargo/bin`
+(reports 2.17.0; previous 2.14.1 kept as `rpool.2.14.1.bak` /
+`rpool-gui.2.14.1.bak`). Changes are uncommitted, together with the
+2026-10-13 work.
+
+2026-10-13 cloud-folder work: source-matched `projects/rpool/` passed macOS
+`cargo check --all-targets` and warnings-denied release checking. Folder
+projection, namespace journal, two-PC in-memory record exchange, cloud
+Library folder-only listing, migration adoption, and mount behavior tests
+passed. The final source-matched full suite passed: 1,120 passed, 60 ignored,
+one long randomized trace filtered. Windows WinFsp
+and live-cloud two-PC behavior are not yet runtime-validated.
+
+2026-10-13 freeze mitigation: source-matched `projects/rpool/gui-freeze-verify`
+passed macOS `cargo check --all-targets`, six GUI runner bounded-output tests,
+eleven pool-reprocess tests, and one GUI layout test. Changed Rust files passed
+`rustfmt --check`; repository-wide `cargo fmt --check` still reports pre-existing differences in
+unrelated files. No live-pool, Windows-runtime, or whole-PC freeze reproduction
+was available. The subsequent console visible-row change passed macOS
+`cargo check --bin rpool`. After moving background polling to `App::logic`,
+the source-matched verification copy passed macOS `cargo check --all-targets`
+and six GUI bounded-output tests; changed Rust files passed `rustfmt --check`
+and `git diff --check`. It has not been tested on Windows.
 
 2026-10-11 placement-policy/monitoring work: source-matched verification copy
 passed `cargo check --all-targets` and `cargo test --bin rpool -- --skip
@@ -148,6 +238,21 @@ pool migration, cloud transfer, or other-PC runtime validation was performed.
 not repeated for this change.
 
 ## Resume
+
+For the cloud-folder feature, install the updated build on two Windows PCs
+with the same pool and verify Explorer mkdir, delete-last-file, move-out,
+rmdir, remount, and the unmounted Library. Confirm old clients still sync
+files but cannot display the empty folders. Folder-record compaction remains
+future work only if its growth becomes material.
+
+On the affected Windows PC, test a build containing the pending GUI changes:
+run a migration, minimize the GUI for hours, then restore it. Confirm the child
+continues transferring and the GUI completion state is timely, with no large
+first-frame output catch-up. Compare the operation console collapsed vs expanded.
+If the whole desktop still slows, correlate the incident with Windows
+display-driver/DWM events and GUI-thread OpenGL present time before changing
+renderer or migration concurrency. Do not treat the local code changes as a
+confirmed fix for the whole-PC freeze.
 
 For placement migration, start from `src/migration/plan.rs` and the current
 implementation in the canonical checkout. Keep the live-pool validation limitation above

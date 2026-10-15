@@ -17,7 +17,7 @@ const STOP_WAIT: Duration = Duration::from_secs(30);
 #[cfg(unix)]
 fn ps(pid: u32) -> Option<(u32, String)> {
     let output = Command::new("ps")
-        .args(["-p", &pid.to_string(), "-o", "ppid=,command="])
+        .args(["-ww", "-p", &pid.to_string(), "-o", "ppid=,command="])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
@@ -33,7 +33,17 @@ pub(super) fn is_workspace_mount(command: &str, cache: &Path) -> bool {
         return false;
     };
     let mount = command.contains(" nfsmount :webdav: ") || command.contains(" mount :webdav: ");
-    mount && command.contains(&format!("--cache-dir {cache}"))
+    // The whole argument: `/w/ws1/vfs-cache` must not match `/w/ws1/vfs-cache2`.
+    let option = format!("--cache-dir {cache}");
+    mount && (command.contains(&format!("{option} ")) || command.ends_with(&option))
+}
+
+/// True when `pid` runs an rclone mount of the workspace whose VFS cache is
+/// `cache`. A recorded PID that runs anything else was reused after the
+/// recorded rclone ended (rclone cannot change its command line).
+#[cfg(unix)]
+pub(super) fn runs_workspace_mount(pid: u32, cache: &Path) -> bool {
+    ps(pid).is_some_and(|(_, command)| is_workspace_mount(&command, cache))
 }
 
 /// Stops `pid` if it is this workspace's orphaned rclone mount (see the
@@ -55,12 +65,25 @@ pub(super) fn stop_orphan(pid: u32, cache: &Path, target: &Path) -> Result<bool>
     eprintln!(
         "Stopping rclone PID {pid} left running by a previous mount of this workspace that ended abruptly; its unsent saves stay in the VFS cache"
     );
-    let _ = Command::new("kill")
-        .args(["-TERM", &pid.to_string()])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+    // macOS: a plain unmount first lets the kernel flush its pending writes
+    // into the still-running rclone (its VFS cache keeps them); rclone then
+    // exits by itself. SIGTERM makes rclone force-unmount, which drops them.
+    #[cfg(target_os = "macos")]
+    if lease::macos_mount_attached(target)? {
+        let _ = super::release::run_bounded("/sbin/umount", &[], target);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while process_alive(pid)? && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(200));
+        }
+    }
+    if process_alive(pid)? {
+        let _ = Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
     let deadline = Instant::now() + STOP_WAIT;
     while process_alive(pid)? {
         if Instant::now() >= deadline {
@@ -68,12 +91,10 @@ pub(super) fn stop_orphan(pid: u32, cache: &Path, target: &Path) -> Result<bool>
         }
         thread::sleep(Duration::from_millis(200));
     }
+    // The server is gone now: a volume it left would hang every app.
     #[cfg(target_os = "macos")]
-    while lease::macos_mount_attached(target)? {
-        if Instant::now() >= deadline {
-            return Ok(false);
-        }
-        thread::sleep(Duration::from_millis(200));
+    if !super::release::release_dead_mount(target)? {
+        return Ok(false);
     }
     #[cfg(not(target_os = "macos"))]
     let _ = target;
@@ -98,6 +119,10 @@ mod tests {
         // Another workspace, a prefix of the path, or not a mount.
         assert!(!is_workspace_mount(
             "rclone nfsmount :webdav: /m --cache-dir /w/ws2/vfs-cache",
+            cache
+        ));
+        assert!(!is_workspace_mount(
+            "rclone nfsmount :webdav: /m --cache-dir /w/ws1/vfs-cache2 --rc",
             cache
         ));
         assert!(!is_workspace_mount(

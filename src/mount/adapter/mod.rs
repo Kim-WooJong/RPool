@@ -26,9 +26,15 @@ mod orphan;
 mod process;
 /// rclone remote-control (RC) calls.
 mod rc;
+/// Releasing a volume whose rclone server is gone; proving a previous mount ended.
+mod release;
 #[cfg(test)]
 mod tests;
 
+#[cfg(target_os = "macos")]
+use lease::macos_mount_attached;
+#[cfg(target_os = "macos")]
+pub(crate) use lease::macos_mount_source;
 #[cfg(unix)]
 use lease::sync_metadata_directory;
 use lease::{reject_link, LeaseState, MountLease};
@@ -79,6 +85,19 @@ pub(crate) struct StopReport {
     pub(crate) forced: bool,
 }
 
+/// How the owned rclone ended, as settled by [`MountProcess::poll`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NativeEnd {
+    /// It quit cleanly after RPool's own quit request.
+    Requested,
+    /// It quit cleanly by itself because the volume was unmounted outside
+    /// RPool (Finder Eject, `umount`, macOS "Disconnect").
+    Ejected,
+    /// It ended abnormally (crash, signal). Its volume is gone; on macOS
+    /// RPool force-unmounted it if needed so apps do not hang.
+    Lost,
+}
+
 /// Running rclone native mount (`mount`, or `nfsmount` on macOS) owned by this process.
 /// Started by `virtual_drive::run`; stopped on drop.
 pub(crate) struct MountProcess {
@@ -98,6 +117,8 @@ pub(crate) struct MountProcess {
     graceful_quit_requested: bool,
     /// macOS unmount not confirmed; further stops refuse and the lease is retained.
     shutdown_uncertain: bool,
+    /// How the child ended, once settled.
+    end: Option<NativeEnd>,
     /// Workspace mount lease held for the process lifetime.
     lease: MountLease,
 }

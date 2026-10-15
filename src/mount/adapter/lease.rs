@@ -96,29 +96,7 @@ impl MountLease {
         if lease.path.exists() {
             let previous: LeaseState = serde_json::from_slice(&std::fs::read(&lease.path)?)
                 .context("invalid mount lease; inspect surviving mount before manual recovery")?;
-            match previous {
-                LeaseState::Launching => bail!("mount launch outcome is uncertain; confirm no rclone process or driver mount uses this workspace before manually removing {} (retain all files/cache)", lease.path.display()),
-                LeaseState::ShutdownUncertain { pid } => bail!("macOS NFS shutdown for PID {pid} is uncertain; inspect kernel I/O and mount state before manually clearing {} (retain all files/cache)", lease.path.display()),
-                LeaseState::Running { pid } => {
-                    if process_alive(pid).context("cannot prove previous mount process exited; lease retained")? {
-                        // A crashed RPool's orphan is stopped cleanly; anything else is left alone.
-                        #[cfg(unix)]
-                        if super::orphan::stop_orphan(pid, cache, target)? {
-                            lease.clear()?;
-                        } else {
-                            bail!("previous mount process PID {pid} may still be active; stop it before restarting this workspace");
-                        }
-                        #[cfg(not(unix))]
-                        bail!("previous mount process PID {pid} may still be active; stop it before restarting this workspace");
-                    } else {
-                    #[cfg(target_os = "macos")]
-                    bail!("previous macOS NFS mount process PID {pid} exited without a confirmed clean shutdown; inspect kernel I/O and mount state before manually clearing {} (retain all files/cache)", lease.path.display());
-                    // The recorded PID does not exist. Never signal/kill a possibly reused PID.
-                    #[cfg(not(target_os = "macos"))]
-                    lease.clear_if_unmounted(target)?;
-                    }
-                }
-            }
+            lease.recover_previous(&previous, &metadata, cache, target)?;
         }
         #[cfg(windows)]
         let target = PathBuf::from(target.to_string_lossy().to_ascii_uppercase());
@@ -147,6 +125,64 @@ impl MountLease {
             durable_json(&identity_path, &identity)?;
         }
         Ok(lease)
+    }
+
+    /// Clears the lease of a previous mount that did not stop cleanly once it
+    /// has provably ended, else refuses. A recorded rclone that still runs is
+    /// stopped only when it is this workspace's orphan (`orphan`). Otherwise
+    /// the previous mount counts as ended when no rclone of this workspace
+    /// runs and no volume is left at the requested or recorded mountpoint (a
+    /// volume whose server is gone is force-unmounted, see `release`). Its
+    /// unsent saves stay in the VFS cache; the mount recovers them on start.
+    fn recover_previous(
+        &self,
+        previous: &LeaseState,
+        metadata: &Path,
+        cache: &Path,
+        target: &Path,
+    ) -> Result<()> {
+        let pid = match previous {
+            LeaseState::Launching => None,
+            LeaseState::Running { pid } | LeaseState::ShutdownUncertain { pid } => Some(*pid),
+        };
+        if let Some(pid) = pid {
+            if process_alive(pid)
+                .context("cannot prove previous mount process exited; lease retained")?
+            {
+                // A crashed RPool's orphan is stopped cleanly; a live owner is
+                // left alone. A PID now running something else was reused and
+                // is never signalled; the checks below decide.
+                #[cfg(unix)]
+                if super::orphan::runs_workspace_mount(pid, cache)
+                    && !super::orphan::stop_orphan(pid, cache, target)?
+                {
+                    bail!("previous mount process PID {pid} may still be active; stop it before restarting this workspace");
+                }
+                #[cfg(not(unix))]
+                bail!("previous mount process PID {pid} may still be active; stop it before restarting this workspace");
+            }
+        }
+        // Windows: a recorded PID that no longer exists ended the drive with it
+        // (job object); never signal a possibly reused PID.
+        #[cfg(not(unix))]
+        if matches!(previous, LeaseState::Running { .. }) {
+            return self.clear();
+        }
+        let recorded = read_identity(metadata)?.map(|identity| identity.target);
+        let mut targets = vec![target];
+        if let Some(recorded) = recorded.as_deref().filter(|r| *r != target) {
+            targets.push(recorded);
+        }
+        match super::release::previous_mount_remains(cache, &targets)? {
+            None => {
+                eprintln!("The previous mount of this workspace ended without a clean stop; no rclone process or volume of it remains, so the workspace is reopened. Its unsent saves are recovered from the VFS cache.");
+                self.clear()
+            }
+            Some(reason) => bail!(
+                "previous mount of this workspace has not ended: {reason}. Local files and cache are retained ({})",
+                self.path.display()
+            ),
+        }
     }
 
     /// Durably writes `state` to the lease record.
@@ -178,13 +214,40 @@ impl MountLease {
     }
 }
 
+/// The workspace's recorded mount identity (`mount-identity.json` in
+/// `metadata`), `None` when there is none yet.
+pub(super) fn read_identity(metadata: &Path) -> Result<Option<MountIdentity>> {
+    let path = metadata.join("mount-identity.json");
+    reject_link(&path)?;
+    match std::fs::read(&path) {
+        Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
 #[cfg(target_os = "macos")]
 /// True if the macOS mount table (read without waiting on NFS servers) has a mount at `target`.
 pub(super) fn macos_mount_attached(target: &Path) -> Result<bool> {
+    Ok(macos_mount_source(target)?.is_some())
+}
+
+#[cfg(target_os = "macos")]
+/// File system type and source (`f_mntfromname`) of the mount at `target`,
+/// read from the mount table without waiting on NFS servers; `None` when
+/// nothing is mounted there. Never touches `target` itself.
+pub(crate) fn macos_mount_source(target: &Path) -> Result<Option<(String, String)>> {
     use std::os::unix::ffi::OsStrExt;
 
     unsafe extern "C" {
         fn getmntinfo_r_np(mntbufp: *mut *mut libc::statfs, flags: libc::c_int) -> libc::c_int;
+    }
+    /// A NUL-terminated `statfs` name field as bytes.
+    fn field(name: &[libc::c_char]) -> Vec<u8> {
+        name.iter()
+            .take_while(|&&byte| byte != 0)
+            .map(|&byte| byte as u8)
+            .collect()
     }
     let mut table: *mut libc::statfs = std::ptr::null_mut();
     // MNT_NOWAIT avoids querying an unreachable NFS server. The _r_np variant
@@ -198,19 +261,17 @@ pub(super) fn macos_mount_attached(target: &Path) -> Result<bool> {
     }
     let mounts = unsafe { std::slice::from_raw_parts(table, count as usize) };
     let target = target.as_os_str().as_bytes();
-    let attached = mounts.iter().any(|mount| {
-        let name = &mount.f_mntonname;
-        let len = name
-            .iter()
-            .position(|&byte| byte == 0)
-            .unwrap_or(name.len());
-        name[..len]
-            .iter()
-            .map(|&byte| byte as u8)
-            .eq(target.iter().copied())
-    });
+    let found = mounts
+        .iter()
+        .find(|mount| field(&mount.f_mntonname) == target)
+        .map(|mount| {
+            (
+                String::from_utf8_lossy(&field(&mount.f_fstypename)).into_owned(),
+                String::from_utf8_lossy(&field(&mount.f_mntfromname)).into_owned(),
+            )
+        });
     unsafe { libc::free(table.cast()) };
-    Ok(attached)
+    Ok(found)
 }
 
 #[cfg(all(test, target_os = "macos"))]

@@ -1,15 +1,45 @@
 //! macOS mounting through macFUSE. fuser is built without a mount
 //! implementation (`macos-no-mount`), so RPool loads macFUSE's libfuse at
-//! runtime, lets it run `mount_macfuse` and serves the returned descriptor
-//! with `fuser::Session::from_fd`. Builds and PCs without macFUSE therefore
-//! still work; `--frontend auto` uses WebDAV there.
+//! runtime, lets it run `mount_macfuse` (`fuse_mount`) and serves the
+//! channel's descriptor with `fuser::Session::from_fd`. The mount completes
+//! once that session answers the kernel's INIT. Builds and PCs without
+//! macFUSE therefore still work; `--frontend auto` uses WebDAV there.
 //!
-//! The FSKit backend (macFUSE 5+, macOS 15.4+) is tried first because it needs
-//! no kernel extension; the kernel backend is the fallback.
+//! macFUSE 5 no longer mounts through `fuse_mount_compat25` (it returns -1
+//! at once), which is why every macFUSE mount used to fail and `auto` fell
+//! back to WebDAV. The kernel backend is tried first: it is the mature one
+//! and works wherever the kernel extension is allowed. The FSKit backend
+//! (macFUSE 5+, macOS 15.4+, no kernel extension) is the fallback, only when
+//! its file system extension is enabled: while it is disabled, macFUSE waits
+//! forever instead of failing. Each attempt is bounded by [`MOUNT_WAIT`];
+//! an attempt that does not answer cannot be cancelled safely, so it ends
+//! this mount process ([`MountAbandoned`]) instead of falling back.
+//!
+//! Mounts use `daemon_timeout` from `bounded`: with macFUSE's default (60 s)
+//! one slow cloud download made macFUSE eject the whole drive.
 use crate::prelude::*;
-use std::ffi::{c_char, c_int, CString};
+use std::ffi::{c_char, c_int, c_void, CString};
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
+use std::time::Duration;
+
+/// Longest wait for macFUSE to hand over a mount channel.
+const MOUNT_WAIT: Duration = Duration::from_secs(30);
+/// The FSKit module macFUSE uses for RPool's volumes; while it is disabled,
+/// an FSKit mount waits forever (macFUSE logs "… macfuse-local not enabled").
+const FSKIT_MODULE: &str = "io.macfuse.app.fsmodule.macfuse-local";
+
+/// Marks a mount attempt that macFUSE never answered. It may still complete
+/// later and cannot be cancelled safely, so this process must not mount
+/// anything else at that mountpoint (`--frontend auto` does not fall back to
+/// WebDAV); exiting closes the attempt.
+#[derive(Debug)]
+pub(crate) struct MountAbandoned;
+impl std::fmt::Display for MountAbandoned {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("macFUSE did not answer the mount request; stop and mount again")
+    }
+}
 
 /// macFUSE bundle path; its presence is part of [`installed`].
 pub(crate) const BUNDLE: &str = "/Library/Filesystems/macfuse.fs";
@@ -47,41 +77,75 @@ struct FuseArgs {
     argc: c_int,
     /// Argument strings.
     argv: *const *const c_char,
-    /// Nonzero if libfuse owns `argv`; always 0 here.
+    /// Nonzero if libfuse owns `argv`; 0 here (libfuse may replace it with
+    /// its own parsed copy, which it then owns).
     allocated: c_int,
 }
-/// C signature of `fuse_mount_compat25`: mountpoint and args → FUSE descriptor or -1.
-type MountFn = unsafe extern "C" fn(*const c_char, *const FuseArgs) -> c_int;
+/// C signature of libfuse 2.6+ `fuse_mount`: mountpoint and args → channel or NULL.
+type MountFn = unsafe extern "C" fn(*const c_char, *mut FuseArgs) -> *mut c_void;
+/// C signature of `fuse_chan_fd`: the channel's FUSE descriptor.
+type ChanFdFn = unsafe extern "C" fn(*mut c_void) -> c_int;
 
-/// `fuse_mount_compat25` from a loaded libfuse. The library is never
-/// unloaded, so the pointer stays valid for the process.
-fn mount_fn() -> Result<MountFn> {
-    static LOADED: std::sync::OnceLock<Result<usize, String>> = std::sync::OnceLock::new();
+/// The libfuse entry points RPool uses.
+#[derive(Clone, Copy)]
+struct Libfuse {
+    /// `fuse_mount`.
+    mount: MountFn,
+    /// `fuse_chan_fd`.
+    chan_fd: ChanFdFn,
+}
+
+/// `fuse_mount` and `fuse_chan_fd` from a loaded libfuse. The library is
+/// never unloaded, so the pointers stay valid for the process.
+fn libfuse() -> Result<Libfuse> {
+    static LOADED: std::sync::OnceLock<Result<(usize, usize), String>> = std::sync::OnceLock::new();
     let loaded = LOADED.get_or_init(|| {
         let mut failures = Vec::new();
         for path in LIBRARIES {
             let name = CString::new(path).expect("static path");
             // SAFETY: dlopen/dlsym with valid C strings; the handle is leaked
-            // on purpose so the symbol stays mapped.
+            // on purpose so the symbols stay mapped.
             let handle = unsafe { libc::dlopen(name.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL) };
             if handle.is_null() {
                 failures.push(format!("{path}: {}", dl_error()));
                 continue;
             }
-            let symbol = unsafe { libc::dlsym(handle, c"fuse_mount_compat25".as_ptr()) };
-            if symbol.is_null() {
+            let mount = unsafe { libc::dlsym(handle, c"fuse_mount".as_ptr()) };
+            let chan_fd = unsafe { libc::dlsym(handle, c"fuse_chan_fd".as_ptr()) };
+            if mount.is_null() || chan_fd.is_null() {
                 failures.push(format!("{path}: {}", dl_error()));
                 continue;
             }
-            return Ok(symbol as usize);
+            return Ok((mount as usize, chan_fd as usize));
         }
         Err(failures.join("; "))
     });
     match loaded {
-        // SAFETY: the symbol has this C signature in libfuse 2.x (macFUSE).
-        Ok(symbol) => Ok(unsafe { std::mem::transmute::<usize, MountFn>(*symbol) }),
+        // SAFETY: the symbols have these C signatures in libfuse 2.6+ (macFUSE).
+        Ok((mount, chan_fd)) => Ok(unsafe {
+            Libfuse {
+                mount: std::mem::transmute::<usize, MountFn>(*mount),
+                chan_fd: std::mem::transmute::<usize, ChanFdFn>(*chan_fd),
+            }
+        }),
         Err(e) => bail!("macFUSE's libfuse cannot be loaded ({e}): {INSTALL_HINT}"),
     }
+}
+
+/// Whether macFUSE's FSKit module is enabled ("+" in `pluginkit -m`, set by
+/// the switch under System Settings > General > Login Items & Extensions >
+/// File System Extensions).
+fn fskit_enabled() -> bool {
+    std::process::Command::new("/usr/bin/pluginkit")
+        .args(["-m", "-i", FSKIT_MODULE])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .is_ok_and(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .any(|line| line.trim_start().starts_with('+'))
+        })
 }
 
 /// Last `dlerror()` message.
@@ -120,6 +184,7 @@ pub(super) fn options(volume: &str, read_only: bool, backend: Backend) -> String
         "noapplexattr".into(),
         "nodev".into(),
         "nosuid".into(),
+        format!("daemon_timeout={}", super::bounded::DAEMON_TIMEOUT_SECONDS),
     ];
     if read_only {
         options.push("ro".into());
@@ -178,30 +243,174 @@ fn macfuse_version() -> Option<(u32, u32)> {
     major_minor(plist_string(&plist, "CFBundleShortVersionString")?)
 }
 
-/// Calls libfuse's mount with `-o options`; returns the owned FUSE descriptor.
-fn mount_with(mount: MountFn, mountpoint: &CString, options: &str) -> std::io::Result<OwnedFd> {
-    let options = CString::new(options).map_err(std::io::Error::other)?;
+/// Calls libfuse's `fuse_mount` with `-o options` and returns a duplicate of
+/// the channel's FUSE descriptor. The channel and its own descriptor stay
+/// with libfuse (the channel is leaked on purpose): libfuse closes that
+/// descriptor itself when the mount fails later, so handing it to fuser could
+/// close an unrelated, reused descriptor. Both are close-on-exec, so spawned
+/// rclone processes never hold the volume open.
+fn mount_blocking(
+    lib: Libfuse,
+    mountpoint: &CString,
+    options: &CString,
+) -> std::io::Result<OwnedFd> {
     let argv = [c"rpool".as_ptr(), c"-o".as_ptr(), options.as_ptr()];
-    let args = FuseArgs {
+    let mut args = FuseArgs {
         argc: argv.len() as c_int,
         argv: argv.as_ptr(),
         allocated: 0,
     };
-    // SAFETY: valid C strings that outlive the call; libfuse copies the
-    // arguments it keeps (`allocated == 0`).
-    let fd = unsafe { mount(mountpoint.as_ptr(), &args) };
-    if fd < 0 {
-        let error = std::io::Error::last_os_error();
-        return Err(match error.raw_os_error() {
-            Some(0) | None => std::io::Error::other("mount_macfuse failed"),
-            _ => error,
-        });
+    // SAFETY: valid C strings that outlive the call; libfuse never frees an
+    // `allocated == 0` argv and copies what it keeps.
+    let channel = unsafe { (lib.mount)(mountpoint.as_ptr(), &mut args) };
+    if channel.is_null() {
+        return Err(std::io::Error::other(
+            "mount_macfuse refused the mount (its messages are above)",
+        ));
     }
-    // SAFETY: libfuse returned a fresh descriptor that we now own.
-    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+    // SAFETY: `channel` is a live libfuse channel.
+    let fd = unsafe { (lib.chan_fd)(channel) };
+    if fd < 0 {
+        return Err(std::io::Error::other(
+            "mount_macfuse refused the mount (its messages are above)",
+        ));
+    }
+    // SAFETY: plain fcntl calls on the channel's open descriptor.
+    let duplicate = unsafe {
+        libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+        libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0)
+    };
+    if duplicate < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: a fresh descriptor owned only by us.
+    Ok(unsafe { OwnedFd::from_raw_fd(duplicate) })
 }
 
-/// Mount `mountpoint` with macFUSE, FSKit first. Returns the FUSE descriptor.
+/// [`mount_blocking`] bounded by `limit`. On timeout the attempt is left to
+/// finish on its own thread (a late duplicate is dropped); the caller must
+/// treat it as [`MountAbandoned`].
+fn mount_with(
+    lib: Libfuse,
+    mountpoint: &CString,
+    options: &str,
+    limit: Duration,
+) -> std::io::Result<OwnedFd> {
+    let options = CString::new(options).map_err(std::io::Error::other)?;
+    let target = mountpoint.clone();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("macfuse-mount".into())
+        .spawn(move || {
+            // A late descriptor is dropped (closed) with the failed send.
+            let _ = sender.send(mount_blocking(lib, &target, &options));
+        })?;
+    receiver.recv_timeout(limit).unwrap_or_else(|_| {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            format!("macFUSE did not answer within {}s", limit.as_secs()),
+        ))
+    })
+}
+
+/// Runs `work` on its own thread and waits at most `limit`; `None` when it
+/// did not finish (it is left to finish alone).
+fn bounded<T: Send + 'static>(
+    limit: Duration,
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("macfuse-probe".into())
+        .spawn(move || {
+            let _ = sender.send(work());
+        })
+        .ok()?;
+    receiver.recv_timeout(limit).ok()
+}
+
+/// What occupies `mountpoint` before a mount.
+#[derive(Debug, PartialEq, Eq)]
+enum Occupant {
+    /// Nothing is mounted there.
+    Free,
+    /// An RPool macFUSE volume whose serving process is gone (it answers
+    /// "Device not configured"), for example after RPool was killed.
+    DeadRpool,
+    /// Anything else (a live mount, another file system), described.
+    Other(String),
+}
+
+/// Classifies the mount at `mountpoint`. Only an RPool macFUSE volume is
+/// probed (its listing, bounded): a dead one answers ENXIO at once.
+fn occupant(mountpoint: &Path) -> Result<Occupant> {
+    let Some((fstype, source)) = crate::mount::adapter::macos_mount_source(mountpoint)? else {
+        return Ok(Occupant::Free);
+    };
+    if fstype != "macfuse" || source != "rpool" {
+        return Ok(Occupant::Other(format!("{fstype} {source}")));
+    }
+    let target = mountpoint.to_path_buf();
+    let listed = bounded(Duration::from_secs(5), move || {
+        std::fs::read_dir(target)
+            .map(|_| ())
+            .map_err(|e| e.raw_os_error())
+    });
+    Ok(match listed {
+        Some(Err(Some(libc::ENXIO))) => Occupant::DeadRpool,
+        Some(Ok(())) => Occupant::Other("a running RPool drive".into()),
+        _ => Occupant::Other("an RPool drive that does not answer".into()),
+    })
+}
+
+/// Makes `mountpoint` free for a new mount: a dead RPool macFUSE volume left
+/// by a killed mount process is unmounted (nothing can be served from it any
+/// more; local data stays in the workspace); any other mount is refused.
+/// Called before anything else touches the mountpoint.
+pub(super) fn clear_dead_volume(mountpoint: &Path) -> Result<()> {
+    match occupant(mountpoint)? {
+        Occupant::Free => Ok(()),
+        Occupant::Other(what) => bail!(
+            "{} already has a mounted volume ({what}); unmount it or choose another mountpoint",
+            mountpoint.display()
+        ),
+        Occupant::DeadRpool => {
+            eprintln!(
+                "Removing the disconnected RPool volume left at {} by a mount that ended abruptly",
+                mountpoint.display()
+            );
+            let target = CString::new(mountpoint.as_os_str().as_bytes())
+                .map_err(|_| anyhow!("mountpoint contains a NUL character"))?;
+            // SAFETY: valid C string; forced, because nothing serves the volume.
+            let _ = bounded(Duration::from_secs(10), move || unsafe {
+                libc::unmount(target.as_ptr(), libc::MNT_FORCE)
+            });
+            if occupant(mountpoint)? != Occupant::Free {
+                // FSKit volumes belong to the system's file system daemon.
+                let path = mountpoint.to_path_buf();
+                let _ = bounded(Duration::from_secs(20), move || {
+                    std::process::Command::new("/usr/sbin/diskutil")
+                        .args(["unmount", "force"])
+                        .arg(path)
+                        .stdin(std::process::Stdio::null())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status()
+                });
+            }
+            if occupant(mountpoint)? != Occupant::Free {
+                bail!(
+                    "the disconnected RPool volume at {0} could not be removed; run `diskutil unmount force {0}` and mount again",
+                    mountpoint.display()
+                );
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Mount `mountpoint` with macFUSE: the kernel backend first, then FSKit if
+/// its extension is enabled. Returns the FUSE descriptor and the backend.
 pub(super) fn mount(
     mountpoint: &Path,
     volume: &str,
@@ -210,36 +419,48 @@ pub(super) fn mount(
     if !installed() {
         bail!("macFUSE is not installed on this Mac: {INSTALL_HINT}");
     }
-    let mount = mount_fn()?;
+    let lib = libfuse()?;
     let target = CString::new(mountpoint.as_os_str().as_bytes())
         .map_err(|_| anyhow!("mountpoint contains a NUL character"))?;
-    let (macos, macfuse) = (macos_version(), macfuse_version());
-    let mut fskit_error = None;
-    if fskit_supported(macos, macfuse) {
-        match mount_with(mount, &target, &options(volume, read_only, Backend::FsKit)) {
-            Ok(fd) => return Ok((fd, Backend::FsKit)),
-            Err(e) => {
-                eprintln!("macFUSE FSKit backend failed ({e}); trying the macFUSE kernel backend. To use FSKit, {FSKIT_HINT}.");
-                fskit_error = Some(e);
-            }
+    let kernel = match mount_with(
+        lib,
+        &target,
+        &options(volume, read_only, Backend::Kernel),
+        MOUNT_WAIT,
+    ) {
+        Ok(fd) => return Ok((fd, Backend::Kernel)),
+        Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+            return Err(anyhow!("macFUSE kernel backend: {e}").context(MountAbandoned))
         }
-    } else {
-        eprintln!(
-            "macFUSE FSKit backend needs macOS 15.4+ and macFUSE 5+ (found macOS {}, macFUSE {}); using the macFUSE kernel backend",
+        Err(e) => e,
+    };
+    let (macos, macfuse) = (macos_version(), macfuse_version());
+    if !fskit_supported(macos, macfuse) {
+        bail!(
+            "macFUSE mount failed (kernel backend: {kernel}); {KERNEL_HINT}. The FSKit backend needs macOS 15.4+ and macFUSE 5+ (found macOS {}, macFUSE {}). Or use --frontend dav",
             version_text(macos),
             version_text(macfuse)
         );
     }
-    match mount_with(mount, &target, &options(volume, read_only, Backend::Kernel)) {
-        Ok(fd) => Ok((fd, Backend::Kernel)),
-        Err(e) => match fskit_error {
-            Some(fskit) => bail!(
-                "macFUSE mount failed: FSKit backend: {fskit}; kernel backend: {e}. To use FSKit, {FSKIT_HINT}; {KERNEL_HINT}. Or use --frontend dav"
-            ),
-            None => bail!(
-                "macFUSE mount failed ({e}); {KERNEL_HINT}. Or use --frontend dav"
-            ),
-        },
+    if !fskit_enabled() {
+        bail!(
+            "macFUSE mount failed (kernel backend: {kernel}); {KERNEL_HINT}. Or, to use the FSKit backend instead, {FSKIT_HINT}. Or use --frontend dav"
+        );
+    }
+    eprintln!("macFUSE kernel backend failed ({kernel}); trying the FSKit backend");
+    match mount_with(
+        lib,
+        &target,
+        &options(volume, read_only, Backend::FsKit),
+        MOUNT_WAIT,
+    ) {
+        Ok(fd) => Ok((fd, Backend::FsKit)),
+        Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+            Err(anyhow!("macFUSE FSKit backend: {e}").context(MountAbandoned))
+        }
+        Err(fskit) => bail!(
+            "macFUSE mount failed: kernel backend: {kernel}; FSKit backend: {fskit}. {KERNEL_HINT}. Or use --frontend dav"
+        ),
     }
 }
 
@@ -301,6 +522,8 @@ mod unit {
         assert!(fskit.ends_with(",backend=fskit"), "{fskit}");
         assert!(fskit.contains("noappledouble") && fskit.contains("noapplexattr"));
         assert!(!fskit.contains(",ro"));
+        // macFUSE's 60 s default ejected the drive during one slow download.
+        assert!(fskit.contains(",daemon_timeout=600,"), "{fskit}");
         let kernel = options("", true, Backend::Kernel);
         assert!(kernel.contains("volname=RPool"), "{kernel}");
         assert!(

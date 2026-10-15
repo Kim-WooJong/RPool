@@ -19,9 +19,9 @@ mod tests;
 
 use filesystem::VirtualFs;
 use handle::Handle;
-#[cfg(test)]
-use server::endpoint;
 pub(crate) use server::Server;
+#[cfg(test)]
+use server::{endpoint, REQUEST_LIMIT};
 
 #[derive(Default)]
 /// Diagnostic counters of DAV writes, printed as a summary when the server stops.
