@@ -45,6 +45,14 @@ build machine needs the MSVC toolchain and WinFsp with its developer files
 delay-loaded, so a PC without WinFsp still runs the binary: `--frontend auto`
 uses WebDAV and `--frontend winfsp` reports that WinFsp must be installed.
 
+On macOS install [macFUSE](https://macfuse.github.io/) for the native drive
+(`--frontend auto` then uses it; without it, WebDAV over `rclone nfsmount`).
+RPool tries macFUSE's kernel backend first, which needs the macFUSE kernel
+extension allowed in System Settings › Privacy & Security (on Apple silicon
+also reduced security in Startup Security Utility). The FSKit backend is used
+only when the kernel backend fails and macFUSE's file system extension is
+turned on under System Settings › General › Login Items & Extensions.
+
 ## Recommended rclone layout
 
 Create one `crypt` remote per provider, for example `gdrive-crypt:`,
@@ -82,8 +90,8 @@ coordinator or extra metadata service is needed. Concurrent edits keep the
 original and both edited versions as named conflict copies. Close and `fsync`
 are local durability points; cloud replication is asynchronous.
 
-- Frontends: native FUSE (Linux; macOS with macFUSE, FSKit backend first, not
-  yet mounted on a Mac) and WinFsp (Windows, not yet run on Windows) over
+- Frontends: native FUSE (Linux; macOS with macFUSE, kernel backend first,
+  FSKit when its extension is enabled) and WinFsp (Windows, not yet run on Windows) over
   RPool's filesystem core, or rclone mount over RPool's loopback WebDAV server
   (`dav`; on macOS via `rclone nfsmount`, used when macFUSE is missing).
 - Without mounting: `--sync-only`, `--capacity-only`, `--recover-spool`,
@@ -126,8 +134,22 @@ are local durability points; cloud replication is asynchronous.
   rclone ends with RPool even when RPool is killed; on macOS/Linux the next
   mount of the workspace stops an rclone a killed RPool left behind (only
   one proven to be that workspace's orphan).
-- macOS mounts disable the NFS client's negative name cache, so a name looked
-  up at the drive root before another PC created it is found once it syncs.
+- Ejecting the drive in Finder (or `umount`) stops the mount normally; local
+  data and caches stay. A mount that ended abruptly (crash, killed process,
+  reboot) needs no manual cleanup: the next mount reopens the workspace once
+  nothing of the old mount is left, removes a disconnected volume it left
+  (macFUSE, or a macOS NFS volume whose server is gone; never a live or
+  unrelated volume) and recovers unsent saves from the cache.
+- macFUSE mounts use `daemon_timeout=600`: macFUSE ejects a drive when one
+  request stays unanswered past it (60 s by default), which one slow cloud
+  download could cause. A read or write still waiting after 480 s gets
+  `ETIMEDOUT` while the download continues; open the file again later. Other
+  files and folders answer meanwhile.
+- macOS WebDAV mounts (`rclone nfsmount`) disable the NFS client's negative
+  name cache, so a name looked up at the drive root before another PC created
+  it is found once it syncs, and keep file locks local (`locallocks`).
+  rclone's NFS server answers one request at a time, so a file that is not
+  cached yet can stall the whole volume while it downloads; prefer macFUSE.
 - On Windows a workspace folder cannot be renamed while a program has a file
   in it open (os error 32). Switches retry for up to a minute; if it stays
   held, stop every mount of the drive, close Explorer windows and leftover
@@ -722,13 +744,17 @@ preserved formats are listed in
   domain. Two backing remotes of the same cloud account are not detected;
   declare them as capacity/outage identities.
 - Pool sync is eventual: no distributed locking, no cross-PC open-handle
-  coherence, empty folders stay local. Drive payload history accumulates until
-  it is reclaimed.
+  coherence. Empty folders sync between PCs running 2.18.0 or later; older
+  versions keep syncing files but do not see or publish them. Drive payload
+  history accumulates until it is reclaimed.
 - Several pools can be mounted at once, but a pool, workspace (also nested) or
   mountpoint is used by one mount at a time.
 - The WinFsp frontend, the Windows seal/flush fix and the Windows rclone daemon
-  path are compiled for Windows but not yet run on Windows. macOS has no
-  native frontend (WebDAV over NFS).
+  path are compiled for Windows but not yet run on Windows. On macOS the
+  macFUSE kernel backend is tested with local test remotes; its FSKit backend
+  is untested. A cloud-only file is read once a whole shard has downloaded, so
+  the first open of a large file on a slow account can take minutes; macOS
+  holds that file (and listings that stat it) until then.
 - Mounted-pool monitoring is per mount process; the GUI also shows per-storage
   traffic and upload errors for its current or last CLI task. Speed tests run
   remotes one after another; prompt Ctrl-C cleanup is described for macOS and
