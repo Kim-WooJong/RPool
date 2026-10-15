@@ -118,4 +118,54 @@ mod tests {
         assert!(find("empty").unwrap().is_dir);
         assert!(listing(&root.path().join("missing")).is_none());
     }
+
+    #[test]
+    fn deleting_last_file_keeps_implicit_folders_in_mount_and_library() {
+        let root = tempfile::tempdir().unwrap();
+        let drive = crate::mount::virtual_drive::fixture(root.path());
+        let core = crate::mount::fs_core::FsCore::new(std::sync::Arc::new(drive)).unwrap();
+        let handle = core
+            .open(
+                "docs/sub/last.txt",
+                crate::mount::fs_core::Access::Write {
+                    truncate: true,
+                    append: false,
+                },
+                true,
+                false,
+            )
+            .unwrap();
+        core.write_at(handle, 0, b"last").unwrap();
+        core.release(handle).unwrap();
+        assert!(Namespace::load(root.path(), "library")
+            .unwrap()
+            .directories
+            .is_empty());
+
+        core.delete("docs/sub/last.txt").unwrap();
+        assert!(core.lookup("docs/sub").unwrap().directory);
+        assert!(core.lookup("docs").unwrap().directory);
+        let listed = listing(root.path()).unwrap();
+        assert!(listed
+            .entries
+            .iter()
+            .any(|entry| entry.path == "docs/sub" && entry.is_dir));
+        drop(core);
+
+        let drive = crate::mount::virtual_drive::fixture_reopen(root.path());
+        let core = crate::mount::fs_core::FsCore::new(std::sync::Arc::new(drive)).unwrap();
+        assert!(core.lookup("docs/sub").unwrap().directory);
+        assert!(listing(root.path())
+            .unwrap()
+            .entries
+            .iter()
+            .any(|entry| entry.path == "docs/sub"));
+        core.rmdir("docs/sub").unwrap();
+        core.rmdir("docs").unwrap();
+        assert!(!listing(root.path())
+            .unwrap()
+            .entries
+            .iter()
+            .any(|entry| entry.path == "docs"));
+    }
 }

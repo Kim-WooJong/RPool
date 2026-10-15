@@ -525,7 +525,9 @@ pub(crate) fn convert_one(
         target.workers,
         target.retries,
     )?;
-    crate::commands::put_with_storage(
+    // The restored file is private to this conversion and cannot change while
+    // it uploads. Avoid copying the whole file into a second temporary snapshot.
+    crate::commands::put_sealed_with_storage(
         writer,
         rclone,
         &source,

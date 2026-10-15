@@ -9,8 +9,10 @@ use crate::prelude::*;
 pub(crate) struct FakeDrive {
     pub source: GenerationRef,
     pub files: Mutex<Vec<DriveFile>>,
+    pub folders: Mutex<BTreeSet<String>>,
     /// Epoch -> records published there.
     pub published: Mutex<BTreeMap<String, Vec<Record>>>,
+    pub published_folders: Mutex<BTreeMap<String, Vec<Record>>>,
     pub fail: bool,
 }
 
@@ -19,7 +21,9 @@ impl FakeDrive {
         Self {
             source: GenerationRef { epoch: None },
             files: Mutex::new(files),
+            folders: Mutex::new(BTreeSet::new()),
             published: Mutex::new(BTreeMap::new()),
+            published_folders: Mutex::new(BTreeMap::new()),
             fail: false,
         }
     }
@@ -54,6 +58,7 @@ impl DriveSource for FakeDrive {
         if *generation == self.source {
             return Ok(SourceView {
                 files: self.files.lock().unwrap().clone(),
+                folders: self.folders.lock().unwrap().clone(),
             });
         }
         let records = generation
@@ -61,7 +66,21 @@ impl DriveSource for FakeDrive {
             .as_ref()
             .and_then(|e| self.published.lock().unwrap().get(e).cloned())
             .unwrap_or_default();
-        crate::mount::drive_generation_read::decode(&records)
+        let mut view = crate::mount::drive_generation_read::decode(&records)?;
+        let folder_records = generation
+            .epoch
+            .as_ref()
+            .and_then(|e| self.published_folders.lock().unwrap().get(e).cloned())
+            .unwrap_or_default();
+        let folders: crate::mount::folders::Records = folder_records
+            .iter()
+            .map(|r| Ok((r.id.clone(), crate::mount::folders::parse(&r.id, &r.bytes)?)))
+            .collect::<Result<_>>()?;
+        view.folders = crate::mount::folders::projected(
+            &folders,
+            &view.files.iter().map(|f| f.path.clone()).collect(),
+        );
+        Ok(view)
     }
 }
 
@@ -75,6 +94,15 @@ impl Sink for FakeSink<'_> {
         let mut published = self.drive.published.lock().unwrap();
         let records = published.entry(self.epoch.clone()).or_default();
         // Write-once and content-addressed: a repeat is a no-op.
+        if !records.iter().any(|r| r.id == record.id) {
+            records.push(record.clone());
+        }
+        Ok(())
+    }
+    fn publish_folder(&self, record: &Record) -> Result<()> {
+        crate::mount::folders::parse(&record.id, &record.bytes)?;
+        let mut published = self.drive.published_folders.lock().unwrap();
+        let records = published.entry(self.epoch.clone()).or_default();
         if !records.iter().any(|r| r.id == record.id) {
             records.push(record.clone());
         }

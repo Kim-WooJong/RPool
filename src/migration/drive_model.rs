@@ -108,6 +108,8 @@ pub(crate) fn units(files: &[DriveFile]) -> Vec<DriveFile> {
 pub(crate) struct SourceView {
     /// Visible files (current revisions) of the generation.
     pub files: Vec<DriveFile>,
+    /// Explicit folders surviving the source generation (including empty ones).
+    pub folders: BTreeSet<String>,
 }
 
 /// One drive file of a plan.

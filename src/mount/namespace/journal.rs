@@ -25,6 +25,7 @@
 //! removes the journal, so a journal that names another checkpoint is stale
 //! and ignored: it can only be left over from an interrupted compaction.
 use super::{Intent, Namespace};
+use crate::mount::folders::FolderRecord;
 use crate::mount::shared_model::Event;
 use crate::prelude::*;
 use std::io::{Read as _, Seek as _, SeekFrom};
@@ -296,6 +297,16 @@ pub(super) struct Delta {
     /// Directories removed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     directories_del: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    folder_records_put: BTreeMap<String, FolderRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    folder_records_del: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    folders_published_add: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    folders_published_del: Vec<String>,
+    #[serde(default)]
+    folders_version: u32,
     /// Pending-list change; `None` when the list is unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pending: Option<PendingDelta>,
@@ -383,6 +394,7 @@ impl Delta {
             version: new.version,
             device: new.device.clone(),
             worker: new.worker.clone(),
+            folders_version: new.folders_version,
             ..Self::default()
         };
         if !Shared::ptr_eq(&old.events, &new.events) {
@@ -404,6 +416,14 @@ impl Delta {
             (delta.directories_add, delta.directories_del) =
                 diff_set(&old.directories, &new.directories);
         }
+        if !Shared::ptr_eq(&old.folder_records, &new.folder_records) {
+            (delta.folder_records_put, delta.folder_records_del) =
+                diff_map(&old.folder_records, &new.folder_records, |a, b| a == b);
+        }
+        if !Shared::ptr_eq(&old.folders_published, &new.folders_published) {
+            (delta.folders_published_add, delta.folders_published_del) =
+                diff_set(&old.folders_published, &new.folders_published);
+        }
         delta.pending = diff_pending(&old.pending, &new.pending);
         delta
     }
@@ -411,6 +431,7 @@ impl Delta {
     /// Whether this records nothing but the next generation of `old`.
     pub(super) fn is_noop(&self, old: &Namespace) -> bool {
         self.version == old.version
+            && self.folders_version == old.folders_version
             && self.device == old.device
             && self.worker == old.worker
             && self.events_put.is_empty()
@@ -423,6 +444,10 @@ impl Delta {
             && self.bases_del.is_empty()
             && self.directories_add.is_empty()
             && self.directories_del.is_empty()
+            && self.folder_records_put.is_empty()
+            && self.folder_records_del.is_empty()
+            && self.folders_published_add.is_empty()
+            && self.folders_published_del.is_empty()
             && self.pending.is_none()
     }
 
@@ -437,6 +462,7 @@ impl Delta {
         state.version = self.version;
         state.device = self.device;
         state.worker = self.worker;
+        state.folders_version = self.folders_version;
         fn remove_all<V>(map: &mut BTreeMap<String, V>, keys: Vec<String>) -> Result<()> {
             for key in keys {
                 map.remove(&key)
@@ -476,6 +502,18 @@ impl Delta {
                 &mut state.directories,
                 self.directories_add,
                 self.directories_del,
+            )?;
+        }
+        if !self.folder_records_del.is_empty() || !self.folder_records_put.is_empty() {
+            let records = &mut *state.folder_records;
+            remove_all(records, self.folder_records_del)?;
+            records.extend(self.folder_records_put);
+        }
+        if !self.folders_published_add.is_empty() || !self.folders_published_del.is_empty() {
+            set_edit(
+                &mut state.folders_published,
+                self.folders_published_add,
+                self.folders_published_del,
             )?;
         }
         match self.pending {

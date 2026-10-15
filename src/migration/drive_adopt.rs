@@ -29,7 +29,9 @@ use super::drive_source::DriveSource;
 use super::execute::{is_abandoned, progress, Progress, RunOptions, RunSummary};
 use super::journal::Journal;
 use super::model::{Action, GroupLoss, Plan};
-use crate::mount::drive_generation_write::{publish, records, Sink};
+use crate::mount::drive_generation_write::{
+    folder_records, publish, publish_folders, records, Sink,
+};
 use crate::prelude::*;
 
 /// How long a freeze must be in place before adoption: a mounted PC on the
@@ -204,6 +206,8 @@ pub(crate) fn adopt_core(
         adopted.len()
     ));
     publish(io.sink(&drive.epoch)?.as_ref(), &new_records)?;
+    let new_folders = folder_records(&view.folders, &plan.migration_id)?;
+    publish_folders(io.sink(&drive.epoch)?.as_ref(), &new_folders)?;
 
     // Read the new generation back as a PC without a workspace would.
     let generation = GenerationRef {
@@ -229,6 +233,9 @@ pub(crate) fn adopt_core(
     };
     if identity(&seen.files)? != identity(&adopted)? {
         bail!("the new drive generation does not read back as published; not adopted (records are kept and the next adoption re-checks them)");
+    }
+    if seen.folders != view.folders {
+        bail!("the new drive generation's folders do not read back as published; not adopted");
     }
     let marker = record_adoption(
         journal,

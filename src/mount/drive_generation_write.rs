@@ -26,6 +26,35 @@ pub(crate) struct Record {
 pub(crate) trait Sink: Sync {
     /// Writes one record to every replica; must be idempotent (records are write-once).
     fn publish(&self, record: &Record) -> Result<()>;
+    /// Writes one immutable folder record into the sibling folder tree.
+    fn publish_folder(&self, record: &Record) -> Result<()>;
+}
+
+/// Deterministic folder creates for an adopted generation. A retry or a
+/// second PC produces the same ids and cannot re-create an extra branch.
+pub(crate) fn folder_records(folders: &BTreeSet<String>, seed: &str) -> Result<Vec<Record>> {
+    let device = device(seed)?;
+    folders
+        .iter()
+        .map(|path| {
+            let nonce = blake3::hash(&serde_json::to_vec(&("rpool-adopt-folder", seed, path))?)
+                .to_hex()
+                .to_string();
+            let folder = super::folders::FolderRecord {
+                version: 1,
+                device: device.clone(),
+                path: path.clone(),
+                parents: vec![],
+                present: true,
+                nonce,
+            };
+            folder.validate()?;
+            Ok(Record {
+                id: folder.id()?,
+                bytes: serde_json::to_vec(&folder)?,
+            })
+        })
+        .collect()
 }
 
 /// Deterministic pseudo device id for adopted events, derived from the migration id.
@@ -79,11 +108,15 @@ pub(crate) fn records(files: &[DriveFile], seed: &str) -> Result<Vec<Record>> {
 pub(crate) fn publish(sink: &dyn Sink, records: &[Record]) -> Result<()> {
     records.par_iter().try_for_each(|r| sink.publish(r))
 }
+pub(crate) fn publish_folders(sink: &dyn Sink, records: &[Record]) -> Result<()> {
+    records.par_iter().try_for_each(|r| sink.publish_folder(r))
+}
 
 /// The replicas of the new epoch on the pool's (new) remotes.
 pub(crate) struct CloudSink {
     /// One shared transport per metadata replica root of the new epoch.
     v6: Vec<SharedTransport>,
+    folders: Vec<SharedTransport>,
 }
 
 impl CloudSink {
@@ -97,6 +130,7 @@ impl CloudSink {
     ) -> Result<Self> {
         let roots = drive_metadata_roots(pool, &policy.remotes, Some(epoch))?;
         Ok(Self {
+            folders: super::pool_sync::folder_transports(rclone, &roots, policy.native_crypt)?,
             v6: roots
                 .iter()
                 .map(|root| {
@@ -111,6 +145,13 @@ impl CloudSink {
 impl Sink for CloudSink {
     fn publish(&self, record: &Record) -> Result<()> {
         for transport in &self.v6 {
+            transport.publish(&record.id, &record.bytes)?;
+        }
+        Ok(())
+    }
+    fn publish_folder(&self, record: &Record) -> Result<()> {
+        super::folders::parse(&record.id, &record.bytes)?;
+        for transport in &self.folders {
             transport.publish(&record.id, &record.bytes)?;
         }
         Ok(())

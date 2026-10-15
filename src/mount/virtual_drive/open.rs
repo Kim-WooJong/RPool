@@ -226,6 +226,7 @@ impl VirtualDrive {
         let mut state = Namespace::load(&root, worker)?;
         pending_cancel::resume(&root, &mut state)?;
         state.version = FORMAT_VERSION;
+        state.seed_folders()?;
         state.save(&root)?;
         let cache = ShardCache::new(root.join("clean-cache"), cache_limit)?;
         // Started uploads resume with the layout they were planned with; a

@@ -14,6 +14,8 @@ pub(crate) struct ReplicaDirs {
     /// Event (record) directories, one per family kind; v6 has a single
     /// `<root>/events` directory.
     records: Vec<SharedTransport>,
+    /// Folder events are copied to new accounts but never included in v6 checkpoints.
+    folders: SharedTransport,
     /// `checkpoints/heads`: checkpoint head objects.
     heads: SharedTransport,
     /// `checkpoints/chunks`: chunk objects holding checkpointed records.
@@ -30,7 +32,11 @@ impl ReplicaDirs {
             chunks: &self.chunks,
             heads: &self.heads,
             marks: &self.marks,
-            records: self.records.iter().collect(),
+            records: self
+                .records
+                .iter()
+                .chain(std::iter::once(&self.folders))
+                .collect(),
         }
     }
     /// Borrowed `Replica` view of these directories for the checkpoint and
@@ -70,6 +76,7 @@ pub(crate) fn replica_dirs(
             let checkpoints = crate::utils::remote_join(root, "checkpoints");
             Ok(ReplicaDirs {
                 records,
+                folders: open(&crate::utils::remote_join(root, "folders"))?,
                 heads: open(&checkpoints)?.in_dir("heads"),
                 chunks: open(&checkpoints)?.in_dir("chunks"),
                 marks: open(&checkpoints)?.in_dir("marks"),

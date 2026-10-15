@@ -159,9 +159,11 @@ impl VirtualDrive {
             .lock()
             .map_err(|_| anyhow!("namespace lock poisoned"))?;
         let mut next = s.clone();
-        next.directories.insert(path.into());
+        next.add_folder(path)?;
         next.save(&self.root)?;
         *s = next;
+        drop(s);
+        self.upload.notify();
         Ok(())
     }
     /// Remove an explicit directory. `Ok(false)` means it still has children.
@@ -178,9 +180,11 @@ impl VirtualDrive {
             return Ok(false);
         }
         let mut next = s.clone();
-        next.directories.remove(path);
+        next.remove_folder(path)?;
         next.save(&self.root)?;
         *s = next;
+        drop(s);
+        self.upload.notify();
         Ok(true)
     }
     /// Queues a deletion of the visible file at `path`.
@@ -201,6 +205,7 @@ impl VirtualDrive {
             .map_err(|_| anyhow!("namespace lock poisoned"))?;
         let mut next = s.clone();
         next.pending.push(intent);
+        super::preserve_parent_directories(&mut next, path)?;
         crate::mount::crash::point("delete.before_namespace_save")?;
         next.save(&self.root)?;
         *s = next;

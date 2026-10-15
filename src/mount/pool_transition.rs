@@ -445,7 +445,9 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
     }
     {
         let mut state = destination.state.lock().unwrap();
-        state.directories.extend(directories.iter().cloned());
+        for directory in directories.iter() {
+            state.add_folder(directory)?;
+        }
         state.save(&destination_path)?;
     }
     destination.sync()?;

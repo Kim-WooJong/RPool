@@ -94,7 +94,7 @@ fn v6_listing_projects_files_implied_dirs_deletions_and_conflicts() {
     assert!(project_v6(&[&empty]).unwrap().is_none());
 
     let (files, conflicts) = project_v6(&[&r, &empty]).unwrap().unwrap();
-    let result = listing("p", "v6", files, &conflicts);
+    let result = listing("p", "v6", files, &conflicts, &Default::default());
     assert_eq!(r.publications.get() + empty.publications.get(), 0);
     let paths: Vec<_> = result
         .entries
@@ -120,4 +120,28 @@ fn v6_listing_projects_files_implied_dirs_deletions_and_conflicts() {
         .iter()
         .any(|n| n.starts_with("conflict at top.bin")));
     assert_eq!(result.mode, "v6");
+}
+
+#[test]
+fn cloud_listing_includes_folder_only_namespace() {
+    let folder =
+        crate::mount::folders::FolderRecord::new("pc", "empty/nested", vec![], true).unwrap();
+    let records = std::collections::BTreeMap::from([(folder.id().unwrap(), folder)]);
+    let projected = crate::mount::folders::projected(&records, &Default::default());
+    let listed = listing(
+        "p",
+        "v6",
+        Default::default(),
+        &Default::default(),
+        &projected,
+    );
+    assert_eq!(
+        listed
+            .entries
+            .iter()
+            .map(|e| e.path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["empty", "empty/nested"]
+    );
+    assert!(listed.entries.iter().all(|e| e.is_dir));
 }

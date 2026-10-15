@@ -4,6 +4,7 @@
 //! Entry points: `roots` (per-remote v6 metadata roots of a pool),
 //! `VirtualDrive::pull_pool` / publication of local events, and the listing
 //! helpers `list_unseen`/`read_unseen` shared with `metadata_pool` browsing.
+use super::folders::{FolderRecord, Records};
 use super::metadata_limits::{PAGE_BYTES, PAGE_RECORDS, STREAM_BYTES_MAX, STREAM_RECORDS_MAX};
 use super::shared_model::Event;
 use super::shared_transport::SharedTransport;
@@ -233,6 +234,67 @@ fn publish_everywhere(transports: &[SharedTransport], id: &str, event: &Event) -
     results.into_iter().collect()
 }
 
+/// Folder records live in a sibling tree unseen by pre-folder clients.
+pub(crate) fn folder_transports(
+    rclone: &str,
+    roots: &[String],
+    native_crypt: bool,
+) -> Result<Vec<SharedTransport>> {
+    roots
+        .iter()
+        .map(|root| {
+            SharedTransport::new(rclone, &crate::utils::remote_join(root, "folders"))
+                .map(|t| t.with_native_crypt(native_crypt))
+        })
+        .collect()
+}
+
+pub(crate) fn read_folders(stores: &[&dyn EventStore], unseen: &Unseen) -> Result<Records> {
+    let mut records = Records::new();
+    for (id, (index, size)) in &unseen.entries {
+        let bytes = stores[*index].read(id, *size)?;
+        records.insert(id.clone(), super::folders::parse(id, &bytes)?);
+    }
+    Ok(records)
+}
+
+/// Folder metadata must not make an otherwise healthy file pool unusable.
+/// Keep strict reads for generation migration, where an incomplete snapshot
+/// would silently omit folders from the adopted generation.
+pub(crate) fn read_folders_best_effort(stores: &[&dyn EventStore], unseen: &Unseen) -> Records {
+    let mut records = Records::new();
+    for (id, (index, size)) in &unseen.entries {
+        let result = stores[*index]
+            .read(id, *size)
+            .and_then(|bytes| super::folders::parse(id, &bytes));
+        match result {
+            Ok(record) => {
+                records.insert(id.clone(), record);
+            }
+            Err(error) => {
+                eprintln!("rpool: ignoring unreadable folder record {id}: {error:#}");
+            }
+        }
+    }
+    records
+}
+
+fn publish_folder_everywhere(
+    transports: &[SharedTransport],
+    id: &str,
+    record: &FolderRecord,
+) -> Result<()> {
+    if record.id()? != id {
+        bail!("invalid folder publication");
+    }
+    record.validate()?;
+    let bytes = serde_json::to_vec(record)?;
+    for transport in transports {
+        EventStore::publish(transport, id, &bytes)?;
+    }
+    Ok(())
+}
+
 impl super::virtual_drive::VirtualDrive {
     /// One `SharedTransport` per pool-sync root of this drive (native crypt as
     /// the pool configures).
@@ -250,10 +312,25 @@ impl super::virtual_drive::VirtualDrive {
     /// Called by `virtual_drive::sync` at the start of each sync round.
     pub(crate) fn pull_pool(&self) -> Result<()> {
         let transports = self.pool_transports()?;
+        let folders = folder_transports(
+            &self.rclone,
+            &self.pool_sync_roots,
+            self.policy.native_crypt,
+        )?;
         let stores: Vec<&dyn EventStore> =
             transports.iter().map(|s| s as &dyn EventStore).collect();
-        let known: BTreeSet<String> = self.state.lock().unwrap().events.keys().cloned().collect();
+        let folder_stores: Vec<&dyn EventStore> =
+            folders.iter().map(|s| s as &dyn EventStore).collect();
+        let (known, known_folders): (BTreeSet<String>, BTreeSet<String>) = {
+            let state = self.state.lock().unwrap();
+            (
+                state.events.keys().cloned().collect(),
+                state.folder_records.keys().cloned().collect(),
+            )
+        };
         let unseen = list_unseen(&stores, &known)?;
+        let unseen_folders = list_unseen(&folder_stores, &known_folders)?;
+        let incoming_folders = read_folders_best_effort(&folder_stores, &unseen_folders);
         let family = super::metadata_checkpoint_model::Family::v6();
         let dirs = super::metadata_pool::replica_dirs(
             &self.rclone,
@@ -293,12 +370,13 @@ impl super::virtual_drive::VirtualDrive {
             !state.published.contains(id)
                 && (state.events.contains_key(id) || incoming.contains_key(id))
         });
-        if incoming.is_empty() && !unacknowledged {
+        if incoming.is_empty() && incoming_folders.is_empty() && !unacknowledged {
             drop(state);
             return cache.save(&cache_path);
         }
         let mut next = state.clone();
         next.ingest(incoming)?;
+        next.folder_records.extend(incoming_folders);
         // Do not acknowledge downloaded events: normal publication heals missing
         // replicas. Checkpointed events are durable in the checkpoint itself.
         let durable: Vec<_> = covered
@@ -372,6 +450,51 @@ impl super::virtual_drive::VirtualDrive {
                 if let Some(error) = first_error {
                     return Err(error);
                 }
+            }
+        }
+        let folders = folder_transports(
+            &self.rclone,
+            &self.pool_sync_roots,
+            self.policy.native_crypt,
+        )?;
+        let mut remaining: Records = {
+            let state = self.state.lock().unwrap();
+            state
+                .folder_records
+                .iter()
+                .filter(|(id, _)| !state.folders_published.contains(*id))
+                .map(|(id, record)| (id.clone(), record.clone()))
+                .collect()
+        };
+        while !remaining.is_empty() {
+            let (published, known) = {
+                let state = self.state.lock().unwrap();
+                (
+                    state.folders_published.clone(),
+                    state.folder_records.clone(),
+                )
+            };
+            let ready: Vec<_> = remaining
+                .iter()
+                .filter(|(_, record)| {
+                    record
+                        .parents
+                        .iter()
+                        .all(|p| published.contains(p) || !known.contains_key(p))
+                })
+                .map(|(id, record)| (id.clone(), record.clone()))
+                .collect();
+            if ready.is_empty() {
+                bail!("missing or cyclic folder publication ancestry");
+            }
+            for (id, record) in ready {
+                publish_folder_everywhere(&folders, &id, &record)?;
+                let mut state = self.state.lock().unwrap();
+                let mut next = state.clone();
+                next.folders_published.insert(id.clone());
+                next.save(&self.root)?;
+                *state = next;
+                remaining.remove(&id);
             }
         }
         Ok(())
@@ -499,5 +622,70 @@ mod tests {
             )
             .unwrap()
         );
+    }
+    #[test]
+    fn folders_round_trip_between_two_offline_namespaces() {
+        let replica = Store::default();
+        let stores: Vec<&dyn EventStore> = vec![&replica];
+        let mut a = super::super::namespace::Namespace::create("a").unwrap();
+        let mut b = super::super::namespace::Namespace::create("b").unwrap();
+        a.seed_folders().unwrap();
+        b.seed_folders().unwrap();
+        a.add_folder("empty").unwrap();
+        for (id, record) in a.folder_records.iter() {
+            replica
+                .publish(id, &serde_json::to_vec(record).unwrap())
+                .unwrap();
+        }
+        let unseen = list_unseen(&stores, &BTreeSet::new()).unwrap();
+        b.folder_records
+            .extend(read_folders(&stores, &unseen).unwrap());
+        b.refresh_directories().unwrap();
+        assert!(b.directories.contains("empty"));
+        b.remove_folder("empty").unwrap();
+        for (id, record) in b.folder_records.iter() {
+            replica
+                .publish(id, &serde_json::to_vec(record).unwrap())
+                .unwrap();
+        }
+        let known = a.folder_records.keys().cloned().collect();
+        let unseen = list_unseen(&stores, &known).unwrap();
+        a.folder_records
+            .extend(read_folders(&stores, &unseen).unwrap());
+        a.refresh_directories().unwrap();
+        assert!(!a.directories.contains("empty"));
+        a.add_folder("empty").unwrap();
+        assert!(a.directories.contains("empty"));
+    }
+
+    #[test]
+    fn unknown_folder_format_does_not_block_file_metadata() {
+        let folders = Store::default();
+        let good = FolderRecord::new("a", "good", vec![], true).unwrap();
+        folders
+            .publish(&good.id().unwrap(), &serde_json::to_vec(&good).unwrap())
+            .unwrap();
+        let mut future = serde_json::to_value(&good).unwrap();
+        future["version"] = 2.into();
+        let future_bytes = serde_json::to_vec(&future).unwrap();
+        let future_id = blake3::hash(&future_bytes).to_hex().to_string();
+        folders.publish(&future_id, &future_bytes).unwrap();
+        folders
+            .events
+            .borrow_mut()
+            .insert("0".repeat(64), b"not json".to_vec());
+        let stores: Vec<&dyn EventStore> = vec![&folders];
+        let unseen = list_unseen(&stores, &BTreeSet::new()).unwrap();
+        assert!(read_folders(&stores, &unseen).is_err());
+        let accepted = read_folders_best_effort(&stores, &unseen);
+        assert_eq!(accepted.len(), 1);
+        assert!(accepted.contains_key(&good.id().unwrap()));
+
+        let file_store = Store::default();
+        let file = event("b", "file.txt", vec![]);
+        file_store
+            .publish(&file.id().unwrap(), &serde_json::to_vec(&file).unwrap())
+            .unwrap();
+        assert_eq!(collect(&[&file_store], &BTreeSet::new()).unwrap().len(), 1);
     }
 }

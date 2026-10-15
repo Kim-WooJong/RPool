@@ -21,6 +21,7 @@ pub(crate) mod fs_core;
 pub(crate) use frontend::macfuse_installed;
 #[cfg(test)]
 mod add_accounts_tests;
+pub(crate) mod folders;
 pub(crate) mod history_bridge;
 mod incremental;
 pub(crate) mod layout_refresh;

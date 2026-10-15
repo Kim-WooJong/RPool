@@ -60,8 +60,8 @@ pub(crate) fn put(
 
 #[allow(clippy::too_many_arguments)]
 /// Uploads `source` with a caller-supplied [`StorageWriter`], snapshotting the
-/// file first so concurrent edits cannot mix into the archive. Used by [`put`],
-/// pool reprocessing and storage tests.
+/// file first so concurrent edits cannot mix into the archive. Used by [`put`]
+/// and storage tests.
 pub(crate) fn put_with_storage(
     storage: &StorageWriter,
     rclone: &str,

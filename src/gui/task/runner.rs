@@ -38,6 +38,9 @@ pub(crate) struct TaskOutcome {
 /// Undrained events after which droppable ones (logs, byte progress) are
 /// skipped rather than queued.
 const PENDING_MAX: usize = 10_000;
+/// Keep a busy child from monopolizing one GUI frame while draining output.
+const EVENTS_PER_POLL_MAX: usize = 256;
+const LOG_LINES_MAX: usize = 2_000;
 
 /// Counters shared by an [`EventSender`] and the runner draining it.
 #[derive(Default)]
@@ -255,7 +258,7 @@ impl TaskRunner {
         self.running = true;
     }
 
-    /// Drains pending worker events: appends logs (trimmed to stay bounded),
+    /// Processes a bounded batch of worker events: appends logs (trimmed to stay bounded),
     /// applies progress and on exit moves the task to `last_task`. Returns the
     /// terminal status once, when the task has just finished. Called every frame.
     pub(crate) fn poll(&mut self) -> Option<JobStatus> {
@@ -266,7 +269,7 @@ impl TaskRunner {
             .map(|b| b.dropped.swap(0, Ordering::Relaxed))
             .filter(|n| *n > 0)
         {
-            self.logs.push(LogLine {
+            self.push_log(LogLine {
                 kind: LogKind::System,
                 text: format!(
                     "[{dropped} output line(s) skipped while the window was not drawing]"
@@ -274,7 +277,10 @@ impl TaskRunner {
             });
         }
 
-        while let Some(received) = self.receiver.as_ref().map(Receiver::try_recv) {
+        for _ in 0..EVENTS_PER_POLL_MAX {
+            let Some(received) = self.receiver.as_ref().map(Receiver::try_recv) else {
+                break;
+            };
             let event = match received {
                 Ok(event) => {
                     if let Some(backlog) = &self.backlog {
@@ -285,7 +291,7 @@ impl TaskRunner {
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
                     if terminal_status.is_none() {
-                        self.logs.push(LogLine {
+                        self.push_log(LogLine {
                             kind: LogKind::System,
                             text: "task worker stopped unexpectedly".to_string(),
                         });
@@ -304,11 +310,7 @@ impl TaskRunner {
 
             match event {
                 TaskEvent::Log(line) => {
-                    // Mount services can run for days; retained UI output must be bounded.
-                    if self.logs.len() >= 2000 {
-                        self.logs.drain(..500);
-                    }
-                    self.logs.push(line);
+                    self.push_log(line);
                 }
                 TaskEvent::Progress(event) => {
                     if let Some(task) = self.current_task.as_mut() {
@@ -333,7 +335,7 @@ impl TaskRunner {
                     self.steps.push(StepUpdate::Finished(index, outcome));
                 }
                 TaskEvent::StartFailed(message) => {
-                    self.logs.push(LogLine {
+                    self.push_log(LogLine {
                         kind: LogKind::System,
                         text: message,
                     });
@@ -358,6 +360,15 @@ impl TaskRunner {
         }
 
         terminal_status
+    }
+
+    /// Every log source, including overload and terminal diagnostics, uses the
+    /// same retention limit. Avoid draining on every append at the cap.
+    fn push_log(&mut self, line: LogLine) {
+        if self.logs.len() >= LOG_LINES_MAX {
+            self.logs.drain(..500);
+        }
+        self.logs.push(line);
     }
 
     /// Moves the current task to `last_task` with its final status and code.
@@ -721,6 +732,51 @@ impl TaskRunner {
 #[cfg(test)]
 mod bounded_output_tests {
     use super::*;
+
+    #[test]
+    fn large_backlog_is_processed_across_frames_and_still_finishes() {
+        let mut runner = TaskRunner::default();
+        runner.fake_running("test");
+        let (sender, receiver, backlog) = EventSender::channel();
+        for _ in 0..(EVENTS_PER_POLL_MAX + 1) {
+            sender
+                .send(TaskEvent::Log(LogLine {
+                    kind: LogKind::System,
+                    text: "line".into(),
+                }))
+                .unwrap();
+        }
+        sender
+            .send(TaskEvent::Finished(TaskOutcome {
+                success: true,
+                code: Some(0),
+                cancelled: false,
+            }))
+            .unwrap();
+        runner.receiver = Some(receiver);
+        runner.backlog = Some(backlog);
+
+        assert!(runner.poll().is_none());
+        assert!(runner.is_running());
+        assert_eq!(runner.logs().len(), EVENTS_PER_POLL_MAX);
+        assert_eq!(runner.poll(), Some(JobStatus::Completed));
+        assert_eq!(runner.logs().len(), EVENTS_PER_POLL_MAX + 1);
+    }
+
+    #[test]
+    fn overload_diagnostics_alone_remain_bounded() {
+        let mut runner = TaskRunner::default();
+        runner.fake_running("test");
+        let (sender, receiver, backlog) = EventSender::channel();
+        runner.receiver = Some(receiver);
+        runner.backlog = Some(backlog.clone());
+        for _ in 0..(LOG_LINES_MAX + 100) {
+            backlog.dropped.store(1, Ordering::Relaxed);
+            assert!(runner.poll().is_none());
+        }
+        assert!(runner.logs().len() <= LOG_LINES_MAX);
+        drop(sender);
+    }
 
     #[test]
     fn oversized_line_does_not_swallow_following_status() {

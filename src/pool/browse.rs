@@ -114,7 +114,9 @@ pub(crate) fn browse(rclone: &str, pool: &str) -> anyhow::Result<PoolBrowse> {
         };
         // Includes checkpointed events (deleted from the event folder).
         let outcome = source.refresh(&listed, snapshot)?;
-        if let Some((files, conflicts)) = project_events(&outcome.snapshot.events)? {
+        let projected = project_events(&outcome.snapshot.events)?;
+        if projected.is_some() || !outcome.snapshot.folders.is_empty() {
+            let (files, conflicts) = projected.unwrap_or_default();
             if outcome.changed || !cached {
                 if let Err(error) =
                     super::browse_cache::save(pool, &policy, epoch, &outcome.snapshot)
@@ -122,7 +124,11 @@ pub(crate) fn browse(rclone: &str, pool: &str) -> anyhow::Result<PoolBrowse> {
                     eprintln!("Library cache of {pool} not saved: {error:#}");
                 }
             }
-            let mut result = listing(pool, "v6", files, &conflicts);
+            let folders = crate::mount::folders::projected(
+                &outcome.snapshot.folders,
+                &files.keys().cloned().collect(),
+            );
+            let mut result = listing(pool, "v6", files, &conflicts, &folders);
             if let Some(epoch) = epoch {
                 result.notes.insert(0, generation_note(epoch));
             }
@@ -150,8 +156,16 @@ pub(crate) fn browse(rclone: &str, pool: &str) -> anyhow::Result<PoolBrowse> {
 pub(crate) fn browse_cached(pool: &str) -> Option<(PoolBrowse, u64)> {
     let policy = super::load_pool_store().ok()?.pools.get(pool).cloned()?;
     let cached = super::browse_cache::load(pool, &policy)?;
-    let (files, conflicts) = project_events(&cached.snapshot.events).ok()??;
-    let mut result = listing(pool, "v6", files, &conflicts);
+    let projected = project_events(&cached.snapshot.events).ok()?;
+    if projected.is_none() && cached.snapshot.folders.is_empty() {
+        return None;
+    }
+    let (files, conflicts) = projected.unwrap_or_default();
+    let folders = crate::mount::folders::projected(
+        &cached.snapshot.folders,
+        &files.keys().cloned().collect(),
+    );
+    let mut result = listing(pool, "v6", files, &conflicts, &folders);
     if let Some(epoch) = &cached.epoch {
         result.notes.insert(0, generation_note(epoch));
     }
@@ -201,8 +215,24 @@ fn project_events(
 
 /// Builds the sorted [`PoolBrowse`] from files (adding implied
 /// directories) with one note per conflict.
-fn listing(pool: &str, mode: &str, files: Files, conflicts: &Conflicts) -> PoolBrowse {
+fn listing(
+    pool: &str,
+    mode: &str,
+    files: Files,
+    conflicts: &Conflicts,
+    folders: &std::collections::BTreeSet<String>,
+) -> PoolBrowse {
     let mut all: std::collections::BTreeMap<String, BrowseEntry> = Default::default();
+    for path in folders {
+        all.insert(
+            path.clone(),
+            BrowseEntry {
+                path: path.clone(),
+                size: 0,
+                is_dir: true,
+            },
+        );
+    }
     for (path, size) in files {
         let mut prefix = String::new();
         let parts: Vec<_> = path.split('/').collect();
@@ -226,7 +256,7 @@ fn listing(pool: &str, mode: &str, files: Files, conflicts: &Conflicts) -> PoolB
             },
         );
     }
-    let mut notes: Vec<String> = conflicts
+    let notes: Vec<String> = conflicts
         .iter()
         .map(|c| {
             let copies: Vec<_> = c
@@ -250,9 +280,6 @@ fn listing(pool: &str, mode: &str, files: Files, conflicts: &Conflicts) -> PoolB
             note
         })
         .collect();
-    if mode == "v6" {
-        notes.push("v6: explicit empty folders are local to each PC and not listed".into());
-    }
     PoolBrowse {
         pool: pool.into(),
         mode: mode.into(),

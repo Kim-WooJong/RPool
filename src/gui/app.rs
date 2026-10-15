@@ -226,32 +226,41 @@ impl RpoolGui {
             }
         }
     }
-}
 
-impl eframe::App for RpoolGui {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        self.poll_background();
-        // Closing asks every mounted pool to unmount gracefully; the child
-        // processes finish their writes after the window is gone.
-        if ui.ctx().input(|input| input.viewport().close_requested()) {
-            self.state.mount.stop_all();
-        }
-        #[cfg(debug_assertions)]
-        if let Some(snapshots) = &mut self.snapshots {
-            snapshots.tick(ui.ctx(), &mut self.state);
-        }
-
+    /// Keep state polling active while minimized and after a visible UI
+    /// interaction starts a new task (which happens after `logic` that frame).
+    fn schedule_next_tick(&self, ctx: &egui::Context) {
         if self.task.is_running()
             || self.rclone_banner.is_checking()
             || self.state.mount.any_running()
             || self.usage.is_running()
             || self.state.providers.connection.is_some()
         {
-            ui.ctx().request_repaint_after(Duration::from_millis(100));
+            ctx.request_repaint_after(Duration::from_millis(100));
         }
         if !self.state.monitoring.mounts.is_empty() {
-            ui.ctx()
-                .request_repaint_after(monitoring::state_poll_interval());
+            ctx.request_repaint_after(monitoring::state_poll_interval());
+        }
+    }
+}
+
+impl eframe::App for RpoolGui {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // eframe calls logic even when a minimized window has no UI pass.
+        // Keep draining child output and handling completion while hidden,
+        // instead of leaving the whole backlog for the first restored frame.
+        self.poll_background();
+        // A close request can also arrive while minimized, without `ui`.
+        if ctx.input(|input| input.viewport().close_requested()) {
+            self.state.mount.stop_all();
+        }
+        self.schedule_next_tick(ctx);
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        #[cfg(debug_assertions)]
+        if let Some(snapshots) = &mut self.snapshots {
+            snapshots.tick(ui.ctx(), &mut self.state);
         }
 
         let window = ui.ctx().content_rect();
@@ -293,7 +302,9 @@ impl eframe::App for RpoolGui {
                         mount_badge(ui, &self.state);
                         if self.task.is_running() {
                             ui.label(self.task.task_name().unwrap_or(tr("operation")));
-                            ui.spinner();
+                            // egui's spinner requests an immediate repaint on every frame.
+                            // Long-running tasks only need the scheduled 100 ms refresh above.
+                            ui.label(tr("Running"));
                         }
                     });
                 });
@@ -347,6 +358,7 @@ impl eframe::App for RpoolGui {
             );
             ui.ctx().request_repaint();
         }
+        self.schedule_next_tick(ui.ctx());
     }
 }
 

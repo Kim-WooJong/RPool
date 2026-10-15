@@ -65,6 +65,14 @@ pub(crate) struct Namespace {
     pub committed_intents: Shared<BTreeMap<String, String>>,
     /// Explicitly created (possibly empty) directories.
     pub directories: Shared<BTreeSet<String>>,
+    /// Immutable folder records; separate from file events for old clients.
+    #[serde(default)]
+    pub folder_records: Shared<super::folders::Records>,
+    #[serde(default)]
+    pub folders_published: Shared<BTreeSet<String>>,
+    /// One-time conversion of pre-sync local explicit folders.
+    #[serde(default)]
+    pub folders_version: u32,
     /// Conservative edit ancestry: listing never advances a writer's baseline.
     pub bases: Shared<BTreeMap<String, Vec<String>>>,
     /// What is on disk for this namespace, if it was loaded or saved.
@@ -287,6 +295,97 @@ pub(crate) fn resolve_events(
     }
 }
 impl Namespace {
+    /// Preserve folders from workspaces created before folder replication.
+    /// Called once on open, before the first cloud pull.
+    pub(crate) fn seed_folders(&mut self) -> Result<()> {
+        if self.folders_version != 0 {
+            return Ok(());
+        }
+        let existing: Vec<_> = self.directories.iter().cloned().collect();
+        let known = self.folder_records.clone();
+        self.folders_version = 1;
+        for path in existing {
+            let parents = super::folders::heads(&known, &path);
+            if parents.iter().any(|id| known[id].present) {
+                continue;
+            }
+            let record = super::folders::FolderRecord::new(&self.device, &path, parents, true)?;
+            self.folder_records.insert(record.id()?, record);
+        }
+        self.refresh_directories()
+    }
+
+    pub(crate) fn add_folder(&mut self, path: &str) -> Result<()> {
+        valid_path(path)?;
+        let parents = super::folders::heads(&self.folder_records, path);
+        if parents.iter().any(|id| self.folder_records[id].present) {
+            return Ok(());
+        }
+        let record = super::folders::FolderRecord::new(&self.device, path, parents, true)?;
+        self.folder_records.insert(record.id()?, record);
+        self.refresh_directories()
+    }
+
+    pub(crate) fn remove_folder(&mut self, path: &str) -> Result<()> {
+        valid_path(path)?;
+        // A case-insensitive mount shows only one spelling. Remove every
+        // concurrent spelling so deleting the visible folder cannot reveal
+        // another empty folder at the same name immediately afterward.
+        let folded = path.to_lowercase();
+        let paths: BTreeSet<String> = self
+            .folder_records
+            .values()
+            .filter(|record| record.path.to_lowercase() == folded)
+            .map(|record| record.path.clone())
+            .collect();
+        let mut changed = false;
+        for variant in paths {
+            let parents = super::folders::heads(&self.folder_records, &variant);
+            if parents.iter().any(|id| self.folder_records[id].present) {
+                let record =
+                    super::folders::FolderRecord::new(&self.device, &variant, parents, false)?;
+                self.folder_records.insert(record.id()?, record);
+                changed = true;
+            }
+        }
+        if changed {
+            self.refresh_directories()?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn visible_file_paths(&self) -> Result<BTreeSet<String>> {
+        let mut files: BTreeSet<String> = self
+            .resolved_shared()?
+            .iter()
+            .filter(|(_, r)| r.event.content.is_some())
+            .map(|(path, _)| path.clone())
+            .collect();
+        for intent in &self.pending {
+            if intent.spool.is_some() {
+                files.insert(intent.path.clone());
+            } else {
+                files.remove(&intent.path);
+            }
+        }
+        Ok(files)
+    }
+
+    pub(crate) fn refresh_directories(&mut self) -> Result<()> {
+        if self.folder_records.is_empty() {
+            if !self.directories.is_empty() {
+                self.directories = Shared::default();
+            }
+            return Ok(());
+        }
+        let files = self.visible_file_paths()?;
+        let effective = super::folders::projected(&self.folder_records, &files);
+        if *self.directories != effective {
+            self.directories = Shared::new(effective);
+        }
+        Ok(())
+    }
+
     /// Empty version-3 namespace with a fresh device id for `worker`; `load`
     /// creates and saves one when `dir` has no checkpoint.
     pub(crate) fn create(worker: &str) -> Result<Self> {
@@ -301,6 +400,9 @@ impl Namespace {
             pending: vec![],
             committed_intents: Shared::default(),
             directories: Shared::default(),
+            folder_records: Shared::default(),
+            folders_published: Shared::default(),
+            folders_version: 0,
             bases: Shared::default(),
             durable: None,
             projection: ProjectionCache::default(),
@@ -315,6 +417,19 @@ impl Namespace {
             bail!("unsupported virtual namespace version");
         }
         valid_path(&self.worker)?;
+        if self
+            .folders_published
+            .iter()
+            .any(|id| !self.folder_records.contains_key(id))
+        {
+            bail!("unknown published folder record");
+        }
+        for (id, record) in self.folder_records.iter() {
+            record.validate()?;
+            if record.id()? != *id {
+                bail!("folder record identity mismatch");
+            }
+        }
         // Event validation: `resolved` reduces (and validates) the events
         // first; one projection serves both checks.
         let resolved = self.resolved_shared()?;
@@ -464,6 +579,9 @@ impl Namespace {
     /// state, as before the journal), the journal outgrew the checkpoint, or
     /// another writer changed the files since.
     pub(crate) fn save(&mut self, dir: &Path) -> Result<()> {
+        if self.folders_version != 0 {
+            self.refresh_directories()?;
+        }
         self.validate()?;
         self.generation = self
             .generation

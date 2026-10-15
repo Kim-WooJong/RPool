@@ -331,6 +331,53 @@ pub(super) fn commit_all(drive: &VirtualDrive) {
 }
 
 #[test]
+fn moving_last_file_preserves_its_source_folder() {
+    for committed in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let core = core(root.path());
+        put(&core, "source/last.txt", b"last");
+        if committed {
+            commit_all(&core.drive);
+        }
+        core.rename("source/last.txt", "elsewhere.txt").unwrap();
+        assert!(core.lookup("source").unwrap().directory);
+        drop(core);
+
+        let core = reopen(root.path());
+        assert!(core.lookup("source").unwrap().directory);
+        assert_eq!(core.lookup("elsewhere.txt").unwrap().size, 4);
+        core.rmdir("source").unwrap();
+        assert!(matches!(core.lookup("source"), Err(FsError::NotFound)));
+    }
+}
+
+#[test]
+fn rename_within_folder_does_not_publish_an_empty_folder() {
+    let root = tempfile::tempdir().unwrap();
+    let core = core(root.path());
+    put(&core, "draft/temp.txt", b"data");
+    core.rename("draft/temp.txt", "draft/final.txt").unwrap();
+    let state = core.drive.state.lock().unwrap();
+    assert!(state.folder_records.values().all(|r| r.path != "draft"));
+}
+
+#[test]
+fn moving_nested_directory_preserves_its_parent() {
+    let root = tempfile::tempdir().unwrap();
+    let core = core(root.path());
+    put(&core, "source/child/file.txt", b"data");
+    core.rename("source/child", "moved").unwrap();
+    assert!(core.lookup("source").unwrap().directory);
+    drop(core);
+
+    let core = reopen(root.path());
+    assert!(core.lookup("source").unwrap().directory);
+    assert!(core.lookup("moved").unwrap().directory);
+    core.rmdir("source").unwrap();
+    assert!(matches!(core.lookup("source"), Err(FsError::NotFound)));
+}
+
+#[test]
 fn successive_generations_commit_as_one_history_without_conflict_copies() {
     let root = tempfile::tempdir().unwrap();
     let core = core(root.path());

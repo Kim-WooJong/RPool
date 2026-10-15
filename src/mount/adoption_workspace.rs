@@ -124,6 +124,12 @@ fn local_only(rclone: &str, workspace: &Path) -> Result<Vec<String>> {
             }
         }
     }
+    for (id, record) in state.folder_records.iter() {
+        if record.device == state.device && !state.folders_published.contains(id) {
+            let operation = if record.present { "create" } else { "remove" };
+            out.push(format!("unpublished folder {operation}: {}", record.path));
+        }
+    }
     Ok(out)
 }
 
@@ -189,6 +195,22 @@ mod tests {
         assert_eq!(fs::read(&switched.exported[0]).unwrap(), b"only on this PC");
         // Nothing left to switch: the next mount opens the adopted epoch.
         assert!(switch("no-rclone", &ws, &adoption()).unwrap().is_none());
+    }
+
+    #[test]
+    fn switching_reports_unpublished_empty_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = dir.path().join("drive");
+        workspace(&ws, None);
+        let mut state = super::super::namespace::Namespace::load(&ws, "tester").unwrap();
+        state.seed_folders().unwrap();
+        state.add_folder("empty").unwrap();
+        state.save(&ws).unwrap();
+        let switched = switch("no-rclone", &ws, &adoption()).unwrap().unwrap();
+        assert!(switched
+            .local_only
+            .iter()
+            .any(|item| item == "unpublished folder create: empty"));
     }
 
     /// Mounting a superseded workspace switches it and opens the adopted epoch.

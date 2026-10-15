@@ -60,7 +60,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
             status_badge(ui, label, tone);
         }
         if state.migration.status_loading() {
-            ui.spinner();
+            ui.small(tr("Loading progress from the cloud journal…"));
         }
     });
 
@@ -241,9 +241,6 @@ pub(super) fn existing(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskR
             .clicked()
         {
             state.migration.start_status(&state.settings.rclone);
-        }
-        if loading {
-            ui.spinner();
         }
     });
     if let Some(error) = &state.migration.status_error {

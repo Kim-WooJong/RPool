@@ -55,33 +55,41 @@ pub(crate) fn task_console(ui: &mut egui::Ui, task: &mut TaskRunner, full: bool)
         });
     }
 
-    egui::ScrollArea::vertical()
+    let scroll = egui::ScrollArea::vertical()
         .id_salt("task-console-log")
         .auto_shrink([false, false])
         .stick_to_bottom(true)
-        .max_height(ui.available_height())
-        .show(ui, |ui| {
-            if task.logs().is_empty() {
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new(tr("No operations yet")).strong());
-                ui.label(egui::RichText::new(tr("Start an operation from Drive, Files, Storage or Health. Output appears here.")).weak());
-            } else {
-                let dark = ui.visuals().dark_mode;
-                for line in task.logs() {
-                    let text = egui::RichText::new(format!(
-                        "[{}] {}",
-                        prefix(line.kind),
-                        line.text
-                    ))
+        .max_height(ui.available_height());
+    if task.logs().is_empty() {
+        scroll.show(ui, |ui| {
+            ui.add_space(12.0);
+            ui.label(egui::RichText::new(tr("No operations yet")).strong());
+            ui.label(
+                egui::RichText::new(tr(
+                    "Start an operation from Drive, Files, Storage or Health. Output appears here.",
+                ))
+                .weak(),
+            );
+        });
+    } else {
+        let row_height = ui.text_style_height(&egui::TextStyle::Monospace);
+        scroll.show_rows(ui, row_height, task.logs().len(), |ui, rows| {
+            let dark = ui.visuals().dark_mode;
+            for line in &task.logs()[rows] {
+                let text = egui::RichText::new(format!("[{}] {}", prefix(line.kind), line.text))
                     .monospace();
-                    ui.label(if is_error_line(&line.text) {
-                        text.color(crate::gui::theme::error_colors(dark).1)
-                    } else {
-                        text
-                    });
-                }
+                let text = if is_error_line(&line.text) {
+                    text.color(crate::gui::theme::error_colors(dark).1)
+                } else {
+                    text
+                };
+                // Fixed-height rows allow egui to skip logs outside the
+                // viewport; hovering still exposes a truncated line.
+                ui.add(egui::Label::new(text).truncate())
+                    .on_hover_text(&line.text);
             }
         });
+    }
     toggle
 }
 

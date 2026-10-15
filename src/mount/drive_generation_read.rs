@@ -17,8 +17,18 @@ pub(crate) fn read(
     // Includes events kept only in checkpoints.
     let events = super::metadata_pool::read_v6(rclone, pool, policy, generation.epoch.as_deref())
         .context("drive (v6) metadata read failed")?;
+    let files = v6_view(&events)?;
+    let roots =
+        super::metadata_browse::generation_roots(pool, policy, generation.epoch.as_deref())?;
+    let transports = super::pool_sync::folder_transports(rclone, &roots, policy.native_crypt)?;
+    let stores: Vec<&dyn super::pool_sync::EventStore> =
+        transports.iter().map(|t| t as _).collect();
+    let unseen = super::pool_sync::list_unseen(&stores, &BTreeSet::new())?;
+    let records = super::pool_sync::read_folders(&stores, &unseen)?;
+    let paths: BTreeSet<String> = files.iter().map(|f| f.path.clone()).collect();
     Ok(SourceView {
-        files: v6_view(&events)?,
+        folders: super::folders::projected(&records, &paths),
+        files,
     })
 }
 
@@ -59,5 +69,6 @@ pub(crate) fn decode(records: &[super::drive_generation_write::Record]) -> Resul
     }
     Ok(SourceView {
         files: v6_view(&events)?,
+        folders: BTreeSet::new(),
     })
 }

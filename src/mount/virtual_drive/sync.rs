@@ -92,11 +92,16 @@ impl VirtualDrive {
             .publish_gate
             .lock()
             .map_err(|_| anyhow!("publish lock poisoned"))?;
-        if !self.pool_sync_roots.is_empty() {
-            self.publish_pool()?;
-        }
-        self.cleanup_committed_spool()?;
-        Ok(())
+        let publication = if self.pool_sync_roots.is_empty() {
+            Ok(())
+        } else {
+            self.publish_pool()
+        };
+        // Cleanup independently checks that each file event was published.
+        // A folder-only publication failure must not retain safe-to-remove
+        // committed file spool images indefinitely.
+        let cleanup = self.cleanup_committed_spool();
+        publication.and(cleanup.map(|_| ()))
     }
     /// Uploads one pending intent's spool (resumable; incremental against
     /// its captured base when possible). Deletions upload nothing.

@@ -327,6 +327,11 @@ fn seen(w: &World, generation: &GenerationRef) -> BTreeMap<String, DriveFile> {
 #[test]
 fn interrupted_run_resumes_and_adoption_reaches_a_pc_without_workspace() {
     let w = world();
+    w.drive
+        .folders
+        .lock()
+        .unwrap()
+        .extend(["empty".to_string(), "empty/nested".to_string()]);
     // PC A is interrupted after one file.
     w.builds_left.store(1, SeqCst);
     let first = w.run("pc-a", "cache-a");
@@ -373,6 +378,10 @@ fn interrupted_run_resumes_and_adoption_reaches_a_pc_without_workspace() {
     assert_eq!(adoption.files, 3);
     assert_eq!(adoption.dropped, vec!["gone.bin".to_string()]);
     assert_eq!(adoption.epoch, w.drive_plan.epoch);
+    assert_eq!(
+        w.drive.view(&w.new_generation()).unwrap().folders,
+        BTreeSet::from(["empty".to_string(), "empty/nested".to_string()])
+    );
 
     // PC C never had a workspace: it finds the adoption in the cloud, a new
     // workspace opens the new epoch, and that generation shows the files.

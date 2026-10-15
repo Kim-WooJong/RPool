@@ -38,6 +38,26 @@ mod visible;
 mod visible_tests;
 mod write;
 
+/// Promote only parents that became empty because a file was removed or
+/// moved away. Ordinary writes or same-directory atomic saves do not create
+/// permanent folder records. A later explicit rmdir still removes them.
+fn preserve_parent_directories(state: &mut Namespace, path: &str) -> Result<()> {
+    let files = state.visible_file_paths()?;
+    for (index, _) in path.match_indices('/') {
+        let parent = &path[..index];
+        let prefix = format!("{parent}/");
+        if !state.directories.contains(parent)
+            && !files
+                .range(prefix.clone()..)
+                .next()
+                .is_some_and(|file| file.starts_with(&prefix))
+        {
+            state.add_folder(parent)?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 pub(crate) use move_image::hooks as move_hooks;
 pub(crate) use move_image::StagedMoves;

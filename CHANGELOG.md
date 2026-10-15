@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+- Keep a mounted drive's folders after their last file is deleted or moved:
+  promote the file's implied parent folders into the local, durable namespace.
+  Replicate explicit folders through a separate immutable cloud record tree, so
+  other updated PCs and the unmounted Library see them too. Explicit folder
+  deletion propagates; pool-account backfill and drive-generation migration
+  carry the records. Older clients keep syncing files but do not see or
+  publish empty folders. Unreadable folder records do not stop file syncing;
+  the folder snapshot remains strict during drive migration.
+- Reduce long-running GUI load: use scheduled refresh instead of task and
+  migration-status spinners requesting immediate redraw, process at most 256
+  child events per frame, bound all console diagnostics to 2,000 lines, and
+  lay out only visible console log rows. Continue polling task output and
+  completion in eframe's logic pass while the window is minimized, and keep
+  the next poll scheduled after a visible UI action starts a task.
+- Avoid a second full-size temporary copy when re-uploading a completed,
+  private restore during pool conversion. The restored file and coding work
+  space are still required.
+
+Validation: macOS `cargo check --all-targets` and 18 focused GUI-output,
+GUI-layout and pool-conversion tests passed. The reported whole-PC freeze has
+not been reproduced on this Mac. The minimized-window polling and console-row
+changes passed macOS `cargo check --all-targets` and six bounded-output tests;
+Windows runtime validation is still needed.
+For empty-folder preservation, 330 mount tests and two mounted-Library tests
+passed on macOS (12 mount tests ignored; the long randomized crash trace was
+skipped). Windows WinFsp behavior has not been runtime-tested here.
+The cloud-folder extension passed macOS `cargo check --all-targets`,
+warnings-denied release checking, focused two-PC/folder conflict, Library and
+migration tests, and the full local suite after source-matching the locale
+files (1,120 passed, 60 ignored, one long trace filtered). Live cloud and
+Windows WinFsp cross-PC behavior remain untested.
+
 ## 2.17.0 — 2026-10-12
 
 - Add explicit `pool migrate plan --reapply-placement` (also in the GUI) to

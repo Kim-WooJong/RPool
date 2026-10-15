@@ -13,7 +13,7 @@ use super::metadata_checkpoint::{pull, Replica};
 use super::metadata_checkpoint_model::Family;
 use super::metadata_limits::{PAGE_BYTES, PAGE_RECORDS};
 use super::metadata_pool::{replica_dirs, ReplicaDirs};
-use super::pool_sync::{list_unseen_parallel, EventStore, Unseen};
+use super::pool_sync::{folder_transports, list_unseen_parallel, EventStore, Unseen};
 use super::shared_model::Event;
 use super::shared_transport::SharedTransport;
 use crate::prelude::*;
@@ -30,6 +30,8 @@ pub(crate) struct Snapshot {
     pub events: BTreeMap<String, Event>,
     /// Checkpoint chunks already ingested (their records are in `events`).
     pub checkpoints: Cache,
+    #[serde(default)]
+    pub folders: super::folders::Records,
 }
 
 impl Snapshot {
@@ -40,6 +42,12 @@ impl Snapshot {
             event.validate()?;
             if event.id()? != *id {
                 bail!("cached metadata event identity mismatch");
+            }
+        }
+        for (id, folder) in &self.folders {
+            folder.validate()?;
+            if folder.id()? != *id {
+                bail!("cached folder identity mismatch");
             }
         }
         let complete = self
@@ -70,6 +78,7 @@ pub(crate) struct Outcome {
 pub(crate) struct Source {
     /// One shared transport per replica root.
     stores: Vec<SharedTransport>,
+    folders: Vec<SharedTransport>,
     /// Checkpoint/record directories of each replica, in `stores` order.
     dirs: Vec<ReplicaDirs>,
 }
@@ -106,7 +115,12 @@ impl Source {
             })
             .collect::<Result<_>>()?;
         let dirs = replica_dirs(rclone, &roots, policy.native_crypt, &Family::v6())?;
-        Ok(Self { stores, dirs })
+        let folders = folder_transports(rclone, &roots, policy.native_crypt)?;
+        Ok(Self {
+            stores,
+            folders,
+            dirs,
+        })
     }
 
     /// Every record id of every replica (listing only, all replicas at once).
@@ -117,11 +131,39 @@ impl Source {
 
     /// Brings `prior` up to date with `listed` (from [`Source::list`]).
     pub(crate) fn refresh(&self, listed: &Unseen, prior: Snapshot) -> Result<Outcome> {
+        let before = prior.folders.clone();
         let replicas: Vec<_> = self.dirs.iter().map(ReplicaDirs::replica).collect();
         let read = |unseen: &Unseen, skip: &dyn Fn(&str) -> bool| {
             read_parallel(&self.stores, unseen, skip)
         };
-        refresh_with(listed, &replicas, prior, &read)
+        let mut outcome = refresh_with(listed, &replicas, prior, &read)?;
+        let stores: Vec<&(dyn EventStore + Sync)> = self.folders.iter().map(|s| s as _).collect();
+        let listed_folders = list_unseen_parallel(&stores, &BTreeSet::new())?;
+        let complete = before
+            .keys()
+            .all(|id| listed_folders.entries.contains_key(id));
+        let mut folders = if complete {
+            before.clone()
+        } else {
+            Default::default()
+        };
+        let unread: Vec<&dyn EventStore> =
+            self.folders.iter().map(|s| s as &dyn EventStore).collect();
+        let missing = Unseen {
+            entries: listed_folders
+                .entries
+                .into_iter()
+                .filter(|(id, _)| !folders.contains_key(id))
+                .collect(),
+            gate: false,
+        };
+        folders.extend(super::pool_sync::read_folders_best_effort(
+            &unread, &missing,
+        ));
+        outcome.changed |= folders != before;
+        outcome.full |= !complete;
+        outcome.snapshot.folders = folders;
+        Ok(outcome)
     }
 }
 
@@ -159,6 +201,7 @@ fn advance(
     let Snapshot {
         mut events,
         checkpoints: mut cache,
+        folders,
     } = prior;
     let bootstrap = events.is_empty();
     if bootstrap {
@@ -207,6 +250,7 @@ fn advance(
         snapshot: Snapshot {
             events,
             checkpoints: cache,
+            folders,
         },
         changed,
         full: false,

@@ -102,6 +102,7 @@ impl VirtualDrive {
             if ready {
                 let id = next.commit(&destination, Some(content.clone()))?;
                 next.commit(&deletion, None)?;
+                super::preserve_parent_directories(&mut next, from)?;
                 crate::mount::crash::point("rename.before_namespace_save")?;
                 next.save(&self.root)?;
                 *s = next;
@@ -133,6 +134,7 @@ impl VirtualDrive {
         let mut next = s.clone();
         next.pending.push(destination.clone());
         next.pending.push(deletion);
+        super::preserve_parent_directories(&mut next, from)?;
         crate::mount::crash::point("rename.before_namespace_save")?;
         next.save(&self.root)?;
         *s = next;
@@ -205,9 +207,8 @@ impl VirtualDrive {
             .cloned()
             .collect();
         for directory in directories {
-            next.directories.remove(&directory);
-            next.directories
-                .insert(format!("{to}{}", &directory[from.len()..]));
+            next.remove_folder(&directory)?;
+            next.add_folder(&format!("{to}{}", &directory[from.len()..]))?;
         }
         let mut new_pins = vec![];
         for (name, destination, deletion, content) in changes {
@@ -235,6 +236,7 @@ impl VirtualDrive {
             };
             new_pins.push((name, destination.path, revision));
         }
+        super::preserve_parent_directories(&mut next, from)?;
         next.save(&self.root)?;
         *state = next;
         let mut pins = self.pins.lock().unwrap();
