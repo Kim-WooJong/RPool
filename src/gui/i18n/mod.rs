@@ -95,7 +95,7 @@ macro_rules! table {
     };
 }
 /// Translation areas compiled into the binary (see `table!`).
-const TABLES: [(&str, [&str; 3]); 11] = [
+const TABLES: [(&str, [&str; 3]); 12] = [
     table!("core"),
     table!("drive"),
     table!("drive_history"),
@@ -106,6 +106,7 @@ const TABLES: [(&str, [&str; 3]); 11] = [
     table!("migration_retire"),
     table!("monitoring"),
     table!("storage"),
+    table!("storage_manager"),
     table!("tooling"),
 ];
 

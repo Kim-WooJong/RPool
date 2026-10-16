@@ -1,7 +1,7 @@
 //! Storage › Providers: connect cloud accounts (rclone config wizard), set
 //! up crypt remotes automatically or by hand, check provider health, and the
-//! provider cards with usage, limits, keep-alive and name encoding. Also
-//! hosts the drain card shown under Account changes.
+//! provider cards with usage, limits, keep-alive, name encoding and the
+//! storage manager. Also hosts the drain card shown under Account changes.
 use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
@@ -18,6 +18,8 @@ mod limits_model;
 mod location;
 mod model;
 mod name_encoding;
+/// "Manage storage…" dialog: grouped provider content and its cleanup.
+mod storage_manager;
 
 pub(crate) use limits_model::wait as wait_text;
 pub(crate) use location::LOCATION_TASK;
@@ -84,6 +86,8 @@ pub(crate) struct ProviderForm {
     pub(crate) name_encoding: name_encoding::Editor,
     /// State of the "Location" dialog.
     pub(crate) location: location::Editor,
+    /// State of the "Manage storage" dialog.
+    pub(crate) storage: storage_manager::Manager,
 }
 
 impl ProviderForm {
@@ -174,6 +178,12 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     location::show(
         ui.ctx(),
         &mut state.providers.location,
+        &state.settings.rclone,
+        task,
+    );
+    storage_manager::show(
+        ui.ctx(),
+        &mut state.providers.storage,
         &state.settings.rclone,
         task,
     );
@@ -348,6 +358,15 @@ fn list_card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunner) {
                 .cloned()
                 .unwrap_or_default();
             state.providers.name_encoding = name_encoding::Editor::open_for(&crypts);
+        }
+        Some((card::CardAction::ManageStorage, name)) => {
+            let crypts = state
+                .provider_details
+                .crypts
+                .get(&name)
+                .cloned()
+                .unwrap_or_default();
+            state.providers.storage = storage_manager::Manager::open_for(&crypts);
         }
         Some((card::CardAction::Location, name)) => {
             let root = state.remote_roots.get(&name).map(String::as_str);

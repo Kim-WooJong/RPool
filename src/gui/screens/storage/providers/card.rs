@@ -1,7 +1,7 @@
 //! One compact provider card: name and backend type, usage bar, capacity
-//! line, encryption status with its crypt remotes, manual setup, and the
+//! line, encryption status with its crypt remotes, manual setup, the
 //! account limits (24 h upload budget, pause, last activity, editor and
-//! keep-alive).
+//! keep-alive), name encoding and the storage manager.
 
 use super::limits_model::{card_limits, Tone};
 use super::model::ProviderCard;
@@ -24,6 +24,8 @@ pub(crate) enum CardAction {
     NameEncoding,
     /// Open the "Location" dialog (where RPool stores data on the provider).
     Location,
+    /// Open "Manage storage" (what RPool stores here, and its cleanup).
+    ManageStorage,
 }
 
 /// Text colour of a limits line tone.
@@ -153,6 +155,14 @@ pub(crate) fn show(ui: &mut egui::Ui, card: &ProviderCard<'_>, idle: bool) -> Op
                         .clicked()
                 {
                     action = Some(CardAction::NameEncoding);
+                }
+                if !card.crypts.is_empty()
+                    && ui
+                        .add_enabled(idle, egui::Button::new(tr("Manage storage…")).small())
+                        .on_hover_text(tr("See what RPool stores on this provider, by pool and generation, and delete data no pool needs."))
+                        .clicked()
+                {
+                    action = Some(CardAction::ManageStorage);
                 }
             });
         });
