@@ -32,13 +32,18 @@ pub(crate) struct Manager {
     view: Fetch<StorageView>,
     /// The preview of the selected groups (`provider storage clean --json`).
     preview: Fetch<CleanReport>,
+    /// The choice `preview` was started for (`force` off).
+    previewed: Option<Choice>,
     /// Ticked group ids.
     selected: BTreeSet<String>,
+    /// Ticked groups the acknowledgements and `force` were given for.
+    acked_for: Vec<String>,
     /// "No PC still uses these older generations" (`--include-unconfirmed-generations`).
     unconfirmed: bool,
     /// "These pools are not used any more" (`--include-foreign-pools`).
     foreign: bool,
-    /// Pass the mass-delete guard (`--force`).
+    /// Pass the mass-delete guard (`--force`); sent only with the preview
+    /// of exactly the current choice showing the guard.
     force: bool,
     /// "Delete now" asks once more.
     confirm_delete: bool,
@@ -61,11 +66,42 @@ impl Manager {
     /// Forgets the selection and results (another crypt remote was chosen).
     fn reset(&mut self) {
         self.view = Fetch::default();
-        self.preview = Fetch::default();
+        self.clear_preview();
         self.selected.clear();
-        (self.unconfirmed, self.foreign, self.force) = (false, false, false);
+        self.acked_for.clear();
+        (self.unconfirmed, self.foreign) = (false, false);
         self.confirm_delete = false;
         self.notice = None;
+    }
+    /// Drops the preview and the `force` given for it.
+    fn clear_preview(&mut self) {
+        self.preview = Fetch::default();
+        self.previewed = None;
+        self.force = false;
+    }
+    /// Forgets the acknowledgements, `force`, the preview and a pending
+    /// "Delete now" when the ticked groups are no longer those they were
+    /// given for (ticked, unticked, or gone after a refresh).
+    fn sync_selection(&mut self, ticked: &[String]) {
+        if self.acked_for != ticked {
+            self.acked_for = ticked.to_vec();
+            (self.unconfirmed, self.foreign) = (false, false);
+            self.confirm_delete = false;
+            self.clear_preview();
+        }
+    }
+    /// Drops a preview of another choice than `choice` (`force` off).
+    fn drop_stale_preview(&mut self, choice: &Choice) {
+        if self.previewed.as_ref().is_some_and(|p| p != choice) {
+            self.clear_preview();
+        }
+    }
+    /// Whether to send `--force`: ticked for the finished preview of exactly
+    /// `choice` (`force` off), which showed the mass-delete guard.
+    fn guard_passed(&self, choice: &Choice) -> bool {
+        self.force
+            && self.previewed.as_ref() == Some(choice)
+            && matches!(&self.preview.value, Some(Ok(report)) if report.guard.is_some())
     }
 }
 
@@ -194,7 +230,7 @@ pub(crate) fn show(
     if manager.started && !task.is_running() {
         manager.started = false;
         manager.view.stale = true;
-        manager.preview = Fetch::default();
+        manager.clear_preview();
     }
     if !manager.crypt.is_empty() && manager.view.needs_load() {
         manager.view.start(rclone, list_args(&manager.crypt));
@@ -237,7 +273,7 @@ fn body(ui: &mut egui::Ui, manager: &mut Manager, rclone: &str, task: &mut TaskR
             .clicked()
         {
             manager.view.stale = true;
-            manager.preview = Fetch::default();
+            manager.clear_preview();
         }
         if loading {
             ui.spinner();
@@ -322,13 +358,12 @@ fn table(ui: &mut egui::Ui, manager: &mut Manager, view: &StorageView) {
                         if group.deletable {
                             let mut on = manager.selected.contains(&group.id);
                             if ui.checkbox(&mut on, "").changed() {
+                                // `actions` then forgets the acknowledgements.
                                 if on {
                                     manager.selected.insert(group.id.clone());
                                 } else {
                                     manager.selected.remove(&group.id);
                                 }
-                                manager.preview = Fetch::default();
-                                manager.confirm_delete = false;
                             }
                         } else {
                             ui.label("");
@@ -360,6 +395,8 @@ fn actions(
     task: &mut TaskRunner,
 ) {
     let ticked = ticked(view, &manager.selected);
+    let ids: Vec<String> = ticked.iter().map(|g| g.id.clone()).collect();
+    manager.sync_selection(&ids);
     let needs: BTreeSet<Ack> = ticked
         .iter()
         .flat_map(|g| g.needs.iter().copied())
@@ -380,12 +417,14 @@ fn actions(
         Ack::UnconfirmedGenerations => manager.unconfirmed,
         Ack::ForeignPools => manager.foreign,
     });
-    let choice = Choice {
-        groups: ticked.iter().map(|g| g.id.clone()).collect(),
+    let mut choice = Choice {
+        groups: ids,
         unconfirmed: manager.unconfirmed && needs.contains(&Ack::UnconfirmedGenerations),
         foreign: manager.foreign && needs.contains(&Ack::ForeignPools),
-        force: manager.force,
+        force: false,
     };
+    manager.drop_stale_preview(&choice);
+    choice.force = manager.guard_passed(&choice);
     let now = crate::utils::now_unix();
     let unmarked = ticked.iter().any(|g| g.pending.marked < g.units);
     let due = ticked
@@ -407,9 +446,12 @@ fn actions(
             )
             .clicked()
         {
+            // A new preview: the old numbers and `force` do not apply to it.
+            manager.clear_preview();
             manager
                 .preview
                 .start(rclone, clean_args(&manager.crypt, &choice, Run::Preview));
+            manager.previewed = Some(choice.clone());
         }
         if ui
             .add_enabled(
@@ -564,6 +606,53 @@ mod tests {
         assert!(!cli(&["--mark-only"]) && !cli(&["--confirm", "--mark-only", "--force"]));
         let manager = Manager::open_for(&["a_crypt:".into(), "b_crypt:".into()]);
         assert!(manager.open && manager.crypt == "a_crypt:");
+    }
+
+    #[test]
+    fn acknowledgements_and_force_belong_to_one_selection_and_preview() {
+        let mut manager = Manager::open_for(&["a_crypt:".into()]);
+        let groups = vec!["old:RPool:first".to_string()];
+        manager.sync_selection(&groups);
+        (manager.unconfirmed, manager.foreign, manager.force) = (true, true, true);
+        let choice = Choice {
+            groups: groups.clone(),
+            unconfirmed: true,
+            ..Choice::default()
+        };
+        // Ticked, but no preview of this choice showed the guard: no --force.
+        assert!(!manager.guard_passed(&choice));
+        let mut report = CleanReport::new(
+            "a_crypt:",
+            crate::provider::storage::model::CleanMode::Preview,
+            &groups,
+            7,
+        );
+        manager.previewed = Some(choice.clone());
+        manager.preview = Fetch::ready(report.clone());
+        assert!(!manager.guard_passed(&choice), "no guard in the preview");
+        report.guard = Some("60% of the objects".into());
+        manager.preview = Fetch::ready(report.clone());
+        assert!(manager.guard_passed(&choice));
+        // The same selection keeps everything.
+        manager.sync_selection(&groups);
+        assert!(manager.unconfirmed && manager.guard_passed(&choice));
+        // Another choice (an acknowledgement unticked): the preview and
+        // `force` are dropped.
+        let other = Choice {
+            unconfirmed: false,
+            ..choice.clone()
+        };
+        manager.drop_stale_preview(&other);
+        assert!(!manager.force && manager.preview.value.is_none());
+        assert!(!manager.guard_passed(&other) && !manager.guard_passed(&choice));
+        // Another selection forgets the acknowledgements and `force`.
+        manager.previewed = Some(choice.clone());
+        manager.preview = Fetch::ready(report);
+        (manager.unconfirmed, manager.foreign, manager.force) = (true, true, true);
+        manager.confirm_delete = true;
+        manager.sync_selection(&["old:RPool:first".into(), "foreign:0123".into()]);
+        assert!(!manager.unconfirmed && !manager.foreign && !manager.force);
+        assert!(!manager.confirm_delete && manager.previewed.is_none());
     }
 
     #[test]
