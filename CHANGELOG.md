@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- Provider storage manager: `rpool provider storage list --remote CRYPT`
+  shows everything RPool keeps on one crypt remote, grouped by owner (in use
+  by a pool, older drive generations, pools not configured here, migration
+  leftovers, unknown or incomplete uploads, speed-test leftovers, data
+  outside RPool's layout), with object count, size, whether it may be
+  deleted and why. `rpool provider storage clean --remote CRYPT --group ID`
+  deletes only groups no configured pool needs, fail-closed: archive folders
+  are grouped by what names them (drive events of every generation
+  including checkpoints, every manifest on every account of the pools,
+  the inventory, drive uploads in progress, migrations); generations no
+  recorded migration replaced need `--include-unconfirmed-generations`
+  (and count as in use while written in the last 14 days), pools not
+  configured here `--include-foreign-pools`; an unreadable source
+  makes nothing deletable. Preview by default; `--confirm` publishes marks
+  on the provider (`.rpool-sync/storage-cleanup-v1/`, seen by every PC) and
+  deletes after the drive cleanup's grace period, re-checking every
+  reference first, with the mass-delete guard (`--force`). Speed-test
+  leftovers older than a day are deleted at once. GUI: Storage › Providers ›
+  card › Manage storage….
+
 ## 2.18.0 — 2026-10-16
 
 - Fix the macOS macFUSE frontend, which never mounted: with macFUSE 5,

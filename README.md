@@ -510,6 +510,8 @@ rpool provider keepalive ...
 rpool provider ensure-encryption | encrypt --name N --provider P ...
 rpool provider drain FILE.rpool.json --from old-crypt:rpool --to new-crypt:rpool [--dry-run] [--delete-source] [--allow-risky]
 rpool provider location --remote NAME --path PATH [--move-existing] [--json]
+rpool provider storage list --remote CRYPT [--json]
+rpool provider storage clean --remote CRYPT --group ID... [--include-unconfirmed-generations] [--include-foreign-pools] [--confirm] [--force] [--cancel] [--json]
 rpool remote-root list | set REMOTE PATH | remove REMOTE
 ```
 
@@ -570,6 +572,48 @@ rpool remote-root list | set REMOTE PATH | remove REMOTE
   folder, checks counts and bytes, and only then repoints the crypts. Keys stay
   the same and names stay readable. GUI: Storage › Providers › card ›
   Location › Change….
+- **storage** shows everything RPool keeps on one crypt remote, grouped by
+  owner, with object count, size and whether it may be deleted, and deletes
+  only data no configured pool needs (GUI: Storage › Providers › card ›
+  Manage storage…). Archive folders are grouped by what names them (the
+  folder or any of its objects), not by their names. The references come
+  from every account of every configured pool that uses the provider or has
+  metadata on it: every drive generation's events (checkpoints included),
+  every manifest replica, the local inventory, drive uploads no metadata
+  names yet, and the pool migrations.
+  - *In use* (kept): named by the current drive generation, a newer one, a
+    migration in progress, a manifest or the inventory; also every
+    configured pool's migration journals.
+  - *Older drive generation*: named only by generations a recorded
+    migration adoption replaced (deletable), or by older generations of the
+    same pool that no migration replaced, e.g. after a pool change on one PC
+    (only with `--include-unconfirmed-generations`: a PC whose drive was not
+    switched may still use them; one written in the last 14 days, or after
+    the current generation, counts as in use). Data several such
+    generations share is its own group. A generation's metadata goes only after every archive on the
+    provider that only it names.
+  - *Other pool*: metadata of a pool not configured on this PC (or one that
+    no longer uses this provider) and the data only it names; only with
+    `--include-foreign-pools`.
+  - *Speed-test leftovers* older than 24 hours (`.rpool-speedtest/`,
+    `.rpool-sync/bench/`): deleted at once, without a grace period.
+  - Kept, never deleted here: migration leftovers (`rpool pool migrate
+    retire`), archives with a manifest nothing on this PC names, incomplete
+    uploads, the cleanup journal and anything outside RPool's layout. Names
+    that do not decrypt with the crypt remote are only counted.
+
+  `clean` previews by default. `--confirm` publishes marks on the provider
+  (`.rpool-sync/storage-cleanup-v1/`, seen by every PC) with the drive
+  cleanup's grace period (the longest of the pools using the provider,
+  default 7 days); a confirmed run after it classifies everything again and
+  deletes what is still deletable in the selected groups (manifest replicas
+  first), then removes emptied folders on SFTP/SMB/FTP/local providers. A
+  run that would delete more than half of the provider's objects or bytes,
+  or more than 10,000 objects, stops unless `--force`. Any listing or
+  reference source that cannot be read makes the whole view uncertain:
+  nothing is deletable, marked or deleted. `--cancel` drops every pending
+  mark on the provider. Only the given provider is touched; clean the same
+  groups on the other accounts of the pool separately.
 
 ## Maintenance
 
@@ -718,6 +762,7 @@ Storage operations run the same CLI code as a child process
 | `pool plan-reprocess` / `pool reprocess` | Copy-only reprocessing |
 | `pool speed-test` / `pool compact` | Speed test, metadata checkpoints |
 | `provider health\|limits\|keepalive\|speed-test\|encrypt\|ensure-encryption\|name-encoding\|location\|drain` | Provider operations |
+| `provider storage list\|clean` | What RPool stores on a provider, and cleanup of data no pool needs |
 | `remote-root list\|set\|remove` | Per-remote default paths |
 | `manifest verify\|replicate\|recover` | Manifest replicas |
 | `inventory add\|rebuild\|list\|find\|info` | Local archive index |
