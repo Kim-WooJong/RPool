@@ -1154,3 +1154,59 @@ fn only_content_manifests_make_old_data_deletable() {
     assert_eq!((g.kind, g.deletable), (GroupKind::OldGeneration, true));
     assert_eq!(g.id, group_of(&c, "archive:virtual-tr").id);
 }
+
+#[test]
+fn partial_migration_knowledge_is_uncertain() {
+    use super::classify::knowledge_gaps;
+    use crate::migration::drive_generations::Known;
+    use crate::migration::drive_model::{epoch_for, DriveAdoption, GenerationRef};
+    use crate::pool::browse_generations::Generation as Found;
+    let found = |epoch: Option<String>, newest: i128| Found {
+        epoch,
+        newest,
+        records: 1,
+    };
+    let adoption = |id: &str, source: Option<String>| DriveAdoption {
+        version: 1,
+        migration_id: id.into(),
+        source: GenerationRef { epoch: source },
+        epoch: epoch_for(id),
+        files: 1,
+        dropped: vec![],
+        pc_id: "pc".into(),
+        ts_unix: 1,
+    };
+    let known = |adoptions: Vec<DriveAdoption>, ids: &[&str]| Known {
+        adoptions,
+        freezes: vec![],
+        migration_ids: ids.iter().map(|s| s.to_string()).collect(),
+    };
+    let none = BTreeSet::new();
+    // Complete knowledge: no gap.
+    let complete = known(vec![adoption("m1", None)], &["m1"]);
+    let both = [found(Some(epoch_for("m1")), 2), found(None, 1)];
+    assert!(knowledge_gaps("P", &both, &complete, &["m1".to_string()].into()).is_empty());
+    // A listed migration journal whose records were not read.
+    let gaps = knowledge_gaps("P", &both, &complete, &["m1".into(), "m2".into()].into());
+    assert!(gaps.len() == 1 && gaps[0].contains("m2"), "{gaps:?}");
+    // An adoption of a found generation whose new generation is missing.
+    let gaps = knowledge_gaps("P", &[found(None, 1)], &complete, &none);
+    assert!(gaps.iter().any(|g| g.contains("not found")), "{gaps:?}");
+    // ... unless that one was replaced in turn (and may be gone).
+    let chain = known(
+        vec![adoption("m1", None), adoption("m2", Some(epoch_for("m1")))],
+        &["m1", "m2"],
+    );
+    let gaps = knowledge_gaps(
+        "P",
+        &[found(Some(epoch_for("m2")), 3), found(None, 1)],
+        &chain,
+        &none,
+    );
+    assert!(gaps.is_empty(), "{gaps:?}");
+    // Found generations, but none usable (here: only a partial migration's).
+    let partial = known(vec![], &["m3"]);
+    let gaps = knowledge_gaps("P", &[found(Some(epoch_for("m3")), 1)], &partial, &none);
+    assert!(gaps.iter().any(|g| g.contains("usable")), "{gaps:?}");
+    assert!(knowledge_gaps("P", &[], &partial, &none).is_empty());
+}

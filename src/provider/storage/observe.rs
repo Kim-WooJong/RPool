@@ -8,8 +8,8 @@
 //! listed account and drive uploads no metadata names. Anything that cannot
 //! be read is recorded as uncertain.
 use super::classify::{
-    copy_status, generation_statuses, owned_archives, Generation, GenerationStatus, PoolScope,
-    World,
+    copy_status, generation_statuses, knowledge_gaps, owned_archives, Generation, GenerationStatus,
+    PoolScope, World,
 };
 use super::layout::{self, Listing, UnitKind};
 use crate::migration::enumerate::RemoteListing;
@@ -324,7 +324,10 @@ pub(crate) fn world(rclone: &str, root: &str, now: u64) -> Result<World> {
             &mut uncertain,
         );
         let statuses = match crate::migration::drive_journal::known(rclone, &pool.name) {
-            Ok(known) => generation_statuses(&found, &known, &abandoned, now),
+            Ok(known) => {
+                uncertain.extend(knowledge_gaps(&pool.name, &found, &known, &listed));
+                generation_statuses(&found, &known, &abandoned, now)
+            }
             Err(error) => {
                 uncertain.push(format!("drive migrations of pool {}: {error:#}", pool.name));
                 // Unknown: every generation is treated as in use.

@@ -768,6 +768,45 @@ pub(crate) fn classify(world: &World) -> Classified {
     out
 }
 
+/// What the drive migration records `known` of pool `pool` cannot explain
+/// (pure); each gap makes the view uncertain, as statuses would rest on
+/// partial knowledge: a migration journal `listed` on the pool's accounts
+/// that `known` lacks, an adoption of a `found` generation whose new
+/// generation was neither found nor replaced in turn, or found generations
+/// none of which a reader may use.
+pub(crate) fn knowledge_gaps(
+    pool: &str,
+    found: &[crate::pool::browse_generations::Generation],
+    known: &crate::migration::drive_generations::Known,
+    listed: &BTreeSet<String>,
+) -> Vec<String> {
+    use crate::migration::drive_generations::{effective, generation_ref};
+    let mut out: Vec<String> = listed
+        .difference(&known.migration_ids)
+        .map(|id| {
+            format!("migration {id} of pool {pool}: listed, but its records could not be read")
+        })
+        .collect();
+    let refs: BTreeSet<_> = found.iter().map(generation_ref).collect();
+    for adoption in &known.adoptions {
+        let target = adoption.generation();
+        let replaced = known.adoptions.iter().any(|a| a.source == target);
+        if refs.contains(&adoption.source) && !refs.contains(&target) && !replaced {
+            out.push(format!(
+                "pool {pool}: migration {} adopted drive generation {}, which was not found",
+                adoption.migration_id,
+                generation_label(Some(&adoption.epoch))
+            ));
+        }
+    }
+    if !found.is_empty() && effective(found.to_vec(), known).is_empty() {
+        out.push(format!(
+            "pool {pool}: none of its drive generations is usable according to its migration records"
+        ));
+    }
+    out
+}
+
 /// Status of every generation of one configured pool (pure): superseded by
 /// a recorded adoption, a migration's own generation (adopted, in progress
 /// or left over), the current one (`drive_generations::effective` order),
