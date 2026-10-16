@@ -190,7 +190,7 @@ fn observe(io: &LiveIo<'_>) -> Result<World> {
 /// Drive uploads no event names (yet): an upload in progress on some PC,
 /// or a finished one whose event is not published. Whatever they name is
 /// kept (an incremental upload reuses older archives' shards).
-fn unnamed_uploads(sources: &live_refs::Sources<'_>, refs: &mut References) {
+pub(crate) fn unnamed_uploads(sources: &live_refs::Sources<'_>, refs: &mut References) {
     let mut by_id: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (root, listing) in sources.listings {
         let Some(files) = listing.files() else {

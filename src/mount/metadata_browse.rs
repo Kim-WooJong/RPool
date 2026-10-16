@@ -30,6 +30,7 @@ pub(crate) struct Snapshot {
     pub events: BTreeMap<String, Event>,
     /// Checkpoint chunks already ingested (their records are in `events`).
     pub checkpoints: Cache,
+    /// Folder records of the generation (empty in caches written before folders).
     #[serde(default)]
     pub folders: super::folders::Records,
 }
@@ -78,6 +79,7 @@ pub(crate) struct Outcome {
 pub(crate) struct Source {
     /// One shared transport per replica root.
     stores: Vec<SharedTransport>,
+    /// One folder-record transport per replica root, in `stores` order.
     folders: Vec<SharedTransport>,
     /// Checkpoint/record directories of each replica, in `stores` order.
     dirs: Vec<ReplicaDirs>,
@@ -107,15 +109,25 @@ impl Source {
         policy: &PoolDefinition,
         epoch: Option<&str>,
     ) -> Result<Self> {
-        let roots = generation_roots(pool, policy, epoch)?;
+        Self::at(
+            rclone,
+            &generation_roots(pool, policy, epoch)?,
+            policy.native_crypt,
+        )
+    }
+
+    /// Opens transports and replica directories for explicit generation
+    /// roots (`<…>/events-v6/<scope>` or `…/epochs/<epoch>`), e.g. of a pool
+    /// that is not configured (provider storage manager).
+    pub(crate) fn at(rclone: &str, roots: &[String], native_crypt: bool) -> Result<Self> {
         let stores = roots
             .iter()
             .map(|root| {
-                SharedTransport::new(rclone, root).map(|t| t.with_native_crypt(policy.native_crypt))
+                SharedTransport::new(rclone, root).map(|t| t.with_native_crypt(native_crypt))
             })
             .collect::<Result<_>>()?;
-        let dirs = replica_dirs(rclone, &roots, policy.native_crypt, &Family::v6())?;
-        let folders = folder_transports(rclone, &roots, policy.native_crypt)?;
+        let dirs = replica_dirs(rclone, roots, native_crypt, &Family::v6())?;
+        let folders = folder_transports(rclone, roots, native_crypt)?;
         Ok(Self {
             stores,
             folders,

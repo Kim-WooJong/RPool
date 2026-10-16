@@ -7,6 +7,8 @@ pub(crate) mod keepalive;
 pub(crate) mod limits_view;
 /// Moving an archive's shards from one provider to another (`provider drain`).
 mod migrate;
+/// Provider storage manager: grouped view and fail-closed cleanup (`provider storage`).
+pub(crate) mod storage;
 
 pub(crate) use health::check_providers;
 pub(crate) use migrate::drain_manifest;

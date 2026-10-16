@@ -32,7 +32,7 @@ mod restore;
 pub(crate) mod retention;
 mod rollback;
 mod source_v6;
-mod time_arg;
+pub(crate) mod time_arg;
 mod times;
 mod trash;
 mod versions;

@@ -21,9 +21,7 @@ pub(crate) fn roots(pool: &str, remotes: &[String]) -> Result<Vec<String>> {
     if configured.is_empty() {
         bail!("pool sync requires at least one encrypted remote");
     }
-    let scope = blake3::hash(&serde_json::to_vec(&("rpool-pool-sync-v6", pool))?)
-        .to_hex()
-        .to_string();
+    let scope = scope(pool)?;
     let mut roots = crate::remote_root::apply_remote_roots(configured)?;
     roots.sort();
     roots.dedup();
@@ -32,6 +30,17 @@ pub(crate) fn roots(pool: &str, remotes: &[String]) -> Result<Vec<String>> {
         SharedTransport::new("unused", root)?;
     }
     Ok(roots)
+}
+
+/// The pool-sync scope of `pool` (64 hex): the folder name of its metadata
+/// under `.rpool-sync/events-v6/` (and of its migration journals). Also used
+/// by the provider storage manager to recognise pools.
+pub(crate) fn scope(pool: &str) -> Result<String> {
+    Ok(
+        blake3::hash(&serde_json::to_vec(&("rpool-pool-sync-v6", pool))?)
+            .to_hex()
+            .to_string(),
+    )
 }
 
 /// Namespace events by id (as `collect` returns them).
@@ -249,6 +258,8 @@ pub(crate) fn folder_transports(
         .collect()
 }
 
+/// Every unseen folder record, read strictly (any unreadable record fails);
+/// used where an incomplete set would lose folders (generation migration).
 pub(crate) fn read_folders(stores: &[&dyn EventStore], unseen: &Unseen) -> Result<Records> {
     let mut records = Records::new();
     for (id, (index, size)) in &unseen.entries {
@@ -279,6 +290,7 @@ pub(crate) fn read_folders_best_effort(stores: &[&dyn EventStore], unseen: &Unse
     records
 }
 
+/// Publishes one folder record to every replica's `folders` directory.
 fn publish_folder_everywhere(
     transports: &[SharedTransport],
     id: &str,

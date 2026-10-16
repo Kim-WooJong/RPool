@@ -264,6 +264,22 @@ pub(crate) fn read_v6(
     Ok(outcome.snapshot.events)
 }
 
+/// v6 events (including checkpointed ones) at explicit generation `roots`,
+/// read-only and without the browse cache: the metadata of a pool that is
+/// not configured on this PC, found by the provider storage manager.
+pub(crate) fn read_v6_at(
+    rclone: &str,
+    roots: &[String],
+) -> Result<BTreeMap<String, super::shared_model::Event>> {
+    use super::metadata_browse::{Snapshot, Source};
+    let source = Source::at(rclone, roots, false)?;
+    let listed = source.list()?;
+    Ok(source
+        .refresh(&listed, Snapshot::default())?
+        .snapshot
+        .events)
+}
+
 /// Cheap metadata counts of a saved pool for `rpool doctor`: listings and
 /// heads only, no chunk reads.
 #[derive(Debug, Clone, Default, PartialEq)]
