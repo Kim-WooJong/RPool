@@ -336,20 +336,112 @@ fn foreign_pools_and_migration_leftovers() {
         (GroupKind::MigrationLeftovers, false)
     );
     assert!(left.reason.contains("pool migrate retire"));
-    // A configured pool that no longer uses this provider: its metadata
-    // here is foreign, named with the pool.
+}
+
+#[test]
+fn a_configured_pool_without_this_provider_keeps_what_its_metadata_uses() {
+    let mut world = world();
     world.pools.push(PoolScope {
         name: "Other".into(),
         scope: scope("Other"),
         uses_root: false,
     });
-    metadata(&mut world, &scope("Other"), None);
-    let c = classify(&world);
-    let g = group_of(&c, &format!("generation:{}/first", scope("Other")));
-    assert_eq!(
-        (g.kind, g.pool.as_deref()),
-        (GroupKind::ForeignPool, Some("Other"))
+    let s = scope("Other");
+    // Copies here of its first (superseded), epoch d (current), epoch e
+    // (unconfirmed) and epoch f (unknown to its metadata) generations, and
+    // a migration journal.
+    for e in [None, Some(epoch('d')), Some(epoch('e')), Some(epoch('f'))] {
+        metadata(&mut world, &s, e.as_deref());
+    }
+    world.listing.insert(
+        format!(".rpool-sync/migrations-v1/{s}/m7/plan.json"),
+        entry(1, 1),
     );
+    let other = |epoch: Option<&str>, status: GenerationStatus, ids: &[&str]| {
+        let mut g = generation(Some("Other"), epoch, status, ids);
+        g.scope = s.clone();
+        g
+    };
+    for id in ["virtual-o-old", "virtual-o-cur", "virtual-o-tr"] {
+        archive(&mut world, id, 1);
+    }
+    world.generations.extend([
+        other(
+            None,
+            GenerationStatus::Superseded {
+                migration: "m7".into(),
+            },
+            &["virtual-o-old"],
+        ),
+        other(
+            Some(&epoch('d')),
+            GenerationStatus::Current,
+            &["virtual-o-cur"],
+        ),
+        other(
+            Some(&epoch('e')),
+            GenerationStatus::Unconfirmed,
+            &["virtual-o-tr"],
+        ),
+    ]);
+    let c = classify(&world);
+    let gen = |e: &str| group_of(&c, &format!("generation:{s}/{e}"));
+    // Current and unknown generations and the migration journal are kept.
+    for g in [gen(&epoch('d')), gen(&epoch('f'))] {
+        assert_eq!((g.kind, g.deletable), (GroupKind::InUse, false), "{g:?}");
+        assert_eq!(g.pool.as_deref(), Some("Other"));
+        assert!(!g.reason.contains("no longer uses"), "{}", g.reason);
+    }
+    let journal = group_of(&c, &format!("migration:{s}/m7"));
+    assert!(!journal.deletable && journal.kind == GroupKind::InUse);
+    assert!(!group_of(&c, "archive:virtual-o-cur").deletable);
+    // Older generations follow the pool's own metadata, with their acknowledgement.
+    let old = gen("first");
+    assert_eq!(
+        (old.kind, old.deletable, old.needs.clone()),
+        (GroupKind::OldGeneration, true, vec![])
+    );
+    assert_eq!(old.id, "old:Other:first");
+    assert_eq!(group_of(&c, "archive:virtual-o-old").id, old.id);
+    let tr = gen(&epoch('e'));
+    assert_eq!(tr.needs, vec![Ack::UnconfirmedGenerations]);
+    // Two readings of one generation (its own metadata and the copy here):
+    // kept while either is in use.
+    world
+        .generations
+        .push(other(None, GenerationStatus::Newer, &["virtual-o-old"]));
+    let c = classify(&world);
+    assert!(!group_of(&c, &format!("generation:{s}/first")).deletable);
+    assert!(!group_of(&c, "archive:virtual-o-old").deletable);
+}
+
+#[test]
+fn a_copy_takes_its_pools_status_unless_written_recently() {
+    use super::classify::{copy_status, RECENT_GENERATION};
+    let old = NOW - RECENT_GENERATION - 1;
+    let superseded = GenerationStatus::Superseded {
+        migration: "m".into(),
+    };
+    assert_eq!(copy_status(Some(&superseded), Some(old), NOW), superseded);
+    assert_eq!(
+        copy_status(Some(&GenerationStatus::Unconfirmed), Some(old), NOW),
+        GenerationStatus::Unconfirmed
+    );
+    // Written here recently, or at an unknown time: in use.
+    for newest in [Some(NOW - DAY), None] {
+        assert_eq!(
+            copy_status(Some(&superseded), newest, NOW),
+            GenerationStatus::Newer
+        );
+    }
+    // Current, newer or unknown to the pool's metadata: in use.
+    assert_eq!(
+        copy_status(Some(&GenerationStatus::Current), Some(old), NOW),
+        GenerationStatus::Current
+    );
+    for own in [Some(&GenerationStatus::Newer), None] {
+        assert_eq!(copy_status(own, Some(old), NOW), GenerationStatus::Newer);
+    }
 }
 
 #[test]

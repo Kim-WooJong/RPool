@@ -595,9 +595,12 @@ rpool remote-root list | set REMOTE PATH | remove REMOTE
     the current generation, counts as in use). Data several such
     generations share is its own group. A generation's metadata goes only after every archive on the
     provider that only it names.
-  - *Other pool*: metadata of a pool not configured on this PC (or one that
-    no longer uses this provider) and the data only it names; only with
-    `--include-foreign-pools`.
+  - *Other pool*: metadata of a pool not configured on this PC and the data
+    only it names; only with `--include-foreign-pools`. Metadata here of a
+    pool this PC configures without this provider (another PC may use it
+    here) is kept, with its migration journals, except generations the
+    pool's own metadata shows as replaced or older (as above) and that were
+    not written here in the last 14 days.
   - *Speed-test leftovers* older than 24 hours (`.rpool-speedtest/`,
     `.rpool-sync/bench/`): marked like the rest, but deleted one hour
     after marking instead of after the grace period.

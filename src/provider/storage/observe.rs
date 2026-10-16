@@ -2,12 +2,14 @@
 //! `classify::World`): the provider's listing; for every configured pool
 //! that uses the provider or has metadata on it, every account's listing,
 //! its recorded migrations and every drive generation's events (checkpoints
-//! included); the drive metadata of pools not configured here (read from
-//! this provider); the local inventory, every manifest replica on every
+//! included); the drive metadata on this provider of pools not configured
+//! here, and of configured pools that do not use this provider (their
+//! statuses from their own metadata); the local inventory, every manifest replica on every
 //! listed account and drive uploads no metadata names. Anything that cannot
 //! be read is recorded as uncertain.
 use super::classify::{
-    generation_statuses, owned_archives, Generation, GenerationStatus, PoolScope, World,
+    copy_status, generation_statuses, owned_archives, Generation, GenerationStatus, PoolScope,
+    World,
 };
 use super::layout::{self, Listing, UnitKind};
 use crate::migration::enumerate::RemoteListing;
@@ -301,6 +303,10 @@ pub(crate) fn world(rclone: &str, root: &str, now: u64) -> Result<World> {
     let mut live = References::default();
     let mut leftovers = References::default();
     let mut generations_out = Vec::new();
+    // Statuses of the generations of configured pools that do not use this
+    // provider, from their own metadata (for their copies here).
+    let mut elsewhere: BTreeMap<String, BTreeMap<Option<String>, GenerationStatus>> =
+        BTreeMap::new();
     for (pool, policy, pool_roots) in &pools {
         let pool_listings: Vec<&Listing> = pool_roots
             .iter()
@@ -328,6 +334,9 @@ pub(crate) fn world(rclone: &str, root: &str, now: u64) -> Result<World> {
                     .collect()
             }
         };
+        if !pool.uses_root {
+            elsewhere.insert(pool.scope.clone(), statuses.iter().cloned().collect());
+        }
         // The current generation first: `read_v6` keeps the browse cache on it.
         let mut ordered = statuses;
         ordered.sort_by_key(|(_, s)| *s != GenerationStatus::Current);
@@ -350,7 +359,8 @@ pub(crate) fn world(rclone: &str, root: &str, now: u64) -> Result<World> {
             });
         }
     }
-    // Pools not configured here: their metadata on this provider only.
+    // Metadata on this provider of pools not configured here, and of
+    // configured pools that do not use it: read from this provider only.
     let configured_scopes: BTreeSet<String> = store
         .pools
         .keys()
@@ -360,25 +370,45 @@ pub(crate) fn world(rclone: &str, root: &str, now: u64) -> Result<World> {
         let UnitKind::Generation { scope, epoch } = &unit.kind else {
             continue;
         };
-        if configured_scopes.contains(scope) {
-            continue;
-        }
+        let generation = epoch.as_deref().map_or("first", |e| &e[..12]);
+        let pool = pools.iter().map(|(p, _, _)| p).find(|p| &p.scope == scope);
+        let (pool, label, status) = match pool {
+            // Read with the pool's own metadata above.
+            Some(pool) if pool.uses_root => continue,
+            Some(pool) => (
+                Some(pool.name.clone()),
+                format!(
+                    "copy of drive generation {generation} of pool {} on this provider",
+                    pool.name
+                ),
+                copy_status(
+                    elsewhere.get(scope).and_then(|s| s.get(epoch)),
+                    unit.newest(),
+                    now,
+                ),
+            ),
+            // A configured pool whose roots could not be resolved (uncertain).
+            None if configured_scopes.contains(scope) => continue,
+            None => (
+                None,
+                format!(
+                    "drive generation {generation} of foreign pool {}",
+                    &scope[..12]
+                ),
+                GenerationStatus::Foreign,
+            ),
+        };
         let mut path = crate::utils::remote_join(root, &format!("{EVENTS}{scope}"));
         if let Some(epoch) = epoch {
             path = crate::utils::remote_join(&path, &format!("epochs/{epoch}"));
         }
-        let label = format!(
-            "drive generation {} of foreign pool {}",
-            epoch.as_deref().map_or("first", |e| &e[..12]),
-            &scope[..12]
-        );
         let events = crate::mount::metadata_pool::read_v6_at(rclone, &[path]);
         let (refs, owns) = event_refs(&label, events);
         generations_out.push(Generation {
-            pool: None,
+            pool,
             scope: scope.clone(),
             epoch: epoch.clone(),
-            status: GenerationStatus::Foreign,
+            status,
             refs,
             owns,
         });

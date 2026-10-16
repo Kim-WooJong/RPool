@@ -22,7 +22,10 @@
 //!    anywhere), or an **unknown put archive**, both kept.
 //!
 //! Metadata generations follow their status; their deletion waits for every
-//! archive on this provider that only they name (`Placed::depends`). Speed
+//! archive on this provider that only they name (`Placed::depends`). Copies
+//! here of a configured pool that does not use this provider take their
+//! status from that pool's own metadata ([`copy_status`]); its migration
+//! journals are kept. Speed
 //! test files older than a day may go, marked like everything else but with
 //! a grace period of [`SPEED_TEST_GRACE`]. Everything else is kept. While any source is uncertain nothing is deletable.
 use super::layout::{self, Listing, Unit, UnitKind};
@@ -67,6 +70,8 @@ pub(crate) enum GenerationStatus {
         migration: String,
     },
     /// Of a pool not configured on this PC (read from this provider only).
+    /// A copy here of a configured pool that does not use this provider
+    /// gets a status of its own pool instead ([`copy_status`]).
     Foreign,
 }
 
@@ -211,12 +216,10 @@ enum Owner {
         /// Migration that replaced it, if recorded.
         migration: Option<String>,
     },
-    /// A pool not configured for this provider.
+    /// A pool not configured on this PC.
     Foreign {
         /// Pool-sync scope.
         scope: String,
-        /// Configured pool of that scope that does not use this provider.
-        pool: Option<String>,
     },
 }
 
@@ -264,14 +267,7 @@ impl Owner {
                 "drive generation {} of pool {pool}, older than the current one; no recorded migration replaced it, so a PC whose drive was not switched may still use it",
                 generation_label(epoch.as_deref())
             ),
-            Owner::Foreign {
-                scope,
-                pool: Some(pool),
-            } => format!(
-                "metadata of pool {pool} ({}…), which no longer uses this provider",
-                &scope[..12]
-            ),
-            Owner::Foreign { scope, pool: None } => format!(
+            Owner::Foreign { scope } => format!(
                 "pool {}… that is not configured on this PC",
                 &scope[..12]
             ),
@@ -361,7 +357,6 @@ fn owner(generation: &Generation) -> Option<Owner> {
         }),
         (GenerationStatus::Foreign, _) => Some(Owner::Foreign {
             scope: generation.scope.clone(),
-            pool: None,
         }),
         _ => None,
     }
@@ -445,6 +440,45 @@ fn archive_target(world: &World, id: &str, objects: &[RetireObject]) -> Target {
     )
 }
 
+/// The kept target of metadata of pool `pool`, which is configured on this
+/// PC without this provider.
+fn elsewhere(pool: &str) -> Target {
+    kept(
+        &format!("configured-elsewhere:{pool}"),
+        GroupKind::InUse,
+        Some(pool),
+        &format!("metadata of pool {pool}, which this PC configures without this provider: a PC configured differently (or an older configuration) may still use it here; only generations this PC's metadata of the pool shows as replaced or older can be deleted"),
+    )
+}
+
+/// Status of a copy, on this provider, of a generation of a configured pool
+/// that does not use the provider (pure): `own` is the generation's status
+/// from the pool's own metadata, `newest` the copy's newest write here.
+/// Only an older generation (superseded or unconfirmed) not written here in
+/// the last [`RECENT_GENERATION`] seconds may own deletable data; the
+/// current one, a newer one, one the pool's metadata does not have and a
+/// recent copy are in use.
+pub(crate) fn copy_status(
+    own: Option<&GenerationStatus>,
+    newest: Option<u64>,
+    now: u64,
+) -> GenerationStatus {
+    let recent = newest.is_none_or(|t| t.saturating_add(RECENT_GENERATION) > now);
+    match own {
+        Some(
+            status @ (GenerationStatus::MigrationInProgress { .. }
+            | GenerationStatus::MigrationLeftover { .. }),
+        ) => status.clone(),
+        Some(status @ (GenerationStatus::Superseded { .. } | GenerationStatus::Unconfirmed))
+            if !recent =>
+        {
+            status.clone()
+        }
+        Some(GenerationStatus::Current) => GenerationStatus::Current,
+        _ => GenerationStatus::Newer,
+    }
+}
+
 /// The migration-leftovers target.
 fn migration_leftovers() -> Target {
     kept(
@@ -455,40 +489,44 @@ fn migration_leftovers() -> Target {
     )
 }
 
-/// Where a metadata generation goes.
+/// Where a metadata generation goes. A configured pool's generation (also
+/// a copy here of a pool that does not use this provider: its statuses come
+/// from the pool's own metadata, see [`copy_status`]) is kept unless every
+/// reading of it is an older generation.
 fn generation_target(world: &World, scope: &str, epoch: Option<&str>) -> Target {
-    let pool = world.pools.iter().find(|p| p.scope == scope);
-    match pool {
-        Some(pool) if pool.uses_root => {
-            let found = world
-                .generations
-                .iter()
-                .find(|g| g.scope == scope && g.epoch.as_deref() == epoch);
-            match found {
-                Some(g) if matches!(g.status, GenerationStatus::MigrationLeftover { .. }) => {
-                    migration_leftovers()
-                }
-                Some(g) => match owner(g) {
-                    Some(owner) => Target::Owned([owner].into()),
-                    None => in_use(Some(&pool.name)),
-                },
-                None => in_use(Some(&pool.name)),
-            }
+    let Some(pool) = world.pools.iter().find(|p| p.scope == scope) else {
+        return Target::Owned(
+            [Owner::Foreign {
+                scope: scope.into(),
+            }]
+            .into(),
+        );
+    };
+    let keep = || {
+        if pool.uses_root {
+            in_use(Some(&pool.name))
+        } else {
+            elsewhere(&pool.name)
         }
-        Some(pool) => Target::Owned(
-            [Owner::Foreign {
-                scope: scope.into(),
-                pool: Some(pool.name.clone()),
-            }]
-            .into(),
-        ),
-        None => Target::Owned(
-            [Owner::Foreign {
-                scope: scope.into(),
-                pool: None,
-            }]
-            .into(),
-        ),
+    };
+    let found: Vec<&Generation> = world
+        .generations
+        .iter()
+        .filter(|g| g.scope == scope && g.epoch.as_deref() == epoch)
+        .collect();
+    if found.is_empty() || found.iter().any(|g| live(&g.status)) {
+        return keep();
+    }
+    if found
+        .iter()
+        .any(|g| matches!(g.status, GenerationStatus::MigrationLeftover { .. }))
+    {
+        return migration_leftovers();
+    }
+    let owners: Option<BTreeSet<Owner>> = found.into_iter().map(owner).collect();
+    match owners {
+        Some(owners) => Target::Owned(owners),
+        None => keep(),
     }
 }
 
@@ -500,10 +538,10 @@ fn target(world: &World, unit: &Unit, objects: &[RetireObject]) -> Target {
         UnitKind::Migration { scope, .. } => {
             match world.pools.iter().find(|p| &p.scope == scope) {
                 Some(pool) if pool.uses_root => in_use(Some(&pool.name)),
-                pool => Target::Owned(
+                Some(pool) => elsewhere(&pool.name),
+                None => Target::Owned(
                     [Owner::Foreign {
                         scope: scope.clone(),
-                        pool: pool.map(|p| p.name.clone()),
                     }]
                     .into(),
                 ),
@@ -567,7 +605,7 @@ fn owned_group(id: &str, owners: &BTreeSet<Owner>) -> Group {
         .iter()
         .filter_map(|o| match o {
             Owner::Old { pool, .. } => Some(pool.as_str()),
-            Owner::Foreign { pool, .. } => pool.as_deref(),
+            Owner::Foreign { .. } => None,
         })
         .collect();
     let scopes: BTreeSet<&str> = owners
