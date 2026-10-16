@@ -19,8 +19,8 @@
   on the provider (`.rpool-sync/storage-cleanup-v1/`, seen by every PC) and
   deletes after the drive cleanup's grace period, re-checking every
   reference first, with the mass-delete guard (`--force`). Speed-test
-  leftovers older than a day are deleted at once. GUI: Storage › Providers ›
-  card › Manage storage….
+  leftovers older than a day are marked too and deleted one hour later. GUI:
+  Storage › Providers › card › Manage storage….
 
 ## 2.18.0 — 2026-10-16
 

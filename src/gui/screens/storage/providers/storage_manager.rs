@@ -136,7 +136,6 @@ fn status_label(group: &Group) -> &'static str {
     match (group.deletable, group.needs.is_empty()) {
         (false, _) => tr("Kept"),
         (true, false) => tr("Deletable after confirming"),
-        (true, true) if group.immediate => tr("Deletable now"),
         (true, true) => tr("Deletable"),
     }
 }
@@ -374,17 +373,15 @@ fn actions(
         force: manager.force,
     };
     let now = crate::utils::now_unix();
-    let unmarked = ticked
-        .iter()
-        .any(|g| !g.immediate && g.pending.marked < g.units);
+    let unmarked = ticked.iter().any(|g| g.pending.marked < g.units);
     let due = ticked
         .iter()
-        .any(|g| g.immediate || g.pending.first_due_unix.is_some_and(|d| d <= now));
+        .any(|g| g.pending.first_due_unix.is_some_and(|d| d <= now));
     let ready = !ticked.is_empty() && acked && !task.is_running() && !manager.started;
     theme::hint(
         ui,
         &trf(
-            "Marked data is deleted {n} days later, after every reference is checked again. Speed-test leftovers are deleted at once.",
+            "Marked data is deleted {n} days later, after every reference is checked again. Speed-test leftovers are deleted one hour after marking.",
             &[("n", &view.grace_days)],
         ),
     );
@@ -550,7 +547,7 @@ mod tests {
             bytes: 4,
             deletable: false,
             needs: vec![],
-            immediate: false,
+            grace_seconds: None,
             reason: String::new(),
             pending: Default::default(),
         };

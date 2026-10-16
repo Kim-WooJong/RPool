@@ -31,7 +31,8 @@ pub(crate) enum StorageCommands {
     /// Delete groups no configured pool needs. Without `--confirm` only a
     /// preview. The first confirmed run marks the data; a confirmed run after
     /// the grace period checks every reference again and deletes what is
-    /// still unused. Speed-test leftovers are deleted at once.
+    /// still unused. Speed-test leftovers wait one hour instead of the grace
+    /// period.
     Clean {
         /// Crypt remote (as for `list`).
         #[arg(long)]

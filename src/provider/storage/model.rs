@@ -98,9 +98,10 @@ pub(crate) struct Group {
     /// Acknowledgements required before deleting.
     #[serde(default)]
     pub needs: Vec<Ack>,
-    /// Deleted without a grace period (speed-test leftovers).
+    /// Grace period of this group (seconds) when it is not the provider's
+    /// (speed-test leftovers: one hour).
     #[serde(default)]
-    pub immediate: bool,
+    pub grace_seconds: Option<u64>,
     /// Why the group is kept or may go.
     pub reason: String,
     /// Marks from earlier cleanup runs.

@@ -2,7 +2,7 @@
 //! listings and an in-memory `StorageIo` (no rclone).
 use super::classify::{
     classify, generation_statuses, Classified, Generation, GenerationStatus, PoolScope, World,
-    SPEED_TEST_AGE,
+    SPEED_TEST_AGE, SPEED_TEST_GRACE,
 };
 use super::execute::{run, view, Request, StorageIo};
 use super::layout::{self, Entry, UnitKind};
@@ -379,7 +379,7 @@ fn unnamed_put_archives_and_incomplete_uploads_are_kept() {
 }
 
 #[test]
-fn speed_test_leftovers_go_after_a_day_without_grace() {
+fn speed_test_leftovers_older_than_a_day_have_a_short_grace() {
     let mut world = world();
     world.listing.insert(
         ".rpool-speedtest/old/f".into(),
@@ -400,7 +400,8 @@ fn speed_test_leftovers_go_after_a_day_without_grace() {
     );
     let c = classify(&world);
     let old = group_of(&c, "speedtest:old");
-    assert!(old.deletable && old.immediate && old.needs.is_empty());
+    assert!(old.deletable && old.needs.is_empty());
+    assert_eq!(old.grace_seconds, Some(SPEED_TEST_GRACE));
     assert_eq!(group_of(&c, "bench:x.bin").id, old.id);
     for key in ["speedtest:new", "speedtest:unknown"] {
         assert!(!group_of(&c, key).deletable, "{key}");
@@ -841,11 +842,27 @@ fn a_failed_recheck_releases_this_runs_deletion() {
 }
 
 #[test]
-fn speed_test_leftovers_are_deleted_at_once_and_guard_needs_force() {
+fn speed_test_leftovers_are_marked_and_deleted_an_hour_later() {
     let mut w = world();
     w.listing
         .insert(".rpool-speedtest/run/f1".into(), entry(1, NOW - 2 * DAY));
     let fake = Fake::new(w);
+    let preview = run(&fake, &request(&["speed-test-leftovers"], false)).unwrap();
+    assert_eq!((preview.new.units, preview.due.units), (1, 0));
+    // The first confirmed run only marks, with a one-hour grace.
+    let marked = run(&fake, &request(&["speed-test-leftovers"], true)).unwrap();
+    assert_eq!((marked.new.units, marked.deleted.units), (1, 0));
+    assert_eq!(marked.next_deletion_unix, Some(NOW + SPEED_TEST_GRACE));
+    assert!(fake.deleted().is_empty());
+    assert_eq!(
+        fake.state()["speedtest:run"].due(),
+        Some(NOW + SPEED_TEST_GRACE)
+    );
+    fake.advance(SPEED_TEST_GRACE - 1);
+    let waiting = run(&fake, &request(&["speed-test-leftovers"], true)).unwrap();
+    assert_eq!(waiting.waiting.units, 1);
+    assert!(fake.deleted().is_empty());
+    fake.advance(1);
     let report = run(&fake, &request(&["speed-test-leftovers"], true)).unwrap();
     assert_eq!(report.deleted.units, 1);
     assert_eq!(
@@ -932,4 +949,23 @@ fn view_orders_kept_groups_first_and_reports_marks() {
     assert!(text.contains("old:RPool:first") && text.contains("do not decrypt"));
     let broken = view(&c, Err(anyhow!("offline")), 7, None);
     assert!(broken.notes[0].contains("offline"));
+}
+
+#[test]
+fn a_speed_test_written_during_the_grace_is_kept() {
+    let mut w = world();
+    w.listing
+        .insert(".rpool-speedtest/run/f1".into(), entry(1, NOW - 2 * DAY));
+    let fake = Fake::new(w);
+    run(&fake, &request(&["speed-test-leftovers"], true)).unwrap();
+    // A test resumed in the same folder: the re-check keeps it.
+    fake.world
+        .lock()
+        .unwrap()
+        .listing
+        .insert(".rpool-speedtest/run/f2".into(), entry(1, NOW + 60));
+    fake.advance(SPEED_TEST_GRACE);
+    let error = run(&fake, &request(&["speed-test-leftovers"], true)).unwrap_err();
+    assert!(format!("{error:#}").contains("no group speed-test-leftovers"));
+    assert!(fake.deleted().is_empty());
 }

@@ -181,7 +181,7 @@ fn list_and_clean_old_generation_and_speed_test_leftovers() {
     assert!(old.deletable && old.needs == vec![super::model::Ack::UnconfirmedGenerations]);
     assert_eq!(old.archives, 1, "{old:#?}");
     assert!(in_use.archives >= 1 && !in_use.deletable);
-    assert!(speed.deletable && speed.immediate && speed.units == 1);
+    assert!(speed.deletable && speed.grace_seconds.is_some() && speed.units == 1);
     let text = crate::presentation::provider_storage::view_text(&view);
     eprintln!("{text}");
     assert!(text.contains("old:RPool:first"), "{text}");
@@ -197,17 +197,16 @@ fn list_and_clean_old_generation_and_speed_test_leftovers() {
     request.unconfirmed = true;
     let preview = run(&io, &request).unwrap();
     assert_eq!(preview.mode, CleanMode::Preview);
-    assert_eq!(preview.new.units, 2);
-    assert_eq!(preview.due.units, 1, "speed test leftovers are due at once");
+    assert_eq!((preview.new.units, preview.due.units), (3, 0));
 
-    // Confirmed: marks published on the provider, the speed test deleted now.
+    // Confirmed: marks published on the provider, nothing deleted yet.
     request.confirm = true;
     let marked = run(&io, &request).unwrap();
     assert_eq!(marked.mode, CleanMode::Applied);
-    assert_eq!(marked.deleted.units, 1);
+    assert_eq!((marked.new.units, marked.deleted.units), (3, 0));
     let files = stored(&rclone, "c1:");
     assert!(
-        !files.iter().any(|f| f.starts_with(".rpool-speedtest/")),
+        files.iter().any(|f| f.starts_with(".rpool-speedtest/")),
         "{files:?}"
     );
     assert!(files
@@ -218,6 +217,18 @@ fn list_and_clean_old_generation_and_speed_test_leftovers() {
     let pending = view.groups.iter().find(|g| g.id == old.id).unwrap().pending;
     assert_eq!(pending.marked, 2);
     assert!(pending.last_due_unix.unwrap() > io.now());
+    // A day later the speed test (one-hour grace) goes; the old generation waits.
+    let next = run(&later(16), &request).unwrap();
+    assert_eq!(
+        (next.deleted.units, next.waiting.units),
+        (1, 2),
+        "{next:#?}"
+    );
+    let files = stored(&rclone, "c1:");
+    assert!(
+        !files.iter().any(|f| f.starts_with(".rpool-speedtest/")),
+        "{files:?}"
+    );
 
     // Before the grace period nothing goes; eight days later it is deleted.
     // (The speed-test group is gone: selecting it again is refused.)

@@ -596,7 +596,8 @@ rpool remote-root list | set REMOTE PATH | remove REMOTE
     no longer uses this provider) and the data only it names; only with
     `--include-foreign-pools`.
   - *Speed-test leftovers* older than 24 hours (`.rpool-speedtest/`,
-    `.rpool-sync/bench/`): deleted at once, without a grace period.
+    `.rpool-sync/bench/`): marked like the rest, but deleted one hour
+    after marking instead of after the grace period.
   - Kept, never deleted here: migration leftovers (`rpool pool migrate
     retire`), archives with a manifest nothing on this PC names, incomplete
     uploads, the cleanup journal and anything outside RPool's layout. Names

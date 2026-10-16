@@ -6,8 +6,8 @@
 //! 2. Every selected group must exist, be deletable and have its
 //!    acknowledgements; otherwise the run is refused.
 //! 3. Preview (default): units to mark, waiting and due.
-//! 4. `confirm`: mark new units (grace period; speed-test leftovers have
-//!    none), release marks of units that are needed again, and for due
+//! 4. `confirm`: mark new units (the provider's grace period; speed-test
+//!    leftovers one hour), release marks of units that are needed again, and for due
 //!    units: mass-delete guard (`force` passes it), journal `Deleting`,
 //!    classify again, delete what is still deletable in a selected group
 //!    (manifest replicas first, then the other objects; metadata
@@ -230,8 +230,6 @@ fn release(
 struct Plan {
     /// Not marked yet.
     new: BTreeMap<String, Placed>,
-    /// Not marked yet and deleted without grace (speed-test leftovers).
-    immediate: BTreeMap<String, Placed>,
     /// Marked, grace period not over (or metadata waiting for its archives).
     waiting: BTreeMap<String, Placed>,
     /// Due marks and interrupted deletions.
@@ -269,7 +267,6 @@ fn plan(
         if !selected.contains(&placed.group) {
             continue;
         }
-        let immediate = world.groups[&placed.group].immediate;
         match journal.get(key) {
             Some(s) if s.deleted => {}
             Some(s) if s.deleting => {
@@ -281,9 +278,6 @@ fn plan(
             Some(s) if s.due().is_some() => {
                 out.next = earliest(out.next, s.due());
                 out.waiting.insert(key.clone(), placed.clone());
-            }
-            _ if immediate => {
-                out.immediate.insert(key.clone(), placed.clone());
             }
             _ => {
                 out.new.insert(key.clone(), placed.clone());
@@ -359,9 +353,11 @@ pub(crate) fn run(io: &dyn StorageIo, request: &Request) -> Result<CleanReport> 
     ] {
         set.values().for_each(|p| add(totals, p));
     }
-    plan.immediate.values().for_each(|p| add(&mut out.due, p));
-    let due_now = !plan.due.is_empty() || !plan.immediate.is_empty();
-    out.next_deletion_unix = if due_now { Some(now) } else { plan.next };
+    out.next_deletion_unix = if plan.due.is_empty() {
+        plan.next
+    } else {
+        Some(now)
+    };
     if plan.blocked_metadata > 0 {
         out.notes.push(format!(
             "{} metadata generation(s) wait until every archive only they name is deleted",
@@ -374,12 +370,7 @@ pub(crate) fn run(io: &dyn StorageIo, request: &Request) -> Result<CleanReport> 
             plan.blocked.len()
         ));
     }
-    let due: BTreeMap<String, Placed> = plan
-        .due
-        .iter()
-        .chain(&plan.immediate)
-        .map(|(k, p)| (k.clone(), p.clone()))
-        .collect();
+    let due = &plan.due;
     out.guard = guard::check(
         due.values().flat_map(|p| p.objects.iter()),
         world.totals,
@@ -392,19 +383,21 @@ pub(crate) fn run(io: &dyn StorageIo, request: &Request) -> Result<CleanReport> 
     out.mode = CleanMode::Applied;
     // What stays marked after this run (due data is deleted below unless refused).
     out.next_deletion_unix = plan.next;
-    if !plan.new.is_empty() {
-        let grace = u64::from(grace_days) * crate::drive_history::retention::DAY;
-        let units = plan.new.iter().map(|(k, p)| (k.clone(), info(p))).collect();
+    // One mark per grace period (the provider's, or the group's own).
+    let provider_grace = u64::from(grace_days) * crate::drive_history::retention::DAY;
+    let mut by_grace: BTreeMap<u64, BTreeMap<String, Info>> = BTreeMap::new();
+    for (key, placed) in &plan.new {
+        let grace = world.groups[&placed.group]
+            .grace_seconds
+            .unwrap_or(provider_grace);
+        by_grace
+            .entry(grace)
+            .or_default()
+            .insert(key.clone(), info(placed));
+    }
+    for (grace, units) in by_grace {
         publish(io, Step::Mark, &io.new_id()?, units, grace, false)?;
         out.next_deletion_unix = earliest(out.next_deletion_unix, Some(now + grace));
-    }
-    if !plan.immediate.is_empty() {
-        let units = plan
-            .immediate
-            .iter()
-            .map(|(k, p)| (k.clone(), info(p)))
-            .collect();
-        publish(io, Step::Mark, &io.new_id()?, units, 0, false)?;
     }
     release(io, &plan.release, &mut out)?;
     if !plan.finish.is_empty() {
@@ -426,7 +419,7 @@ pub(crate) fn run(io: &dyn StorageIo, request: &Request) -> Result<CleanReport> 
         );
         return Ok(out);
     }
-    delete(io, request, &selected, &due, &journal, &mut out)
+    delete(io, request, &selected, due, &journal, &mut out)
 }
 
 /// The selected group ids, after checking each exists, may be deleted and

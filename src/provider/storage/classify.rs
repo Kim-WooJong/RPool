@@ -18,8 +18,8 @@
 //!
 //! Metadata generations follow their status; their deletion waits for every
 //! archive on this provider that only they name (`Placed::depends`). Speed
-//! test files older than a day may go without a grace period. Everything
-//! else is kept. While any source is uncertain nothing is deletable.
+//! test files older than a day may go, marked like everything else but with
+//! a grace period of [`SPEED_TEST_GRACE`]. Everything else is kept. While any source is uncertain nothing is deletable.
 use super::layout::{self, Listing, Unit, UnitKind};
 use super::model::{Ack, Group, GroupKind, Pending};
 use crate::migration::retire::guard::Totals;
@@ -29,6 +29,8 @@ use crate::prelude::*;
 
 /// Speed-test files younger than this may belong to a test still running.
 pub(crate) const SPEED_TEST_AGE: u64 = 24 * 60 * 60;
+/// Grace period of speed-test leftovers between marking and deleting.
+pub(crate) const SPEED_TEST_GRACE: u64 = 60 * 60;
 /// An older generation no migration replaced that was written this recently
 /// is treated as in use (14 days): a PC may still work on it.
 pub(crate) const RECENT_GENERATION: u64 = 14 * 24 * 60 * 60;
@@ -508,7 +510,7 @@ fn group(id: &str, kind: GroupKind, pool: Option<String>, reason: String) -> Gro
         bytes: 0,
         deletable: false,
         needs: Vec::new(),
-        immediate: false,
+        grace_seconds: None,
         reason,
         pending: Pending::default(),
     }
@@ -625,10 +627,10 @@ pub(crate) fn classify(world: &World) -> Classified {
                         &id,
                         GroupKind::SpeedTestLeftovers,
                         None,
-                        "files of interrupted speed tests, older than 24 hours".into(),
+                        "files of interrupted speed tests, older than 24 hours (deleted one hour after marking)".into(),
                     );
                     g.deletable = true;
-                    g.immediate = true;
+                    g.grace_seconds = Some(SPEED_TEST_GRACE);
                     g
                 });
                 id

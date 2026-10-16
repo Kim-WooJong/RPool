@@ -2,11 +2,14 @@
 use super::format_bytes;
 use crate::provider::storage::model::{CleanMode, CleanReport, Group, StorageView, Totals};
 
-/// "kept", "deletable now", "deletable", "deletable with --flag" for a group.
+/// "kept", "deletable", "deletable (1 h grace)", "deletable with --flag" for a group.
 fn status(group: &Group) -> String {
     match (group.deletable, group.needs.as_slice()) {
         (false, _) => "kept".into(),
-        (true, []) if group.immediate => "deletable now".into(),
+        (true, []) if group.grace_seconds.is_some() => format!(
+            "deletable ({} h grace)",
+            group.grace_seconds.unwrap_or_default().div_ceil(3600)
+        ),
         (true, []) => "deletable".into(),
         (true, needs) => format!(
             "deletable with {}",
@@ -69,7 +72,7 @@ pub(crate) fn view_text(view: &StorageView) -> String {
         out.push_str(&format!("{note}\n"));
     }
     out.push_str(&format!(
-        "Delete with `rpool provider storage clean --remote {} --group <id>` (preview; add --confirm). Marked data is deleted {} day(s) later.\n",
+        "Delete with `rpool provider storage clean --remote {} --group <id>` (preview; add --confirm). Marked data is deleted {} day(s) later (speed-test leftovers: 1 hour).\n",
         view.remote, view.grace_days
     ));
     out
