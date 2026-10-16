@@ -455,7 +455,8 @@ fn elsewhere(pool: &str) -> Target {
 /// that does not use the provider (pure): `own` is the generation's status
 /// from the pool's own metadata, `newest` the copy's newest write here.
 /// Only an older generation (superseded or unconfirmed) not written here in
-/// the last [`RECENT_GENERATION`] seconds may own deletable data; the
+/// the last [`RECENT_GENERATION`] seconds may own deletable data, and only
+/// as unconfirmed (deleted with an acknowledgement); the
 /// current one, a newer one, one the pool's metadata does not have and a
 /// recent copy are in use.
 pub(crate) fn copy_status(
@@ -469,10 +470,10 @@ pub(crate) fn copy_status(
             status @ (GenerationStatus::MigrationInProgress { .. }
             | GenerationStatus::MigrationLeftover { .. }),
         ) => status.clone(),
-        Some(status @ (GenerationStatus::Superseded { .. } | GenerationStatus::Unconfirmed))
-            if !recent =>
-        {
-            status.clone()
+        // Never offered without an acknowledgement: the first generation has
+        // no epoch, so a same-name pool another PC uses here shares it.
+        Some(GenerationStatus::Superseded { .. } | GenerationStatus::Unconfirmed) if !recent => {
+            GenerationStatus::Unconfirmed
         }
         Some(GenerationStatus::Current) => GenerationStatus::Current,
         _ => GenerationStatus::Newer,

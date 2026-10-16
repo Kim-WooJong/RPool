@@ -422,7 +422,11 @@ fn a_copy_takes_its_pools_status_unless_written_recently() {
     let superseded = GenerationStatus::Superseded {
         migration: "m".into(),
     };
-    assert_eq!(copy_status(Some(&superseded), Some(old), NOW), superseded);
+    // Even a superseded copy needs the acknowledgement.
+    assert_eq!(
+        copy_status(Some(&superseded), Some(old), NOW),
+        GenerationStatus::Unconfirmed
+    );
     assert_eq!(
         copy_status(Some(&GenerationStatus::Unconfirmed), Some(old), NOW),
         GenerationStatus::Unconfirmed
