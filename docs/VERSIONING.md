@@ -10,4 +10,4 @@ User-authorized policy as of 2026-09-28:
 - Update Cargo.toml, the rpool package entry in Cargo.lock, current README and changelog together. Preserve historical version records.
 - Keep source directly in Git. No separate source snapshots or ZIP delivery. A local version commit/tag does not authorize remote push or external publication.
 
-Current version: 2.18.0 (2026-10-16; compatible feature release — see CHANGELOG.md). Local testing does not imply Windows runtime or cloud qualification.
+Current version: 2.19.0 (2026-10-16; compatible feature release — see CHANGELOG.md). Local testing does not imply Windows runtime or cloud qualification.

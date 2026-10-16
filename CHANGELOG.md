@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.19.0 — 2026-10-16
 
 - Provider storage manager: `rpool provider storage list --remote CRYPT`
   shows everything RPool keeps on one crypt remote, grouped by owner (in use
@@ -18,7 +18,8 @@
   `--include-unconfirmed-generations` (and count as in use while written in
   the last 14 days), pools not configured here `--include-foreign-pools`;
   metadata here of a pool this PC configures without this provider is kept
-  except older generations by that pool's own records. An unreadable
+  except older generations by that pool's own records, which also need
+  `--include-unconfirmed-generations`. An unreadable
   source, or migration records that do not explain the generations found,
   makes nothing deletable. Preview by default; `--confirm` publishes marks
   on the provider (`.rpool-sync/storage-cleanup-v1/`, seen by every PC) and
@@ -27,6 +28,23 @@
   marks without deleting anything. Speed-test leftovers older than a day
   are marked too and deleted one hour later. GUI: Storage › Providers ›
   card › Manage storage….
+
+Compatibility: Nothing changes for existing pools or drives; the storage
+manager only reads until a cleanup is confirmed. Its marks live in a new
+`.rpool-sync/storage-cleanup-v1/` journal that older versions ignore, so run
+cleanups from 2.19.0 or later. The `pool migrate retire` and drive-history
+cleanup now also treat an unreadable inventory manifest on the provider as
+uncertain (postponed) however its remote path is spelled.
+
+Validation: macOS `cargo check --all-targets`, a warnings-denied release
+build, the Windows cross check and the full local suite (1,158 passed, 61
+ignored, one long randomized trace filtered) passed, including 28 storage
+manager tests and an ignored end-to-end run with real rclone over local crypt
+remotes (two generations, grace, re-check, delete, the newer generation still
+readable). An independent adversarial review's nine findings are fixed with
+regression tests. A read-only `list` against a live three-account pool gave
+the same groups before and after those fixes. The GUI dialog was not clicked
+through and no live cleanup was run.
 
 ## 2.18.0 — 2026-10-16
 
