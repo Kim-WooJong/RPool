@@ -11,7 +11,9 @@
   deletes only groups no configured pool needs, fail-closed: archive folders
   are grouped by what names them (drive events of every generation
   including checkpoints, every manifest on every account of the pools,
-  the inventory, drive uploads in progress, migrations); generations no
+  the inventory, drive uploads in progress, migrations; only content
+  manifests of older generations make data deletable, `put` archives with a
+  manifest never are); generations no
   recorded migration replaced need `--include-unconfirmed-generations`
   (and count as in use while written in the last 14 days), pools not
   configured here `--include-foreign-pools`; an unreadable source

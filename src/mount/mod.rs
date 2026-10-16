@@ -49,6 +49,9 @@ mod shared_model;
 pub(crate) mod shutdown_signal;
 mod spool;
 pub(crate) mod workspace_backups;
+/// A drive namespace event, whose content manifests the provider storage
+/// manager reads (`provider::storage::observe`).
+pub(crate) use shared_model::Event as DriveEvent;
 /// A pack member's position, used by drive migration (`migration::drive_model`).
 pub(crate) use shared_model::PackSlice;
 /// Synthetic metadata for read-only listing tests outside `mount`.

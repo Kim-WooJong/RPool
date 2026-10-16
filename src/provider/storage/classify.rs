@@ -1,20 +1,25 @@
 //! Which group every unit on the provider belongs to (pure; fresh inputs per
 //! run, built by `observe`).
 //!
-//! Archive folders are classified by what names them (`References::
-//! referrers`: the folder name or any of its objects), never by their name:
+//! Archive folders are classified by what names them, never by their name.
+//! "In use" errs towards keeping: any mention counts (`References::
+//! referrers`: the folder name or any of its objects, anywhere in the
+//! events). Owning, which makes data deletable, is structured: only the
+//! content manifests of a generation's events (`Generation::owns`).
 //!
 //! 1. named by a generation in use (current, newer than the current one, or
 //!    of a migration in progress), by a manifest, the inventory, a drive
 //!    upload no metadata names yet, or a migration in progress: **in use**;
 //! 2. else named by a finished or abandoned migration: **migration
 //!    leftovers** (kept; `pool migrate retire` owns them);
-//! 3. else named by older generations or foreign pools only: one group per
+//! 3. else a `put` archive (not a drive archive) with a manifest: an
+//!    **unknown put archive**, kept (drive metadata does not own uploads);
+//! 4. else owned by older generations or foreign pools only: one group per
 //!    set of such owners, deletable when every owner is (superseded
 //!    generations freely, unconfirmed ones and foreign pools only with an
 //!    explicit acknowledgement);
-//! 4. else: an **incomplete upload** (drive archive, or no manifest
-//!    anywhere) or an **unknown put archive**, both kept.
+//! 5. else: an **incomplete upload** (drive archive, or no manifest
+//!    anywhere), or an **unknown put archive**, both kept.
 //!
 //! Metadata generations follow their status; their deletion waits for every
 //! archive on this provider that only they name (`Placed::depends`). Speed
@@ -76,8 +81,39 @@ pub(crate) struct Generation {
     pub epoch: Option<String>,
     /// What it is.
     pub status: GenerationStatus,
-    /// Every string of its events (including checkpointed ones).
+    /// Every string of its events (including checkpointed ones): decides
+    /// what is in use.
     pub refs: References,
+    /// Archive folders its events' content manifests name (archive ids and
+    /// the folder of every shard object, see [`owned_archives`]): the only
+    /// data it may own.
+    pub owns: BTreeSet<String>,
+}
+
+/// Archive folder of a shard object (`remote:root/<folder>/<dir>/<file>`).
+fn shard_folder(object: &str) -> Option<&str> {
+    let path = object.split_once(':').map_or(object, |(_, path)| path);
+    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    (parts.len() >= 3).then(|| parts[parts.len() - 3])
+}
+
+/// Archive folders `manifests` (a generation's content manifests) name:
+/// each archive id and the folder of each shard object.
+pub(crate) fn owned_archives<'a>(
+    manifests: impl IntoIterator<Item = &'a Manifest>,
+) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for manifest in manifests {
+        out.insert(manifest.archive_id.clone());
+        out.extend(
+            manifest
+                .shards
+                .iter()
+                .filter_map(|s| shard_folder(&s.object))
+                .map(str::to_owned),
+        );
+    }
+    out
 }
 
 /// A configured pool whose metadata was read.
@@ -380,30 +416,33 @@ fn archive_target(world: &World, id: &str, objects: &[RetireObject]) -> Target {
     if leftover {
         return migration_leftovers();
     }
-    let owners: BTreeSet<Owner> = world
-        .generations
-        .iter()
-        .filter(|g| names(&g.refs))
-        .filter_map(owner)
-        .collect();
-    if !owners.is_empty() {
-        return Target::Owned(owners);
-    }
-    if crate::migration::enumerate::is_drive_archive(id) || !world.manifests.contains(id) {
-        kept(
-            "incomplete-uploads",
-            GroupKind::IncompleteUpload,
-            None,
-            "shards without a manifest, or a drive upload no drive metadata names yet (it may still be published)",
-        )
-    } else {
+    let drive = crate::migration::enumerate::is_drive_archive(id);
+    let unknown_put = || {
         kept(
             "unknown-put-archives",
             GroupKind::UnknownPutArchive,
             None,
             "an archive with a manifest that nothing on this PC names (an upload of another PC, or of a pool that is not configured here)",
         )
+    };
+    if !drive && world.manifests.contains(id) {
+        return unknown_put();
     }
+    let owners: BTreeSet<Owner> = world
+        .generations
+        .iter()
+        .filter(|g| g.owns.contains(id))
+        .filter_map(owner)
+        .collect();
+    if !owners.is_empty() {
+        return Target::Owned(owners);
+    }
+    kept(
+        "incomplete-uploads",
+        GroupKind::IncompleteUpload,
+        None,
+        "shards without a manifest, or a drive upload no drive metadata names yet (it may still be published)",
+    )
 }
 
 /// The migration-leftovers target.

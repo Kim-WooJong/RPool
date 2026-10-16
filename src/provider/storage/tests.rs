@@ -82,7 +82,14 @@ fn generation(
         epoch: epoch.map(str::to_owned),
         status,
         refs: names(ids),
+        owns: ids.iter().map(|id| id.to_string()).collect(),
     }
+}
+
+/// Makes `generation`'s events name (and own) exactly `ids`.
+fn rename(generation: &mut Generation, ids: &[&str]) {
+    generation.refs = names(ids);
+    generation.owns = ids.iter().map(|id| id.to_string()).collect();
 }
 
 /// Pool "RPool" on this provider: current generation `c` naming `live`,
@@ -264,8 +271,11 @@ fn a_reference_from_another_account_keeps_an_object_in_use() {
 fn shared_old_data_needs_every_owner() {
     let mut world = world();
     archive(&mut world, "virtual-shared", 1);
-    world.generations[1].refs = names(&["virtual-old", "virtual-both", "virtual-shared"]);
-    world.generations[2].refs = names(&["virtual-tr", "virtual-shared"]);
+    rename(
+        &mut world.generations[1],
+        &["virtual-old", "virtual-both", "virtual-shared"],
+    );
+    rename(&mut world.generations[2], &["virtual-tr", "virtual-shared"]);
     let c = classify(&world);
     let shared = group_of(&c, "archive:virtual-shared");
     assert!(shared.id.starts_with("shared:"));
@@ -713,8 +723,10 @@ fn data_needed_again_is_released_and_never_deleted() {
     let fake = Fake::new(world());
     run(&fake, &request(&["old:RPool:first"], true)).unwrap();
     // The current generation names the old archive again (e.g. a restore).
-    fake.world.lock().unwrap().generations[0].refs =
-        names(&["virtual-live", "virtual-both", "virtual-old"]);
+    rename(
+        &mut fake.world.lock().unwrap().generations[0],
+        &["virtual-live", "virtual-both", "virtual-old"],
+    );
     fake.advance(8 * DAY);
     let report = run(&fake, &request(&["old:RPool:first"], true)).unwrap();
     assert_eq!(report.released, 1);
@@ -877,7 +889,10 @@ fn speed_test_leftovers_are_marked_and_deleted_an_hour_later() {
     // A group holding most of the provider trips the guard.
     let mut w = world();
     archive(&mut w, "virtual-big", 40);
-    w.generations[1].refs = names(&["virtual-old", "virtual-both", "virtual-big"]);
+    rename(
+        &mut w.generations[1],
+        &["virtual-old", "virtual-both", "virtual-big"],
+    );
     let fake = Fake::new(w);
     run(&fake, &request(&["old:RPool:first"], true)).unwrap();
     fake.advance(8 * DAY);
@@ -910,8 +925,11 @@ fn cancel_drops_pending_marks() {
 fn metadata_waits_for_archives_of_unselected_shared_groups() {
     let mut w = world();
     archive(&mut w, "virtual-shared", 1);
-    w.generations[1].refs = names(&["virtual-old", "virtual-both", "virtual-shared"]);
-    w.generations[2].refs = names(&["virtual-tr", "virtual-shared"]);
+    rename(
+        &mut w.generations[1],
+        &["virtual-old", "virtual-both", "virtual-shared"],
+    );
+    rename(&mut w.generations[2], &["virtual-tr", "virtual-shared"]);
     let fake = Fake::new(w);
     run(&fake, &request(&["old:RPool:first"], true)).unwrap();
     fake.advance(8 * DAY);
@@ -999,4 +1017,48 @@ fn mark_only_marks_and_deletes_nothing() {
     // A normal confirmed run deletes the due units.
     let report = run(&fake, &request(&groups, true)).unwrap();
     assert_eq!(report.deleted.units, 3);
+}
+
+#[test]
+fn only_content_manifests_make_old_data_deletable() {
+    let mut world = world();
+    // A put archive with a manifest is never owned by drive metadata, not
+    // even when an old generation's content manifest names it.
+    archive(&mut world, "photo.jpg-0123456789abcdef", 1);
+    rename(
+        &mut world.generations[1],
+        &["virtual-old", "virtual-both", "photo.jpg-0123456789abcdef"],
+    );
+    // A put archive that old events only mention (a path, a key).
+    archive(&mut world, "put-0123456789abcdef", 1);
+    world.generations[1].refs.add_json(
+        "events",
+        &serde_json::json!({"path": "docs/put-0123456789abcdef/readme", "put-0123456789abcdef": 1}),
+    );
+    // A drive archive an old generation only mentions in a file path.
+    archive(&mut world, "virtual-mentioned", 1);
+    world.generations[2]
+        .refs
+        .add_text("events", "notes/virtual-mentioned/a.txt");
+    let c = classify(&world);
+    for id in ["photo.jpg-0123456789abcdef", "put-0123456789abcdef"] {
+        let g = group_of(&c, &format!("archive:{id}"));
+        assert_eq!(
+            (g.kind, g.deletable),
+            (GroupKind::UnknownPutArchive, false),
+            "{id}"
+        );
+    }
+    let g = group_of(&c, "archive:virtual-mentioned");
+    assert!(!g.deletable, "{g:?}");
+    // What old content manifests do name stays deletable, shard folders included.
+    assert!(group_of(&c, "archive:virtual-old").deletable);
+    archive(&mut world, "virtual-borrowed", 1);
+    let mut manifest = crate::migration::test_support::manifest("virtual-tr", 10, 4, 2, 1, &[ROOT]);
+    manifest.shards[0].object = format!("{ROOT}/virtual-borrowed/data/00000000.bin");
+    world.generations[2].owns = super::classify::owned_archives([&manifest]);
+    let c = classify(&world);
+    let g = group_of(&c, "archive:virtual-borrowed");
+    assert_eq!((g.kind, g.deletable), (GroupKind::OldGeneration, true));
+    assert_eq!(g.id, group_of(&c, "archive:virtual-tr").id);
 }

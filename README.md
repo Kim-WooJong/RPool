@@ -576,7 +576,10 @@ rpool remote-root list | set REMOTE PATH | remove REMOTE
   owner, with object count, size and whether it may be deleted, and deletes
   only data no configured pool needs (GUI: Storage › Providers › card ›
   Manage storage…). Archive folders are grouped by what names them (the
-  folder or any of its objects), not by their names. The references come
+  folder or any of its objects), not by their names. Any mention keeps data
+  in use; only the content manifests of an older generation's (or another
+  pool's) events can make it deletable, and `put` archives with a manifest
+  are never deleted here. The references come
   from every account of every configured pool that uses the provider or has
   metadata on it: every drive generation's events (checkpoints included),
   every manifest replica, the local inventory, drive uploads no metadata

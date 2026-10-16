@@ -6,7 +6,9 @@
 //! this provider); the local inventory, every manifest replica on every
 //! listed account and drive uploads no metadata names. Anything that cannot
 //! be read is recorded as uncertain.
-use super::classify::{generation_statuses, Generation, GenerationStatus, PoolScope, World};
+use super::classify::{
+    generation_statuses, owned_archives, Generation, GenerationStatus, PoolScope, World,
+};
 use super::layout::{self, Listing, UnitKind};
 use crate::migration::enumerate::RemoteListing;
 use crate::migration::model::Action;
@@ -127,8 +129,13 @@ fn listed_migrations<'a>(
     out
 }
 
-/// References of every event of one generation (`events` already read).
-fn event_refs<E: Serialize>(label: &str, events: Result<BTreeMap<String, E>>) -> References {
+/// Every string of every event of one generation (`events` already read),
+/// and the archive folders its content manifests name
+/// (`Generation::{refs, owns}`).
+fn event_refs(
+    label: &str,
+    events: Result<BTreeMap<String, crate::mount::DriveEvent>>,
+) -> (References, BTreeSet<String>) {
     let mut refs = References::default();
     match events {
         Ok(events) => {
@@ -138,10 +145,15 @@ fn event_refs<E: Serialize>(label: &str, events: Result<BTreeMap<String, E>>) ->
                     Err(error) => refs.uncertain(format!("{label}: {error:#}")),
                 }
             }
+            let manifests = events.values().filter_map(|e| e.content.as_ref());
+            let owns = owned_archives(manifests.map(|c| &c.manifest));
+            (refs, owns)
         }
-        Err(error) => refs.uncertain(format!("{label} could not be read: {error:#}")),
+        Err(error) => {
+            refs.uncertain(format!("{label} could not be read: {error:#}"));
+            (refs, BTreeSet::new())
+        }
     }
-    refs
 }
 
 /// Migrations of `pool`: in-progress ones keep what they name (`live`),
@@ -327,12 +339,14 @@ pub(crate) fn world(rclone: &str, root: &str, now: u64) -> Result<World> {
             );
             let events =
                 crate::mount::metadata_pool::read_v6(rclone, &pool.name, policy, epoch.as_deref());
+            let (refs, owns) = event_refs(&label, events);
             generations_out.push(Generation {
                 pool: Some(pool.name.clone()),
                 scope: pool.scope.clone(),
                 epoch,
                 status,
-                refs: event_refs(&label, events),
+                refs,
+                owns,
             });
         }
     }
@@ -359,12 +373,14 @@ pub(crate) fn world(rclone: &str, root: &str, now: u64) -> Result<World> {
             &scope[..12]
         );
         let events = crate::mount::metadata_pool::read_v6_at(rclone, &[path]);
+        let (refs, owns) = event_refs(&label, events);
         generations_out.push(Generation {
             pool: None,
             scope: scope.clone(),
             epoch: epoch.clone(),
             status: GenerationStatus::Foreign,
-            refs: event_refs(&label, events),
+            refs,
+            owns,
         });
     }
     let plain_listings: BTreeMap<String, RemoteListing> = listings
