@@ -61,17 +61,33 @@ pub(crate) fn collect(sources: &Sources<'_>) -> References {
     refs
 }
 
+/// Remote name and path without surrounding slashes of a `remote:path` root.
+fn split_root(root: &str) -> (&str, &str) {
+    let (name, path) = root.split_once(':').unwrap_or((root, ""));
+    (name, path.trim_matches('/'))
+}
+
+/// Whether the remote root `remote` (as an inventory entry records it) is on
+/// the listed root `root`: same remote and the same path ignoring slashes,
+/// or either without a path (a bare remote may mean its default path).
+fn on_root(remote: &str, root: &str) -> bool {
+    let ((nr, pr), (nl, pl)) = (split_root(remote), split_root(root));
+    nr == nl && (pr == pl || pr.is_empty() || pl.is_empty())
+}
+
 /// Adds every inventory manifest (except subjects); an unreadable one marks
 /// the result uncertain only when it lists one of the listed roots.
 pub(crate) fn inventory(sources: &Sources<'_>, refs: &mut References) {
-    let store = match crate::inventory::load_inventory() {
-        Ok(store) => store,
-        Err(error) => {
-            refs.uncertain(format!("local inventory: {error:#}"));
-            return;
-        }
-    };
-    let roots: BTreeSet<&String> = sources.listings.keys().collect();
+    match crate::inventory::load_inventory() {
+        Ok(store) => inventory_of(&store, sources, refs),
+        Err(error) => refs.uncertain(format!("local inventory: {error:#}")),
+    }
+}
+
+/// [`inventory`] over a loaded inventory. An entry is on a listed root when
+/// any of its remotes is (compared by [`on_root`], so `r:/pool/` and
+/// `r:pool` are the same provider).
+fn inventory_of(store: &InventoryStore, sources: &Sources<'_>, refs: &mut References) {
     let loaded: Vec<(String, Result<Manifest>, bool)> = store
         .entries
         .values()
@@ -79,7 +95,10 @@ pub(crate) fn inventory(sources: &Sources<'_>, refs: &mut References) {
         .collect::<Vec<_>>()
         .par_iter()
         .map(|entry| {
-            let relevant = entry.remotes.iter().any(|r| roots.contains(r));
+            let relevant = entry
+                .remotes
+                .iter()
+                .any(|r| sources.listings.keys().any(|root| on_root(r, root)));
             (
                 format!("inventory entry {}", entry.archive_id),
                 crate::manifest::load_manifest_with_storage(sources.reader, &entry.manifest_source),
@@ -179,6 +198,56 @@ pub(crate) fn other_migrations(sources: &Sources<'_>, refs: &mut References) {
             if let Some(new) = &record.new_archive_id {
                 refs.add_text(&label, new);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_unreadable_inventory_manifest_on_the_provider_is_uncertain_however_spelled() {
+        let dir = tempfile::tempdir().unwrap();
+        let broken = dir.path().join("manifest.json");
+        fs::write(&broken, b"not a manifest").unwrap();
+        let entry = |id: &str, remote: &str| InventoryEntry {
+            archive_id: id.into(),
+            original_name: "f".into(),
+            original_size: 1,
+            created_unix: 1,
+            content_root_blake3: String::new(),
+            coding: None,
+            remotes: vec![remote.into()],
+            manifest_source: broken.display().to_string(),
+            indexed_unix: 1,
+        };
+        let listings: BTreeMap<String, RemoteListing> =
+            [("r:pool".to_string(), RemoteListing::Listed(BTreeMap::new()))].into();
+        let reader = StorageReader::rclone("rclone-not-used");
+        let policy = PoolDefinition::default();
+        let sources = Sources {
+            rclone: "rclone-not-used",
+            pool: "",
+            policy: &policy,
+            migration_id: "",
+            listings: &listings,
+            subjects: &BTreeSet::new(),
+            workspaces: &[],
+            reader: &reader,
+        };
+        let uncertain = |remote: &str| {
+            let mut store = InventoryStore::default();
+            store.entries.insert("put-a".into(), entry("put-a", remote));
+            let mut refs = References::default();
+            inventory_of(&store, &sources, &mut refs);
+            !refs.uncertain.is_empty()
+        };
+        for remote in ["r:pool", "r:/pool/", "r:pool/", "r:"] {
+            assert!(uncertain(remote), "{remote}");
+        }
+        for remote in ["s:pool", "r:other", "r:pool2"] {
+            assert!(!uncertain(remote), "{remote}");
         }
     }
 }
