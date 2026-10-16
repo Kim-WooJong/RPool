@@ -525,6 +525,8 @@ struct Fake {
     spoil_after: Mutex<Option<usize>>,
     observed: Mutex<usize>,
     fail_delete: Mutex<Option<String>>,
+    /// Make observe calls fail from this one on (0-based).
+    fail_observe_after: Mutex<Option<usize>>,
 }
 
 impl Fake {
@@ -539,6 +541,7 @@ impl Fake {
             spoil_after: Mutex::new(None),
             observed: Mutex::new(0),
             fail_delete: Mutex::new(None),
+            fail_observe_after: Mutex::new(None),
         }
     }
     fn advance(&self, seconds: u64) {
@@ -567,6 +570,15 @@ impl StorageIo for Fake {
         let mut world = self.world.lock().unwrap().clone();
         world.now = self.now();
         let mut observed = self.observed.lock().unwrap();
+        if self
+            .fail_observe_after
+            .lock()
+            .unwrap()
+            .is_some_and(|n| *observed >= n)
+        {
+            *observed += 1;
+            bail!("listing timed out");
+        }
         if self
             .spoil_after
             .lock()
@@ -798,6 +810,34 @@ fn uncertain_postpones_and_an_interrupted_deletion_resumes() {
     let report = run(&fake, &request(&["old:RPool:first"], true)).unwrap();
     assert_eq!(report.deleted.units, 2);
     assert!(fake.state().values().all(|s| s.deleted));
+}
+
+#[test]
+fn a_failed_recheck_releases_this_runs_deletion() {
+    let fake = Fake::new(world());
+    run(&fake, &request(&["old:RPool:first"], true)).unwrap();
+    fake.advance(8 * DAY);
+    // The plan observes (#0); the re-check after `Deleting` (#1) fails.
+    *fake.observed.lock().unwrap() = 0;
+    *fake.fail_observe_after.lock().unwrap() = Some(1);
+    let error = run(&fake, &request(&["old:RPool:first"], true)).unwrap_err();
+    assert!(format!("{error:#}").contains("listing timed out"));
+    assert!(fake.deleted().is_empty());
+    let steps: Vec<Step> = fake
+        .records
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|r| r.step)
+        .collect();
+    assert!(steps.contains(&Step::Deleting), "{steps:?}");
+    let state = fake.state();
+    assert!(state.values().all(|s| !s.deleting), "{state:?}");
+    // The marks stay due: the next run deletes.
+    assert!(state["archive:virtual-old"].due().is_some());
+    *fake.fail_observe_after.lock().unwrap() = None;
+    let report = run(&fake, &request(&["old:RPool:first"], true)).unwrap();
+    assert_eq!(report.deleted.units, 2);
 }
 
 #[test]

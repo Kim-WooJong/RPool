@@ -470,14 +470,29 @@ fn delete(
     // Only this run's own `Deleting` may be undone: an earlier, interrupted
     // deletion may already have removed objects.
     let ours = |key: &String| journal.get(key).is_none_or(|s| !s.deleting);
-    let fresh = io.observe()?;
-    if !fresh.uncertain.is_empty() {
+    // Releases this run's `Deleting` (nothing deleted yet).
+    let undo_all = || {
         let undo = due
             .keys()
             .filter(|k| ours(k))
             .map(|k| (k.clone(), Info::default()))
             .collect();
-        publish(io, Step::Cancel, &run_id, undo, 0, true)?;
+        publish(io, Step::Cancel, &run_id, undo, 0, true)
+    };
+    let fresh = match io.observe() {
+        Ok(fresh) => fresh,
+        Err(error) => {
+            let error = error.context("the re-check before deleting failed: nothing was deleted");
+            return Err(match undo_all() {
+                Ok(()) => error,
+                Err(undo) => {
+                    error.context(format!("releasing this run's deletion failed: {undo:#}"))
+                }
+            });
+        }
+    };
+    if !fresh.uncertain.is_empty() {
+        undo_all()?;
         out.postponed = fresh.uncertain;
         out.notes.push(
             "the re-check before deleting could not read every source: nothing was deleted".into(),
