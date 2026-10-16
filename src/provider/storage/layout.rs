@@ -252,7 +252,8 @@ pub(crate) fn parse(listing: &Listing) -> BTreeMap<String, Unit> {
 }
 
 /// Parses `rclone lsjson -R` output into path -> (size, modification time);
-/// directories are skipped.
+/// directories are skipped. Objects whose size the backend does not know
+/// (`-1`) are kept with size 0: they still exist (and make a folder `Other`).
 pub(crate) fn parse_lsjson(bytes: &[u8]) -> Result<Listing> {
     #[derive(Deserialize)]
     struct Item {
@@ -268,14 +269,14 @@ pub(crate) fn parse_lsjson(bytes: &[u8]) -> Result<Listing> {
     let items: Vec<Item> = serde_json::from_slice(bytes).context("invalid rclone lsjson output")?;
     Ok(items
         .into_iter()
-        .filter(|item| !item.is_dir && item.size >= 0)
+        .filter(|item| !item.is_dir)
         .map(|item| {
             let modified = crate::pool::browse_generations::parse_rfc3339(&item.mod_time)
                 .and_then(|nanos| u64::try_from(nanos / 1_000_000_000).ok());
             (
                 item.path,
                 Entry {
-                    size: item.size as u64,
+                    size: u64::try_from(item.size).unwrap_or(0),
                     modified,
                 },
             )

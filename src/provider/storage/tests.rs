@@ -191,6 +191,22 @@ fn layout_parses_every_kind_and_keeps_strange_folders_whole() {
 }
 
 #[test]
+fn objects_of_unknown_size_are_kept_and_make_a_folder_other() {
+    let parsed = layout::parse_lsjson(
+        br#"[{"Path":"virtual-a/manifest.json","Size":1},
+            {"Path":"virtual-a/notes","Size":-1},
+            {"Path":"loose","Size":-1}]"#,
+    )
+    .unwrap();
+    assert_eq!(parsed.len(), 3);
+    assert_eq!(parsed["virtual-a/notes"].size, 0);
+    let units = layout::parse(&parsed);
+    assert!(!units.contains_key("archive:virtual-a"));
+    assert_eq!(units["other:virtual-a"].objects.len(), 2);
+    assert!(units.contains_key("other:loose"));
+}
+
+#[test]
 fn archives_are_grouped_by_what_names_them() {
     let c = classify(&world());
     let s = scope("RPool");
