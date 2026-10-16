@@ -618,9 +618,10 @@ rpool remote-root list | set REMOTE PATH | remove REMOTE
   run that would delete more than half of the provider's objects or bytes,
   or more than 10,000 objects, stops unless `--force`. `--confirm
   --mark-only` only publishes marks and deletes nothing (the GUI's "Mark
-  for deletion"). Any listing or
-  reference source that cannot be read makes the whole view uncertain:
-  nothing is deletable, marked or deleted. `--cancel` drops every pending
+  for deletion"). Any listing or reference source that cannot be read, or
+  migration records that do not explain the generations found (a listed
+  migration missing, an adopted generation missing, no usable generation),
+  makes the whole view uncertain: nothing is deletable, marked or deleted. `--cancel` drops every pending
   mark on the provider. Only the given provider is touched; clean the same
   groups on the other accounts of the pool separately.
 

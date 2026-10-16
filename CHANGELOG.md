@@ -11,19 +11,22 @@
   deletes only groups no configured pool needs, fail-closed: archive folders
   are grouped by what names them (drive events of every generation
   including checkpoints, every manifest on every account of the pools,
-  the inventory, drive uploads in progress, migrations; only content
-  manifests of older generations make data deletable, `put` archives with a
-  manifest never are); generations no
-  recorded migration replaced need `--include-unconfirmed-generations`
-  (and count as in use while written in the last 14 days), pools not
-  configured here `--include-foreign-pools`; an unreadable source
+  the inventory, drive uploads in progress, migrations); any mention keeps
+  data in use, only the content manifests of older generations or other
+  pools make it deletable, and `put` archives with a manifest never are.
+  Generations no recorded migration replaced need
+  `--include-unconfirmed-generations` (and count as in use while written in
+  the last 14 days), pools not configured here `--include-foreign-pools`;
+  metadata here of a pool this PC configures without this provider is kept
+  except older generations by that pool's own records. An unreadable
+  source, or migration records that do not explain the generations found,
   makes nothing deletable. Preview by default; `--confirm` publishes marks
   on the provider (`.rpool-sync/storage-cleanup-v1/`, seen by every PC) and
   deletes after the drive cleanup's grace period, re-checking every
   reference first, with the mass-delete guard (`--force`); `--mark-only`
-  marks without deleting anything. Speed-test
-  leftovers older than a day are marked too and deleted one hour later. GUI:
-  Storage › Providers › card › Manage storage….
+  marks without deleting anything. Speed-test leftovers older than a day
+  are marked too and deleted one hour later. GUI: Storage › Providers ›
+  card › Manage storage….
 
 ## 2.18.0 — 2026-10-16
 
