@@ -1,5 +1,6 @@
-//! Arguments of `rpool provider`: account limits, keepalive, crypt remote
-//! creation, name encoding, health, speed test and drain. Dispatched in
+//! Arguments of `rpool provider`: account limits, storage manager,
+//! keepalive, crypt remote creation, name encoding, health, speed test and
+//! drain. Dispatched in
 //! `application::dispatch` to `commands::provider`, `config_sync::provision`
 //! and `speedtest`.
 use crate::config::constants::{DEFAULT_RETRIES, DEFAULT_WORKERS};
@@ -19,6 +20,9 @@ pub(crate) struct ProviderArgs {
 pub(crate) enum ProviderCommands {
     /// Daily upload budgets, bandwidth/request limits and inactivity warnings.
     Limits(super::provider_limits::LimitsArgs),
+    /// What RPool stores on one provider, grouped by owner, and cleanup of
+    /// data no configured pool needs.
+    Storage(super::provider_storage::StorageArgs),
     /// One cheap authenticated call per account, recorded as activity.
     /// Providers decide what counts as activity; this cannot guarantee that
     /// an inactive account is kept.

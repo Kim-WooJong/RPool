@@ -104,6 +104,15 @@ pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> 
         Commands::Repair(args) => ("repair".to_string(), Some(args.manifest.clone())),
         Commands::Provider(args) => match &args.command {
             ProviderCommands::Limits(_) => ("provider-limits".to_string(), None),
+            ProviderCommands::Storage(storage) => match &storage.command {
+                crate::cli::StorageCommands::List { remote, .. } => {
+                    ("provider-storage-list".to_string(), Some(remote.clone()))
+                }
+                crate::cli::StorageCommands::Clean { remote, groups, .. } => (
+                    "provider-storage-clean".to_string(),
+                    Some(format!("{remote}: {}", groups.join(", "))),
+                ),
+            },
             ProviderCommands::Keepalive { remotes, .. } => (
                 "provider-keepalive".to_string(),
                 (!remotes.is_empty()).then(|| remotes.join(", ")),

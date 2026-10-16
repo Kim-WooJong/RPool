@@ -22,6 +22,8 @@ pub(crate) mod pool;
 /// `provider` arguments (health, encryption, drain, speed test).
 mod provider;
 mod provider_limits;
+/// `provider storage` arguments (grouped provider content and its cleanup).
+mod provider_storage;
 /// `remote-root` arguments (per-remote default storage paths).
 mod remote_root;
 /// `repair` arguments.
@@ -46,6 +48,7 @@ pub(crate) use mount_monitor::{parse_monitor, MonitorArgs};
 pub(crate) use pool::{PoolArgs, PoolCommands};
 pub(crate) use provider::{ProviderArgs, ProviderCommands};
 pub(crate) use provider_limits::LimitsCommands;
+pub(crate) use provider_storage::StorageCommands;
 pub(crate) use remote_root::{RemoteRootArgs, RemoteRootCommands};
 pub(crate) use repair::RepairArgs;
 pub(crate) use scrub::ScrubArgs;

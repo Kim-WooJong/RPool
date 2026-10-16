@@ -266,6 +266,9 @@ fn dispatch(cli: Cli) -> Result<()> {
             ProviderCommands::Limits(limits) => {
                 commands::provider::limits(&cli.rclone, limits.command)
             }
+            ProviderCommands::Storage(storage) => {
+                commands::provider::storage(&cli.rclone, storage.command)
+            }
             ProviderCommands::Keepalive { remotes, json } => {
                 commands::provider::keepalive(&cli.rclone, remotes, json)
             }
@@ -364,20 +367,32 @@ fn dispatch(cli: Cli) -> Result<()> {
                 } else if !change.changed {
                     println!("{}: location is already {}.", change.provider, change.to);
                 } else {
-                    println!("{}: location {} -> {}", change.provider, change.from, change.to);
+                    println!(
+                        "{}: location {} -> {}",
+                        change.provider, change.from, change.to
+                    );
                     if change.crypts.is_empty() {
                         println!("No crypt remote used the old folder.");
                     } else {
-                        println!("Crypt remotes now at the new folder: {}", change.crypts.join(", "));
+                        println!(
+                            "Crypt remotes now at the new folder: {}",
+                            change.crypts.join(", ")
+                        );
                     }
                     if let Some(reason) = &change.unchecked {
                         println!("The old folder could not be listed ({reason}); it was not checked for files. Files stored there are hidden until you move them yourself.");
                     }
                     if change.moved_files > 0 {
-                        println!("Moved {} file(s), {} bytes.", change.moved_files, change.moved_bytes);
+                        println!(
+                            "Moved {} file(s), {} bytes.",
+                            change.moved_files, change.moved_bytes
+                        );
                     }
                     if !change.skipped.is_empty() {
-                        println!("Left unchanged (another folder): {}", change.skipped.join(", "));
+                        println!(
+                            "Left unchanged (another folder): {}",
+                            change.skipped.join(", ")
+                        );
                     }
                 }
                 Ok(())
