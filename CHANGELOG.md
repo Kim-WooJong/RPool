@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.19.1 — 2026-10-16
 
 - Resuming an interrupted upload no longer downloads every shard it already
   stored to check it. On native-crypt pools a stored shard is now proven by the
@@ -14,7 +14,11 @@
 
 Validation: a new real-rclone test proves a stored native-crypt shard by the
 local backend's hash and refuses changed local bytes, changed stored
-ciphertext and an rclone crypt pool.
+ciphertext and an rclone crypt pool. The full local suite (1,158 passed), the
+real-rclone storage tests, a warnings-denied release build and the Windows and
+Linux cross checks passed. Not yet run against a live SFTP server.
+
+Compatibility: no format or setting changes.
 
 ## 2.19.0 — 2026-10-16
 
