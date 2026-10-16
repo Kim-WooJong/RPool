@@ -27,7 +27,7 @@
   "Marked data is deleted {n} days later, after every reference is checked again. Speed-test leftovers are deleted one hour after marking.": "已标记的数据会在 {n} 天后重新检查所有引用后删除。速度测试残留文件会在标记 1 小时后删除。",
   "Preview": "预览",
   "Mark for deletion": "标记删除",
-  "Publishes marks every PC sees; nothing is deleted before the grace period ends.": "发布所有电脑都能看到的标记；宽限期结束前不会删除任何内容。",
+  "Publishes marks every PC sees and deletes nothing. After the grace period, Delete now deletes what is still unused.": "只发布所有电脑都能看到的标记，不删除任何内容。宽限期结束后，“立即删除”会删除仍未使用的数据。",
   "Delete now": "立即删除",
   "Delete the data of the ticked groups whose grace period is over? Everything is checked again first; data needed again is kept.": "删除已勾选分组中宽限期已结束的数据吗？会先重新检查所有内容，再次被需要的数据会保留。",
   "Yes, delete": "是，删除",

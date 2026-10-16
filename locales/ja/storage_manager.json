@@ -27,7 +27,7 @@
   "Marked data is deleted {n} days later, after every reference is checked again. Speed-test leftovers are deleted one hour after marking.": "マークしたデータは {n} 日後、すべての参照を再確認してから削除されます。速度テストの残りファイルはマークしてから 1 時間後に削除されます。",
   "Preview": "プレビュー",
   "Mark for deletion": "削除をマーク",
-  "Publishes marks every PC sees; nothing is deleted before the grace period ends.": "すべての PC が参照するマークを公開します。猶予期間が終わるまで何も削除されません。",
+  "Publishes marks every PC sees and deletes nothing. After the grace period, Delete now deletes what is still unused.": "すべての PC が参照するマークを公開するだけで、何も削除しません。猶予期間が過ぎたら、「今すぐ削除」でまだ使われていないデータを削除します。",
   "Delete now": "今すぐ削除",
   "Delete the data of the ticked groups whose grace period is over? Everything is checked again first; data needed again is kept.": "チェックしたグループのうち猶予期間が終わったデータを削除しますか？まずすべてを再確認し、再び必要になったデータは保持します。",
   "Yes, delete": "はい、削除",

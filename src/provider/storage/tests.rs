@@ -969,3 +969,34 @@ fn a_speed_test_written_during_the_grace_is_kept() {
     assert!(format!("{error:#}").contains("no group speed-test-leftovers"));
     assert!(fake.deleted().is_empty());
 }
+
+#[test]
+fn mark_only_marks_and_deletes_nothing() {
+    let mut w = world();
+    w.listing
+        .insert(".rpool-speedtest/run/f1".into(), entry(1, NOW - 2 * DAY));
+    let fake = Fake::new(w);
+    let groups = ["old:RPool:first", "speed-test-leftovers"];
+    run(&fake, &request(&groups, true)).unwrap();
+    fake.advance(8 * DAY);
+    // Every unit is due, plus a new one: marked, nothing deleted.
+    fake.world
+        .lock()
+        .unwrap()
+        .listing
+        .insert(".rpool-speedtest/run2/f1".into(), entry(1, NOW - 2 * DAY));
+    let mut mark = request(&groups, true);
+    mark.mark_only = true;
+    let report = run(&fake, &mark).unwrap();
+    assert_eq!(report.mode, CleanMode::Applied);
+    assert_eq!((report.new.units, report.due.units), (1, 3));
+    assert_eq!(report.deleted.units, 0);
+    assert!(fake.deleted().is_empty());
+    assert!(report.notes.iter().any(|n| n.contains("not deleted")));
+    let state = fake.state();
+    assert!(state.contains_key("speedtest:run2"));
+    assert!(state.values().all(|s| !s.deleting && !s.deleted));
+    // A normal confirmed run deletes the due units.
+    let report = run(&fake, &request(&groups, true)).unwrap();
+    assert_eq!(report.deleted.units, 3);
+}

@@ -90,8 +90,20 @@ pub(crate) struct Choice {
     pub(crate) force: bool,
 }
 
-/// `provider storage clean …`: a JSON preview, or `--confirm` for the task runner.
-pub(crate) fn clean_args(crypt: &str, choice: &Choice, confirm: bool) -> Vec<OsString> {
+/// What a `provider storage clean` command of the dialog does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Run {
+    /// JSON preview (writes nothing).
+    Preview,
+    /// "Mark for deletion": `--confirm --mark-only` (deletes nothing).
+    Mark,
+    /// "Delete now": `--confirm` (marks new data, deletes due data).
+    Delete,
+}
+
+/// `provider storage clean …`: a JSON preview, or a confirmed run for the
+/// task runner (`--force` only when deleting).
+pub(crate) fn clean_args(crypt: &str, choice: &Choice, run: Run) -> Vec<OsString> {
     let mut args: Vec<OsString> = ["provider", "storage", "clean", "--remote", crypt]
         .iter()
         .map(OsString::from)
@@ -105,13 +117,15 @@ pub(crate) fn clean_args(crypt: &str, choice: &Choice, confirm: bool) -> Vec<OsS
     if choice.foreign {
         args.push("--include-foreign-pools".into());
     }
-    if confirm {
-        args.push("--confirm".into());
-        if choice.force {
-            args.push("--force".into());
+    match run {
+        Run::Preview => args.push("--json".into()),
+        Run::Mark => args.extend(["--confirm".into(), "--mark-only".into()]),
+        Run::Delete => {
+            args.push("--confirm".into());
+            if choice.force {
+                args.push("--force".into());
+            }
         }
-    } else {
-        args.push("--json".into());
     }
     args
 }
@@ -395,7 +409,7 @@ fn actions(
         {
             manager
                 .preview
-                .start(rclone, clean_args(&manager.crypt, &choice, false));
+                .start(rclone, clean_args(&manager.crypt, &choice, Run::Preview));
         }
         if ui
             .add_enabled(
@@ -403,11 +417,11 @@ fn actions(
                 egui::Button::new(tr("Mark for deletion")),
             )
             .on_hover_text(tr(
-                "Publishes marks every PC sees; nothing is deleted before the grace period ends.",
+                "Publishes marks every PC sees and deletes nothing. After the grace period, Delete now deletes what is still unused.",
             ))
             .clicked()
         {
-            manager.notice = Some(start(manager, rclone, task, &choice));
+            manager.notice = Some(start(manager, rclone, task, &choice, Run::Mark));
         }
         if theme::danger_button(ui, ready && due, tr("Delete now")).clicked() {
             manager.confirm_delete = true;
@@ -432,7 +446,7 @@ fn actions(
         ui.horizontal(|ui| {
             if theme::danger_button(ui, ready, tr("Yes, delete")).clicked() {
                 manager.confirm_delete = false;
-                manager.notice = Some(start(manager, rclone, task, &choice));
+                manager.notice = Some(start(manager, rclone, task, &choice, Run::Delete));
             }
             if ui.button(tr("Cancel")).clicked() {
                 manager.confirm_delete = false;
@@ -482,12 +496,18 @@ fn preview(ui: &mut egui::Ui, report: &CleanReport, force: &mut bool) {
     }
 }
 
-/// Starts `provider storage clean --confirm` in the task runner.
-fn start(manager: &mut Manager, rclone: &str, task: &mut TaskRunner, choice: &Choice) -> String {
+/// Starts a confirmed `provider storage clean` in the task runner.
+fn start(
+    manager: &mut Manager,
+    rclone: &str,
+    task: &mut TaskRunner,
+    choice: &Choice,
+    run: Run,
+) -> String {
     match task.start_rpool(
         STORAGE_TASK,
         rclone,
-        clean_args(&manager.crypt, choice, true),
+        clean_args(&manager.crypt, choice, run),
     ) {
         Ok(()) => {
             manager.started = true;
@@ -515,10 +535,15 @@ mod tests {
             foreign: true,
             force: true,
         };
-        let preview = clean_args("gms_1_crypt:", &choice, false);
+        let preview = clean_args("gms_1_crypt:", &choice, Run::Preview);
         assert!(parse(preview.clone()));
         assert!(preview.iter().any(|a| a == "--json") && !preview.iter().any(|a| a == "--force"));
-        let run = clean_args("gms_1_crypt:", &choice, true);
+        // "Mark for deletion" never deletes: --mark-only, and no --force.
+        let mark = clean_args("gms_1_crypt:", &choice, Run::Mark);
+        assert!(parse(mark.clone()));
+        assert!(mark.iter().any(|a| a == "--confirm") && mark.iter().any(|a| a == "--mark-only"));
+        assert!(!mark.iter().any(|a| a == "--force"));
+        let run = clean_args("gms_1_crypt:", &choice, Run::Delete);
         assert!(parse(run.clone()));
         for flag in [
             "--confirm",
@@ -529,6 +554,14 @@ mod tests {
             assert!(run.iter().any(|a| a == flag), "{flag}");
         }
         assert_eq!(run.iter().filter(|a| *a == "--group").count(), 2);
+        assert!(!run.iter().any(|a| a == "--mark-only"));
+        // The CLI refuses --mark-only without --confirm and with --force.
+        let cli = |extra: &[&str]| {
+            let mut args = clean_args("gms_1_crypt:", &Choice::default(), Run::Preview);
+            args.extend(extra.iter().map(OsString::from));
+            parse(args)
+        };
+        assert!(!cli(&["--mark-only"]) && !cli(&["--confirm", "--mark-only", "--force"]));
         let manager = Manager::open_for(&["a_crypt:".into(), "b_crypt:".into()]);
         assert!(manager.open && manager.crypt == "a_crypt:");
     }

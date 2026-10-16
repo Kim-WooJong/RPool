@@ -25,6 +25,7 @@ pub(crate) fn run(rclone: &str, command: StorageCommands) -> Result<()> {
             include_unconfirmed_generations,
             include_foreign_pools,
             confirm,
+            mark_only,
             force,
             cancel,
             workers,
@@ -33,6 +34,7 @@ pub(crate) fn run(rclone: &str, command: StorageCommands) -> Result<()> {
             let request = Request {
                 groups,
                 confirm,
+                mark_only,
                 force,
                 cancel,
                 unconfirmed: include_unconfirmed_generations,

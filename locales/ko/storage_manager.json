@@ -27,7 +27,7 @@
   "Marked data is deleted {n} days later, after every reference is checked again. Speed-test leftovers are deleted one hour after marking.": "표시된 데이터는 {n}일 뒤 모든 참조를 다시 확인한 후 삭제돼요. 속도 테스트 잔여 파일은 표시하고 1시간 뒤에 삭제돼요.",
   "Preview": "미리 보기",
   "Mark for deletion": "삭제 표시",
-  "Publishes marks every PC sees; nothing is deleted before the grace period ends.": "모든 PC가 보는 표시를 게시해요. 유예 기간이 끝나기 전에는 아무것도 삭제하지 않아요.",
+  "Publishes marks every PC sees and deletes nothing. After the grace period, Delete now deletes what is still unused.": "모든 PC가 보는 표시만 게시하고 아무것도 삭제하지 않아요. 유예 기간이 지나면 '지금 삭제'가 여전히 쓰이지 않는 데이터를 삭제해요.",
   "Delete now": "지금 삭제",
   "Delete the data of the ticked groups whose grace period is over? Everything is checked again first; data needed again is kept.": "체크한 그룹 중 유예 기간이 끝난 데이터를 삭제할까요? 먼저 모든 것을 다시 확인하고, 다시 필요해진 데이터는 유지해요.",
   "Yes, delete": "네, 삭제",

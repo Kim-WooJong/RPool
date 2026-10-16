@@ -13,7 +13,7 @@
 //!    (manifest replicas first, then the other objects; metadata
 //!    generations only after every archive only they name is gone), remove
 //!    emptied folders, journal `Deleted`. An interrupted deletion resumes on
-//!    the next run of any PC.
+//!    the next run of any PC. `mark_only` stops after the marks.
 use super::classify::{Classified, Placed};
 use super::model::{Ack, CleanMode, CleanReport, Group, StorageView, Totals, VERSION};
 use crate::drive_history::cleanup::records::{self, Info, Record, State, Step};
@@ -68,6 +68,9 @@ pub(crate) struct Request {
     pub groups: Vec<String>,
     /// Mark and delete (default: preview).
     pub confirm: bool,
+    /// With `confirm`: publish marks (and release marks no longer needed)
+    /// only; delete nothing, not even units whose grace period is over.
+    pub mark_only: bool,
     /// Delete past the mass-delete guard.
     pub force: bool,
     /// Drop every pending mark.
@@ -409,6 +412,14 @@ pub(crate) fn run(io: &dyn StorageIo, request: &Request) -> Result<CleanReport> 
         publish(io, Step::Deleted, &io.new_id()?, units, 0, false)?;
     }
     if due.is_empty() {
+        return Ok(out);
+    }
+    if request.mark_only {
+        out.next_deletion_unix = Some(now);
+        out.notes.push(format!(
+            "{} due unit(s) were not deleted (marking only)",
+            due.len()
+        ));
         return Ok(out);
     }
     if out.guard.is_some() && !request.force {

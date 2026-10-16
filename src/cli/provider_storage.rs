@@ -50,12 +50,16 @@ pub(crate) enum StorageCommands {
         /// Mark new data and delete data whose grace period is over.
         #[arg(long)]
         confirm: bool,
+        /// With --confirm: only publish marks; delete nothing, not even data
+        /// whose grace period is over.
+        #[arg(long, requires = "confirm", conflicts_with = "force")]
+        mark_only: bool,
         /// Delete even when it exceeds the mass-delete guard (50% of the
         /// provider's objects or bytes, or 10,000 objects per run).
         #[arg(long)]
         force: bool,
         /// Drop every pending mark on this provider instead.
-        #[arg(long, conflicts_with_all = ["confirm", "force"])]
+        #[arg(long, conflicts_with_all = ["confirm", "force", "mark_only"])]
         cancel: bool,
         /// Parallel deletions.
         #[arg(long, default_value_t = DEFAULT_WORKERS)]

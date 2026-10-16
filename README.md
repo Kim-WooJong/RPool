@@ -511,7 +511,7 @@ rpool provider ensure-encryption | encrypt --name N --provider P ...
 rpool provider drain FILE.rpool.json --from old-crypt:rpool --to new-crypt:rpool [--dry-run] [--delete-source] [--allow-risky]
 rpool provider location --remote NAME --path PATH [--move-existing] [--json]
 rpool provider storage list --remote CRYPT [--json]
-rpool provider storage clean --remote CRYPT --group ID... [--include-unconfirmed-generations] [--include-foreign-pools] [--confirm] [--force] [--cancel] [--json]
+rpool provider storage clean --remote CRYPT --group ID... [--include-unconfirmed-generations] [--include-foreign-pools] [--confirm [--mark-only]] [--force] [--cancel] [--json]
 rpool remote-root list | set REMOTE PATH | remove REMOTE
 ```
 
@@ -610,7 +610,9 @@ rpool remote-root list | set REMOTE PATH | remove REMOTE
   deletes what is still deletable in the selected groups (manifest replicas
   first), then removes emptied folders on SFTP/SMB/FTP/local providers. A
   run that would delete more than half of the provider's objects or bytes,
-  or more than 10,000 objects, stops unless `--force`. Any listing or
+  or more than 10,000 objects, stops unless `--force`. `--confirm
+  --mark-only` only publishes marks and deletes nothing (the GUI's "Mark
+  for deletion"). Any listing or
   reference source that cannot be read makes the whole view uncertain:
   nothing is deletable, marked or deleted. `--cancel` drops every pending
   mark on the provider. Only the given provider is touched; clean the same

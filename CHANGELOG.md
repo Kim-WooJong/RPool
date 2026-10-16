@@ -18,7 +18,8 @@
   makes nothing deletable. Preview by default; `--confirm` publishes marks
   on the provider (`.rpool-sync/storage-cleanup-v1/`, seen by every PC) and
   deletes after the drive cleanup's grace period, re-checking every
-  reference first, with the mass-delete guard (`--force`). Speed-test
+  reference first, with the mass-delete guard (`--force`); `--mark-only`
+  marks without deleting anything. Speed-test
   leftovers older than a day are marked too and deleted one hour later. GUI:
   Storage › Providers › card › Manage storage….
 
