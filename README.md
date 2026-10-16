@@ -1,4 +1,4 @@
-# rpool v2.17.0
+# rpool v2.18.0
 
 `rpool` is a Rust storage layer that stripes files across several
 **explicitly supplied rclone `crypt` remotes**, optionally with

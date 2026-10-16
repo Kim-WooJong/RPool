@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.18.0 — 2026-10-16
 
 - Fix the macOS macFUSE frontend, which never mounted: with macFUSE 5,
   libfuse's `fuse_mount_compat25` fails at once, so every macFUSE mount failed
@@ -77,40 +77,30 @@
   private restore during pool conversion. The restored file and coding work
   space are still required.
 
-Validation: macOS `cargo check --all-targets` and 18 focused GUI-output,
-GUI-layout and pool-conversion tests passed. The reported whole-PC freeze has
-not been reproduced on this Mac. The minimized-window polling and console-row
-changes passed macOS `cargo check --all-targets` and six bounded-output tests;
-Windows runtime validation is still needed.
-For empty-folder preservation, 330 mount tests and two mounted-Library tests
-passed on macOS (12 mount tests ignored; the long randomized crash trace was
-skipped). Windows WinFsp behavior has not been runtime-tested here.
-The cloud-folder extension passed macOS `cargo check --all-targets`,
-warnings-denied release checking, focused two-PC/folder conflict, Library and
-migration tests, and the full local suite after source-matching the locale
-files (1,120 passed, 60 ignored, one long trace filtered). Live cloud and
-Windows WinFsp cross-PC behavior remain untested.
-The macOS mount-hang fix passed macOS `cargo check --all-targets`, the
-Windows cross check, the three real-rclone loopback WebDAV tests and the full
-local suite (1,125 passed, 60 ignored, one long trace filtered), plus a
-warnings-denied release build. A new DAV test stalls on the previous server
-(requests time out) and passes now. An independent review's findings (force
-unmounts that could reach unrelated volumes, connection-held slots) are
-fixed. No live NFS mount was run; the force-unmount path is untested against
-a real dead server, and Linux `ps -A -ww` is used but was not run on Linux.
-The macFUSE fix passed the five kernel-level FUSE tests (first time on a Mac;
-macFUSE 5.4 kernel backend, macOS 27), the 15 real-rclone storage tests, the
-full local suite and the Windows cross check, plus an isolated end-to-end
-mount with local rclone crypt remotes: writes, renames, upload without
-plaintext, clean stop, read-back from the remotes after a cache cleanup,
-Finder-style eject (exit 0) and restart after `kill -9`. The FSKit backend and
-a live cloud pool were not tested. Reads and writes are moved off the session
-thread on macOS only; Linux FUSE is unchanged.
-A throttled-rclone run (16 KiB/s, empty cache) read a 3 MB file in 182 s
-through macFUSE with correct bytes and the drive stayed mounted (macFUSE's old
-60 s default would have ejected it); other folders and files answered in
-milliseconds meanwhile. The file being downloaded, and listings that stat
-it, wait for the download (macOS locks that file during the read).
+Compatibility: Empty folders sync only between PCs running 2.18.0 or later;
+older versions keep syncing files but do not see or publish them, so upgrade
+every PC sharing a drive. On a Mac with macFUSE installed, `--frontend auto`
+(the GUI default) now really mounts with macFUSE instead of falling back to
+WebDAV over NFS; use `--frontend dav` (GUI: WebDAV) to keep the previous
+frontend. The macFUSE kernel backend needs its kernel extension allowed. A
+mount that stops because the drive was ejected now exits successfully. On
+macOS and Linux, lease recovery after an unclean stop lists processes with
+`ps -A -ww`.
+
+Validation: macOS `cargo check --all-targets`, a warnings-denied release
+build, the Windows cross check and the full local suite (1,127 passed, 60
+ignored, one long randomized trace filtered) passed, plus the real-rclone
+storage (77) and loopback WebDAV (3) tests. A new DAV test stalls on the
+previous server and passes now. The five kernel-level FUSE tests passed on a
+Mac for the first time (macFUSE 5.4 kernel backend, macOS 27), and an isolated
+end-to-end mount with local rclone crypt remotes passed: writes, renames,
+upload without plaintext, clean stop, read-back after a cache cleanup, Finder
+eject and restart after `kill -9`. With rclone throttled to 16 KiB/s a 3 MB
+read took 182 s, returned correct bytes and the drive stayed mounted while
+other files answered in milliseconds. Empty-folder sync passed the two-PC
+in-memory, Library and migration tests. Not yet tested: a live cloud pool,
+the FSKit backend, a real dead-NFS-server force-unmount, Linux `ps -A -ww`,
+and Windows runtime (WinFsp, GUI load changes).
 
 ## 2.17.0 — 2026-10-12
 
