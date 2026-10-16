@@ -102,6 +102,33 @@ impl StorageWriter {
         }
         Ok(())
     }
+    /// Whether the stored `shard.object` holds exactly the `shard.size` bytes
+    /// of `path` from `offset` (the caller has checked their BLAKE3), proven by
+    /// the provider's own hash of the stored ciphertext instead of a download:
+    /// native crypt re-encrypts the local bytes with the object's nonce and
+    /// compares hashes (SFTP servers compute them on their disk). On success
+    /// the shard is remembered as verified. `false` whenever this cannot be
+    /// proven (rclone crypt pools, providers without hashes such as SMB,
+    /// `RPOOL_UPLOAD_VERIFY=readback`, any error); callers then read it back.
+    pub(crate) fn proven_by_provider_hash(&self, path: &Path, offset: u64, shard: &Shard) -> bool {
+        let Some(native) = &self.native else {
+            return false;
+        };
+        if full_readback_forced() {
+            return false;
+        }
+        let ctx = self.reader.operation_context();
+        let Ok(Some((backend, key))) = native.route(ctx, &shard.object) else {
+            return false;
+        };
+        let proven = (|| -> Result<bool> {
+            let mut input = File::open(path)?;
+            input.seek(SeekFrom::Start(offset))?;
+            let mut window = input.take(shard.size);
+            Ok(backend.proves_stored(ctx, &key, &mut window, shard.size)?)
+        })();
+        matches!(proven, Ok(true)) && self.reader.record_hash_verified(shard).is_ok()
+    }
     /// Reuse requires the expected content, never just its length. Operational
     /// errors propagate; they are not permission to overwrite an unknown object.
     pub(crate) fn reusable(&self, shard: &Shard) -> Result<bool> {
@@ -147,8 +174,9 @@ impl StorageWriter {
         }
         let (fresh, defer) = self.session_mode();
         // A first attempt at a fresh archive cannot find its own objects, so
-        // the probe is skipped; resumed uploads still reuse verified ones.
-        if !fresh && self.reusable(shard)? {
+        // the probe is skipped; resumed uploads still reuse verified ones,
+        // proven by the provider's hash where it has one, else read back.
+        if !fresh && (self.proven_by_provider_hash(&staged, 0, shard) || self.reusable(shard)?) {
             return Ok(());
         }
         // The object is about to be replaced: its new readback is always full.

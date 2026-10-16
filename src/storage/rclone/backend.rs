@@ -154,6 +154,21 @@ impl StorageBackend for RcloneBackend {
     fn delete(&self, ctx: &OperationContext, key: &ObjectKey) -> Result<(), StorageError> {
         self.context.delete_raw(ctx, &self.address(key)?)
     }
+    fn proves_stored(
+        &self,
+        ctx: &OperationContext,
+        key: &ObjectKey,
+        source: &mut dyn Read,
+        size: u64,
+    ) -> Result<bool, StorageError> {
+        // Only a crypt base stores exactly the bytes RPool has (rclone crypt
+        // hides the ciphertext and has no hashes).
+        if !self.crypt_base {
+            return Ok(false);
+        }
+        self.context
+            .stored_content_matches(ctx, &self.address(key)?, source, size)
+    }
     fn list(
         &self,
         _ctx: &OperationContext,

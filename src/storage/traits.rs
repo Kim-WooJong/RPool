@@ -360,6 +360,20 @@ pub(crate) trait StorageBackend: Send + Sync {
     /// Deletes the object `key`.
     fn delete(&self, ctx: &OperationContext, key: &ObjectKey) -> Result<(), StorageError>;
 
+    /// Whether the stored object `key` provably holds exactly the `size`
+    /// bytes `source` yields, by a hash the provider computes itself, so it
+    /// need not be downloaded. `Ok(false)`: this backend cannot tell (the
+    /// caller reads the object back instead).
+    fn proves_stored(
+        &self,
+        _ctx: &OperationContext,
+        _key: &ObjectKey,
+        _source: &mut dyn Read,
+        _size: u64,
+    ) -> Result<bool, StorageError> {
+        Ok(false)
+    }
+
     #[cfg_attr(
         not(test),
         expect(

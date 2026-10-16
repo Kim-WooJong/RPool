@@ -80,6 +80,11 @@ pub(crate) fn validate_upload_journal(
             continue;
         }
         storage.ensure_destination(&shard.object)?;
+        // The source bytes match (checked above): a provider hash of the
+        // stored ciphertext proves the object without downloading it.
+        if storage.proven_by_provider_hash(source, shard.offset, shard) {
+            continue;
+        }
         match storage.reader().verify_unchanged(shard) {
             Ok(()) => {}
             Err(error) if is_recoverable_loss(&error) => removed.push(*index),

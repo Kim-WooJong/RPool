@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Resuming an interrupted upload no longer downloads every shard it already
+  stored to check it. On native-crypt pools a stored shard is now proven by the
+  provider's own hash: RPool reads the object's 32-byte crypt header,
+  re-encrypts the local bytes with that nonce (which reproduces the stored
+  ciphertext exactly) and compares the provider's hash (for example `sha1sum`
+  on an SFTP server, computed on its own disk). Providers without hashes
+  (SMB), rclone crypt pools, `RPOOL_UPLOAD_VERIFY=readback` and any doubt keep
+  the full read-back. This applies to the upload journal check before a
+  resume and to the "already stored?" probe of resumed writes.
+
+Validation: a new real-rclone test proves a stored native-crypt shard by the
+local backend's hash and refuses changed local bytes, changed stored
+ciphertext and an rclone crypt pool.
+
 ## 2.19.0 — 2026-10-16
 
 - Provider storage manager: `rpool provider storage list --remote CRYPT`

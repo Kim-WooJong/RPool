@@ -157,6 +157,38 @@ impl RcloneContext {
         stored_hash_cache().lock().ok()?.insert(key, kinds.clone());
         kinds
     }
+    /// Whether the object at `address` holds exactly the `size` bytes of
+    /// `source`: hashes `source` locally in a kind the provider reports and
+    /// compares with the provider's own hash of the stored object (no
+    /// download). `false` when the provider reports no usable hash or on any
+    /// doubt; the caller then reads the object back in full.
+    pub(crate) fn stored_content_matches(
+        &self,
+        ctx: &OperationContext,
+        address: &str,
+        source: &mut dyn Read,
+        size: u64,
+    ) -> Result<bool, StorageError> {
+        let Some(hash) = self
+            .stored_hash_kinds(ctx, address)
+            .and_then(|kinds| crate::storage::stored_hash::StreamHash::for_provider(&kinds))
+        else {
+            return Ok(false);
+        };
+        let mut hashing = crate::storage::stored_hash::Hashing {
+            inner: source,
+            hash: Some(hash),
+        };
+        let read = std::io::copy(&mut hashing, &mut std::io::sink()).map_err(|error| {
+            StorageError::Other {
+                detail: format!("reading the local copy to hash: {error}"),
+            }
+        })?;
+        let Some(hash) = hashing.hash else {
+            return Ok(false);
+        };
+        Ok(read == size && self.stored_hash_matches(ctx, address, size, hash))
+    }
     /// Whether the provider reports exactly the hash of the bytes sent. Any
     /// doubt is `false`, and the caller then reads the object back in full.
     fn stored_hash_matches(

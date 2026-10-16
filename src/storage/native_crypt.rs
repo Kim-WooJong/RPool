@@ -277,6 +277,23 @@ impl StorageBackend for CryptBackend {
         self.inner.delete(ctx, &self.file_key(key)?)
     }
 
+    /// Re-encrypts `source` with the stored object's own nonce (read from its
+    /// 32-byte header), which reproduces the stored ciphertext exactly, and
+    /// lets the base backend compare that with the provider's hash.
+    fn proves_stored(
+        &self,
+        ctx: &OperationContext,
+        key: &ObjectKey,
+        source: &mut dyn Read,
+        size: u64,
+    ) -> Result<bool, StorageError> {
+        let stored = self.file_key(key)?;
+        let (nonce, _) = self.header(ctx, &stored)?;
+        let mut encrypting = self.cipher.encrypter_with_nonce(source, nonce);
+        self.inner
+            .proves_stored(ctx, &stored, &mut encrypting, data::encrypted_size(size))
+    }
+
     fn list(
         &self,
         ctx: &OperationContext,

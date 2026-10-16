@@ -205,3 +205,83 @@ fn native_writer_objects_read_back_through_rclone_crypt() {
         assert!(!bytes.windows(64).any(|w| w == &shard[..64]));
     }
 }
+
+/// A resumed upload proves a stored native-crypt shard by the provider's own
+/// hash (local reports md5/sha1, like SFTP with `sha1sum`) instead of
+/// downloading it: the local bytes are re-encrypted with the stored nonce.
+/// Different stored or local bytes are not proven; rclone crypt pools never
+/// are. `RPOOL_TEST_RCLONE` overrides the binary.
+#[test]
+#[ignore = "requires rclone"]
+fn a_stored_shard_is_proven_by_the_provider_hash_without_a_download() {
+    let rclone = std::env::var_os("RPOOL_TEST_RCLONE").unwrap_or_else(|| {
+        if cfg!(target_os = "macos") {
+            "/opt/homebrew/bin/rclone".into()
+        } else {
+            "rclone".into()
+        }
+    });
+    let temp = tempfile::tempdir().unwrap();
+    let base_dir = temp.path().join("base");
+    std::fs::create_dir(&base_dir).unwrap();
+    let conf = temp.path().join("rclone.conf");
+    std::fs::write(
+        &conf,
+        format!(
+            "[base]\ntype = local\n\n[c]\ntype = crypt\nremote = base:{}\npassword = {}\n",
+            base_dir.join("enc").display(),
+            obscure(PASSWORD).unwrap()
+        ),
+    )
+    .unwrap();
+    let context = RcloneContext::new(rclone.clone().into(), ConfigSelection::File(conf.clone()));
+    let writer = crate::storage::writer::StorageWriter::native(context);
+    let bytes = (0..2 * 65536 + 77)
+        .map(|i| (i * 37 % 251) as u8)
+        .collect::<Vec<_>>();
+    writer
+        .write_bytes("c:pool/x/data/0.bin", &bytes, 2)
+        .unwrap();
+    let shard = crate::storage::writer::descriptor(
+        "c:pool/x/data/0.bin",
+        bytes.len() as u64,
+        blake3::hash(&bytes).to_hex().to_string(),
+    );
+    // The source window may sit at an offset inside a larger file.
+    let source = temp.path().join("source");
+    let mut padded = vec![7u8; 1000];
+    padded.extend_from_slice(&bytes);
+    std::fs::write(&source, &padded).unwrap();
+    assert!(writer.proven_by_provider_hash(&source, 1000, &shard));
+
+    // Other local bytes of the same size are not proven.
+    let mut other = padded.clone();
+    other[1000 + 70_000] ^= 1;
+    let changed = temp.path().join("changed");
+    std::fs::write(&changed, &other).unwrap();
+    assert!(!writer.proven_by_provider_hash(&changed, 1000, &shard));
+
+    // An rclone crypt pool has no ciphertext hash: never proven this way.
+    let plain = crate::storage::writer::StorageWriter::rclone(&rclone.to_string_lossy());
+    assert!(!plain.proven_by_provider_hash(&source, 1000, &shard));
+
+    // Stored ciphertext changed in place (same size): not proven any more.
+    let mut stack = vec![base_dir.join("enc")];
+    let mut stored = None;
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                stored = Some(path);
+            }
+        }
+    }
+    let stored = stored.expect("one stored object");
+    let mut cipher = std::fs::read(&stored).unwrap();
+    let middle = cipher.len() / 2;
+    cipher[middle] ^= 1;
+    std::fs::write(&stored, &cipher).unwrap();
+    assert!(!writer.proven_by_provider_hash(&source, 1000, &shard));
+}
