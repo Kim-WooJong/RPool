@@ -10,7 +10,7 @@ test only in working copies under `projects/rpool/` with `CARGO_TARGET_DIR`
 outside the source tree. Windows is the primary intended GUI platform; executed
 tests run on macOS and Linux (Docker). This Mac Studio currently has no RPool pool
 in use: it is for development and local/fake-storage testing, not live-pool
-validation. Version 2.19.1 (2026-10-16); later work goes under
+validation. Version 2.20.0 (2026-10-30); later work goes under
 "Unreleased" in CHANGELOG.md, which is the detailed history.
 
 ## Current Status

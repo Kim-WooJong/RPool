@@ -1,5 +1,34 @@
 # Changelog
 
+## 2.20.0 — 2026-10-30
+
+- Closing the GUI window no longer unmounts the drives (Windows and macOS).
+  While a drive is mounted or a job runs, closing hides the window to the
+  notification area (macOS: menu bar) and the drives keep working. The tray
+  icon reopens the window (left click or "Open RPool"), its menu shows the
+  mount status, and "Unmount drives and quit" stops every drive gracefully
+  and exits as closing did before. With nothing running, closing quits right
+  away. If the work ends on its own while the window is hidden (a mount
+  failed or a job finished), the window comes back to show the result.
+- Settings › General › "Keep mounted drives running in the tray" (on by
+  default) restores the old close behaviour when turned off.
+- Quitting by any route (including macOS Cmd+Q) now also stops mounts
+  gracefully.
+- Linux has no tray icon (tray-icon needs GTK there and Wayland cannot hide
+  windows): closing the window still unmounts and quits.
+
+Known limits: starting RPool again while it sits in the tray opens a second
+window; use the tray icon instead. On macOS the Dock icon does not reopen a
+hidden window; use the menu-bar icon.
+
+Validation: the full local suite (1,161 passed) including new tray tests, a
+warnings-denied release build and warnings-denied Windows and Linux cross
+checks passed; the Linux build pulls in no GTK. Closing to the tray and
+reopening were not exercised on a desktop before release.
+
+Compatibility: no format changes. One new GUI setting (`close_to_tray`,
+default on); older versions ignore it.
+
 ## 2.19.1 — 2026-10-16
 
 - Resuming an interrupted upload no longer downloads every shard it already
