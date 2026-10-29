@@ -39,6 +39,9 @@ pub(crate) struct GuiSettings {
     pub(crate) parity_shards: usize,
     /// Placement of new pools.
     pub(crate) placement: Placement,
+    /// Closing the window while drives are mounted keeps them running in the
+    /// tray (Windows/macOS) instead of unmounting and quitting.
+    pub(crate) close_to_tray: bool,
 }
 
 impl Default for GuiSettings {
@@ -57,6 +60,7 @@ impl Default for GuiSettings {
             data_shards: crate::config::constants::DEFAULT_DATA_SHARDS,
             parity_shards: crate::config::constants::DEFAULT_PARITY_SHARDS,
             placement: Placement::RoundRobin,
+            close_to_tray: true,
         }
     }
 }

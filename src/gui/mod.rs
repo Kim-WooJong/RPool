@@ -20,6 +20,8 @@ mod state;
 /// Background job runner for long operations.
 mod task;
 mod theme;
+/// Tray icon: closing the window keeps mounts running (Windows/macOS).
+mod tray;
 /// Background provider discovery and usage refresh.
 mod usage_refresh;
 /// Reusable UI pieces (status badges, capacity bars, banners, task console).

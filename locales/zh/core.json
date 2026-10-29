@@ -241,5 +241,11 @@
   "Uneven groups: one group holds at most {cap} shards of each coding group, so data after parity fits up to {usable}": "组容量不均：每个组在每个编码组中最多只能存放 {cap} 个分片，因此扣除校验后的数据最多可容纳 {usable}",
   "{group}: {unusable} of {free} free cannot be filled": "{group}：剩余 {free} 中有 {unusable} 无法使用",
   "To fill every group, add at least {add} in {count} or more new group(s), each no larger than the largest": "若要用满所有组，请添加至少 {count} 个不大于最大组的新组，总计至少 {add}",
-  "Each provider's own folder is set on its card in Storage › Providers (Location › Change…); encrypted providers follow it there.": "每个提供商的文件夹在 存储 › 提供商 的卡片中设置（位置 › 更改…）；其加密提供商随之更新。"
+  "Each provider's own folder is set on its card in Storage › Providers (Location › Change…); encrypted providers follow it there.": "每个提供商的文件夹在 存储 › 提供商 的卡片中设置（位置 › 更改…）；其加密提供商随之更新。",
+  "Open RPool": "打开 RPool",
+  "Unmount drives and quit": "卸载驱动器并退出",
+  "No drives mounted": "没有已挂载的驱动器",
+  "Closing the window": "关闭窗口时",
+  "Keep mounted drives running in the tray": "在托盘中保持已挂载的驱动器运行",
+  "When off, closing the window unmounts every drive and quits. In the tray, choose Unmount drives and quit to stop them.": "关闭后，关闭窗口会卸载所有驱动器并退出。在托盘中选择“卸载驱动器并退出”即可停止。"
 }

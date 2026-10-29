@@ -123,7 +123,18 @@ fn general(ui: &mut egui::Ui, state: &mut GuiState) {
                     ui.label(tr("Retries"));
                     ui.add(egui::DragValue::new(&mut state.settings.retries).range(0..=100));
                     ui.end_row();
+                    if crate::gui::tray::SUPPORTED {
+                        ui.label(tr("Closing the window"));
+                        ui.checkbox(
+                            &mut state.settings.close_to_tray,
+                            tr("Keep mounted drives running in the tray"),
+                        );
+                        ui.end_row();
+                    }
                 });
+            if crate::gui::tray::SUPPORTED {
+                theme::hint(ui, tr("When off, closing the window unmounts every drive and quits. In the tray, choose Unmount drives and quit to stop them."));
+            }
             save_row(ui, state);
         },
     );

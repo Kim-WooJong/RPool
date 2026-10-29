@@ -75,6 +75,12 @@ winfsp_wrs = { version = "0.4.1", optional = true }
 # Job object (rclone children end with RPool) and console shutdown events.
 windows-sys = { version = "0.60", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Console", "Win32_System_Threading", "Win32_Security"] }
 
+# Tray icon: closing the GUI window while drives are mounted hides it there.
+# Linux has none (tray-icon needs GTK there, and Wayland cannot hide windows),
+# so closing the window still unmounts and quits.
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+tray-icon = { version = "0.26.1", default-features = false }
+
 # Not target-gated: target tables on build-dependencies match the host, and
 # build.rs checks the target itself. Tiny, dependency-free crate.
 [build-dependencies]

@@ -7,6 +7,7 @@ use crate::gui::screens::{dashboard, files, jobs, maintenance, monitoring, setti
 use crate::gui::state::{self, GuiState, Page};
 use crate::gui::task::{JobStatus, TaskRunner};
 use crate::gui::theme;
+use crate::gui::tray::{CloseAction, TrayCommand};
 use crate::gui::usage_refresh::UsageRefresh;
 use crate::gui::widgets::task_console;
 use anyhow::{anyhow, Result};
@@ -67,7 +68,9 @@ pub(crate) fn launch(startup_rclone: &str) -> Result<()> {
         native_options,
         Box::new(move |cc| {
             theme::apply(&cc.egui_ctx);
-            let app = RpoolGui::new(&startup_rclone);
+            let mut app = RpoolGui::new(&startup_rclone);
+            // Inside the running event loop, as the tray needs on macOS.
+            app.tray = super::tray::Tray::new(&cc.egui_ctx);
             super::i18n::fonts::install(&cc.egui_ctx, super::i18n::language());
             Ok(Box::new(app))
         }),
@@ -96,6 +99,14 @@ struct RpoolGui {
     #[cfg(debug_assertions)]
     /// Debug builds: screenshot automation driven by environment variables.
     snapshots: Option<super::snapshot::Snapshots>,
+    /// Tray icon; `None` on Linux or when the OS refused (closing then quits).
+    tray: Option<super::tray::Tray>,
+    /// The window is hidden in the tray.
+    hidden: bool,
+    /// The tray's Quit started the close: do not hide again.
+    quitting: bool,
+    /// Whether something ran at the previous tick (see `handle_tray`).
+    was_busy: bool,
 }
 
 impl RpoolGui {
@@ -116,6 +127,49 @@ impl RpoolGui {
             rclone_banner: Default::default(),
             #[cfg(debug_assertions)]
             snapshots: super::snapshot::Snapshots::from_env(),
+            tray: None,
+            hidden: false,
+            quitting: false,
+            was_busy: false,
+        }
+    }
+
+    /// A drive is mounted (or a mount task runs) or a job runs: closing the
+    /// window would stop it.
+    fn busy(&self) -> bool {
+        self.state.mount.any_running() || self.task.is_running()
+    }
+
+    /// Shows and focuses the window (order matters: Windows cannot focus a
+    /// minimized window, macOS an invisible one).
+    fn show_window(&mut self, ctx: &egui::Context) {
+        self.hidden = false;
+        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+    }
+
+    /// Handles tray clicks and keeps the tray status current. Viewport
+    /// commands go out only on transitions: each one requests a repaint.
+    fn handle_tray(&mut self, ctx: &egui::Context) {
+        while let Some(command) = self.tray.as_ref().and_then(|tray| tray.try_recv()) {
+            match command {
+                TrayCommand::Show => self.show_window(ctx),
+                TrayCommand::Quit => {
+                    self.quitting = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+        }
+        let busy = self.busy();
+        // Work ended on its own while hidden (a mount failed or finished, a
+        // job ended): show its result instead of idling invisibly.
+        if self.hidden && self.was_busy && !busy && !self.quitting {
+            self.show_window(ctx);
+        }
+        self.was_busy = busy;
+        if let Some(tray) = &mut self.tray {
+            tray.set_status(&tray_status(&self.state, &self.task));
         }
     }
 
@@ -250,11 +304,35 @@ impl eframe::App for RpoolGui {
         // Keep draining child output and handling completion while hidden,
         // instead of leaving the whole backlog for the first restored frame.
         self.poll_background();
-        // A close request can also arrive while minimized, without `ui`.
+        self.handle_tray(ctx);
+        // A close request can also arrive while minimized or hidden, without `ui`.
         if ctx.input(|input| input.viewport().close_requested()) {
-            self.state.mount.stop_all();
+            let action = super::tray::close_action(
+                self.tray.is_some(),
+                self.state.settings.close_to_tray,
+                self.busy(),
+                self.quitting,
+            );
+            match action {
+                CloseAction::Hide => {
+                    // Same pass as the request, so eframe keeps running.
+                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                    if !self.hidden {
+                        self.hidden = true;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                    }
+                }
+                CloseAction::Quit => self.state.mount.stop_all(),
+            }
         }
         self.schedule_next_tick(ctx);
+    }
+
+    /// Every real exit ends here, also macOS Cmd+Q, which never sends a close
+    /// request: unmount gracefully, then remove the tray icon at once.
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.state.mount.stop_all(); // Skips sessions already stopping.
+        self.tray = None;
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -359,6 +437,19 @@ impl eframe::App for RpoolGui {
             ui.ctx().request_repaint();
         }
         self.schedule_next_tick(ui.ctx());
+    }
+}
+
+/// The tray menu's status line, in the mount badge's wording.
+fn tray_status(state: &GuiState, task: &TaskRunner) -> String {
+    let sessions = storage::mount::mounted_sessions(state);
+    let mounted = sessions.iter().filter(|s| s.mounted).count();
+    match mounted {
+        0 if !sessions.is_empty() => tr("Drive task running").to_string(),
+        0 if task.is_running() => tr("Running").to_string(),
+        0 => tr("No drives mounted").to_string(),
+        1 => tr("Drive mounted").to_string(),
+        n => trf("{n} drives mounted", &[("n", &n)]),
     }
 }
 

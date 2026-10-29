@@ -241,5 +241,11 @@
   "Uneven groups: one group holds at most {cap} shards of each coding group, so data after parity fits up to {usable}": "グループ容量の偏り: 1つのグループは各コーディンググループのシャードを最大{cap}個までしか持てないため、パリティを除くデータは最大{usable}まで入ります",
   "{group}: {unusable} of {free} free cannot be filled": "{group}: 空き{free}のうち{unusable}は使えません",
   "To fill every group, add at least {add} in {count} or more new group(s), each no larger than the largest": "すべてのグループを使い切るには、最大のグループ以下の新しいグループを{count}個以上、合計{add}以上追加してください",
-  "Each provider's own folder is set on its card in Storage › Providers (Location › Change…); encrypted providers follow it there.": "プロバイダーごとのフォルダーはストレージ › プロバイダーの各カード（場所 › 変更…）で設定します。暗号化プロバイダーもそこで追従します。"
+  "Each provider's own folder is set on its card in Storage › Providers (Location › Change…); encrypted providers follow it there.": "プロバイダーごとのフォルダーはストレージ › プロバイダーの各カード（場所 › 変更…）で設定します。暗号化プロバイダーもそこで追従します。",
+  "Open RPool": "RPool を開く",
+  "Unmount drives and quit": "ドライブをアンマウントして終了",
+  "No drives mounted": "マウント中のドライブなし",
+  "Closing the window": "ウィンドウを閉じたとき",
+  "Keep mounted drives running in the tray": "マウント中のドライブをトレイで実行し続ける",
+  "When off, closing the window unmounts every drive and quits. In the tray, choose Unmount drives and quit to stop them.": "オフにすると、ウィンドウを閉じたときにすべてのドライブをアンマウントして終了します。トレイでは「ドライブをアンマウントして終了」で停止できます。"
 }
