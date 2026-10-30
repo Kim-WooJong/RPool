@@ -1,5 +1,46 @@
 # Changelog
 
+## 2.21.0 — 2026-10-30
+
+- Placement is now a method plus one switch. Every placement picker (pool
+  form, reprocess, upload options, Settings) offers four methods — round
+  robin, free-space ratio, even spread (read speed first), capacity first —
+  and one "Provider-outage protection" switch, off by default. With free-space
+  ratio and protection on, "Count by declared outage groups (strict)" selects
+  the former Resilient policy.
+- New protected combinations: round robin, even spread and capacity first
+  with at most max(M, even share) shards of a coding group per backing
+  account. The pool form warns when protection cannot hold (9+3 needs at
+  least four accounts).
+- CLI: every `--placement` value still works; `spread` and `capacity` are
+  aliases of `proportional` and `capacity-first`; `--outage-protection` is
+  new on `pool set`, `pool capacity` and `put`.
+- Rebalance (`pool migrate plan --rebalance`, GUI "Rebalance existing data")
+  with the even-spread method now spreads each coding group's data shards
+  evenly over the accounts after repairing account limits — reads fetch data
+  shards first, so this is what makes them parallel. A data shard moves to an
+  account with room or swaps places with a parity shard of a full account
+  (every account keeps its shard count). Free-space-ratio balancing runs
+  after that and never undoes the spread. The plan notes now list every
+  account's data and parity shards and free share before and after.
+
+Notes: with 9+3 over three accounts every complete coding group already sits
+at 4/4/4, so rebalancing changes where data and parity sit but cannot move
+usage ratios; that needs more accounts or another coding. Relocating an
+archive rewrites all of its shards (server-side where the provider supports
+it, otherwise through this PC); check the plan's transfer estimate.
+
+Validation: the full local suite (1,170 passed) including new tests for the
+data spread, the protected allocators and the pool-file compatibility, a
+warnings-denied release build and warnings-denied Windows and Linux cross
+checks passed. Not yet run against the live pool.
+
+Compatibility: pool files keep the pre-2.21 policy name in `placement` and
+add `outage_protection: true` only for the new protected combinations; older
+versions open such pools and upload with the unprotected method. Update every
+PC that uploads to a pool before turning protection on for round robin, even
+spread or capacity first.
+
 ## 2.20.0 — 2026-10-30
 
 - Closing the GUI window no longer unmounts the drives (Windows and macOS).
