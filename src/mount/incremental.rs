@@ -127,7 +127,7 @@ pub(crate) fn upload(
     // A base written under a different placement can violate FreeRatio's
     // per-account group bound. In that case a full upload is required; merely
     // reusing unchanged groups would publish a new manifest with the old risk.
-    if policy.placement == Placement::FreeRatio
+    if policy.placement.caps_like_free_ratio()
         && !retained_groups_fit_free_ratio(base, &status.targets, policy.parity_shards)
     {
         return Ok(None);
@@ -242,6 +242,8 @@ fn upload_with(
                 | Placement::FreeRatioUnbounded
                 | Placement::Proportional
                 | Placement::CapacityFirst
+                | Placement::ProportionalProtected
+                | Placement::CapacityFirstProtected
         );
     if !compatible {
         if resumed {

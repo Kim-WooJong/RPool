@@ -247,5 +247,20 @@
   "No drives mounted": "マウント中のドライブなし",
   "Closing the window": "ウィンドウを閉じたとき",
   "Keep mounted drives running in the tray": "マウント中のドライブをトレイで実行し続ける",
-  "When off, closing the window unmounts every drive and quits. In the tray, choose Unmount drives and quit to stop them.": "オフにすると、ウィンドウを閉じたときにすべてのドライブをアンマウントして終了します。トレイでは「ドライブをアンマウントして終了」で停止できます。"
+  "When off, closing the window unmounts every drive and quits. In the tray, choose Unmount drives and quit to stop them.": "オフにすると、ウィンドウを閉じたときにすべてのドライブをアンマウントして終了します。トレイでは「ドライブをアンマウントして終了」で停止できます。",
+  "Even spread (read speed first)": "均等分散（読み取り速度優先）",
+  "Capacity first": "容量優先",
+  "Free-space ratio (provider-outage protection)": "空き容量比率（プロバイダー障害対策）",
+  "Round robin (provider-outage protection)": "ラウンドロビン（プロバイダー障害対策）",
+  "Even spread (provider-outage protection)": "均等分散（プロバイダー障害対策）",
+  "Capacity first (provider-outage protection)": "容量優先（プロバイダー障害対策）",
+  "Provider-outage protection": "プロバイダー障害対策",
+  "At most M (parity) shards of each coding group per account, so losing one account keeps files recoverable when the pool has enough accounts. Off: placement may put more on one account.": "アカウントごとに各コーディンググループのシャードを最大 M（パリティ）個までにし、アカウントが十分あれば 1 つ失ってもファイルを復元できます。オフにすると 1 つのアカウントにより多く置かれることがあります。",
+  "Count by declared outage groups (strict)": "宣言した障害グループ単位で数える（厳格）",
+  "Resilient placement: counts shards per declared outage group instead of per account and refuses uploads that would break the bound. Every account needs a declared outage group.": "レジリエント配置: アカウントではなく宣言した障害グループごとにシャードを数え、上限を超えるアップロードは拒否します。すべてのアカウントに障害グループの宣言が必要です。",
+  "Provider-outage protection is not possible with this setup: {k}+{m} needs at least {need} accounts for at most {m} shards each, the pool has {have}. Losing one account may make files unrecoverable.": "この構成ではプロバイダー障害対策ができません: {k}+{m} をアカウントごとに最大 {m} 個にするには {need} 個以上のアカウントが必要ですが、このプールは {have} 個です。アカウントを 1 つ失うとファイルを復元できない場合があります。",
+  "Even spread: each coding group and its data shards are spread evenly across every account with free space, so reads use every account at once; free-space ratios are balanced second. Larger accounts take the remainder once smaller ones fill; no per-account cap for durability. Reed-Solomon parity remains, but losing one account may make a file unrecoverable.": "均等分散: 各コーディンググループとそのデータシャードを空きのあるすべてのアカウントに均等に分散し、読み取りですべてのアカウントを同時に使います。空き容量比率はその次に調整します。小さいアカウントが埋まると大きいアカウントが残りを受け取り、耐久性のためのアカウント上限はありません。リード・ソロモンのパリティは残りますが、アカウントを 1 つ失うとファイルを復元できない場合があります。",
+  "Round robin with provider-outage protection: shards cycle over the backing accounts (aliases of one account count together), and one account holds at most M shards of each coding group when the pool has enough accounts.": "ラウンドロビン＋プロバイダー障害対策: シャードを実アカウント単位で順に配置し（同じアカウントの別名はまとめて数えます）、アカウントが十分あれば 1 つのアカウントは各コーディンググループ最大 M 個までです。",
+  "Even spread with provider-outage protection: each coding group and its data shards are spread evenly for read speed, and no account takes more than M shards of a group even when smaller accounts are full, as long as the pool has enough accounts.": "均等分散＋プロバイダー障害対策: 読み取り速度のためにコーディンググループとデータシャードを均等に分散し、アカウントが十分あれば小さいアカウントが埋まっても 1 つのアカウントがグループあたり M 個を超えて受け取ることはありません。",
+  "Capacity first with provider-outage protection: large account quotas are used first, but one account holds at most M shards of each coding group when the pool has enough accounts.": "容量優先＋プロバイダー障害対策: 大きなアカウント容量から使いますが、アカウントが十分あれば 1 つのアカウントは各コーディンググループ最大 M 個までです。"
 }

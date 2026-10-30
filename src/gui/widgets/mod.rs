@@ -6,6 +6,8 @@ pub(crate) mod account_identities;
 mod capacity_bar;
 /// Text field with a Browse… file dialog.
 mod file_field;
+/// Placement method picker plus the provider-outage switch.
+mod placement_picker;
 /// Background capacity query and summary for pool options.
 pub(crate) mod pool_capacity;
 /// Progress bar with bytes, rate and ETA of a task.
@@ -24,6 +26,7 @@ mod toolbar;
 
 pub(crate) use capacity_bar::{capacity_bar_colored, capacity_bar_sized};
 pub(crate) use file_field::{local_file_field, output_file_field};
+pub(crate) use placement_picker::{placement_picker, protection_gap_warning};
 pub(crate) use progress_view::progress_view;
 pub(crate) use remote_selector::remote_selector;
 pub(crate) use section_header::section_header;

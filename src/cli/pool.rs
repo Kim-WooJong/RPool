@@ -86,8 +86,16 @@ pub(crate) enum PoolCommands {
         retries: u32,
 
         #[arg(long, value_enum, default_value_t = Placement::RoundRobin)]
-        /// Placement strategy across the pool's remotes.
+        /// Placement method across the pool's remotes (`spread` = even
+        /// spread for read speed, alias of `proportional`).
         placement: Placement,
+
+        /// Turn on provider-outage protection for the chosen placement method: at
+        /// most max(M, even share) shards of a coding group per account
+        /// (`free-ratio-unbounded` becomes `free-ratio`; round robin, proportional
+        /// and capacity first gain the bound).
+        #[arg(long)]
+        outage_protection: bool,
 
         #[arg(long, default_value_t = crate::config::constants::DEFAULT_DATA_SHARDS)]
         /// Reed-Solomon data shards per coding group.
@@ -431,6 +439,9 @@ pub(crate) struct PoolCapacityArgs {
     #[arg(long, value_enum)]
     /// Placement strategy. Overrides the saved value.
     pub placement: Option<Placement>,
+    #[arg(long)]
+    /// Provider-outage protection on top of the (saved or given) placement.
+    pub outage_protection: bool,
     #[arg(long)]
     /// Print JSON instead of text.
     pub json: bool,

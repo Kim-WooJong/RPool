@@ -418,13 +418,14 @@ impl CapacityStatus {
                 }
                 free.into_iter().collect()
             }
-            Placement::FreeRatio => budgets.into_iter().collect(),
+            p if p.caps_like_free_ratio() => budgets.into_iter().collect(),
             _ => return,
         };
         let width = k + m;
-        let cap = match policy.placement {
-            Placement::FreeRatio => m.max(width.div_ceil(groups.len().max(1))),
-            _ => m,
+        let cap = if policy.placement.caps_like_free_ratio() {
+            m.max(width.div_ceil(groups.len().max(1)))
+        } else {
+            m
         };
         self.balance = Some(super::capacity_balance::balance(&groups, width, k, cap));
     }

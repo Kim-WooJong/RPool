@@ -214,7 +214,8 @@ A pool stores reusable remotes and upload policy:
 
 ```text
 rpool pool set NAME --remote R... [--data-shards K --parity-shards M] [--shard-mib N] \
-  [--placement round-robin|free-ratio|free-ratio-unbounded|resilient|proportional|capacity-first] [--native-crypt] [--max-object-bytes N]
+  [--placement round-robin|free-ratio|free-ratio-unbounded|resilient|proportional|capacity-first] [--outage-protection] \
+  [--native-crypt] [--max-object-bytes N]
 rpool pool list | show NAME | remove NAME
 rpool pool capacity [NAME]          # capacity with saved or unsaved options; no mount
 rpool pool browse NAME              # list the drive read-only from cloud metadata
@@ -244,8 +245,12 @@ To spread existing data onto a newly added account, plan with `--rebalance`
 `--transfers N` moves N shards at once (archives one at a time), and
 `--bwlimit` caps the whole run in rclone syntax with timetables, e.g.
 `--bwlimit "01:00,20M 08:00,2M"`; both are in the GUI run step.
-`--rebalance` only moves shards for account limits or sufficiently large
-free-space-ratio gaps, so changing placement alone can produce zero moves.
+`--rebalance` moves shards for account limits; with the even-spread method it
+then spreads each coding group's data shards evenly over the accounts (reads
+fetch data shards first, so this is what makes them parallel); last it closes
+sufficiently large free-space-ratio gaps without undoing that spread. Changing
+placement alone can produce zero moves. The plan notes list every account's
+data and parity shards and free share before and after the moves.
 To apply the saved placement as a **fresh upload** to all existing files, use
 `--reapply-placement` instead (GUI: "Reapply placement (re-upload all files)").
 It restores and re-uploads every nonempty file, including visible drive files
@@ -407,6 +412,23 @@ are marked complete.
 - Parity is generated one coding group at a time in temporary local files.
 
 ## Placement and provider failure
+
+The GUI (and `--placement` plus `--outage-protection` on the CLI) picks a
+**method** and one **provider-outage protection** switch (off by default):
+
+| Method | Off | On |
+|---|---|---|
+| Round robin | `round-robin` | `round-robin` + `--outage-protection` |
+| Free-space ratio | `free-ratio-unbounded` | `free-ratio` (strict per outage group: `resilient`) |
+| Even spread (read speed first) | `proportional` (alias `spread`) | `proportional` + `--outage-protection` |
+| Capacity first | `capacity-first` | `capacity-first` + `--outage-protection` |
+
+Protection keeps at most `max(M, ceil((K+M)/accounts))` shards of a coding
+group on one backing account (aliases of one account count together); it only
+survives losing an account when there are at least `ceil((K+M)/M)` accounts
+(9+3: four), and the GUI warns otherwise. Pool files keep the pre-2.21 policy
+name in `placement` plus `outage_protection: true`, so older RPool still opens
+the pool and uses the unprotected method for its own uploads.
 
 - **round-robin** (default): each coding group is balanced across configured
   remote names; separate aliases are not resolved and outage tolerance is not

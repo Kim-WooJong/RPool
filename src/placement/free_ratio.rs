@@ -68,6 +68,19 @@ pub(crate) fn allocate(
     }
 }
 
+/// Even spread with the free-ratio group bound (`max(M, ceil(group/accounts))`
+/// per account when `parity` is set): fewest-shards-first, so data slots go
+/// round the accounts before parity; ratio-first only when spreading would
+/// strand a shard. Used by protected even spread.
+pub(crate) fn allocate_spread(
+    snapshot: &crate::storage::admin::budget::BudgetSnapshot,
+    specs: &[PhysicalSpec],
+    parity: Option<usize>,
+) -> Result<Vec<usize>> {
+    allocate_ordered(snapshot, specs, parity, true)
+        .or_else(|_| allocate_ordered(snapshot, specs, parity, false))
+}
+
 /// Free-ratio preference without the parity-based per-account cap. Unlike
 /// proportional placement, do not force every coding group across all accounts.
 /// If ratio-first strands a mixed-size group, retry with the same quota and
@@ -148,21 +161,44 @@ fn allocate_ordered(
     Ok(result)
 }
 
-/// Place against the largest remaining independent account budget. This is
-/// intentionally not an outage-safe placement: a coding group can put more
-/// than M shards on one provider when that is where the capacity is.
+/// Place against the largest remaining independent account budget. Without
+/// `parity` this is intentionally not outage-safe: a coding group can put more
+/// than M shards on one provider when that is where the capacity is. With
+/// `parity = Some(m)` (protected capacity first) one account holds at most
+/// `max(m, ceil(group/accounts))` shards of a group, like free-ratio.
 pub(crate) fn allocate_capacity_first(
     snapshot: &crate::storage::admin::budget::BudgetSnapshot,
     specs: &[PhysicalSpec],
+    parity: Option<usize>,
 ) -> Result<Vec<usize>> {
     let mut budgets = snapshot.budgets();
     let mut result = Vec::with_capacity(specs.len());
+    let distinct: BTreeSet<_> = snapshot
+        .targets
+        .iter()
+        .map(|t| t.backing.as_str())
+        .collect();
+    let mut group_sizes = BTreeMap::<u32, usize>::new();
     for spec in specs {
+        *group_sizes.entry(spec.group).or_default() += 1;
+    }
+    let mut counts = BTreeMap::<u32, BTreeMap<String, usize>>::new();
+    for spec in specs {
+        let group = counts.entry(spec.group).or_default();
+        let cap = parity
+            .filter(|m| *m > 0)
+            .map(|m| m.max(group_sizes[&spec.group].div_ceil(distinct.len().max(1))));
         let index = snapshot
             .targets
             .iter()
             .enumerate()
             .filter(|(_, target)| budgets[&target.capacity_domain] >= spec.size)
+            .filter(|(_, target)| {
+                let count = group.get(&target.backing).copied().unwrap_or(0);
+                // The account limits only bind the protected form, as before.
+                cap.is_none_or(|m| count < m)
+                    && (cap.is_none() || target.shard_cap.is_none_or(|own| count < own))
+            })
             .max_by(|(a, left), (b, right)| {
                 budgets[&left.capacity_domain]
                     .cmp(&budgets[&right.capacity_domain])
@@ -173,6 +209,9 @@ pub(crate) fn allocate_capacity_first(
         *budgets
             .get_mut(&snapshot.targets[index].capacity_domain)
             .unwrap() -= spec.size;
+        *group
+            .entry(snapshot.targets[index].backing.clone())
+            .or_default() += 1;
         result.push(index);
     }
     Ok(result)
@@ -328,6 +367,42 @@ mod tests {
             count(0) >= count(3),
             "bigger holds at least as much: {assigned:?}"
         );
+    }
+
+    #[test]
+    fn protected_spread_puts_three_data_shards_on_each_of_three_accounts() {
+        // 9+3: specs list data slots first. Fewest-first spreads them 3/3/3
+        // even when one account is much freer, and parity 1/1/1.
+        let snap = snapshot(&[1_000, 1_000, 5_000]);
+        let specs = vec![PhysicalSpec { group: 0, size: 10 }; 12];
+        let assigned = allocate_spread(&snap, &specs, Some(3)).unwrap();
+        for t in 0..3 {
+            let data = assigned[..9].iter().filter(|i| **i == t).count();
+            assert_eq!(data, 3, "{assigned:?}");
+            assert_eq!(
+                assigned.iter().filter(|i| **i == t).count(),
+                4,
+                "{assigned:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn protected_capacity_first_respects_the_group_bound() {
+        // One huge account: unprotected capacity-first puts the whole group
+        // there; protected keeps it at max(M, even) = max(2, 2) = 2 each.
+        let snap = snapshot(&[100_000, 1_000, 1_000]);
+        let specs = vec![PhysicalSpec { group: 0, size: 10 }; 6];
+        let open = allocate_capacity_first(&snap, &specs, None).unwrap();
+        assert_eq!(open.iter().filter(|i| **i == 0).count(), 6, "{open:?}");
+        let bounded = allocate_capacity_first(&snap, &specs, Some(2)).unwrap();
+        for t in 0..3 {
+            assert_eq!(
+                bounded.iter().filter(|i| **i == t).count(),
+                2,
+                "{bounded:?}"
+            );
+        }
     }
 
     #[test]

@@ -4,7 +4,7 @@ use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 use crate::gui::theme;
-use crate::models::{Placement, PoolDefinition};
+use crate::models::PoolDefinition;
 use crate::pool::{
     build_plan, load_plan, upsert_pool, validate_pool, validate_pool_name, ReprocessPlan,
 };
@@ -139,40 +139,11 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                         ui.add(egui::DragValue::new(&mut draft.retries).range(0..=100));
                         ui.end_row();
                         ui.label(tr("Placement"));
-                        egui::ComboBox::from_id_salt("reprocess-placement")
-                            .selected_text(crate::gui::i18n::tr(draft.placement.label()))
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(
-                                    &mut draft.placement,
-                                    Placement::RoundRobin,
-                                    crate::gui::i18n::tr(Placement::RoundRobin.label()),
-                                );
-                                ui.selectable_value(
-                                    &mut draft.placement,
-                                    Placement::FreeRatio,
-                                    crate::gui::i18n::tr(Placement::FreeRatio.label()),
-                                );
-                                ui.selectable_value(
-                                    &mut draft.placement,
-                                    Placement::FreeRatioUnbounded,
-                                    crate::gui::i18n::tr(Placement::FreeRatioUnbounded.label()),
-                                );
-                                ui.selectable_value(
-                                    &mut draft.placement,
-                                    Placement::Proportional,
-                                    crate::gui::i18n::tr(Placement::Proportional.label()),
-                                );
-                                ui.selectable_value(
-                                    &mut draft.placement,
-                                    Placement::Resilient,
-                                    crate::gui::i18n::tr(Placement::Resilient.label()),
-                                );
-                                ui.selectable_value(
-                                    &mut draft.placement,
-                                    Placement::CapacityFirst,
-                                    crate::gui::i18n::tr(Placement::CapacityFirst.label()),
-                                );
-                            });
+                        crate::gui::widgets::placement_picker(
+                            ui,
+                            "reprocess-placement",
+                            &mut draft.placement,
+                        );
                         ui.end_row();
                     });
                 if let Some(note) = draft.placement.protection_note() {
@@ -649,6 +620,7 @@ pub(crate) fn handle_task_completion(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::Placement;
     use clap::Parser;
     #[test]
     fn preview_invalidates_for_every_policy_source_rate_and_executor_change() {

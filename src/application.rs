@@ -54,12 +54,13 @@ fn dispatch(cli: Cli) -> Result<()> {
             shard_mib,
             workers,
             placement,
+            outage_protection,
             retries,
             data_shards,
             parity_shards,
             id,
         } => {
-            let resolved = pool::resolve_put_options(
+            let mut resolved = pool::resolve_put_options(
                 pool.as_deref(),
                 remotes,
                 shard_mib,
@@ -69,6 +70,9 @@ fn dispatch(cli: Cli) -> Result<()> {
                 data_shards,
                 parity_shards,
             )?;
+            if outage_protection {
+                resolved.placement = resolved.placement.with_protection(true);
+            }
             commands::put(
                 &cli.rclone,
                 &source,
@@ -160,6 +164,7 @@ fn dispatch(cli: Cli) -> Result<()> {
                 workers,
                 retries,
                 placement,
+                outage_protection,
                 data_shards,
                 parity_shards,
                 max_object_bytes,
@@ -172,7 +177,11 @@ fn dispatch(cli: Cli) -> Result<()> {
                 shard_mib,
                 workers,
                 retries,
-                placement,
+                if outage_protection {
+                    placement.with_protection(true)
+                } else {
+                    placement
+                },
                 data_shards,
                 parity_shards,
                 max_object_bytes,

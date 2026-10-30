@@ -92,6 +92,9 @@ pub(crate) fn run(rclone: &str, args: crate::cli::pool::PoolCapacityArgs) -> Res
     if let Some(n) = args.placement {
         policy.placement = n;
     }
+    if args.outage_protection {
+        policy.placement = policy.placement.with_protection(true);
+    }
     let report = query(rclone, &policy)?;
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);

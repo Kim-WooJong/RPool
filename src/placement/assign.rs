@@ -25,9 +25,29 @@ pub(crate) fn assign_remotes(
                 .collect::<Vec<_>>(),
             specs,
         ),
+        Placement::RoundRobinProtected => {
+            // Count per backing account so aliases of one account share its bound.
+            use crate::storage::admin::{BackendAdmin, RcloneAdmin};
+            let catalog = RcloneAdmin::inherited(rclone).catalog()?;
+            balanced_assign(
+                &remotes
+                    .iter()
+                    .map(|r| {
+                        catalog
+                            .placement_target(r)
+                            .unwrap_or_else(|_| crate::storage::scheduler::remote_key(r))
+                    })
+                    .collect::<Vec<_>>(),
+                specs,
+            )
+        }
         Placement::FreeRatio => plan_free_ratio(rclone, remotes, specs, parity_shards),
         Placement::Proportional => plan_free_ratio(rclone, remotes, specs, None),
-        Placement::FreeRatioUnbounded | Placement::Resilient | Placement::CapacityFirst => {
+        Placement::FreeRatioUnbounded
+        | Placement::Resilient
+        | Placement::CapacityFirst
+        | Placement::ProportionalProtected
+        | Placement::CapacityFirstProtected => {
             use crate::storage::admin::{BackendAdmin, RcloneAdmin};
             let admin = RcloneAdmin::inherited(rclone);
             let catalog = admin.catalog()?;
@@ -88,7 +108,23 @@ pub(crate) fn assign_with_budget(
             super::free_ratio::allocate_ratio_unbounded(snapshot, specs)?
         }
         Placement::Proportional => super::free_ratio::allocate(snapshot, specs, None)?,
-        Placement::CapacityFirst => super::free_ratio::allocate_capacity_first(snapshot, specs)?,
+        Placement::ProportionalProtected => {
+            super::free_ratio::allocate_spread(snapshot, specs, parity)?
+        }
+        Placement::CapacityFirst => {
+            super::free_ratio::allocate_capacity_first(snapshot, specs, None)?
+        }
+        Placement::CapacityFirstProtected => {
+            super::free_ratio::allocate_capacity_first(snapshot, specs, parity)?
+        }
+        Placement::RoundRobinProtected => balanced_assign(
+            &snapshot
+                .targets
+                .iter()
+                .map(|t| t.backing.clone())
+                .collect::<Vec<_>>(),
+            specs,
+        )?,
         Placement::RoundRobin => balanced_assign(
             &snapshot
                 .targets

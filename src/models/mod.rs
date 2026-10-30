@@ -48,7 +48,7 @@ pub(crate) use inventory::{InventoryEntry, InventoryStore};
 pub(crate) use journal::UploadJournal;
 pub(crate) use maintenance::{ScrubReport, ShardHealth};
 pub(crate) use manifest::{Manifest, Shard};
-pub(crate) use placement::Placement;
+pub(crate) use placement::{outage_protection_gap, Placement, PlacementMethod};
 pub(crate) use pool::{PoolDefinition, PoolStore};
 pub(crate) use portable_config::{
     PortableConfig, PortableCryptRemote, PortableGuiSettings, PortableSecretVault,

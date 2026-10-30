@@ -300,40 +300,7 @@ fn policy_card(ui: &mut egui::Ui, state: &mut GuiState, task: &TaskRunner) {
                     ui.end_row();
 
                     ui.label(tr("Placement"));
-                    egui::ComboBox::from_id_salt("pool-placement")
-                        .selected_text(crate::gui::i18n::tr(state.pools.placement.label()))
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut state.pools.placement,
-                                Placement::RoundRobin,
-                                crate::gui::i18n::tr(Placement::RoundRobin.label()),
-                            );
-                            ui.selectable_value(
-                                &mut state.pools.placement,
-                                Placement::FreeRatio,
-                                crate::gui::i18n::tr(Placement::FreeRatio.label()),
-                            );
-                            ui.selectable_value(
-                                &mut state.pools.placement,
-                                Placement::FreeRatioUnbounded,
-                                crate::gui::i18n::tr(Placement::FreeRatioUnbounded.label()),
-                            );
-                            ui.selectable_value(
-                                &mut state.pools.placement,
-                                Placement::Proportional,
-                                crate::gui::i18n::tr(Placement::Proportional.label()),
-                            );
-                            ui.selectable_value(
-                                &mut state.pools.placement,
-                                Placement::Resilient,
-                                crate::gui::i18n::tr(Placement::Resilient.label()),
-                            );
-                            ui.selectable_value(
-                                &mut state.pools.placement,
-                                Placement::CapacityFirst,
-                                crate::gui::i18n::tr(Placement::CapacityFirst.label()),
-                            );
-                        });
+                    crate::gui::widgets::placement_picker(ui, "pool-placement", &mut state.pools.placement);
                     ui.end_row();
 
                     ui.label(tr("Data shards (K)"));
@@ -346,6 +313,14 @@ fn policy_card(ui: &mut egui::Ui, state: &mut GuiState, task: &TaskRunner) {
                 });
             if let Some(note) = state.pools.placement.protection_note() {
                 ui.small(crate::gui::i18n::tr(note));
+            }
+            if let Some(warning) = crate::gui::widgets::protection_gap_warning(
+                state.pools.placement,
+                state.pools.data_shards,
+                state.pools.parity_shards,
+                state.pools.remotes.len(),
+            ) {
+                ui.colored_label(ui.visuals().warn_fg_color, warning);
             }
 
             let shard_size = crate::models::shard_size::ShardSize::from_mib(state.pools.shard_mib)
@@ -711,12 +686,14 @@ mod tests {
                     workers,
                     retries,
                     placement,
+                    outage_protection,
                     data_shards,
                     parity_shards,
                     max_object_bytes,
                     native_crypt,
                     small_file_packing,
                 } => {
+                    assert!(!outage_protection);
                     assert_eq!(name, "-pool name");
                     assert!(!small_file_packing);
                     assert_eq!(max_object_bytes, Some(250_000_000));

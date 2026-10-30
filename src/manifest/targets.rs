@@ -22,14 +22,7 @@ pub(crate) fn publication_remotes(
     requested: &[String],
     placement: crate::models::Placement,
 ) -> Vec<String> {
-    if matches!(
-        placement,
-        crate::models::Placement::Resilient
-            | crate::models::Placement::FreeRatio
-            | crate::models::Placement::FreeRatioUnbounded
-            | crate::models::Placement::Proportional
-            | crate::models::Placement::CapacityFirst
-    ) {
+    if placement.quota_aware() {
         manifest_remotes(manifest)
     } else {
         requested.to_vec()

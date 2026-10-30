@@ -309,14 +309,33 @@ fn over_cap_accounts_give_up_shards_even_without_a_free_space_gap() {
     let rb = Rebalancer::new(&target, &quotas, &|_| None).unwrap();
     let m = manifest(&["a", "a", "a", "a", "b", "b"], GIB / 16);
     let (moves, _) = rb.plan(&m, &BTreeSet::new());
-    // Two shards leave a for c; b held only parity, so one of its parity
-    // shards then trades places with a data shard for the read spread.
-    let after = placed(&m, &moves);
-    for who in ["a:", "b:", "c:"] {
-        assert_eq!(after.iter().filter(|r| *r == who).count(), 2, "{after:?}");
-        assert!(data_on(&m, &moves, who) >= 1, "{who} has data: {after:?}");
-    }
-    assert_eq!(count(&moves, "c:"), 2, "{moves:?}");
+    // Round robin only repairs the per-account limit; data spreading is
+    // the even-spread method's job.
+    assert_eq!(moves.len(), 2, "{moves:?}");
+    assert_eq!(count(&moves, "c:"), 2);
+}
+
+#[test]
+fn protected_even_spread_also_spreads_data_and_round_robin_does_not() {
+    let quotas = [
+        quota("a", 5 * GIB, 10 * GIB),
+        quota("b", 5 * GIB, 10 * GIB),
+        quota("c", 5 * GIB, 10 * GIB),
+    ];
+    let layout = ["a", "a", "a", "a", "b", "b", "b", "b", "c", "c", "c", "c"];
+    let m = manifest_9_3(&layout, GIB / 16);
+    let mut target = pool(Placement::ProportionalProtected, &["a", "b", "c"]);
+    target.data_shards = 9;
+    target.parity_shards = 3;
+    let (moves, _) = Rebalancer::new(&target, &quotas, &|_| None)
+        .unwrap()
+        .plan(&m, &BTreeSet::new());
+    assert_eq!(moves.len(), 4, "{moves:?}");
+    target.placement = Placement::RoundRobin;
+    let (moves, _) = Rebalancer::new(&target, &quotas, &|_| None)
+        .unwrap()
+        .plan(&m, &BTreeSet::new());
+    assert!(moves.is_empty(), "{moves:?}");
 }
 
 #[test]

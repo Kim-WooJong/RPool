@@ -110,6 +110,13 @@ pub(crate) enum Commands {
         #[arg(long, value_enum)]
         placement: Option<Placement>,
 
+        /// Turn on provider-outage protection for the chosen placement method: at
+        /// most max(M, even share) shards of a coding group per account
+        /// (`free-ratio-unbounded` becomes `free-ratio`; round robin, proportional
+        /// and capacity first gain the bound).
+        #[arg(long)]
+        outage_protection: bool,
+
         /// Whole-shard attempts. Overrides the pool default.
         #[arg(long)]
         retries: Option<u32>,

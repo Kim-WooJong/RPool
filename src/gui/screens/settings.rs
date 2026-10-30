@@ -5,7 +5,6 @@ use crate::gui::i18n::{tr, trf};
 use crate::gui::settings;
 use crate::gui::state::GuiState;
 use crate::gui::theme;
-use crate::models::Placement;
 use eframe::egui;
 
 /// Tab id of General (language, rclone path, retries, diagnostics export).
@@ -159,13 +158,7 @@ fn pool_defaults(ui: &mut egui::Ui, state: &mut GuiState) {
                 ui.add(egui::DragValue::new(&mut state.settings.parity_shards).range(0..=254));
                 ui.end_row();
                 ui.label(tr("Placement"));
-                egui::ComboBox::from_id_salt("settings-placement")
-                    .selected_text(tr(state.settings.placement.label()))
-                    .show_ui(ui, |ui| {
-                        for placement in [Placement::RoundRobin, Placement::FreeRatio, Placement::FreeRatioUnbounded, Placement::Proportional, Placement::Resilient, Placement::CapacityFirst] {
-                            ui.selectable_value(&mut state.settings.placement, placement, tr(placement.label()));
-                        }
-                    });
+                crate::gui::widgets::placement_picker(ui, "settings-placement", &mut state.settings.placement);
                 ui.end_row();
             });
             if let Some(note) = state.settings.placement.protection_note() {

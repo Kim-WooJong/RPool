@@ -3,7 +3,6 @@
 
 use crate::gui::i18n::{tr, trf};
 use crate::gui::state::GuiState;
-use crate::models::Placement;
 use eframe::egui;
 
 /// Draws the manual policy grid and the resulting parity overhead. Called by
@@ -27,40 +26,11 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState) {
             ui.end_row();
 
             ui.label(tr("Placement"));
-            egui::ComboBox::from_id_salt("upload-placement")
-                .selected_text(crate::gui::i18n::tr(state.settings.placement.label()))
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut state.settings.placement,
-                        Placement::RoundRobin,
-                        crate::gui::i18n::tr(Placement::RoundRobin.label()),
-                    );
-                    ui.selectable_value(
-                        &mut state.settings.placement,
-                        Placement::FreeRatio,
-                        crate::gui::i18n::tr(Placement::FreeRatio.label()),
-                    );
-                    ui.selectable_value(
-                        &mut state.settings.placement,
-                        Placement::FreeRatioUnbounded,
-                        crate::gui::i18n::tr(Placement::FreeRatioUnbounded.label()),
-                    );
-                    ui.selectable_value(
-                        &mut state.settings.placement,
-                        Placement::Proportional,
-                        crate::gui::i18n::tr(Placement::Proportional.label()),
-                    );
-                    ui.selectable_value(
-                        &mut state.settings.placement,
-                        Placement::Resilient,
-                        crate::gui::i18n::tr(Placement::Resilient.label()),
-                    );
-                    ui.selectable_value(
-                        &mut state.settings.placement,
-                        Placement::CapacityFirst,
-                        crate::gui::i18n::tr(Placement::CapacityFirst.label()),
-                    );
-                });
+            crate::gui::widgets::placement_picker(
+                ui,
+                "upload-placement",
+                &mut state.settings.placement,
+            );
             ui.end_row();
 
             ui.label(tr("Data shards (K)"));

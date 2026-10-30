@@ -1,8 +1,9 @@
 //! Rebalance (opt-in, `pool migrate plan --rebalance`): chooses shard moves
-//! that repair account limits, then spread each coding group's data shards
-//! evenly over the accounts (reads fetch data shards first, so this is what
-//! makes them parallel), then close sufficiently large free-ratio gaps without
-//! undoing that spread, e.g. after adding an account. It does not replay fresh-upload placement; use
+//! that repair account limits; with the even-spread method it then spreads
+//! each coding group's data shards evenly over the accounts (reads fetch data
+//! shards first, so this is what makes them parallel); last it closes
+//! sufficiently large free-ratio gaps without undoing that spread, e.g. after
+//! adding an account. It does not replay fresh-upload placement; use
 //! `--reapply-placement` for that. Planning only: moves are stored per entry and the run
 //! relocates exactly those shards to exactly those remotes.
 //!
@@ -121,8 +122,13 @@ impl Rebalancer {
             .max(1);
         let even = size.div_ceil(keys);
         match self.placement {
-            Placement::RoundRobin => Some(even),
-            Placement::FreeRatio => (parity > 0).then(|| parity.max(even)),
+            Placement::RoundRobin | Placement::RoundRobinProtected => Some(even),
+            Placement::FreeRatio | Placement::CapacityFirstProtected => {
+                (parity > 0).then(|| parity.max(even))
+            }
+            // Even spread: never above the even share (protected or not;
+            // the even share is within max(M, even)).
+            Placement::ProportionalProtected => Some(even),
             Placement::FreeRatioUnbounded => None,
             Placement::Resilient => (parity > 0).then_some(parity),
             // Spread each coding group across the accounts for read
@@ -254,7 +260,7 @@ impl Rebalancer {
             //    destination. A rejected pair must not hide another move, and
             //    a data shard never moves to a key holding as many data shards
             //    as its source, so the read spread of 2b stays.
-            if self.placement == Placement::RoundRobin {
+            if self.placement.method() == PlacementMethod::RoundRobin {
                 continue;
             }
             loop {
@@ -335,16 +341,10 @@ impl Rebalancer {
         (moves, reasons)
     }
 
-    /// Placements that spread each coding group over the accounts; the
-    /// packing ones (unbounded free ratio, capacity first) keep their layout.
+    /// The even-spread method spreads data shards (read speed first); the
+    /// other methods keep their own layout.
     fn spreads_data(&self) -> bool {
-        matches!(
-            self.placement,
-            Placement::RoundRobin
-                | Placement::FreeRatio
-                | Placement::Proportional
-                | Placement::Resilient
-        )
+        self.placement.spreads_data()
     }
 
     /// Data shards of the group `members` per account key at their current

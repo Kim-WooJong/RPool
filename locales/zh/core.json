@@ -247,5 +247,20 @@
   "No drives mounted": "没有已挂载的驱动器",
   "Closing the window": "关闭窗口时",
   "Keep mounted drives running in the tray": "在托盘中保持已挂载的驱动器运行",
-  "When off, closing the window unmounts every drive and quits. In the tray, choose Unmount drives and quit to stop them.": "关闭后，关闭窗口会卸载所有驱动器并退出。在托盘中选择“卸载驱动器并退出”即可停止。"
+  "When off, closing the window unmounts every drive and quits. In the tray, choose Unmount drives and quit to stop them.": "关闭后，关闭窗口会卸载所有驱动器并退出。在托盘中选择“卸载驱动器并退出”即可停止。",
+  "Even spread (read speed first)": "均匀分布（读取速度优先）",
+  "Capacity first": "容量优先",
+  "Free-space ratio (provider-outage protection)": "可用空间比例（提供商故障防护）",
+  "Round robin (provider-outage protection)": "轮询（提供商故障防护）",
+  "Even spread (provider-outage protection)": "均匀分布（提供商故障防护）",
+  "Capacity first (provider-outage protection)": "容量优先（提供商故障防护）",
+  "Provider-outage protection": "提供商故障防护",
+  "At most M (parity) shards of each coding group per account, so losing one account keeps files recoverable when the pool has enough accounts. Off: placement may put more on one account.": "每个账户最多存放每个编码组的 M（校验）个分片，账户足够时丢失一个账户仍可恢复文件。关闭后，一个账户可能存放更多分片。",
+  "Count by declared outage groups (strict)": "按已声明的故障组计数（严格）",
+  "Resilient placement: counts shards per declared outage group instead of per account and refuses uploads that would break the bound. Every account needs a declared outage group.": "弹性放置：按已声明的故障组而非账户计数分片，并拒绝会超出上限的上传。每个账户都需要声明故障组。",
+  "Provider-outage protection is not possible with this setup: {k}+{m} needs at least {need} accounts for at most {m} shards each, the pool has {have}. Losing one account may make files unrecoverable.": "此配置无法实现提供商故障防护：{k}+{m} 每个账户最多 {m} 个分片需要至少 {need} 个账户，此池只有 {have} 个。丢失一个账户可能导致文件无法恢复。",
+  "Even spread: each coding group and its data shards are spread evenly across every account with free space, so reads use every account at once; free-space ratios are balanced second. Larger accounts take the remainder once smaller ones fill; no per-account cap for durability. Reed-Solomon parity remains, but losing one account may make a file unrecoverable.": "均匀分布：每个编码组及其数据分片均匀分布到所有有空间的账户，读取时同时使用所有账户；其次再平衡可用空间比例。小账户满后由大账户接收剩余部分，没有用于耐久性的单账户上限。里德-所罗门校验仍在，但丢失一个账户可能导致文件无法恢复。",
+  "Round robin with provider-outage protection: shards cycle over the backing accounts (aliases of one account count together), and one account holds at most M shards of each coding group when the pool has enough accounts.": "轮询＋提供商故障防护：分片按实际账户轮流放置（同一账户的别名合并计数），账户足够时每个账户最多存放每个编码组的 M 个分片。",
+  "Even spread with provider-outage protection: each coding group and its data shards are spread evenly for read speed, and no account takes more than M shards of a group even when smaller accounts are full, as long as the pool has enough accounts.": "均匀分布＋提供商故障防护：为读取速度均匀分布编码组及其数据分片，只要账户足够，即使小账户已满，任何账户也不会接收超过每组 M 个分片。",
+  "Capacity first with provider-outage protection: large account quotas are used first, but one account holds at most M shards of each coding group when the pool has enough accounts.": "容量优先＋提供商故障防护：优先使用大账户配额，但账户足够时每个账户最多存放每个编码组的 M 个分片。"
 }
