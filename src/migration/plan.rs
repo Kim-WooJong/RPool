@@ -78,16 +78,20 @@ pub(crate) fn plan_with_drive(
                 .context("rebalance needs the quota of every pool account")?;
         options.rebalancer = Some(Arc::new(rebalancer));
         phases.lap("account quotas");
-        note.push(format!("Rebalance: shards of unaffected archives may move to satisfy the {} placement or an explicit account shard limit. Additional free-ratio moves require a destination more than {:.0} percentage points freer and a whole-shard move that does not reverse the ratio gap. The old account's space is free only after the originals are retired.", target.placement.cli_value(), super::rebalance::MIN_GAP * 100.0));
+        note.push(format!("Rebalance: shards of unaffected archives may move to satisfy the {} placement or an explicit account shard limit, then to spread each coding group's data shards evenly over the accounts (reads fetch data shards first). Additional free-ratio moves require a destination more than {:.0} percentage points freer and a whole-shard move that does not reverse the ratio gap. The old account's space is free only after the originals are retired.", target.placement.cli_value(), super::rebalance::MIN_GAP * 100.0));
     }
     let options = &options;
     let (mut plan, mut listed) = plan_listed(&cloud, pool, target, &inventory, options, &replaced)?;
     plan.notes.append(&mut note);
-    if options.skip_drive {
-        return Ok((plan, None));
+    let drive = if options.skip_drive {
+        None
+    } else {
+        let source = super::drive_source::CloudDrive::new(rclone, pool, &plan.target);
+        super::drive_plan::plan_drive(&cloud, &source, &mut plan, &mut listed, options)?
+    };
+    if let Some(rebalancer) = &options.rebalancer {
+        plan.notes.extend(rebalancer.summary());
     }
-    let source = super::drive_source::CloudDrive::new(rclone, pool, &plan.target);
-    let drive = super::drive_plan::plan_drive(&cloud, &source, &mut plan, &mut listed, options)?;
     Ok((plan, drive))
 }
 

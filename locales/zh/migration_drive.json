@@ -33,7 +33,7 @@
   "original layout": "原始布局",
   "layout {epoch}": "布局 {epoch}",
   "Rebalance existing data": "重新平衡现有数据",
-  "Moves shards only when account limits or a sufficiently large free-space ratio gap call for it. A placement change alone may still plan zero moves.": "仅在超出账户分片限制或可用空间比例差距足够大时移动分片。只更改放置策略仍可能规划出零次移动。",
+  "Moves shards when account limits call for it, then spreads each coding group's data shards evenly over the accounts (faster reads), then closes sufficiently large free-space ratio gaps without undoing that spread. The plan notes show every account before and after.": "在账户限制需要时移动分片，然后将每个编码组的数据分片均匀分布到各账户（加快读取），再在不破坏该分布的前提下缩小足够大的可用空间比例差距。计划备注会显示每个账户移动前后的情况。",
   "Reapply placement (re-upload all files)": "重新应用放置策略（重新上传所有文件）",
   "Restores and fully re-uploads every nonempty selected file using the pool's saved placement. This can transfer all data and needs temporary local disk and additional cloud space until originals are retired.": "按存储池保存的放置策略恢复并重新上传所有非空的已选文件。这可能传输全部数据，且在清理原始文件前需要临时本地磁盘和额外云端空间。",
   "Transfer by storage": "按存储查看传输",

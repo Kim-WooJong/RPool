@@ -227,9 +227,12 @@ pub(crate) enum MigrateCommands {
         /// Leave the pool's drive out (archives only).
         #[arg(long)]
         no_drive: bool,
-        /// Move shards of unaffected archives when account limits or a
-        /// sufficiently large free-space-ratio gap call for it. A placement
-        /// change alone may still plan zero moves. Needs every account's quota.
+        /// Move shards of unaffected archives when account limits call for it,
+        /// then spread each coding group's data shards evenly over the
+        /// accounts (reads fetch data shards first), then close sufficiently
+        /// large free-space-ratio gaps without undoing that spread. The plan
+        /// notes list every account's shards and free share before and after.
+        /// Needs every account's quota.
         #[arg(long)]
         rebalance: bool,
         /// Re-upload every nonempty existing file using the saved pool's

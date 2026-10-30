@@ -33,7 +33,7 @@
   "original layout": "元の構成",
   "layout {epoch}": "構成 {epoch}",
   "Rebalance existing data": "既存データのリバランス",
-  "Moves shards only when account limits or a sufficiently large free-space ratio gap call for it. A placement change alone may still plan zero moves.": "アカウントごとのシャード制限を超える場合や、空き容量率に十分な差がある場合にのみ移動します。配置方式の変更だけでは移動が 0 件になることがあります。",
+  "Moves shards when account limits call for it, then spreads each coding group's data shards evenly over the accounts (faster reads), then closes sufficiently large free-space ratio gaps without undoing that spread. The plan notes show every account before and after.": "アカウント上限が必要とするときにシャードを移動し、次に各コーディンググループのデータシャードをアカウントに均等に分散します(読み取り高速化)。その後、空き容量比率の差が十分大きければ、その分散を崩さない範囲で調整します。計画メモにアカウントごとの前後が表示されます。",
   "Reapply placement (re-upload all files)": "配置を再適用（全ファイルを再アップロード）",
   "Restores and fully re-uploads every nonempty selected file using the pool's saved placement. This can transfer all data and needs temporary local disk and additional cloud space until originals are retired.": "選択した空でないファイルを復元し、保存済みのプール配置方式で全て再アップロードします。全データの転送が発生し、元データを整理するまで一時的なローカルディスクと追加のクラウド容量が必要です。",
   "Transfer by storage": "ストレージ別転送",

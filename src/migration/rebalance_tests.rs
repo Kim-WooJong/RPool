@@ -119,7 +119,8 @@ fn a_balanced_pool_moves_nothing() {
         quota("c", 5 * GIB, 10 * GIB),
     ];
     let rb = Rebalancer::new(&target, &quotas, &|_| None).unwrap();
-    let m = manifest(&["a", "a", "b", "b", "c", "c"], GIB / 16);
+    // Data a,b,c,a and parity b,c: two shards and at most two data shards each.
+    let m = manifest(&["a", "b", "c", "a", "b", "c"], GIB / 16);
     assert!(rb.plan(&m, &BTreeSet::new()).0.is_empty());
 }
 
@@ -154,6 +155,148 @@ fn balance_tries_another_source_when_the_fullest_one_would_overshoot() {
     assert!(moves.values().all(|remote| remote == "c:"), "{moves:?}");
 }
 
+/// Shard locations after applying `moves` to `m`.
+fn placed(m: &Manifest, moves: &Moves) -> Vec<String> {
+    m.shards
+        .iter()
+        .map(|s| {
+            moves
+                .get(&s.index)
+                .cloned()
+                .unwrap_or_else(|| s.remote.clone())
+        })
+        .collect()
+}
+
+/// Data shards per remote after the moves.
+fn data_on(m: &Manifest, moves: &Moves, remote: &str) -> usize {
+    placed(m, moves)
+        .iter()
+        .zip(&m.shards)
+        .filter(|(r, s)| *r == remote && s.kind == ShardKind::Data)
+        .count()
+}
+
+/// RS 9+3 like the user's pool: data slots 0..9, parity 9..12.
+fn manifest_9_3(remotes: &[&str], size: u64) -> Manifest {
+    let mut m = manifest(&remotes[..6], size);
+    m.coding.as_mut().unwrap().data_shards = 9;
+    m.coding.as_mut().unwrap().parity_shards = 3;
+    m.shards = remotes
+        .iter()
+        .enumerate()
+        .map(|(i, r)| Shard {
+            index: i as u32,
+            offset: 0,
+            size,
+            remote: format!("{r}:"),
+            object: format!("{r}:a/{i}"),
+            blake3: String::new(),
+            kind: if i < 9 {
+                ShardKind::Data
+            } else {
+                ShardKind::Parity
+            },
+            group: 0,
+            slot: i as u16,
+        })
+        .collect();
+    m
+}
+
+#[test]
+fn full_accounts_swap_data_and_parity_so_reads_hit_every_account() {
+    // 9+3 over three accounts at the spread limit 4/4/4, but c holds three of
+    // the parity shards: reads fetch 4 data shards from a and b, 1 from c.
+    // Swapping keeps every account at 4 shards and evens data out to 3/3/3.
+    let mut target = pool(Placement::Proportional, &["a", "b", "c"]);
+    target.data_shards = 9;
+    target.parity_shards = 3;
+    let quotas = [
+        quota("a", 5 * GIB, 10 * GIB),
+        quota("b", 5 * GIB, 10 * GIB),
+        quota("c", 5 * GIB, 10 * GIB),
+    ];
+    let rb = Rebalancer::new(&target, &quotas, &|_| None).unwrap();
+    let layout = ["a", "a", "a", "a", "b", "b", "b", "b", "c", "c", "c", "c"];
+    let m = manifest_9_3(&layout, GIB / 16);
+    let (moves, reasons) = rb.plan(&m, &BTreeSet::new());
+    assert_eq!(moves.len(), 4, "two swaps: {moves:?}");
+    for who in ["a:", "b:", "c:"] {
+        assert_eq!(
+            data_on(&m, &moves, who),
+            3,
+            "{who}: {:?}",
+            placed(&m, &moves)
+        );
+        assert_eq!(placed(&m, &moves).iter().filter(|r| *r == who).count(), 4);
+    }
+    assert!(
+        reasons.iter().any(|r| r.contains("read speed")),
+        "{reasons:?}"
+    );
+    // Idempotent: the new layout needs nothing more.
+    let next: Vec<String> = placed(&m, &moves)
+        .iter()
+        .map(|s| s.trim_end_matches(':').to_owned())
+        .collect();
+    let next: Vec<&str> = next.iter().map(String::as_str).collect();
+    let rb2 = Rebalancer::new(&target, &quotas, &|_| None).unwrap();
+    assert!(rb2
+        .plan(&manifest_9_3(&next, GIB / 16), &BTreeSet::new())
+        .0
+        .is_empty());
+    // The preview lists every account before and after.
+    let summary = rb.summary().join("\n");
+    assert!(
+        summary.contains("c: data shards 1 -> 3, parity shards 3 -> 1"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("a: data shards 4 -> 3, parity shards 0 -> 1"),
+        "{summary}"
+    );
+}
+
+#[test]
+fn free_ratio_balance_does_not_undo_the_data_spread() {
+    // 4+2 over four accounts (spread limit 2 each); d was just added and is
+    // empty. Data a,b,c,a and parity b,c: first a data shard leaves a for d
+    // (read spread), then free-ratio balance sends parity, never data, to d.
+    let target = pool(Placement::Proportional, &["a", "b", "c", "d"]);
+    let quotas = [
+        quota("a", GIB, 10 * GIB),
+        quota("b", GIB, 10 * GIB),
+        quota("c", GIB, 10 * GIB),
+        quota("d", 10 * GIB, 10 * GIB),
+    ];
+    let rb = Rebalancer::new(&target, &quotas, &|_| None).unwrap();
+    let m = manifest(&["a", "b", "c", "a", "b", "c"], GIB / 4);
+    let (moves, reasons) = rb.plan(&m, &BTreeSet::new());
+    let after = placed(&m, &moves);
+    for who in ["a:", "b:", "c:", "d:"] {
+        assert_eq!(data_on(&m, &moves, who), 1, "{who}: {after:?}");
+    }
+    assert_eq!(after.iter().filter(|r| *r == "d:").count(), 2, "{after:?}");
+    assert!(
+        reasons.iter().any(|r| r.contains("read speed")),
+        "{reasons:?}"
+    );
+    assert!(
+        reasons.iter().any(|r| r.contains("more free space")),
+        "{reasons:?}"
+    );
+}
+
+#[test]
+fn packing_placements_keep_their_data_layout() {
+    let target = pool(Placement::CapacityFirst, &["a", "b"]);
+    let quotas = [quota("a", 5 * GIB, 10 * GIB), quota("b", 5 * GIB, 10 * GIB)];
+    let rb = Rebalancer::new(&target, &quotas, &|_| None).unwrap();
+    let m = manifest(&["a", "a", "a", "a", "b", "b"], GIB / 16);
+    assert!(rb.plan(&m, &BTreeSet::new()).0.is_empty());
+}
+
 #[test]
 fn over_cap_accounts_give_up_shards_even_without_a_free_space_gap() {
     // Round robin over three accounts: at most 2 shards of the group each.
@@ -166,8 +309,14 @@ fn over_cap_accounts_give_up_shards_even_without_a_free_space_gap() {
     let rb = Rebalancer::new(&target, &quotas, &|_| None).unwrap();
     let m = manifest(&["a", "a", "a", "a", "b", "b"], GIB / 16);
     let (moves, _) = rb.plan(&m, &BTreeSet::new());
-    assert_eq!(moves.len(), 2, "{moves:?}");
-    assert_eq!(count(&moves, "c:"), 2);
+    // Two shards leave a for c; b held only parity, so one of its parity
+    // shards then trades places with a data shard for the read spread.
+    let after = placed(&m, &moves);
+    for who in ["a:", "b:", "c:"] {
+        assert_eq!(after.iter().filter(|r| *r == who).count(), 2, "{after:?}");
+        assert!(data_on(&m, &moves, who) >= 1, "{who} has data: {after:?}");
+    }
+    assert_eq!(count(&moves, "c:"), 2, "{moves:?}");
 }
 
 #[test]

@@ -33,7 +33,7 @@
   "original layout": "원래 구성",
   "layout {epoch}": "구성 {epoch}",
   "Rebalance existing data": "기존 데이터 리밸런스",
-  "Moves shards only when account limits or a sufficiently large free-space ratio gap call for it. A placement change alone may still plan zero moves.": "계정별 조각 제한을 넘거나 여유 공간 비율 차이가 충분히 클 때만 조각을 옮겨요. 배치 방식만 바꾸면 이동 0건이 나올 수 있어요.",
+  "Moves shards when account limits call for it, then spreads each coding group's data shards evenly over the accounts (faster reads), then closes sufficiently large free-space ratio gaps without undoing that spread. The plan notes show every account before and after.": "계정 한도가 필요로 할 때 샤드를 옮기고, 이어서 코딩 그룹마다 데이터 샤드를 계정에 고르게 나눠요(읽기 속도 향상). 그다음 빈 공간 비율 차이가 충분히 크면 그 분배를 깨지 않는 선에서 맞춰요. 계획 메모에 계정별 이동 전후가 표시돼요.",
   "Reapply placement (re-upload all files)": "배치 방식 다시 적용(모든 파일 재업로드)",
   "Restores and fully re-uploads every nonempty selected file using the pool's saved placement. This can transfer all data and needs temporary local disk and additional cloud space until originals are retired.": "선택한 비어 있지 않은 파일을 복원한 뒤 풀에 저장된 배치 방식으로 전부 다시 업로드해요. 전체 데이터를 전송할 수 있으며, 원본 정리 전까지 임시 로컬 디스크와 추가 클라우드 공간이 필요해요.",
   "Transfer by storage": "스토리지별 전송",

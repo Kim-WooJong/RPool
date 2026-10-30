@@ -49,7 +49,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, _task: &mut TaskRunn
                 ui.label(tr("Placement"));
                 ui.vertical(|ui| {
                     if ui.checkbox(&mut state.migration.rebalance, tr("Rebalance existing data"))
-                        .on_hover_text(tr("Moves shards only when account limits or a sufficiently large free-space ratio gap call for it. A placement change alone may still plan zero moves."))
+                        .on_hover_text(tr("Moves shards when account limits call for it, then spreads each coding group's data shards evenly over the accounts (faster reads), then closes sufficiently large free-space ratio gaps without undoing that spread. The plan notes show every account before and after."))
                         .changed() && state.migration.rebalance
                     {
                         state.migration.reapply_placement = false;
