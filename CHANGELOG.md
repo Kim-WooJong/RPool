@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.22.0 — 2026-11-05
+
+- Seeks no longer wait for a whole shard. A drive read that starts more than
+  1 MiB past where a missing shard's download stands (video seek, random
+  access) is served by ranged requests in aligned 4 MiB chunks held in memory
+  (at most 24), and the next two chunks are read ahead in the background. The
+  full download keeps running and is still the only way bytes enter the
+  verified shard cache. A ranged read that fails or returns a different length
+  falls back to the full download and its reconstruction. Applies to WinFsp,
+  FUSE/macFUSE and WebDAV.
+- New drive option "Download only the needed parts" (Drive › Options › Cache &
+  pending writes › Seeks; `rpool mount --seek-ranged-only`), off by default and
+  saved per pool: a seek then reads only the needed chunks and does not start
+  the shard's full download, for sparse access with less traffic. Those chunks
+  are not cached. Reads from a shard's start and sequential readahead still
+  download whole shards.
+
+Integrity: ranged chunks are authenticated per 64 KiB block by rclone crypt
+(tampered bytes are rejected), the same trade-off as serving a download's
+prefix; the shard's BLAKE3 check still guards everything that enters the cache.
+
+Validation: the full local suite (1,174 passed) including new tests for seeks
+into a stalled shard, reads near the download, short ranged responses and the
+ranged-only option; a real rclone crypt ranged read matched the source and a
+tampered object was rejected; a warnings-denied release build and
+warnings-denied Windows and Linux cross checks passed. The ignored real-rclone
+test `daemon_reads_equal_subprocess_reads` fails on its md5 stat with this
+machine's rclone, as on 2.21.0. Not yet run against the live pool.
+
+Compatibility: no format changes. One new per-pool GUI setting
+(`seek_ranged_only`, default off); older versions ignore it.
+
 ## 2.21.0 — 2026-10-30
 
 - Placement is now a method plus one switch. Every placement picker (pool
