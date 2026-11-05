@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.22.1 — 2026-11-05
 
 - Native drive edit starts reuse already durable ancestry instead of saving an
   unchanged namespace again. First-base persistence, fsync/seal guarantees and
@@ -14,9 +14,18 @@
   plus local comparison harnesses. See `docs/MOUNT_IDE_PERFORMANCE.md` for
   reproducible checks, observed work-count reductions and remaining limits.
 
-Compatibility: no format, protocol or settings changes. Real Windows VSCode
-responsiveness is not yet measured. WinFsp's outer create/rename guard, required
-flush/hash/copy work and uncached cloud latency remain. No release is published.
+Validation: the full local suite (1,196 passed, 65 ignored; the
+process-global closed-pipe console test run in its own process), the three
+ignored release-mode synthetic benchmarks, a warnings-denied release build and
+warnings-denied Windows and Linux GNU cross checks passed on macOS. Against the
+identical 2.22.0 harness, 20 direct saves need 21 instead of 40 namespace
+saves and 20 temporary-file replacements 41 instead of 100. These are local
+work counts, not a Windows speedup measurement: no WinFsp mount, Windows VSCode
+or cloud run has been performed yet; that is the next verification step.
+
+Compatibility: no format, protocol or settings changes. WinFsp's outer
+create/rename guard, required flush/hash/copy work and uncached cloud latency
+remain.
 
 ## 2.22.0 — 2026-11-05
 

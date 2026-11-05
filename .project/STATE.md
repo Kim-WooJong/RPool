@@ -10,20 +10,21 @@ test only in working copies under `projects/rpool/` with `CARGO_TARGET_DIR`
 outside the source tree. Windows is the primary intended GUI platform; executed
 tests run on macOS and Linux (Docker). This Mac Studio currently has no RPool pool
 in use: it is for development and local/fake-storage testing, not live-pool
-validation. Version 2.22.0 (2026-11-05); later work goes under
+validation. Version 2.22.1 (2026-11-05); later work goes under
 "Unreleased" in CHANGELOG.md, which is the detailed history.
 
 ## Current Status
 
-Windows IDE metadata optimizations after 2.22.0 are implemented locally and
-validated without a live mount: durable-base reuse at edit start, shorter
-drive namespace critical sections, bounded case-name/listing caches, and
-fast repeated read observation. Cache tokens include per-core monotonic
-summary stamps/presence to catch create/delete and size A→B→A races; changed
-read ancestry saves publish in save order. Persistence, seal/flush, conflict
-and WinFsp operation-guard guarantees are unchanged. Windows VSCode runtime
-performance remains unmeasured. No push or release is authorized by this task.
-See `docs/MOUNT_IDE_PERFORMANCE.md` for local comparison and acceptance steps.
+Version 2.22.1 (patch, prepared at the user's request for Windows testing)
+contains the Windows IDE metadata optimizations, validated locally without a
+live mount: durable-base reuse at edit start, shorter drive namespace critical
+sections, bounded case-name/listing caches, and fast repeated read
+observation. Cache tokens include per-core monotonic summary stamps/presence to
+catch create/delete and size A→B→A races; changed read ancestry saves publish
+in save order. Persistence, seal/flush, conflict and WinFsp operation-guard
+guarantees are unchanged. Windows VSCode runtime performance remains unmeasured
+until the user tests 2.22.1 on Windows. See `docs/MOUNT_IDE_PERFORMANCE.md` for
+local comparison and acceptance steps.
 
 macOS mount hang fix (2026-10-15, source + local tests only). Reported: a
 mount works, then unmounts by itself and Finder/terminal/the Mac freeze. The
@@ -185,6 +186,15 @@ Known limits:
 
 ## Latest validation
 
+2026-11-05 2.22.1 release candidate (version/doc changes only over baf9ff1):
+`cargo test --locked --all-targets` with the console pipe test run separately
+(1,195 + 1 passed, 65 ignored), the three ignored release-mode synthetic
+benchmarks (begin 0, direct 21, temp replacement 41 namespace saves; 17-page
+listing 1 listing), a warnings-denied release build reporting `rpool 2.22.1`,
+and warnings-denied Windows GNU and Linux GNU all-target checks (1.98.1)
+passed on macOS. Real Windows VSCode/WinFsp verification is pending the
+user's test; no cloud or live mount was used.
+
 2026-11-05 IDE mount optimization: the final development source passed
 `cargo test --locked --all-targets` with the process-global console pipe test
 run separately (1,195 + 1 passed, 65 ignored), a warnings-denied release build,
@@ -260,14 +270,15 @@ not repeated for this change.
 
 ## Resume
 
-For the Windows VSCode report, start with the locally implemented changes in
+For the Windows VSCode report, start with the 2.22.1 changes in
 `src/mount/fs_core/{core,slot,view_cache}.rs`,
 `src/mount/frontend/{names,winfsp/filesystem}.rs` and
-`src/mount/virtual_drive/write.rs`. Local gates passed; next compare the same
-workspace/cache state on the affected Windows PC against 2.22.0, as described
-in `docs/MOUNT_IDE_PERFORMANCE.md`. WinFsp's outer create/rename guard and
-required baseline copy/hash/fsync work remain costs, not proven fixes.
-Do not publish or install a release without a separate user request.
+`src/mount/virtual_drive/write.rs`. Local gates passed; the user will test
+2.22.1 on the affected Windows PC against 2.22.0 with the same workspace/cache
+state, as described in `docs/MOUNT_IDE_PERFORMANCE.md`. WinFsp's outer
+create/rename guard and required baseline copy/hash/fsync work remain costs,
+not proven fixes. Do not install a release on this Mac without a separate user
+request.
 
 For the cloud-folder feature, install the updated build on two Windows PCs
 with the same pool and verify Explorer mkdir, delete-last-file, move-out,

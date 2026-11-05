@@ -2,9 +2,9 @@
 
 ## Scope
 
-The unreleased change after 2.22.0 targets repeated metadata operations from
-Windows IDEs, Git and build tools. It does not make a remote drive equivalent
-to a local SSD. No namespace, intent, pool or cloud format changes are needed.
+Version 2.22.1 targets repeated metadata operations from Windows IDEs, Git and
+build tools. It does not make a remote drive equivalent to a local SSD. No
+namespace, intent, pool or cloud format changes are needed.
 
 - Beginning an edit no longer saves an unchanged namespace when its selected
   ancestry is already durable. The first base is still saved before success;
@@ -89,9 +89,9 @@ remain. Cache tokens scan open write slots; namespace sync/read-ancestry changes
 can clear caches, reducing hit rate. No WinFsp volume caching/flush parameters
 were relaxed.
 
-On the affected Windows PC, compare the same workspace and cache state against
-2.22.0: folder-open/indexing time, `git status`, repeated save and temp-file
-replacement, and a build producing many small files. Confirm create/delete/
-rename, size changes, case ambiguity and peer-PC changes appear in Explorer and
-`dir`; verify saved bytes after remount and interrupted-save recovery. Record
-these separately from the local synthetic checks.
+On the affected Windows PC, compare 2.22.1 with 2.22.0 on the same workspace
+and cache state: folder-open/indexing time, `git status`, repeated save and
+temp-file replacement, and a build producing many small files. Confirm
+create/delete/rename, size changes, case ambiguity and peer-PC changes appear
+in Explorer and `dir`; verify saved bytes after remount and interrupted-save
+recovery. Record these separately from the local synthetic checks.
