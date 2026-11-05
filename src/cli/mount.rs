@@ -213,6 +213,13 @@ pub(crate) struct MountArgs {
     /// Maximum local virtual write spool in GiB (includes partial writes); growth fails safely at the limit.
     #[arg(long, default_value_t = 64, value_parser = clap::value_parser!(u64).range(1..))]
     pub(crate) spool_gib: u64,
+    /// A jump into the middle of a missing shard (video seek, random access)
+    /// reads only the needed 4 MiB chunks and does not download the whole
+    /// shard. Less traffic for sparse reads; those parts are not cached.
+    /// Reads from a shard's start and sequential readahead still download
+    /// whole shards.
+    #[arg(long)]
+    pub(crate) seek_ranged_only: bool,
     /// Trim only verified clean cache; never delete remote history or dirty spool.
     #[arg(long, conflicts_with_all = ["capacity_only", "sync_only"])]
     pub(crate) cleanup_cache: bool,

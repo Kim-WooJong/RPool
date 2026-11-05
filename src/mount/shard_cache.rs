@@ -93,6 +93,11 @@ struct Inner {
     serve_prefix: bool,
     /// In-memory chunks of ranged reads (seeks into missing shards).
     windows: Arc<ranged::Windows>,
+    /// A seek into a missing shard reads only ranged chunks and does not start
+    /// the shard's full download (`--seek-ranged-only`). Reads from a shard's
+    /// start, and sequential readahead of later shards, still download whole
+    /// shards.
+    ranged_only: std::sync::atomic::AtomicBool,
     /// Index, flights and readahead state.
     state: Mutex<State>,
     /// Signalled whenever reserved, pinned or published bytes change.
@@ -152,6 +157,7 @@ impl ShardCache {
             disk_floor: DISK_FLOOR,
             serve_prefix: true,
             windows: Arc::new(ranged::Windows::default()),
+            ranged_only: std::sync::atomic::AtomicBool::new(false),
             space: Condvar::new(),
             verified: Mutex::new(BTreeMap::new()),
         };
@@ -164,6 +170,13 @@ impl ShardCache {
     #[cfg(test)]
     fn path(&self, s: &Shard) -> PathBuf {
         self.inner.path(s)
+    }
+    /// Seeks into missing shards read only the needed chunks, without the
+    /// shard's full download (`--seek-ranged-only`). Off by default.
+    pub(crate) fn set_seek_ranged_only(&self, on: bool) {
+        self.inner
+            .ranged_only
+            .store(on, std::sync::atomic::Ordering::Relaxed);
     }
     /// Read with verified bytes only; missing shards are fetched by the
     /// calling thread. For bulk copies (migration, recovery) and tests.
@@ -241,6 +254,10 @@ impl ShardCache {
                     if k > 0 && planned > budget {
                         break;
                     }
+                    // A seek deep into this shard is served by ranged chunks.
+                    if self.inner.seek_only(offset.saturating_sub(next.offset)) {
+                        continue;
+                    }
                     self.inner
                         .start(reader, m, next, Admission::Demand, workers, retries)?;
                 }
@@ -295,6 +312,13 @@ fn remove_partials(root: &Path) -> Result<u64> {
 }
 
 impl Inner {
+    /// Whether a background read starting `within` bytes into a missing shard is
+    /// a seek served by ranged chunks alone (no full download).
+    fn seek_only(&self, within: u64) -> bool {
+        self.serve_prefix
+            && within >= ranged::NEAR
+            && self.ranged_only.load(std::sync::atomic::Ordering::Relaxed)
+    }
     /// Path of a shard's cache entry.
     fn path(&self, s: &Shard) -> PathBuf {
         self.root.join(entry_name(s))
@@ -584,6 +608,13 @@ impl Inner {
                         }
                     }
                     Fetch::Background(reader) => {
+                        if self.seek_only(within)
+                            && self
+                                .windows
+                                .read(reader, &name, s, within, n, out, retries)?
+                        {
+                            return Ok(());
+                        }
                         self.start(reader, m, s, Admission::Demand, workers, retries)?;
                     }
                 },

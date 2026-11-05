@@ -87,6 +87,8 @@ pub(crate) struct MountProfile {
     pub(crate) frontend: crate::cli::Frontend,
     /// Mount read-only with a native frontend.
     pub(crate) native_read_only: bool,
+    /// Seeks read only the needed chunks, without whole-shard downloads.
+    pub(crate) seek_ranged_only: bool,
 }
 
 impl Default for MountProfile {
@@ -104,6 +106,7 @@ impl Default for MountProfile {
             cache: Default::default(),
             frontend: Default::default(),
             native_read_only: Default::default(),
+            seek_ranged_only: false,
         }
     }
 }

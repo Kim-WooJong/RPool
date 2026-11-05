@@ -60,6 +60,7 @@ pub(crate) fn run(rclone: &str, args: crate::cli::MountArgs) -> Result<()> {
         }
     };
     durable_json(&drive.root.join("pool-worker.json"), &worker)?;
+    drive.cache.set_seek_ranged_only(args.seek_ranged_only);
     if let Some(workers) = args.workers {
         // An execution knob of this PC; the pool keeps its layout.
         drive.policy.workers = usize::try_from(workers).unwrap_or(usize::MAX);

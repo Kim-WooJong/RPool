@@ -221,5 +221,8 @@
   "{size} MiB shards · {data} data + {parity} parity · {placement}": "分片 {size} MiB · 数据 {data} + 校验 {parity} · {placement}",
   "{size} can be written now": "现在可写入 {size}",
   "{undeclared} account(s) have no declared identity; declare them in Storage › Pools › Account identities.": "{undeclared} 个账户未声明身份；请在 存储 › 存储池 › 账户标识 中声明。",
-  "· native": "· 原生"
+  "· native": "· 原生",
+  "Seeks": "跳转",
+  "Download only the needed parts": "只下载需要的部分",
+  "Jumping into the middle of a file (video seek, random access) downloads only the needed 4 MiB parts, not the whole 64 MiB shard. Less traffic for sparse reads, but those parts are not kept in the shard cache. Reading from a shard's start and continued playback still download whole shards.": "跳到文件中间时（视频跳转、随机访问）只下载需要的 4 MiB 部分，而不是整个 64 MiB 分片。稀疏读取的流量更少，但这些部分不会保留在分片缓存中。从分片开头读取或继续播放时仍会下载整个分片。"
 }

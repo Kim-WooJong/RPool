@@ -47,6 +47,10 @@ fn cache(ui: &mut egui::Ui, form: &mut MountForm) {
                 ui.label(tr("Background interval")).on_hover_text(tr("How often other PCs' changes are fetched. Saved files start uploading at once. Capacity is measured at least every 60 s regardless."));
                 ui.add(egui::DragValue::new(&mut form.interval_seconds).range(2..=86400).suffix(" s"));
                 ui.end_row();
+                ui.label(tr("Seeks"));
+                ui.checkbox(&mut form.seek_ranged_only, tr("Download only the needed parts"))
+                    .on_hover_text(tr("Jumping into the middle of a file (video seek, random access) downloads only the needed 4 MiB parts, not the whole 64 MiB shard. Less traffic for sparse reads, but those parts are not kept in the shard cache. Reading from a shard's start and continued playback still download whole shards."));
+                ui.end_row();
             });
             theme::hint(
                 ui,

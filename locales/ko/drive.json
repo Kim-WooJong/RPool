@@ -221,5 +221,8 @@
   "{size} MiB shards · {data} data + {parity} parity · {placement}": "샤드 {size} MiB · 데이터 {data} + 패리티 {parity} · {placement}",
   "{size} can be written now": "지금 {size} 쓸 수 있어요",
   "{undeclared} account(s) have no declared identity; declare them in Storage › Pools › Account identities.": "{undeclared}개 계정에 선언된 식별 정보가 없어요. 스토리지 › 풀 › 계정 식별 정보에서 선언하세요.",
-  "· native": "· 네이티브"
+  "· native": "· 네이티브",
+  "Seeks": "탐색",
+  "Download only the needed parts": "필요한 부분만 받기",
+  "Jumping into the middle of a file (video seek, random access) downloads only the needed 4 MiB parts, not the whole 64 MiB shard. Less traffic for sparse reads, but those parts are not kept in the shard cache. Reading from a shard's start and continued playback still download whole shards.": "파일 중간으로 건너뛸 때(동영상 탐색, 임의 접근) 64MB 샤드 전체가 아니라 필요한 4MB 부분만 받아요. 띄엄띄엄 읽을 때 트래픽이 줄지만, 그 부분은 샤드 캐시에 남지 않아요. 샤드 처음부터 읽거나 계속 재생할 때는 여전히 샤드 전체를 받아요."
 }

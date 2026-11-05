@@ -58,6 +58,8 @@ pub(crate) struct MountForm {
     pub(super) frontend: crate::cli::Frontend,
     /// Mount read-only (`--native-read-only`, native frontends only).
     pub(super) native_read_only: bool,
+    /// Seeks read only the needed chunks (`--seek-ranged-only`).
+    pub(super) seek_ranged_only: bool,
     /// Drive › Maintenance › Workspace backups.
     pub(super) backups: super::backups_card::BackupsView,
     /// Drive › Maintenance › Pending uploads.
@@ -98,6 +100,7 @@ impl Default for MountForm {
             recovery_reprocess_plan: String::new(),
             frontend: Default::default(),
             native_read_only: false,
+            seek_ranged_only: false,
             backups: Default::default(),
             pending_queue: Default::default(),
         }
@@ -178,6 +181,7 @@ impl MountForm {
             cache: self.cache_settings(),
             frontend: self.frontend,
             native_read_only: self.native_read_only,
+            seek_ranged_only: self.seek_ranged_only,
         }
     }
 
@@ -219,6 +223,7 @@ impl MountForm {
         self.interval_seconds = profile.interval_seconds;
         self.frontend = profile.frontend;
         self.native_read_only = profile.native_read_only;
+        self.seek_ranged_only = profile.seek_ranged_only;
         self.cache_gib = profile.cache.shard_gib;
         self.vfs_cache_gib = profile.cache.native_gib;
         self.cache_min_free_gib = profile.cache.min_free_gib;
@@ -254,6 +259,9 @@ impl MountForm {
         ))];
         if self.native_read_only && self.native_selected() {
             args.push("--native-read-only".into());
+        }
+        if self.seek_ranged_only {
+            args.push("--seek-ranged-only".into());
         }
         args
     }

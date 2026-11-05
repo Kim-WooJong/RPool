@@ -522,3 +522,30 @@ fn ranged_reads_reject_a_short_object_and_fall_back() {
         payload[5 << 20..(5 << 20) + 8]
     );
 }
+
+#[test]
+fn ranged_only_seeks_skip_the_full_download() {
+    let payload = big_payload();
+    let f = plain(&[&payload], |_| {});
+    let temp = tempfile::tempdir().unwrap();
+    let cache = ShardCache::new(temp.path().into(), 64 << 20).unwrap();
+    cache.set_seek_ranged_only(true);
+    let at = (7 << 20) + 99;
+    let bytes = cache
+        .read_shared(&f.reader, &f.manifest, at, 4096, 2, 0)
+        .unwrap();
+    assert_eq!(bytes, payload[at as usize..at as usize + 4096]);
+    // Ranged chunks (the read plus readahead), never a full download.
+    assert!(eventually(|| cache.inner.windows.ready_chunks() >= 2));
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(cache.inner.state().flights.is_empty());
+    assert!(!cache.path(&f.manifest.shards[0]).exists());
+    // A read from the shard's start downloads (and caches) the whole shard.
+    assert_eq!(
+        cache
+            .read_shared(&f.reader, &f.manifest, 0, 16, 2, 0)
+            .unwrap(),
+        payload[..16]
+    );
+    assert!(eventually(|| cache.path(&f.manifest.shards[0]).exists()));
+}

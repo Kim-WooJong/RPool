@@ -221,5 +221,8 @@
   "{size} MiB shards · {data} data + {parity} parity · {placement}": "シャード {size} MiB · データ {data} + パリティ {parity} · {placement}",
   "{size} can be written now": "現在 {size} 書き込めます",
   "{undeclared} account(s) have no declared identity; declare them in Storage › Pools › Account identities.": "{undeclared} 個のアカウントに ID 情報が宣言されていません。ストレージ › プール › アカウント識別情報 で宣言してください。",
-  "· native": "· ネイティブ"
+  "· native": "· ネイティブ",
+  "Seeks": "シーク",
+  "Download only the needed parts": "必要な部分だけダウンロード",
+  "Jumping into the middle of a file (video seek, random access) downloads only the needed 4 MiB parts, not the whole 64 MiB shard. Less traffic for sparse reads, but those parts are not kept in the shard cache. Reading from a shard's start and continued playback still download whole shards.": "ファイルの途中に移動したとき（動画のシーク、ランダムアクセス）、64 MiB のシャード全体ではなく必要な 4 MiB 部分だけをダウンロードします。まばらな読み取りの通信量は減りますが、その部分はシャードキャッシュに残りません。シャードの先頭からの読み取りや再生の継続では、引き続きシャード全体をダウンロードします。"
 }
