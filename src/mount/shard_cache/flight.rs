@@ -90,6 +90,19 @@ impl Flight {
         p.written = 0;
         p.served
     }
+    /// Bytes of the direct download written so far (0 without a stream).
+    pub(super) fn written(&self) -> u64 {
+        let p = self.progress();
+        if p.partial.is_some() {
+            p.written
+        } else {
+            0
+        }
+    }
+    /// A reader was served unverified ranged bytes of this shard.
+    pub(super) fn mark_served(&self) {
+        self.progress().served = true;
+    }
     /// Ends the flight with `outcome` and wakes every waiter.
     pub(super) fn finish(&self, outcome: Outcome) {
         let mut p = self.progress();

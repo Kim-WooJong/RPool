@@ -122,6 +122,7 @@ impl Inner {
                 temp.persist(self.path(s)).map_err(|e| e.error)?;
                 self.remember_verified(s)?;
                 self.admit_entry(s)?;
+                self.windows.forget(&super::entry_name(s));
                 drop(reservation);
                 Ok(())
             }

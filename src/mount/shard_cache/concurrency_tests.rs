@@ -100,8 +100,9 @@ impl StorageBackend for Probe {
                 detail: e.to_string(),
             };
             let mut split = 0;
+            // The hold stalls the full download (from byte 0), not ranged reads.
             if let Some((held, after, corrupt)) = &self.hold {
-                if *held == name {
+                if *held == name && range.offset() == 0 {
                     split = (*after).min(bytes.len());
                     sink.write_all(&bytes[..split]).map_err(io)?;
                     self.wait_until(|p| p.released.load(Ordering::SeqCst));
@@ -441,4 +442,83 @@ fn crash_leftover_partials_are_removed_at_open() {
     let cache = ShardCache::new(temp.path().into(), 100).unwrap();
     assert_eq!(cache.startup_removed_bytes, 3);
     assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+}
+
+/// 10 MiB of a position-dependent pattern.
+fn big_payload() -> Vec<u8> {
+    (0..10u32 << 20)
+        .map(|i| (i % 251) as u8 ^ (i >> 20) as u8)
+        .collect()
+}
+
+#[test]
+fn a_seek_into_a_stalled_shard_is_served_by_ranged_reads() {
+    let payload = big_payload();
+    // The full download delivers one byte, then stalls (up to 3 s).
+    let f = plain(&[&payload], |p| p.hold = Some(("s0".into(), 1, false)));
+    let temp = tempfile::tempdir().unwrap();
+    let cache = ShardCache::new(temp.path().into(), 64 << 20).unwrap();
+    let started = Instant::now();
+    let at = (6 << 20) + 12_345;
+    let bytes = cache
+        .read_shared(&f.reader, &f.manifest, at, 64 << 10, 2, 0)
+        .unwrap();
+    assert_eq!(bytes, payload[at as usize..at as usize + (64 << 10)]);
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
+    // The chunk read ahead of the position arrives in the background.
+    assert!(eventually(|| cache.inner.windows.ready_chunks() >= 2));
+    // A read that includes the shard's last byte is served ranged too.
+    let tail = cache
+        .read_shared(&f.reader, &f.manifest, (10 << 20) - 100, 100, 2, 0)
+        .unwrap();
+    assert_eq!(tail, payload[payload.len() - 100..]);
+    assert!(started.elapsed() < Duration::from_secs(2));
+    // The full download still completes, is verified, and drops the chunks.
+    f.probe.release();
+    assert!(eventually(|| cache.path(&f.manifest.shards[0]).exists()));
+    assert!(eventually(|| cache.inner.windows.ready_chunks() == 0));
+    assert_eq!(
+        cache
+            .read_shared(&f.reader, &f.manifest, at, 16, 2, 0)
+            .unwrap(),
+        payload[at as usize..at as usize + 16]
+    );
+}
+
+#[test]
+fn reads_near_the_download_wait_for_it_instead_of_ranged_requests() {
+    let payload = big_payload();
+    let f = plain(&[&payload], |_| {});
+    let temp = tempfile::tempdir().unwrap();
+    let cache = ShardCache::new(temp.path().into(), 64 << 20).unwrap();
+    let bytes = cache
+        .read_shared(&f.reader, &f.manifest, 100, 1000, 2, 0)
+        .unwrap();
+    assert_eq!(bytes, payload[100..1100]);
+    assert!(eventually(|| cache.path(&f.manifest.shards[0]).exists()));
+    // Only the full download read the object.
+    assert_eq!(f.probe.reads("s0"), 1);
+    assert_eq!(cache.inner.windows.ready_chunks(), 0);
+}
+
+#[test]
+fn ranged_reads_reject_a_short_object_and_fall_back() {
+    let payload = big_payload();
+    let f = plain(&[&payload], |_| {});
+    let short = Shard {
+        size: payload.len() as u64 + 10,
+        ..f.manifest.shards[0].clone()
+    };
+    assert!(f.reader.read_range(&short, short.size - 20, 20, 1).is_err());
+    assert!(f.reader.read_range(&short, short.size, 1, 1).is_err());
+    assert_eq!(
+        f.reader
+            .read_range(&f.manifest.shards[0], 5 << 20, 8, 1)
+            .unwrap(),
+        payload[5 << 20..(5 << 20) + 8]
+    );
 }

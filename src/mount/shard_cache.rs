@@ -25,6 +25,12 @@
 //! reaches the end of its shard always waits for verification, and the
 //! inline `read` (used by migration/recovery copies) never serves a prefix.
 //!
+//! Seeks (`ranged`): a read that starts well past where the shard's download
+//! stands is served from ranged requests in aligned 4 MiB chunks held in
+//! memory, with the next chunks read ahead; the full download continues and
+//! alone fills the verified disk cache. Same integrity trade-off as prefix
+//! serving; such a read may also include the shard's last byte.
+//!
 //! Entry points: [`ShardCache::new`], `read` / `read_shared`, `cleanup` and
 //! `relieve_disk`; owned by `VirtualDrive` (and temporary caches in recovery,
 //! transition and adoption).
@@ -39,6 +45,7 @@ mod fetch;
 mod flight;
 mod index;
 mod prefetch;
+mod ranged;
 
 #[cfg(test)]
 mod concurrency_tests;
@@ -81,8 +88,11 @@ struct Inner {
     limit: u64,
     /// Free disk space relief tries to keep (see `disk::DISK_FLOOR`).
     disk_floor: u64,
-    /// Serve verified-later prefixes of background downloads (module docs).
+    /// Serve verified-later prefixes of background downloads (module docs)
+    /// and ranged chunks for reads far ahead of a download (`ranged`).
     serve_prefix: bool,
+    /// In-memory chunks of ranged reads (seeks into missing shards).
+    windows: Arc<ranged::Windows>,
     /// Index, flights and readahead state.
     state: Mutex<State>,
     /// Signalled whenever reserved, pinned or published bytes change.
@@ -141,6 +151,7 @@ impl ShardCache {
             limit,
             disk_floor: DISK_FLOOR,
             serve_prefix: true,
+            windows: Arc::new(ranged::Windows::default()),
             space: Condvar::new(),
             verified: Mutex::new(BTreeMap::new()),
         };
@@ -576,17 +587,31 @@ impl Inner {
                         self.start(reader, m, s, Admission::Demand, workers, retries)?;
                     }
                 },
-                Step::Join(flight) => match flight.wait(end, early) {
-                    Ready::Prefix(file) => {
-                        let old = out.len();
-                        out.resize(old + n, 0);
-                        crate::utils::read_exact_at(&file, &mut out[old..], within)?;
-                        return Ok(());
+                Step::Join(flight) => {
+                    if let Fetch::Background(reader) = fetch {
+                        let far = within >= flight.written().saturating_add(ranged::NEAR);
+                        if self.serve_prefix
+                            && far
+                            && self
+                                .windows
+                                .read(reader, &name, s, within, n, out, retries)?
+                        {
+                            flight.mark_served();
+                            return Ok(());
+                        }
                     }
-                    Ready::Done(Outcome::Published)
-                    | Ready::Done(Outcome::Failed { retry: true, .. }) => {}
-                    Ready::Done(Outcome::Failed { message, .. }) => bail!("{message}"),
-                },
+                    match flight.wait(end, early) {
+                        Ready::Prefix(file) => {
+                            let old = out.len();
+                            out.resize(old + n, 0);
+                            crate::utils::read_exact_at(&file, &mut out[old..], within)?;
+                            return Ok(());
+                        }
+                        Ready::Done(Outcome::Published)
+                        | Ready::Done(Outcome::Failed { retry: true, .. }) => {}
+                        Ready::Done(Outcome::Failed { message, .. }) => bail!("{message}"),
+                    }
+                }
             }
         }
         bail!(

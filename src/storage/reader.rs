@@ -369,6 +369,52 @@ impl StorageReader {
     pub(crate) fn verified_read(&self, shard: &Shard, sink: &mut dyn Write) -> Result<()> {
         self.verified_read_context(shard, sink, &self.context, None)
     }
+    /// Unverified read of `[offset, offset + length)` of a shard, for interactive
+    /// reads far from where its full download stands (seeks). The bytes are not
+    /// BLAKE3-checked here: pool remotes are rclone crypt remotes, which
+    /// authenticate every 64 KiB block, and the shard's full download still
+    /// verifies it before it enters the cache. Fails unless exactly `length`
+    /// bytes arrive. Retries retriable errors up to `retries` times.
+    pub(crate) fn read_range(
+        &self,
+        shard: &Shard,
+        offset: u64,
+        length: u64,
+        retries: u32,
+    ) -> Result<Vec<u8>> {
+        let end = offset
+            .checked_add(length)
+            .filter(|end| *end <= shard.size)
+            .ok_or_else(|| StorageError::invalid_input("shard range outside the shard"))?;
+        let capacity = usize::try_from(end - offset)
+            .map_err(|_| StorageError::invalid_input("shard range too large"))?;
+        for attempt in 1..=retries.max(1) {
+            check_read_context(&self.context)?;
+            let (backend, key) = self.resolve(&shard.object)?;
+            let mut bytes = Vec::with_capacity(capacity);
+            let result = backend.read(
+                &self.context,
+                &key,
+                &ReadRange::new(offset, length)?,
+                &mut bytes,
+            );
+            match result {
+                Ok(receipt) if receipt.bytes_read == length && bytes.len() as u64 == length => {
+                    return Ok(bytes);
+                }
+                Ok(receipt) => {
+                    return Err(corrupt(
+                        format!("range bytes:{}", receipt.bytes_read),
+                        format!("range bytes:{length}"),
+                    )
+                    .into())
+                }
+                Err(error) if error.is_retriable() && attempt < retries.max(1) => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+        unreachable!()
+    }
     /// Verified read of a shard into a new file at `path` with its own context and
     /// progress (deleted on failure). Used by the hedged restore.
     pub(crate) fn download_staged(
