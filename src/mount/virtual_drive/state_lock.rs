@@ -40,6 +40,12 @@ impl StateLock {
             current: None,
         }))
     }
+    /// The mutation counter (see [`StateGuard`]): equal readings mean the
+    /// namespace, and so the visible view built from it, did not change in
+    /// between. It only grows. `None` when the lock is poisoned.
+    pub(crate) fn revision(&self) -> Option<u64> {
+        self.0.lock().ok().map(|slot| slot.revision)
+    }
     /// Locks the namespace; a poisoned lock still yields a guard (in the error).
     pub(crate) fn lock(&self) -> LockResult<StateGuard<'_>> {
         self.0

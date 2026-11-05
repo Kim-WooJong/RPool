@@ -5,12 +5,14 @@
 //! never lock a slot while holding one of them. A seal's fsync and full hash
 //! (`prehash`) and a new generation's baseline copy (`mutate`) run with no
 //! namespace or generation lock held, so a large file's close or first write
-//! never blocks lookups, listings or namespace changes.
+//! never blocks lookups, listings or namespace changes. `observing` is taken
+//! with no other core lock held and is held only across one read
+//! observation's save (drive namespace lock) and publication in `observed`.
 use super::error::{FsError, FsResult};
 use super::generation::Generation;
 use super::handles::{Handle, HandleId, HandleTable, View};
 use super::identity::{FileId, IdTable};
-use super::slot::Slot;
+use super::slot::{Counters, Slot, SlotCell};
 use crate::mount::namespace::valid_path;
 use crate::mount::native_ancestry::Ancestry;
 use crate::mount::virtual_drive::{Revision, VirtualDrive};
@@ -20,6 +22,36 @@ use std::sync::RwLock;
 /// Failed unlocked baseline copies (raced by a rename, delete or new base)
 /// before a start copies under the locks, which always completes.
 const UNLOCKED_STARTS: usize = 3;
+
+#[cfg(test)]
+#[path = "metadata_tests.rs"]
+mod metadata_tests;
+
+/// Test hook run on the observing thread inside `FsCore::remember`'s slow
+/// path: `"observing"` once `observing` is held, `"saved"` after the
+/// ancestry save and before `observed` is updated.
+#[cfg(test)]
+pub(super) mod observe_hook {
+    use std::cell::RefCell;
+    type Hook = Box<dyn FnMut(&str)>;
+    thread_local! {
+        static HOOK: RefCell<Option<Hook>> = RefCell::new(None);
+    }
+    /// Install `hook` (given the stage) for observations on this thread.
+    pub(crate) fn set(hook: impl FnMut(&str) + 'static) {
+        HOOK.with(|h| *h.borrow_mut() = Some(Box::new(hook)));
+    }
+    pub(crate) fn clear() {
+        HOOK.with(|h| *h.borrow_mut() = None);
+    }
+    pub(super) fn run(stage: &str) {
+        HOOK.with(|h| {
+            if let Some(hook) = h.borrow_mut().as_mut() {
+                hook(stage);
+            }
+        });
+    }
+}
 
 /// What a new generation starts from; equal plans start equal generations.
 struct Plan {
@@ -93,11 +125,16 @@ pub(crate) struct FsCore {
     pub(super) handles: Mutex<HandleTable>,
     /// Generation slot per file with open writes.
     pub(super) slots: Mutex<BTreeMap<FileId, Slot>>,
+    /// Summary change counters of this core's slots (see `view_cache`).
+    pub(super) counters: Arc<Counters>,
     /// Pool-sync workspace: peers change files, so handles keep the revision
     /// they started from and edits descend from what was actually read.
     pub(super) peer: bool,
     /// The revision each file's handles last read (or this core last sealed).
     pub(super) observed: Mutex<BTreeMap<FileId, Revision>>,
+    /// Serializes changed read observations: each one's ancestry save and
+    /// `observed` update finish before the next starts (see `remember`).
+    pub(super) observing: Mutex<()>,
 }
 
 /// Locks `mutex`, mapping poisoning to an I/O error.
@@ -121,8 +158,10 @@ impl FsCore {
             ids: Mutex::new(IdTable::default()),
             handles: Mutex::new(HandleTable::default()),
             slots: Mutex::new(BTreeMap::new()),
+            counters: Arc::default(),
             peer,
             observed: Mutex::new(BTreeMap::new()),
+            observing: Mutex::new(()),
         })
     }
     /// Records the revision a handle of `file` read; cloud reads persist it
@@ -131,14 +170,38 @@ impl FsCore {
         if !self.peer {
             return Ok(());
         }
-        let changed = lock(&self.observed)?
-            .insert(file, revision.clone())
-            .is_none_or(|previous| previous.id() != revision.id());
-        if let (true, Revision::Cloud { id, .. }) = (changed, revision) {
-            if let Some(path) = lock(&self.ids)?.path(file) {
+        let recorded = || -> FsResult<bool> {
+            let observed = lock(&self.observed)?;
+            Ok(observed.get(&file).is_some_and(|r| r.id() == revision.id()))
+        };
+        // Hot path: `observed` only names a read revision after its ancestry
+        // save succeeded, so a repeated read of it neither takes the drive's
+        // namespace lock nor waits for another observation's save.
+        if recorded()? {
+            return Ok(());
+        }
+        // A changed observation saves and then publishes with no other
+        // observation in between. Otherwise an id1 save overtaken by an id2
+        // save and publication would publish id1 last: `observed` would name
+        // id1 while the durable base is id2, and the next id1 read would skip
+        // its save.
+        let _observing = lock(&self.observing)?;
+        #[cfg(test)]
+        observe_hook::run("observing");
+        if recorded()? {
+            return Ok(());
+        }
+        // Persist before publishing: a failed ancestry save must be retried
+        // by the next read of this revision, not hidden by `observed`.
+        if let Revision::Cloud { id, .. } = revision {
+            let path = lock(&self.ids)?.path(file);
+            if let Some(path) = path {
                 self.drive.observe_read(&path, id)?;
             }
         }
+        #[cfg(test)]
+        observe_hook::run("saved");
+        lock(&self.observed)?.insert(file, revision.clone());
         Ok(())
     }
     /// Ancestry for an edit that does not keep existing bytes (truncate,
@@ -165,7 +228,10 @@ impl FsCore {
     }
     /// The file's generation slot, created on first use.
     pub(super) fn slot(&self, file: FileId) -> FsResult<Slot> {
-        Ok(lock(&self.slots)?.entry(file).or_default().clone())
+        Ok(lock(&self.slots)?
+            .entry(file)
+            .or_insert_with(|| Arc::new(SlotCell::new(self.counters.clone())))
+            .clone())
     }
     /// Visible revision at `path`, `None` if no file is there.
     pub(super) fn visible(&self, path: &str) -> FsResult<Option<Revision>> {

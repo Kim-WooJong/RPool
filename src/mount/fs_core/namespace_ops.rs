@@ -5,6 +5,10 @@ use super::identity::FileId;
 use crate::mount::virtual_drive::VisibleView;
 use crate::prelude::*;
 
+#[cfg(test)]
+#[path = "namespace_lock_tests.rs"]
+mod lock_tests;
+
 impl FsCore {
     /// Unsealed generations of linked files, by path.
     fn unsealed(&self) -> FsResult<BTreeMap<String, (FileId, u64, String)>> {

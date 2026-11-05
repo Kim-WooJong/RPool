@@ -2,6 +2,13 @@
 
 use super::*;
 
+#[cfg(test)]
+#[path = "write_bench_tests.rs"]
+mod bench_tests;
+#[cfg(test)]
+#[path = "write_tests.rs"]
+mod tests;
+
 impl VirtualDrive {
     #[cfg(test)]
     pub(crate) fn begin(&self, path: &str) -> Result<Intent> {
@@ -23,16 +30,27 @@ impl VirtualDrive {
             .lock()
             .map_err(|_| anyhow!("namespace lock poisoned"))?;
         let parents = if let Some(base) = s.bases.get(path) {
+            // Beginning another write must not checkpoint the
+            // unchanged namespace. Explicit save callers (notably spool cleanup)
+            // still rotate the previous generation as before.
             base.clone()
         } else {
-            match visible {
-                Some(Revision::Cloud { id, .. }) => vec![id.clone()],
-                _ => s.base(path)?,
-            }
+            // Publish the first base only after persistence succeeds. Otherwise
+            // a failed save would leave an in-memory base that a retry mistakes
+            // for durable ancestry.
+            let mut next = s.clone();
+            let parents = match visible {
+                Some(Revision::Cloud { id, .. }) => {
+                    let parents = vec![id.clone()];
+                    next.bases.insert(path.into(), parents.clone());
+                    parents
+                }
+                _ => next.base(path)?,
+            };
+            next.save(&self.root)?;
+            *s = next;
+            parents
         };
-        s.bases
-            .entry(path.into())
-            .or_insert_with(|| parents.clone());
         let event_path = parents
             .first()
             .and_then(|id| s.events.get(id))
@@ -41,7 +59,16 @@ impl VirtualDrive {
         // No trusted editor revision arrives with a generic DAV PUT. Never infer
         // a dependency on a newly arrived local/remote write that was not read.
         let depends_on = None;
-        s.save(&self.root)?;
+        if !s.base_is_durable(&self.root, path) {
+            // A prior failed read-pin save can leave an existing but unsaved
+            // base. Preserve its ancestry and retry persistence transactionally.
+            let mut next = s.clone();
+            next.save(&self.root)?;
+            *s = next;
+        }
+        // Randomness and spool-directory I/O do not inspect or mutate the
+        // namespace. In particular, do not hold its mutex through this I/O.
+        drop(s);
         let id = random_id()?;
         let dir = self.root.join("spool").join(&id);
         fs::create_dir(&dir)?;

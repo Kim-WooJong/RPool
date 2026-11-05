@@ -572,6 +572,19 @@ impl Namespace {
             ..self.clone()
         }
     }
+    /// Whether this path's current edit base is in the last successful save
+    /// or load. Failed read-pin saves can leave a dirty in-memory base, so
+    /// write begin must not treat mere presence in `bases` as durability.
+    pub(crate) fn base_is_durable(&self, dir: &Path, path: &str) -> bool {
+        self.durable.as_ref().is_some_and(|base| {
+            base.dir == dir
+                && self
+                    .bases
+                    .get(path)
+                    .is_some_and(|parents| base.saved.bases.get(path) == Some(parents))
+        })
+    }
+
     /// Validates and durably records this namespace (the next generation)
     /// in `dir`: normally one fsynced journal record holding the change
     /// since the last load or save; a full checkpoint when there is no such

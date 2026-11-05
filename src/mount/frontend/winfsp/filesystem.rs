@@ -3,11 +3,11 @@
 //! Durability: Cleanup (last handle closed; cached writes were flushed first
 //! because the volume flushes and purges on cleanup) and Flush seal the file.
 //! Close releases the core handle. Delete happens at Cleanup with the DELETE flag.
-use super::super::names::{after_marker, find, join, resolve, split, write_window};
+use super::super::names::{find, join, page, resolve, split, write_window};
 use super::names::core_path;
 use super::opens::{Open, OpenId, Opens};
 use super::status::status;
-use crate::mount::fs_core::{Access, Attr, FsCore, HandleId};
+use crate::mount::fs_core::{Access, Attr, CaseIndex, FsCore, HandleId, ListingCache};
 use crate::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use winfsp_wrs::{
@@ -23,6 +23,11 @@ const ALLOCATION_UNIT: u64 = 4096;
 
 pub(super) struct RpoolWinFs {
     core: Arc<FsCore>,
+    /// Case-insensitive name matches, exact as a fresh listing scan.
+    names: CaseIndex,
+    /// One listing per directory for all pages of an enumeration while the
+    /// directory is unchanged.
+    listings: ListingCache,
     opens: Mutex<Opens>,
     read_only: bool,
     security: SecurityDescriptor,
@@ -43,6 +48,8 @@ impl RpoolWinFs {
         .map_err(|e| anyhow!("security descriptor: {e}"))?;
         Ok(Self {
             core,
+            names: CaseIndex::default(),
+            listings: ListingCache::default(),
             opens: Mutex::new(Opens::new()),
             read_only,
             security,
@@ -117,7 +124,7 @@ impl FileSystemInterface for RpoolWinFs {
         file_name: &U16CStr,
         _find_reparse_point: impl Fn() -> Option<FileAttributes>,
     ) -> Result<(FileAttributes, PSecurityDescriptor, bool), NTSTATUS> {
-        let path = resolve(&self.core, &core_path(file_name)?);
+        let path = resolve(&self.core, &self.names, &core_path(file_name)?);
         let attr = self.core.lookup(&path).map_err(status)?;
         Ok((self.attributes(&attr), self.security.as_ptr(), false))
     }
@@ -135,8 +142,8 @@ impl FileSystemInterface for RpoolWinFs {
         _security_descriptor: SecurityDescriptor,
     ) -> Result<(OpenId, FileInfo), NTSTATUS> {
         self.writable()?;
-        let (parent, leaf) = split(&self.core, &core_path(file_name)?);
-        if find(&self.core, &parent, &leaf).is_some() {
+        let (parent, leaf) = split(&self.core, &self.names, &core_path(file_name)?);
+        if find(&self.core, &self.names, &parent, &leaf).is_some() {
             return Err(STATUS_OBJECT_NAME_COLLISION);
         }
         let path = join(&parent, &leaf);
@@ -173,7 +180,7 @@ impl FileSystemInterface for RpoolWinFs {
         create_options: CreateOptions,
         granted_access: FileAccessRights,
     ) -> Result<(OpenId, FileInfo), NTSTATUS> {
-        let path = resolve(&self.core, &core_path(file_name)?);
+        let path = resolve(&self.core, &self.names, &core_path(file_name)?);
         let attr = self.core.lookup(&path).map_err(status)?;
         if attr.directory && create_options.is(CreateOptions::FILE_NON_DIRECTORY_FILE) {
             return Err(STATUS_FILE_IS_A_DIRECTORY);
@@ -386,9 +393,9 @@ impl FileSystemInterface for RpoolWinFs {
     ) -> Result<(), NTSTATUS> {
         self.writable()?;
         let from = self.open_of(file_context)?.path;
-        let (parent, leaf) = split(&self.core, &core_path(new_file_name)?);
+        let (parent, leaf) = split(&self.core, &self.names, &core_path(new_file_name)?);
         let mut to = join(&parent, &leaf);
-        if let Some(existing) = find(&self.core, &parent, &leaf) {
+        if let Some(existing) = find(&self.core, &self.names, &parent, &leaf) {
             // A case-only rename of the same entry is allowed.
             if existing != from {
                 if !replace_if_exists {
@@ -416,24 +423,26 @@ impl FileSystemInterface for RpoolWinFs {
         if !open.directory {
             return Err(STATUS_NOT_A_DIRECTORY);
         }
-        let mut listing = Vec::new();
+        // Every page of an unchanged directory reuses one sorted listing.
+        let listing = self
+            .listings
+            .listing(&self.core, &open.path)
+            .map_err(status)?;
+        let mut dots = Vec::new();
         if !open.path.is_empty() {
-            let folder = self.info(&Attr {
+            let folder = Attr {
                 id: None,
                 size: 0,
                 directory: true,
                 tag: String::new(),
-            });
-            listing.push((".".to_string(), folder));
-            listing.push(("..".to_string(), folder));
-        }
-        for (name, attr) in self.core.readdir(&open.path).map_err(status)? {
-            listing.push((name, self.info(&attr)));
+            };
+            dots.push((".".to_string(), folder.clone()));
+            dots.push(("..".to_string(), folder));
         }
         // One bytewise order for listing and marker, so resuming is exact.
         let marker = marker.map(|m| m.to_string_lossy());
-        for (name, info) in after_marker(listing, marker.as_deref()) {
-            if !add_dir_info(DirInfo::from_str(info, &name)) {
+        for (name, attr) in page(&dots, &listing, marker.as_deref()) {
+            if !add_dir_info(DirInfo::from_str(self.info(attr), name)) {
                 break;
             }
         }

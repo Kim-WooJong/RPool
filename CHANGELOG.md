@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- Native drive edit starts reuse already durable ancestry instead of saving an
+  unchanged namespace again. First-base persistence, fsync/seal guarantees and
+  recovery-checkpoint rotation remain intact; failed ancestry saves can be
+  retried. Spool-directory creation no longer holds the drive namespace mutex.
+- WinFsp case-insensitive lookups reuse bounded directory name indexes; exact
+  existing paths avoid repeated component walks. Paged directory enumeration
+  reuses sorted listings and builds attributes only for emitted entries. Local
+  edits and peer changes invalidate the caches without extending kernel TTLs.
+- Add durability, cache-invalidation, marker-order and core-lock regressions,
+  plus local comparison harnesses. See `docs/MOUNT_IDE_PERFORMANCE.md` for
+  reproducible checks, observed work-count reductions and remaining limits.
+
+Compatibility: no format, protocol or settings changes. Real Windows VSCode
+responsiveness is not yet measured. WinFsp's outer create/rename guard, required
+flush/hash/copy work and uncached cloud latency remain. No release is published.
+
 ## 2.22.0 — 2026-11-05
 
 - Seeks no longer wait for a whole shard. A drive read that starts more than

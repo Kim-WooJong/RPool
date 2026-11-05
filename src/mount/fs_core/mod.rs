@@ -40,6 +40,7 @@ mod start_tests;
 mod tests;
 #[cfg(test)]
 mod trace_tests;
+mod view_cache;
 
 #[allow(unused_imports, reason = "API for the frontends that adopt the core")]
 pub(crate) use self::core::{Access, Attr, FsCore};
@@ -49,3 +50,5 @@ pub(crate) use error::{FsError, FsResult};
 pub(crate) use handles::HandleId;
 #[allow(unused_imports, reason = "API for the frontends that adopt the core")]
 pub(crate) use identity::FileId;
+#[allow(unused_imports, reason = "API for the frontends that adopt the core")]
+pub(crate) use view_cache::{CacheStats, CaseIndex, ListingCache};

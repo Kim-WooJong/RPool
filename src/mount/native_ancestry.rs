@@ -49,7 +49,7 @@ impl VirtualDrive {
             .bases
             .get(path)
             .is_some_and(|b| b.len() == 1 && b[0] == event);
-        if !known || current {
+        if !known || (current && s.base_is_durable(&self.root, path)) {
             return Ok(());
         }
         let mut next = s.clone();
