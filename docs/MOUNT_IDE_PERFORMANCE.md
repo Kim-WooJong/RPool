@@ -96,7 +96,7 @@ create/delete/rename, size changes, case ambiguity and peer-PC changes appear
 in Explorer and `dir`; verify saved bytes after remount and interrupted-save
 recovery. Record these separately from the local synthetic checks.
 
-## Off-lock pool projection (Unreleased)
+## Off-lock pool projection (2.22.2)
 
 Status and capacity reporting clone one coherent namespace snapshot, release
 StateLock, and reuse a full immutable projection (files and structured conflicts).
@@ -174,7 +174,7 @@ rejection/save-failure/retry regressions cover this separate path.
 One matched release-mode run on macOS ARM64, using the identical ignored harness
 and 8,000 simple disjoint synthetic events (no user namespace, mounts or cloud):
 
-| Observation | 2.22.1 baseline | Unreleased candidate |
+| Observation | 2.22.1 baseline | 2.22.2 candidate |
 |---|---:|---:|
 | Three warm pool-status calls, total | 81.784 ms | 0.070 ms |
 | Uploaded deletion commit, total | 40.755 ms | 48.700 ms |

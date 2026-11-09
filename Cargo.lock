@@ -3334,7 +3334,7 @@ dependencies = [
 
 [[package]]
 name = "rpool"
-version = "2.22.1"
+version = "2.22.2"
 dependencies = [
  "aes",
  "anyhow",

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.22.2 — 2026-11-09
 
 - Pool status and capacity reuse immutable full event projections outside the
   foreground namespace lock. Uploaded commits prepare and warm their projection
@@ -8,6 +8,11 @@
   existing durable save. Uploader preparation is serialized separately from
   foreground writes; real event churn remains retryable. No metadata
   format, conflict/ancestry or fsync guarantees change.
+
+- Preserve verified Reprocess recovery adoption separately from strict upload
+  completion checks, with concurrent-state and crash/replay regression coverage.
+- Local tests and cross-target compilation pass; the local synthetic latency
+  comparison is not a claim of Windows mounted or live-cloud speedup.
 
 ## 2.22.1 — 2026-11-05
 

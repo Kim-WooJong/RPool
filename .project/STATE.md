@@ -10,12 +10,12 @@ test only in working copies under `projects/rpool/` with `CARGO_TARGET_DIR`
 outside the source tree. Windows is the primary intended GUI platform; executed
 tests run on macOS and Linux (Docker). This Mac Studio currently has no RPool pool
 in use: it is for development and local/fake-storage testing, not live-pool
-validation. Version 2.22.1 (2026-11-05); later work goes under
+validation. Version 2.22.2 release candidate; later work goes under
 "Unreleased" in CHANGELOG.md, which is the detailed history.
 
 ## Current Status
 
-Unreleased state-lock performance remediation is implemented locally against the
+Version 2.22.2 state-lock performance remediation is implemented locally against the
 2.22.1 baseline. Pool status and capacity compute/cache a full immutable projection
 from coherent snapshots outside StateLock. Uploaded commits serialize preparation
 on an uploader-only gate and safely rebase onto current non-event metadata; exact
@@ -24,7 +24,8 @@ Cache branches isolate event mutations, and visible projections use exact Shared
 identity. Generic metadata-only commits and verified recovery adoption keep their
 separate serialized contracts. No format/fsync/ancestry or cloud-cleanup guarantee
 is relaxed. Full local validation and independent concrete-change reviews passed.
-Source remains uncommitted and unreleased.
+The owner authorized v2.22.2 release on 2026-11-09. Release metadata is prepared;
+tag, automated build and publication verification are pending.
 
 HOME diagnostic measurements on 2026-11-09 identified the original bottleneck:
 a 33.4566s read/hash call overlapped 33.249822s of background projection state holds.
@@ -290,6 +291,11 @@ pool migration, cloud transfer, or other-PC runtime validation was performed.
 not repeated for this change.
 
 ## Resume
+
+Current authorized task: release v2.22.2 from projects/rpool/rc-2.22.2 after final
+candidate gates. Commit/push approved source, create the tag, and verify Actions,
+release notes, SHA256SUMS.txt and all four platform archives. This supersedes the
+earlier publication hold below, but does not authorize live deployment/remount.
 
 Local off-lock projection remediation is complete: validated uncommitted source
 is in artifacts/rpool; the matched implementation/verification worktree is
