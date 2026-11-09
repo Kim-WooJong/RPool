@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Pool status and capacity reuse immutable full event projections outside the
+  foreground namespace lock. Uploaded commits prepare and warm their projection
+  off-lock, then revalidate or rebase onto current unrelated state before the
+  existing durable save. Uploader preparation is serialized separately from
+  foreground writes; real event churn remains retryable. No metadata
+  format, conflict/ancestry or fsync guarantees change.
+
 ## 2.22.1 — 2026-11-05
 
 - Native drive edit starts reuse already durable ancestry instead of saving an

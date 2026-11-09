@@ -344,6 +344,64 @@ fn verify_replacement_with(
     Ok(hash)
 }
 
+/// Publishes a verified Reprocess replacement at a new recovery path without
+/// materializing or sealing spool bytes. Called only after matching_replacement
+/// and verify_replacement; recovery owns the workspace exclusively and starts no
+/// upload workers. This separate serialized metadata transaction must not relax
+/// the uploader's exact sealed-pending-intent checks.
+fn adopt_replacement(
+    drive: &VirtualDrive,
+    intent: &Intent,
+    content: super::shared_model::Content,
+) -> Result<()> {
+    super::namespace::valid_path(&intent.path)?;
+    let mut state = drive.state.lock().unwrap();
+    if intent.id.len() != 64
+        || !intent
+            .id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        || intent.spool.as_deref() != Some(intent.id.as_str())
+        || intent.size != 0
+        || !intent.hash.is_empty()
+        || !intent.parents.is_empty()
+        || intent.depends_on.is_some()
+        || intent.event_path != intent.path
+        || !state.base_is_durable(&drive.root, &intent.path)
+        || state.bases.get(&intent.path) != Some(&intent.parents)
+        || state.committed_intents.contains_key(&intent.id)
+        || state.pending.iter().any(|p| {
+            p.id == intent.id
+                || super::shared_model::overlaps(&p.path, &intent.path)
+                || super::shared_model::overlaps(&p.event_path, &intent.path)
+        })
+        || state
+            .events
+            .values()
+            .any(|e| super::shared_model::overlaps(&e.path, &intent.path))
+        || state
+            .resolved()?
+            .keys()
+            .any(|path| super::shared_model::overlaps(path, &intent.path))
+        || content.pack.is_some()
+        || !content.manifest.archive_id.starts_with("reprocess-")
+        || drive.spool_path(intent).exists()
+        || drive
+            .spool_path(intent)
+            .parent()
+            .unwrap()
+            .join("intent.json")
+            .exists()
+    {
+        bail!("recovery destination or intent changed; refusing archive adoption");
+    }
+    let mut next = state.clone();
+    next.commit(intent, Some(content))?;
+    next.save(&drive.root)?;
+    *state = next;
+    Ok(())
+}
+
 /// Entry point of `mount --account-recovery-from`: copies the source workspace's visible
 /// files into a fresh workspace on a different pool, resumably via the recovery journal.
 /// Called from `mount::run`.
@@ -596,14 +654,15 @@ pub(crate) fn run(rclone: &str, args: &crate::cli::MountArgs) -> Result<()> {
                     journal.entries.get_mut(path).unwrap().reused = true;
                     durable_json(&journal_path, &journal)?;
                     check_stop(args.stop_file.as_deref())?;
-                    destination_drive.commit_uploaded(
+                    adopt_replacement(
+                        &destination_drive,
                         &intent,
-                        Some(super::shared_model::Content {
+                        super::shared_model::Content {
                             hash,
                             size: manifest.original_size,
                             manifest,
                             pack: None,
-                        }),
+                        },
                     )?;
                 } else {
                     copy_revision(
@@ -805,17 +864,17 @@ mod tests {
         let intent = destination
             .begin_intent("nested/original-name", None)
             .unwrap();
-        destination
-            .commit_uploaded(
-                &intent,
-                Some(super::super::shared_model::Content {
-                    hash,
-                    size: 0,
-                    manifest: matched,
-                    pack: None,
-                }),
-            )
-            .unwrap();
+        adopt_replacement(
+            &destination,
+            &intent,
+            super::super::shared_model::Content {
+                hash,
+                size: 0,
+                manifest: matched,
+                pack: None,
+            },
+        )
+        .unwrap();
         let view = destination.view().unwrap();
         assert!(view.contains_key("nested/original-name"));
         assert!(!view.contains_key("file"));
@@ -951,17 +1010,17 @@ mod tests {
         let intent = destination
             .begin_intent("folder/retained-name", None)
             .unwrap();
-        destination
-            .commit_uploaded(
-                &intent,
-                Some(super::super::shared_model::Content {
-                    hash,
-                    size: 4,
-                    manifest: matched,
-                    pack: None,
-                }),
-            )
-            .unwrap();
+        adopt_replacement(
+            &destination,
+            &intent,
+            super::super::shared_model::Content {
+                hash,
+                size: 4,
+                manifest: matched,
+                pack: None,
+            },
+        )
+        .unwrap();
         let view = destination.view().unwrap();
         let Revision::Cloud { content, .. } = &view["folder/retained-name"] else {
             panic!("expected adopted cloud revision")
@@ -985,9 +1044,7 @@ mod tests {
             manifest: empty_manifest("reprocess-new"),
             pack: None,
         };
-        drive
-            .commit_uploaded(&intent, Some(content.clone()))
-            .unwrap();
+        adopt_replacement(&drive, &intent, content.clone()).unwrap();
         let event = drive.state.lock().unwrap().committed_intents[&intent.id].clone();
         drive.state.lock().unwrap().published.insert(event.clone());
         completion_valid(&drive, "file", &intent).unwrap();
@@ -998,7 +1055,15 @@ mod tests {
         drive.pin_read("file", &visible).unwrap();
         let changed = drive.begin_intent("file", Some(&visible)).unwrap();
         assert_eq!(changed.parents, vec![event.clone()]);
-        drive.commit_uploaded(&changed, Some(content)).unwrap();
+        {
+            // Explicit test-only metadata edit of an existing destination. New
+            // recovery adoption must never permit this overwrite.
+            let mut state = drive.state.lock().unwrap();
+            let mut next = state.clone();
+            next.commit(&changed, Some(content)).unwrap();
+            next.save(root.path()).unwrap();
+            *state = next;
+        }
         assert_ne!(
             drive.state.lock().unwrap().committed_intents[&changed.id],
             event
@@ -1033,5 +1098,126 @@ mod tests {
         let outside = tempfile::tempdir().unwrap();
         std::os::unix::fs::symlink(outside.path(), root.path().join("linked")).unwrap();
         assert!(no_symlinks(root.path()).is_err());
+    }
+    #[test]
+    fn replacement_adoption_rejects_changed_destination_and_local_intents() {
+        for case in 0..5 {
+            let root = tempfile::tempdir().unwrap();
+            let drive = fixture(root.path());
+            let intent = drive.begin_intent("new-file", None).unwrap();
+            let content = super::super::shared_model::Content {
+                hash: blake3::hash(b"").to_hex().to_string(),
+                size: 0,
+                manifest: empty_manifest("reprocess-adopt"),
+                pack: None,
+            };
+            match case {
+                0 => {
+                    // A peer created the destination while replacement verification ran.
+                    let event = super::super::shared_model::Event {
+                        version: 1,
+                        worker: "peer".into(),
+                        device: "peer".into(),
+                        path: intent.path.clone(),
+                        parents: vec![],
+                        content: Some(content.clone()),
+                    };
+                    drive
+                        .state
+                        .lock()
+                        .unwrap()
+                        .events
+                        .insert(event.id().unwrap(), event);
+                }
+                1 => {
+                    // An unrelated local writer queued this path.
+                    let other = drive.begin_intent("new-file", None).unwrap();
+                    fs::write(drive.spool_path(&other), b"").unwrap();
+                    drive.seal(other).unwrap();
+                }
+                2 => {
+                    drive
+                        .state
+                        .lock()
+                        .unwrap()
+                        .committed_intents
+                        .insert(intent.id.clone(), "aa".repeat(32));
+                }
+                3 => {
+                    fs::write(drive.spool_path(&intent), b"retain unsealed bytes").unwrap();
+                }
+                4 => {
+                    drive
+                        .state
+                        .lock()
+                        .unwrap()
+                        .bases
+                        .insert(intent.path.clone(), vec!["aa".repeat(32)]);
+                }
+                _ => unreachable!(),
+            }
+            let before = serde_json::to_vec(&*drive.state.lock().unwrap()).unwrap();
+            assert!(
+                adopt_replacement(&drive, &intent, content.clone()).is_err(),
+                "case {case}"
+            );
+            assert_eq!(
+                serde_json::to_vec(&*drive.state.lock().unwrap()).unwrap(),
+                before
+            );
+            // A stale uploader cannot use a pristine recovery intent either.
+            assert!(drive.commit_uploaded(&intent, Some(content)).is_err());
+            if case == 3 {
+                assert_eq!(
+                    fs::read(drive.spool_path(&intent)).unwrap(),
+                    b"retain unsealed bytes"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn replacement_adoption_save_failure_preserves_state_and_retries_without_spool() {
+        let root = tempfile::tempdir().unwrap();
+        let drive = fixture(root.path());
+        let intent = drive.begin_intent("new-file", None).unwrap();
+        let content = super::super::shared_model::Content {
+            hash: blake3::hash(b"").to_hex().to_string(),
+            size: 0,
+            manifest: empty_manifest("reprocess-adopt"),
+            pack: None,
+        };
+        let before = serde_json::to_vec(&*drive.state.lock().unwrap()).unwrap();
+        super::super::crash::arm("durable.before_persist");
+        let result = adopt_replacement(&drive, &intent, content.clone());
+        let armed = super::super::crash::disarm();
+        assert!(result.is_err());
+        assert!(armed.is_none());
+        assert_eq!(
+            serde_json::to_vec(&*drive.state.lock().unwrap()).unwrap(),
+            before
+        );
+        let loaded = super::super::namespace::Namespace::load(root.path(), "tester").unwrap();
+        assert!(!loaded.committed_intents.contains_key(&intent.id));
+        assert!(!drive.spool_path(&intent).exists());
+        adopt_replacement(&drive, &intent, content).unwrap();
+        let loaded = super::super::namespace::Namespace::load(root.path(), "tester").unwrap();
+        assert!(loaded.committed_intents.contains_key(&intent.id));
+        assert!(loaded.pending.is_empty());
+        assert!(!drive.spool_path(&intent).exists());
+        assert!(
+            adopt_replacement(
+                &drive,
+                &intent,
+                super::super::shared_model::Content {
+                    hash: blake3::hash(b"").to_hex().to_string(),
+                    size: 0,
+                    manifest: empty_manifest("reprocess-adopt"),
+                    pack: None,
+                }
+            )
+            .is_err(),
+            "already committed adoption must not acknowledge twice"
+        );
     }
 }

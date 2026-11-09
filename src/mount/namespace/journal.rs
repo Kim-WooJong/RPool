@@ -480,6 +480,7 @@ impl Delta {
             Ok(())
         }
         if !self.events_del.is_empty() || !self.events_put.is_empty() {
+            state.projection = super::ProjectionCache::default();
             let events = &mut *state.events;
             remove_all(events, self.events_del)?;
             events.extend(self.events_put);

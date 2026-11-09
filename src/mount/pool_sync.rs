@@ -525,10 +525,10 @@ impl super::virtual_drive::VirtualDrive {
     /// Current [`Status`] from the namespace; read by `virtual_drive::run` for
     /// the mount status report.
     pub(crate) fn pool_status(&self) -> Result<Status> {
-        let state = self.state.lock().unwrap();
+        let state = { self.state.lock().unwrap().clone() };
         Ok(Status {
             roots: self.pool_sync_roots.clone(),
-            conflicts: super::peer_projection::project(&state.events)?.conflicts,
+            conflicts: state.full_projection()?.conflicts.clone(),
         })
     }
 }

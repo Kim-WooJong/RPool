@@ -95,3 +95,103 @@ temp-file replacement, and a build producing many small files. Confirm
 create/delete/rename, size changes, case ambiguity and peer-PC changes appear
 in Explorer and `dir`; verify saved bytes after remount and interrupted-save
 recovery. Record these separately from the local synthetic checks.
+
+## Off-lock pool projection (Unreleased)
+
+Status and capacity reporting clone one coherent namespace snapshot, release
+StateLock, and reuse a full immutable projection (files and structured conflicts).
+Its cache key retains a weak reference to the exact copy-on-write event map plus
+the namespace version: same-size edits, same-key mutable access and version
+changes invalidate it. Cache mutexes protect only lookup/publication, not full
+construction; independent cold readers may duplicate work, but cannot make a
+foreground cache lookup wait behind projection construction. Idle sequential
+status/capacity calls reuse the result, including when they start from clones.
+
+Upload commit prepares its event, projection, folder state, validation and warm
+visible-file projection outside StateLock. An uploader-only commit gate serializes
+preparation/install; foreground operations never take this gate. Lock order is
+commit gate → state → pins. Every mutable access to StateLock advances a checked
+monotonic revision, including unsaved and A→B→A changes. If that revision changes,
+a commit rebases only its prepared event and receipt/pending bookkeeping onto the
+CURRENT namespace, retaining current folders, pending work, published markers,
+bases and durable journal state. Rebase requires exact source event identity and
+version, unchanged worker/device and dependency receipt, and exact pending intent
+and uploaded content. Ordinary seals/publication/base changes therefore do not
+force repeated full projections or starve uploads. Real event/input changes retry
+up to eight times, then fail retryably with local data retained; there is never a
+projecting-under-lock fallback. Generic Namespace::commit still supports
+metadata-only MOVE intents. No format, ancestry, conflict, publication or
+spool-release rules change.
+
+Production event mutations fork their projection cache cell (commit, ingest,
+import insertion and journal replay). Each old snapshot retains its old cell;
+arbitrarily many/late snapshots and failed candidate saves cannot replace the
+new live cell. This is branch isolation, not a bounded multi-entry cache. Exact
+Shared identity/version remains checked on every lookup. Unchanged event-map
+clones still share a cell for idle status/capacity reuse.
+
+Deterministic regression checks (macOS/Linux/Windows core, no mount/cloud):
+
+```sh
+cargo test --locked --bin rpool projection_tests
+cargo test --locked --bin rpool mount::virtual_drive::visible_tests
+cargo test --locked --bin rpool mount::namespace::journal_tests
+cargo test --locked --bin rpool mount::virtual_tests
+```
+
+The projection hook checks lock availability synchronously; barrier-started
+concurrent uploads prove commits preserve memory/disk receipts with exactly one
+projection each. A hook mutating unrelated state on EVERY preparation proves
+ordinary pending/publication churn cannot starve an upload.
+Tests cover coherent capacity IDs/usage/conflicts, idle reuse, same-key cache
+invalidation, pending identity/content rejection, retry exhaustion, warm visible
+reads and failed-save replay. The ignored baseline-compatible
+`projection_foreground_lock_benchmark` reports foreground lock p95/max and
+operation duration over 8,000 synthetic events; it has no timing pass gate:
+
+```sh
+cargo test --release --locked --bin rpool projection_foreground_lock_benchmark -- --ignored --nocapture
+```
+
+Remaining costs: durable save/checkpoint and pending-overlay work still serialize
+under StateLock; unrelated mutation paths (e.g. pulled event ingestion and
+metadata-only MOVE, history application and import) retain their existing
+projection work and are not converted into off-lock transactions.
+Synthetic results do not establish Windows mounted latency or live-cloud speedup.
+
+Integration correction: the first full-suite run exposed three account-recovery
+failures (`uploaded intent is no longer pending or changed`). Verified Reprocess
+adoption legitimately starts an unsealed, unqueued recovery intent and must not
+masquerade as uploader completion. A private account-recovery adoption transaction
+now rechecks the new destination, intent identity/base and overlapping pending
+work under its exclusive workspace's state lock, then commits/saves/installs
+metadata without fabricating spool bytes. The strict uploader boundary is
+unchanged. Existing replacement verification/no-original-account tests and new
+rejection/save-failure/retry regressions cover this separate path.
+
+## Observed lock-latency comparison (2026-11-09)
+
+One matched release-mode run on macOS ARM64, using the identical ignored harness
+and 8,000 simple disjoint synthetic events (no user namespace, mounts or cloud):
+
+| Observation | 2.22.1 baseline | Unreleased candidate |
+|---|---:|---:|
+| Three warm pool-status calls, total | 81.784 ms | 0.070 ms |
+| Uploaded deletion commit, total | 40.755 ms | 48.700 ms |
+| Maximum sampled foreground mutex wait during that commit | 39.257 ms | 4.552 ms |
+
+This is a responsiveness result, **not** improved upload throughput: total commit
+time did not improve in this sample. A sampler attempts an acquisition about
+every millisecond, so its maximum is observational, not a bound; the candidate
+status calls were too short to collect more than one sample. Deterministic
+projection-hook and concurrent-mutation tests provide the separate correctness
+proof that these target paths build projections outside the state lock. No
+Windows mounted latency or reproduction of the user's 33-second stall is claimed
+for the candidate.
+
+Validation of the candidate source: 1,212 macOS tests passed (66 ignored),
+including the process-global closed-pipe test run separately; warnings-denied
+release builds of both binaries passed. Warnings-denied all-target checks passed
+for Windows GNU and Linux GNU using Rust 1.98.1. These cross-checks are compilation
+only, not Windows/Linux runtime or live-cloud validation. Touched Rust files and
+whitespace checks pass; repository-wide fmt/clippy retain unrelated existing debt.

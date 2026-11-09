@@ -217,16 +217,65 @@ impl VirtualDrive {
     /// repoints an open pin of the local image to the new cloud revision.
     /// Called by `upload_round` after each successful upload.
     pub(crate) fn commit_uploaded(&self, intent: &Intent, content: Option<Content>) -> Result<()> {
-        let mut s = self.state.lock().unwrap();
-        let mut next = s.clone();
-        let id = next.commit(intent, content.clone())?;
-        next.save(&self.root)?;
-        *s = next;
-        if let Some(content) = content {
-            let mut pins = self.pins.lock().unwrap();
-            if pins.get(&intent.path).is_some_and(|r| r.id() == intent.id) {
-                pins.insert(intent.path.clone(), Revision::Cloud { id, content });
+        // Foreground writers never take this gate. Competing uploader commits
+        // serialize preparation, avoiding repeated whole projections of one base.
+        let _commit = self
+            .commit_gate
+            .lock()
+            .map_err(|_| anyhow!("commit lock poisoned"))?;
+        // Real event/input changes retry without a projecting-under-lock fallback.
+        // Unrelated seals/publication/base changes rebase without another projection.
+        for _ in 0..8 {
+            let (revision, source) = {
+                let s = self.state.lock().unwrap();
+                Self::check_uploaded(&s, intent, content.as_ref())?;
+                (s.revision(), s.clone())
+            };
+            let mut next = source.clone();
+            let id = next.commit(intent, content.clone())?;
+            // Warm folders, validation and the foreground view before publishing.
+            // save repeats its safeguards under the lock using these caches.
+            if next.folders_version != 0 {
+                next.refresh_directories()?;
             }
+            next.validate()?;
+            let projection = Arc::new(visible::Projection::of_state(&next)?);
+            let mut s = self.state.lock().unwrap();
+            Self::check_uploaded(&s, intent, content.as_ref())?;
+            if s.revision() != revision {
+                let mut current = s.clone();
+                if !current.rebase_commit(&source, &next, intent, &id) {
+                    continue;
+                }
+                // Only prepared event/bookkeeping is rebased. save validates
+                // current pending/folders/references and extends current durability.
+                next = current;
+            }
+            next.save(&self.root)?;
+            *s = next;
+            s.set_projection(projection);
+            self.cached_visible(&mut s)?;
+            if let Some(content) = content {
+                let mut pins = self.pins.lock().unwrap();
+                if pins.get(&intent.path).is_some_and(|r| r.id() == intent.id) {
+                    pins.insert(intent.path.clone(), Revision::Cloud { id, content });
+                }
+            }
+            return Ok(());
+        }
+        bail!("namespace changed during commit preparation; local data retained for retry")
+    }
+    /// Reject stale completions without removing a newer pending intent.
+    /// Sealed spool bytes remain immutable; upload_intent/pack verify the image.
+    fn check_uploaded(state: &Namespace, intent: &Intent, content: Option<&Content>) -> Result<()> {
+        if state.pending.iter().find(|p| p.id == intent.id) != Some(intent) {
+            bail!("uploaded intent is no longer pending or changed; local data retained");
+        }
+        match (intent.spool.as_ref(), content) {
+            (Some(_), Some(content))
+                if content.size == intent.size && content.hash == intent.hash => {}
+            (None, None) => {}
+            _ => bail!("uploaded content does not match sealed intent; local data retained"),
         }
         Ok(())
     }

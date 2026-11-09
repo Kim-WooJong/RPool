@@ -113,18 +113,29 @@ impl std::fmt::Debug for Durable {
 /// Shared resolved view: visible path -> resolved revision.
 pub(crate) type Projected = Arc<BTreeMap<String, Resolved>>;
 
-/// [`Namespace::resolved`] of one exact event map (see [`Shared::is`]).
+/// Full projection of one exact event map (see [`Shared::is`]); clones share
+/// the cell, so read-only snapshots populate the live namespace cache too.
 #[derive(Default)]
-struct ProjectionCache(Mutex<Option<ProjectionKeyed>>);
+struct ProjectionCache(Arc<Mutex<Option<ProjectionKeyed>>>);
 /// Cache key and value: the event map it was computed from (weak), the
 /// namespace version, and the projection.
-type ProjectionKeyed = (std::sync::Weak<BTreeMap<String, Event>>, u32, Projected);
+type ProjectionKeyed = (
+    std::sync::Weak<BTreeMap<String, Event>>,
+    u32,
+    Arc<FullProjection>,
+);
+
+/// Immutable full event projection, shared by namespace and drive reporting.
+pub(crate) struct FullProjection {
+    /// Visible files, also consumed by validation and edit ancestry.
+    pub files: Projected,
+    /// Structured v6 conflicts; empty for the local-only v3 fixture.
+    pub conflicts: Vec<super::peer_projection::Conflict>,
+}
 
 impl Clone for ProjectionCache {
     fn clone(&self) -> Self {
-        Self(Mutex::new(
-            self.0.lock().unwrap_or_else(|p| p.into_inner()).clone(),
-        ))
+        Self(self.0.clone())
     }
 }
 
@@ -281,18 +292,6 @@ pub(crate) fn durable_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
     #[cfg(unix)]
     File::open(dir)?.sync_all()?;
     Ok(())
-}
-/// The visible files of `events` as a namespace of `version` resolves them
-/// (see [`Namespace::resolved`]); also used on a copy outside the drive lock.
-pub(crate) fn resolve_events(
-    version: u32,
-    events: &BTreeMap<String, Event>,
-) -> Result<BTreeMap<String, Resolved>> {
-    if version == 6 {
-        Ok(super::peer_projection::project(events)?.files)
-    } else {
-        shared_model::reduce(events)
-    }
 }
 impl Namespace {
     /// Preserve folders from workspaces created before folder replication.
@@ -697,25 +696,44 @@ impl Namespace {
     pub(crate) fn projected(&self) -> Result<Projected> {
         self.resolved_shared()
     }
-    /// Whether [`Self::projected`] is already computed for these events.
-    pub(crate) fn has_projected(&self) -> bool {
-        let cache = self.projection.0.lock().unwrap_or_else(|p| p.into_inner());
-        cache
-            .as_ref()
-            .is_some_and(|(key, version, _)| *version == self.version && self.events.is(key))
-    }
-    /// The cached projection for the current events and version, computed via
-    /// [`resolve_events`] on a miss.
-    fn resolved_shared(&self) -> Result<Projected> {
-        let mut cache = self.projection.0.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some((key, version, projected)) = &*cache {
-            if *version == self.version && self.events.is(key) {
-                return Ok(projected.clone());
+    /// Full projection of these immutable events. Cache locks cover only lookup
+    /// and publication, never construction: a clone may compute outside StateLock
+    /// without making a foreground cache lookup wait for that computation.
+    pub(crate) fn full_projection(&self) -> Result<Arc<FullProjection>> {
+        {
+            let cache = self.projection.0.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some((key, version, projected)) = &*cache {
+                if *version == self.version && self.events.is(key) {
+                    return Ok(projected.clone());
+                }
             }
         }
-        let projected = Arc::new(resolve_events(self.version, &self.events)?);
-        *cache = Some((self.events.downgrade(), self.version, projected.clone()));
+        #[cfg(test)]
+        super::crash::projection_hook::run();
+        let projected = if self.version == 6 {
+            let full = super::peer_projection::project(&self.events)?;
+            FullProjection {
+                files: Arc::new(full.files),
+                conflicts: full.conflicts,
+            }
+        } else {
+            FullProjection {
+                files: Arc::new(shared_model::reduce(&self.events)?),
+                conflicts: Vec::new(),
+            }
+        };
+        let projected = Arc::new(projected);
+        let replaced = {
+            let mut cache = self.projection.0.lock().unwrap_or_else(|p| p.into_inner());
+            cache.replace((self.events.downgrade(), self.version, projected.clone()))
+        };
+        // Releasing a large old projection must not hold the shared cache mutex.
+        drop(replaced);
         Ok(projected)
+    }
+    /// Cached resolved files of the current events and version.
+    fn resolved_shared(&self) -> Result<Projected> {
+        Ok(self.full_projection()?.files.clone())
     }
     /// Owned copy of the visible files (path -> resolved revision).
     pub(crate) fn resolved(&self) -> Result<BTreeMap<String, Resolved>> {
@@ -794,6 +812,9 @@ impl Namespace {
             next.insert(id, event);
         }
         shared_model::reduce(&next)?;
+        if !Shared::ptr_eq(&self.events, &next) {
+            self.projection = ProjectionCache::default();
+        }
         self.events = next;
         Ok(())
     }
@@ -885,6 +906,42 @@ impl Namespace {
         }
         Ok(())
     }
+    /// Starts a private cache branch before a production event-map insertion.
+    /// Old snapshots retain their old cell, so even a late report or failed
+    /// candidate save cannot evict the live namespace's cached projection.
+    pub(crate) fn insert_event(&mut self, id: String, event: Event) {
+        self.projection = ProjectionCache::default();
+        self.events.insert(id, event);
+    }
+    /// Applies only one already prepared commit to the latest namespace. Equal
+    /// immutable source events/version and event-construction inputs prove the
+    /// prepared full projection is still valid. All unrelated mutable/durable
+    /// fields remain those of this current namespace, not the stale candidate.
+    pub(crate) fn rebase_commit(
+        &mut self,
+        source: &Self,
+        prepared: &Self,
+        intent: &Intent,
+        id: &str,
+    ) -> bool {
+        if !Shared::ptr_eq(&self.events, &source.events)
+            || self.version != source.version
+            || self.worker != source.worker
+            || self.device != source.device
+            || intent.depends_on.as_ref().is_some_and(|dependency| {
+                self.committed_intents.get(dependency) != source.committed_intents.get(dependency)
+            })
+            || self.pending.iter().find(|p| p.id == intent.id) != Some(intent)
+            || self.committed_intents.get(&intent.id) != source.committed_intents.get(&intent.id)
+        {
+            return false;
+        }
+        self.events = prepared.events.clone();
+        self.projection = prepared.projection.clone();
+        self.pending.retain(|p| p.id != intent.id);
+        self.committed_intents.insert(intent.id.clone(), id.into());
+        true
+    }
     /// Commits `intent` as a new event (with `content` for a write, `None` for a
     /// deletion), removes it from `pending`, records the receipt and returns the
     /// event id. Called by sync after upload and by `settle_deletions`.
@@ -906,7 +963,9 @@ impl Namespace {
         };
         event.validate()?;
         let id = event.id()?;
-        self.events.insert(id.clone(), event);
+        // A prepared commit owns its new cache: old reporting snapshots cannot
+        // evict the freshly warmed files/conflicts after it becomes live.
+        self.insert_event(id.clone(), event);
         self.pending.retain(|p| p.id != intent.id);
         self.committed_intents.insert(intent.id.clone(), id.clone());
         // Generic DAV clients do not report native editor lifetimes. Do not

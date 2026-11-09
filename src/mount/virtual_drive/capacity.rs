@@ -59,7 +59,13 @@ impl VirtualDrive {
             &crate::storage::admin::RcloneAdmin::inherited(&self.rclone),
             &self.policy,
         )?;
-        let state = self.state.lock().unwrap();
+        self.fill_namespace_capacity(&mut status)?;
+        Ok(status)
+    }
+    /// Adds usage and reservation fields from one coherent namespace snapshot.
+    /// Projection and spool I/O run after releasing the shared state lock.
+    pub(super) fn fill_namespace_capacity(&self, status: &mut CapacityStatus) -> Result<()> {
+        let state = { self.state.lock().unwrap().clone() };
         status.committed_logical_used = Some(state.logical_used()?);
         status.logical_used = state.visible_logical_used()?;
         status.usage_scope = "shared-namespace".into();
@@ -76,7 +82,7 @@ impl VirtualDrive {
             .collect();
         if !self.pool_sync_roots.is_empty() {
             status.pool_sync_roots = self.pool_sync_roots.clone();
-            status.conflicts = crate::mount::peer_projection::project(&state.events)?.conflicts;
+            status.conflicts = state.full_projection()?.conflicts.clone();
             status
                 .note
                 .push_str(" Pool-sync metadata is replicated automatically.");
@@ -97,7 +103,7 @@ impl VirtualDrive {
             status.note.push_str(" Local spool budget reached: new growth is rejected; sync or recover retained writes.");
         }
         status.note.push_str(" Virtual mode usage is the known shared namespace plus local pending writes, not the local cache. Other unimported archives are not counted.");
-        Ok(status)
+        Ok(())
     }
     /// The planned shards of `intent`'s eligible upload (see
     /// `mount::upload`) that its journal does not list as uploaded, with

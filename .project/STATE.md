@@ -1,6 +1,6 @@
 # Project State
 
-Updated: 2026-11-05
+Updated: 2026-11-09
 
 ## Project
 
@@ -15,16 +15,25 @@ validation. Version 2.22.1 (2026-11-05); later work goes under
 
 ## Current Status
 
-Version 2.22.1 (patch, prepared at the user's request for Windows testing)
-contains the Windows IDE metadata optimizations, validated locally without a
-live mount: durable-base reuse at edit start, shorter drive namespace critical
-sections, bounded case-name/listing caches, and fast repeated read
-observation. Cache tokens include per-core monotonic summary stamps/presence to
-catch create/delete and size A→B→A races; changed read ancestry saves publish
-in save order. Persistence, seal/flush, conflict and WinFsp operation-guard
-guarantees are unchanged. Windows VSCode runtime performance remains unmeasured
-until the user tests 2.22.1 on Windows. See `docs/MOUNT_IDE_PERFORMANCE.md` for
-local comparison and acceptance steps.
+Unreleased state-lock performance remediation is implemented locally against the
+2.22.1 baseline. Pool status and capacity compute/cache a full immutable projection
+from coherent snapshots outside StateLock. Uploaded commits serialize preparation
+on an uploader-only gate and safely rebase onto current non-event metadata; exact
+event/version/input checks protect concurrent changes before durable save/install.
+Cache branches isolate event mutations, and visible projections use exact Shared
+identity. Generic metadata-only commits and verified recovery adoption keep their
+separate serialized contracts. No format/fsync/ancestry or cloud-cleanup guarantee
+is relaxed. Full local validation and independent concrete-change reviews passed.
+Source remains uncommitted and unreleased.
+
+HOME diagnostic measurements on 2026-11-09 identified the original bottleneck:
+a 33.4566s read/hash call overlapped 33.249822s of background projection state holds.
+That diagnosis is complete, not repeated by this fix. The candidate has NOT been
+deployed to Windows or measured on the live mount. Keep the existing diagnostic
+mount/configuration and stopped trace intact; no additional restart is authorized.
+The earlier 2.22.1 IDE changes remain the released baseline, not proof that the
+new off-lock changes solve every Windows/IDE stall. See
+`docs/MOUNT_IDE_PERFORMANCE.md` for scope, synthetic comparison and remaining costs.
 
 macOS mount hang fix (2026-10-15, source + local tests only). Reported: a
 mount works, then unmounts by itself and Finder/terminal/the Mac freeze. The
@@ -186,6 +195,18 @@ Known limits:
 
 ## Latest validation
 
+2026-11-09 off-lock projection candidate: macOS all-target suite passed 1,211
+tests plus the process-global closed-pipe test separately (1): 1,212 passed,
+0 failed, 66 ignored. Both warnings-denied release binaries built. Windows GNU
+and Linux GNU warnings-denied all-target checks passed with Rust 1.98.1; neither
+OS runtime was run. Touched Rust fmt and diff checks pass; global fmt/clippy
+have pre-existing unrelated debt. Deterministic projection/concurrency tests
+cover unrelated-mutation rebase, four uploader commits, stale identities,
+cache isolation, coherent capacity and save/replay. A matched 8k-event local
+release sample reduced max sampled foreground mutex wait during commit from
+39.257ms to 4.552ms; total commit time was 40.755ms baseline vs 48.700ms candidate.
+This is not a throughput or Windows mounted speedup claim.
+
 2026-11-05 2.22.1 release candidate (version/doc changes only over baf9ff1):
 `cargo test --locked --all-targets` with the console pipe test run separately
 (1,195 + 1 passed, 65 ignored), the three ignored release-mode synthetic
@@ -270,15 +291,19 @@ not repeated for this change.
 
 ## Resume
 
-For the Windows VSCode report, start with the 2.22.1 changes in
-`src/mount/fs_core/{core,slot,view_cache}.rs`,
-`src/mount/frontend/{names,winfsp/filesystem}.rs` and
-`src/mount/virtual_drive/write.rs`. Local gates passed; the user will test
-2.22.1 on the affected Windows PC against 2.22.0 with the same workspace/cache
-state, as described in `docs/MOUNT_IDE_PERFORMANCE.md`. WinFsp's outer
-create/rename guard and required baseline copy/hash/fsync work remain costs,
-not proven fixes. Do not install a release on this Mac without a separate user
-request.
+Local off-lock projection remediation is complete: validated uncommitted source
+is in artifacts/rpool; the matched implementation/verification worktree is
+projects/rpool/projection-offlock-20261109. Independent commit/recovery and
+cache/liveness reviews signed off with no remaining blocker. Evidence is in
+projects/rpool/diagnostics-20261109/LOCK_TRACE_STATE.json and comparison logs under
+projects/rpool/projection-validation-20261109. The next step is only on owner
+request: prepare a Windows candidate and a bounded live comparison, with new
+restart/deployment authorization, or prepare a separately approved push/release.
+Do not change the existing live mount/configuration or remove its diagnostic
+backups. Version/README remain unchanged until a requested push. Pull ingestion
+and metadata-only MOVE/history/import/recovery can still perform old projection
+work under the lock; they are not claimed fixed. Do not install a release on this
+Mac without a separate user request.
 
 For the cloud-folder feature, install the updated build on two Windows PCs
 with the same pool and verify Explorer mkdir, delete-last-file, move-out,

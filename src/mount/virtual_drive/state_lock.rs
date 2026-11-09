@@ -46,6 +46,11 @@ impl StateLock {
     pub(crate) fn revision(&self) -> Option<u64> {
         self.0.lock().ok().map(|slot| slot.revision)
     }
+    /// Nonblocking lock for deterministic projection ownership tests.
+    #[cfg(test)]
+    pub(super) fn try_lock(&self) -> Option<StateGuard<'_>> {
+        self.0.try_lock().ok().map(StateGuard)
+    }
     /// Locks the namespace; a poisoned lock still yields a guard (in the error).
     pub(crate) fn lock(&self) -> LockResult<StateGuard<'_>> {
         self.0
@@ -64,13 +69,17 @@ impl std::ops::Deref for StateGuard<'_> {
 
 impl std::ops::DerefMut for StateGuard<'_> {
     fn deref_mut(&mut self) -> &mut Namespace {
-        self.0.revision = self.0.revision.wrapping_add(1);
+        self.0.revision = self
+            .0
+            .revision
+            .checked_add(1)
+            .expect("namespace revision overflow");
         &mut self.0.namespace
     }
 }
 
 impl StateGuard<'_> {
-    #[cfg(test)]
+    /// Mutation token for revalidating an off-lock prepared copy.
     pub(super) fn revision(&self) -> u64 {
         self.0.revision
     }

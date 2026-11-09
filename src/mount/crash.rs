@@ -62,3 +62,26 @@ pub(crate) mod hash_hook {
         });
     }
 }
+
+/// Test hook before full namespace projection construction; thread-local so
+/// independent tests cannot intercept each other's work.
+#[cfg(test)]
+pub(crate) mod projection_hook {
+    use std::cell::RefCell;
+    thread_local! {
+        static HOOK: RefCell<Option<Box<dyn FnMut()>>> = RefCell::new(None);
+    }
+    pub(crate) fn set(hook: impl FnMut() + 'static) {
+        HOOK.with(|h| *h.borrow_mut() = Some(Box::new(hook)));
+    }
+    pub(crate) fn clear() {
+        HOOK.with(|h| *h.borrow_mut() = None);
+    }
+    pub(crate) fn run() {
+        HOOK.with(|h| {
+            if let Some(hook) = h.borrow_mut().as_mut() {
+                hook();
+            }
+        });
+    }
+}

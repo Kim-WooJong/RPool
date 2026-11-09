@@ -269,7 +269,7 @@ impl VirtualDrive {
         event.validate()?;
         let id = event.id()?;
         let mut next = s.clone();
-        next.events.insert(id, event);
+        next.insert_event(id, event);
         next.save(&self.root)?;
         *s = next;
         drop(s);

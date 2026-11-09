@@ -21,6 +21,12 @@ mod open;
 /// Small-file packs: many small writes uploaded as one archive.
 mod pack;
 pub(crate) mod pending_cancel;
+/// Baseline-compatible synthetic foreground mutex-latency comparison.
+#[cfg(test)]
+mod projection_compare_bench_tests;
+/// Deterministic off-lock projection and commit regressions.
+#[cfg(test)]
+mod projection_tests;
 mod read;
 mod recovery;
 mod rename;
@@ -155,6 +161,9 @@ pub(crate) struct VirtualDrive {
     pub capacity: Mutex<Option<CapacityStatus>>,
     /// Serializes pull/sync rounds and metadata compaction.
     pub sync_gate: Mutex<()>,
+    /// Serializes uploader projection preparation/install only; foreground
+    /// mutation never takes it. Lock order: commit_gate, state, then pins.
+    pub(super) commit_gate: Mutex<()>,
     /// Revision currently served per open path, kept until released.
     pub pins: Mutex<BTreeMap<String, Revision>>,
     /// Weak leases of local spool images in use (intent id -> lease); a live
@@ -212,6 +221,7 @@ fn fixture_with(root: &Path, state: Namespace) -> VirtualDrive {
         cache: ShardCache::new(root.join("clean-cache"), 1024).unwrap(),
         capacity: Mutex::new(None),
         sync_gate: Mutex::new(()),
+        commit_gate: Mutex::new(()),
         pins: Mutex::new(BTreeMap::new()),
         local_leases: Mutex::new(BTreeMap::new()),
         spool_limit: 64 * 1073741824,

@@ -10,11 +10,12 @@ use std::ops::Bound;
 
 /// The committed files of one event set.
 pub(crate) struct Projection {
+    /// Exact immutable event allocation; mutable access invalidates this weak key.
+    events: std::sync::Weak<BTreeMap<String, Event>>,
     /// Namespace version the events were projected with.
     version: u32,
-    /// Every event id with its content size (0 for a deletion). Also the
-    /// cache key: event ids are content hashes, so the same ids and
-    /// version project to the same files.
+    /// Every event id with its content size (0 for a deletion), for charging
+    /// newly committed bytes against a previously measured capacity snapshot.
     sizes: BTreeMap<String, u64>,
     /// Committed visible files (cloud revisions) by path.
     files: BTreeMap<String, Revision>,
@@ -25,11 +26,6 @@ pub(crate) struct Projection {
 }
 
 impl Projection {
-    /// Projects `events` from scratch (see `namespace::resolve_events`).
-    pub(super) fn build(version: u32, events: &BTreeMap<String, Event>) -> Result<Self> {
-        let resolved = super::super::namespace::resolve_events(version, events)?;
-        Ok(Self::from_resolved(version, events, &resolved))
-    }
     /// The projection of `state`, reusing the namespace's cached projection
     /// of the same events when one exists.
     pub(super) fn of_state(state: &Namespace) -> Result<Self> {
@@ -42,7 +38,7 @@ impl Projection {
     /// Builds the projection from already resolved files.
     fn from_resolved(
         version: u32,
-        events: &BTreeMap<String, Event>,
+        events: &crate::mount::namespace::Shared<BTreeMap<String, Event>>,
         resolved: &BTreeMap<String, crate::mount::shared_model::Resolved>,
     ) -> Self {
         let mut files = BTreeMap::new();
@@ -65,6 +61,7 @@ impl Projection {
             .collect();
         let events_total = sizes.values().map(|s| u128::from(*s)).sum();
         Self {
+            events: events.downgrade(),
             version,
             sizes,
             files,
@@ -74,9 +71,7 @@ impl Projection {
     }
     /// Whether this projection is the one of `state`'s events.
     pub(super) fn matches(&self, state: &Namespace) -> bool {
-        self.version == state.version
-            && self.sizes.len() == state.events.len()
-            && self.sizes.keys().eq(state.events.keys())
+        self.version == state.version && state.events.is(&self.events)
     }
     /// The committed (projected) revision of `path`.
     pub(super) fn committed(&self, path: &str) -> Option<&Revision> {
@@ -291,24 +286,24 @@ impl VirtualDrive {
                 .lock()
                 .map_err(|_| anyhow!("namespace lock poisoned"))
         };
-        let mut s = lock()?;
-        if let Some((projection, pending)) = s.current() {
+        loop {
+            let mut s = lock()?;
+            if let Some((projection, pending)) = s.current() {
+                return Ok((s, projection, pending));
+            }
+            if !s.projection().is_some_and(|p| p.matches(&s)) {
+                let snapshot = s.clone();
+                drop(s);
+                let built = Arc::new(Projection::of_state(&snapshot)?);
+                s = lock()?;
+                if !built.matches(&s) {
+                    continue;
+                }
+                s.set_projection(built);
+            }
+            let (projection, pending) = self.cached_visible(&mut s)?;
             return Ok((s, projection, pending));
         }
-        if !s.projection().is_some_and(|p| p.matches(&s)) && !s.has_projected() {
-            // The event map is shared, so this copy is O(1).
-            let (version, events) = (s.version, s.events.clone());
-            drop(s);
-            let built = Projection::build(version, &events);
-            s = lock()?;
-            if let Ok(built) = built {
-                if built.matches(&s) {
-                    s.set_projection(Arc::new(built));
-                }
-            }
-        }
-        let (projection, pending) = self.cached_visible(&mut s)?;
-        Ok((s, projection, pending))
     }
     /// [`Self::locked_visible`] for a caller already holding the lock: a
     /// missing projection is built under it.
