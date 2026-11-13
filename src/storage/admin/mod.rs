@@ -144,4 +144,6 @@ pub(crate) fn collect_quota_reports(
 }
 
 #[cfg(test)]
+mod location_tests;
+#[cfg(test)]
 mod tests;

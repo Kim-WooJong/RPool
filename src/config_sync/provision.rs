@@ -79,6 +79,7 @@ impl EncryptionDefaults {
         CryptSetup {
             name,
             provider,
+            path: None,
             entropy_bits: self.entropy_bits,
             filename_encryption: self.filename_encryption.clone(),
             directory_encryption: self.directory_encryption,
@@ -93,6 +94,8 @@ pub(crate) struct CryptSetup {
     pub(crate) name: String,
     /// Existing non-crypt remote it wraps.
     pub(crate) provider: String,
+    /// Explicit physical root on the existing connection; empty means its root.
+    pub(crate) path: Option<String>,
     /// Random password entropy in bits (128, 256, 512 or 1024).
     pub(crate) entropy_bits: usize,
     /// rclone crypt `filename_encryption`: `standard`, `obfuscate` or `off`.
@@ -107,6 +110,13 @@ impl CryptSetup {
     fn validate(&self) -> Result<()> {
         validate_remote_name(&self.name)?;
         validate_remote_name(&self.provider)?;
+        if self
+            .path
+            .as_ref()
+            .is_some_and(|p| p.chars().any(char::is_control))
+        {
+            bail!("storage path must not contain control characters");
+        }
         if self.name.eq_ignore_ascii_case(&self.provider) {
             bail!("crypt name must differ from provider name");
         }
@@ -237,6 +247,12 @@ impl Drop for Lock {
 
 /// Use the provider's configured default exactly; never append crypt-only folders.
 fn crypt_backing(setup: &CryptSetup, roots: &RemoteRootStore) -> Result<String> {
+    if let Some(path) = &setup.path {
+        if path.chars().any(char::is_control) {
+            bail!("storage path must not contain control characters");
+        }
+        return Ok(format!("{}:{}", setup.provider, path.trim()));
+    }
     let backing = apply_remote_root_with_store(&format!("{}:", setup.provider), roots)?;
     if backing.chars().any(char::is_control) {
         bail!("provider default path must not contain control characters");
@@ -974,11 +990,60 @@ fn main() {
         CryptSetup {
             name: "cloud_crypt".into(),
             provider: "cloud".into(),
+            path: None,
             entropy_bits: 256,
             filename_encryption: "standard".into(),
             directory_encryption: true,
             filename_encoding: "base32".into(),
         }
+    }
+    #[test]
+    fn explicit_storage_root_does_not_redirect_existing_default() {
+        let mut roots = RemoteRootStore::default();
+        roots.roots.insert("cloud".into(), "/disk1".into());
+        for (path, expected) in [
+            (
+                "/disk2/folder with spaces",
+                "cloud:/disk2/folder with spaces",
+            ),
+            ("", "cloud:"),
+            ("-odd", "cloud:-odd"),
+        ] {
+            let mut s = setup();
+            s.path = Some(path.into());
+            s.validate().unwrap();
+            assert_eq!(crypt_backing(&s, &roots).unwrap(), expected);
+            assert_eq!(roots.roots["cloud"], "/disk1");
+        }
+        let mut s = setup();
+        s.path = Some("/disk2\npassword = injected".into());
+        assert!(s.validate().is_err());
+        assert!(crypt_backing(&s, &roots).is_err());
+    }
+    #[test]
+    fn adding_two_locations_keeps_connection_and_old_keys_byte_for_byte() {
+        let tool = fixture_executable();
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("rclone.conf");
+        let original = "[cloud]\ntype = sftp\nhost = fixture.invalid\nuser = fixture\n[old]\ntype = crypt\nremote = cloud:/disk1\npassword = old-key\npassword2 = old-salt\n";
+        fs::write(&config, original).unwrap();
+        let mut roots = RemoteRootStore::default();
+        roots.roots.insert("cloud".into(), "/disk1".into());
+        for (name, path) in [("disk2_crypt", "/disk2"), ("disk3_crypt", "/disk3")] {
+            let mut s = setup();
+            s.name = name.into();
+            s.path = Some(path.into());
+            assert_eq!(
+                create_crypt_at(&tool, &s, &config, &roots).unwrap(),
+                format!("cloud:{path}")
+            );
+            assert!(fs::read(&config).unwrap().starts_with(original.as_bytes()));
+        }
+        let dump = read_dump(&tool, &config).unwrap();
+        assert_eq!(dump["old"].remote, "cloud:/disk1");
+        assert_eq!(dump["disk2_crypt"].remote, "cloud:/disk2");
+        assert_eq!(dump["disk3_crypt"].remote, "cloud:/disk3");
+        assert_eq!(dump["old"].password.as_ref().unwrap().as_str(), "old-key");
     }
     #[test]
     fn provisioning_preserves_original_bytes_and_rejects_collisions() {

@@ -390,5 +390,20 @@
   "If the current folder already holds files, RPool refuses unless you move them along. Moving needs an empty new folder and may take long for large data; stop mounts and uploads that use this provider first.": "現在のフォルダーに既にファイルがある場合、一緒に移動しない限り RPool は拒否します。移動には空の新しいフォルダーが必要で、大きなデータでは時間がかかります。先にこのプロバイダーを使うマウントとアップロードを停止してください。",
   "Move files already stored to the new folder": "保存済みのファイルを新しいフォルダーへ移動",
   "Change location": "場所を変更",
-  "Changing the location of {provider}. See Jobs for the result.": "{provider} の場所を変更中です。結果はジョブで確認してください。"
+  "Changing the location of {provider}. See Jobs for the result.": "{provider} の場所を変更中です。結果はジョブで確認してください。",
+  "Storage locations": "保存場所",
+  "One connection can use several disks. Adding a location keeps existing roots, keys and files unchanged.": "1つの接続で複数のディスクを使えます。場所を追加しても既存のパス・鍵・ファイルは変わりません。",
+  "Existing storage locations": "登録済みの保存場所",
+  "Disk capacity group (optional)": "ディスク容量グループ（任意）",
+  "Empty: share the provider capacity": "空欄：プロバイダーの容量を共有",
+  "Use the same group for paths on the same disk; different groups only for truly independent disks. Outage protection still uses the original connection.": "同じディスクのパスは同じグループにし、独立したディスクだけ別にしてください。障害保護は元の接続を基準にします。",
+  "This backend keeps provider-wide capacity; per-location capacity groups are unavailable.": "このバックエンドは接続全体の容量を共有するため、場所ごとの容量グループは使用できません。",
+  "Capacity declarations are local to this PC and are not exported. Re-declare them after importing on another PC.": "容量の宣言はこのPCのみで、エクスポートされません。別のPCへインポートした後に再設定してください。",
+  "Save disk capacity groups": "ディスク容量グループを保存",
+  "Capacity declarations saved. Recalculate pool capacity to validate the selected roots.": "容量グループを保存しました。プール容量を再計算して選択したパスを確認してください。",
+  "Add storage location": "保存場所を追加",
+  "Location name (new encrypted remote)": "場所の名前（新しい暗号化保存先）",
+  "Physical folder on this connection": "この接続で使う物理フォルダーパス",
+  "Select the new location in the pool or upload destination list after creation. No existing pool is changed automatically.": "作成後、プールまたはアップロード先の一覧で新しい場所を選択してください。既存のプールは自動変更されません。",
+  "Change the existing default location": "既存の既定の場所を変更"
 }

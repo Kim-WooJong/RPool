@@ -129,8 +129,8 @@ pub(crate) fn show(ui: &mut egui::Ui, card: &ProviderCard<'_>, idle: bool) -> Op
                 let location = format!("{}:{}", card.name, card.location.unwrap_or_default());
                 ui.add(egui::Label::new(egui::RichText::new(location).small().monospace()).truncate());
                 if ui
-                    .add_enabled(idle, egui::Button::new(tr("Change…")).small())
-                    .on_hover_text(tr("Change the folder RPool uses on this provider; its encrypted providers follow."))
+                    .add_enabled(idle, egui::Button::new(tr("Storage locations")).small())
+                    .on_hover_text(tr("Storage locations"))
                     .clicked()
                 {
                     action = Some(CardAction::Location);

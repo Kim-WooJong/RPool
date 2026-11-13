@@ -113,7 +113,32 @@ impl BudgetSnapshot {
         remotes: &[String],
     ) -> Self {
         let mut result = Self::default();
-        let mut reports = Self::quotas(admin, catalog, remotes);
+        let mut identities: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for remote in remotes {
+            if let Ok(binding) = catalog.capacity(remote) {
+                if let Some(domain) = binding.domain {
+                    identities
+                        .entry(catalog.quota_scope_key(&binding.target))
+                        .or_default()
+                        .insert(domain.as_str().into());
+                }
+            }
+        }
+        let conflicting: BTreeSet<_> = identities
+            .into_iter()
+            .filter(|(_, ids)| ids.len() > 1)
+            .map(|(key, _)| key)
+            .collect();
+        let query_remotes: Vec<_> = remotes
+            .iter()
+            .filter(|r| {
+                catalog
+                    .capacity(r)
+                    .is_ok_and(|b| !conflicting.contains(&catalog.quota_scope_key(&b.target)))
+            })
+            .cloned()
+            .collect();
+        let mut reports = Self::quotas(admin, catalog, &query_remotes);
         for remote in remotes {
             let binding = match catalog.capacity(remote) {
                 Ok(b) => b,
@@ -126,6 +151,14 @@ impl BudgetSnapshot {
                     continue;
                 }
             };
+            if conflicting.contains(&catalog.quota_scope_key(&binding.target)) {
+                result.rejected.push((
+                    remote.clone(),
+                    "Conflicting capacity identities for the same storage root".into(),
+                    false,
+                ));
+                continue;
+            }
             let report = reports
                 .entry(binding.target.clone())
                 .or_insert_with(|| admin.quota(&binding.target));

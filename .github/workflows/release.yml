@@ -125,5 +125,7 @@ jobs:
         with:
           tag_name: ${{ env.TAG }}
           name: RPool ${{ env.TAG }}
+          prerelease: ${{ contains(env.TAG, '-') }}
+          make_latest: ${{ contains(env.TAG, '-') && 'false' || 'true' }}
           body_path: RELEASE_NOTES.md
           files: dist/*

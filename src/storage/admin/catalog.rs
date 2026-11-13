@@ -1,6 +1,76 @@
 //! Sanitized configuration facts: aliases are not proof of independent accounts.
 use crate::models::volume::{CapacityDomainId, FailureDomainId};
 use crate::prelude::*;
+/// Only filesystem backends whose quota may describe a selected disk root.
+pub(crate) fn path_capacity_supported(kind: &str) -> bool {
+    matches!(kind, "sftp" | "smb" | "local")
+}
+/// Lexical quota identity only: never use this case-folded path for I/O.
+/// The explicit flag lets non-Windows tests exercise Windows local semantics.
+pub(super) fn quota_path_key(path: &str, kind: &str, windows: bool) -> String {
+    let windows_local = windows && kind == "local";
+    let path = if windows_local {
+        path.replace('\\', "/")
+    } else {
+        path.to_owned()
+    };
+    let mut rest = path.as_str();
+    let mut prefix = String::new();
+    let mut anchored = false;
+    let unc_tail;
+    if windows_local
+        && rest.as_bytes().get(1) == Some(&b':')
+        && rest.as_bytes()[0].is_ascii_alphabetic()
+    {
+        prefix.push_str(&rest[..2]);
+        rest = &rest[2..];
+        if rest.starts_with('/') {
+            prefix.push('/');
+            rest = rest.trim_start_matches('/');
+            anchored = true;
+        }
+    } else if windows_local && rest.starts_with("//") {
+        // A UNC server/share is an indivisible root; '..' cannot remove it.
+        let mut components = rest[2..].split('/').filter(|p| !p.is_empty());
+        prefix = format!("//{}", components.next().unwrap_or_default());
+        if let Some(share) = components.next() {
+            prefix.push('/');
+            prefix.push_str(share);
+        }
+        unc_tail = components.collect::<Vec<_>>().join("/");
+        rest = &unc_tail;
+        prefix.push('/');
+        anchored = true;
+    } else if rest.starts_with('/') {
+        anchored = true;
+        // SMB treats leading slashes as share-root separators, not a
+        // different namespace. POSIX and Windows rooted paths retain '/'.
+        if kind != "smb" {
+            prefix.push('/');
+        }
+        rest = rest.trim_start_matches('/');
+    }
+    let mut parts = Vec::new();
+    for part in rest.split('/') {
+        match part {
+            "" | "." => {}
+            ".." if parts.last().is_some_and(|p| *p != "..") => {
+                parts.pop();
+            }
+            ".." if anchored => {}
+            _ => parts.push(part),
+        }
+    }
+    let mut key = format!("{prefix}{}", parts.join("/"));
+    if windows_local && key.starts_with("//") {
+        key.truncate(key.trim_end_matches('/').len());
+    }
+    if windows_local || kind == "smb" {
+        key.to_lowercase()
+    } else {
+        key
+    }
+}
 #[derive(Debug, Clone)]
 /// One rclone config section, reduced to non-secret facts.
 struct Entry {
@@ -57,8 +127,50 @@ impl RemoteCatalog {
     }
     /// Whether the backing section of `raw` has a declared identity.
     pub(crate) fn identity_declared(&self, raw: &str) -> bool {
-        self.placement_target(raw)
-            .is_ok_and(|name| self.domains.remotes.contains_key(&name))
+        if self.capacity(raw).is_err() {
+            return false;
+        }
+        let mut address = raw;
+        let mut seen = BTreeSet::new();
+        while let Some((name, _)) = address.split_once(':') {
+            if !seen.insert(name) {
+                return false;
+            }
+            if self.domains.remotes.contains_key(name) {
+                return true;
+            }
+            let Some(entry) = self.entries.get(name) else {
+                return false;
+            };
+            if !matches!(entry.kind.as_str(), "crypt" | "alias" | "chunk" | "chunker") {
+                return false;
+            }
+            let Some(next) = entry.backing.as_deref() else {
+                return false;
+            };
+            address = next;
+        }
+        false
+    }
+    /// Non-secret configured backing of a crypt location, for GUI display.
+    pub(crate) fn crypt_location(&self, raw: &str) -> Option<&str> {
+        let name = raw.split_once(':')?.0;
+        let entry = self.entries.get(name)?;
+        (entry.kind == "crypt")
+            .then_some(entry.backing.as_deref())
+            .flatten()
+    }
+    /// Conservative lexical key for duplicate quota targets, not a server realpath.
+    pub(crate) fn quota_scope_key(&self, raw: &str) -> String {
+        let Some((name, path)) = raw.split_once(':') else {
+            return raw.into();
+        };
+        let path = quota_path_key(
+            path,
+            self.backend_kind(name).unwrap_or_default(),
+            cfg!(windows),
+        );
+        format!("{name}:{path}")
     }
 
     /// The configured backend type of a section (for example `dropbox`, `s3`).
@@ -227,15 +339,43 @@ impl RemoteCatalog {
             .ok_or_else(|| anyhow!("capacity mapping is unresolved"))?;
         match entry.kind.as_str() {
             "crypt" | "alias" | "chunk" | "chunker" => {
-                let binding = self.resolve(
-                    entry
-                        .backing
-                        .as_deref()
-                        .ok_or_else(|| anyhow!("missing capacity backing"))?,
-                    visited,
-                )?;
+                let backing = entry
+                    .backing
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("missing capacity backing"))?;
+                let joined;
+                let next = if entry.kind == "alias" {
+                    // Alias forwards its plaintext suffix unchanged. Crypt does
+                    // not: without its cipher we can only trust its backing root.
+                    let suffix = raw.split_once(':').unwrap().1.trim_start_matches('/');
+                    let backing_path = backing.split_once(':').map(|(_, p)| p);
+                    if !suffix.is_empty() {
+                        let separator =
+                            if backing_path.is_some_and(|p| p.is_empty() || p.ends_with('/')) {
+                                ""
+                            } else {
+                                "/"
+                            };
+                        joined = format!("{backing}{separator}{suffix}");
+                        joined.as_str()
+                    } else {
+                        backing
+                    }
+                } else {
+                    backing
+                };
+                let mut binding = self.resolve(next, visited)?;
                 if binding.domain.is_none() {
                     bail!("alias capacity scope is unresolved for this backend");
+                }
+                if let Some(identity) = self.domains.remotes.get(name) {
+                    let base = self.placement_target(raw)?;
+                    if !path_capacity_supported(self.backend_kind(&base).unwrap_or_default()) {
+                        bail!("per-location capacity identity requires a filesystem backend; declare shared account quota on the backing provider");
+                    }
+                    binding.domain = Some(CapacityDomainId::new(identity.capacity.clone())?);
+                    // A disk does not become a new server/account outage domain.
+                    // Always keep the underlying provider's failure identity.
                 }
                 Ok(binding)
             }

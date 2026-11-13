@@ -39,6 +39,8 @@ pub(crate) struct ProviderDetails {
     pub(crate) kinds: std::collections::BTreeMap<String, String>,
     /// Backing remote (placement target) -> crypt remotes wrapping it.
     pub(crate) crypts: std::collections::BTreeMap<String, Vec<String>>,
+    /// Crypt remote address -> configured physical backing, without credentials.
+    pub(crate) locations: std::collections::BTreeMap<String, String>,
 }
 
 impl ProviderDetails {
@@ -56,6 +58,9 @@ impl ProviderDetails {
             }
         }
         for crypt in crypts {
+            if let Some(location) = catalog.crypt_location(crypt) {
+                details.locations.insert(crypt.clone(), location.into());
+            }
             if let Ok(target) = catalog.placement_target(crypt) {
                 details
                     .crypts
@@ -107,7 +112,13 @@ impl UsageRefresh {
                     ProviderDetails::from_catalog(&catalog, &backing_remotes, &crypt_remotes);
                 // Discovery is useful even when a provider cannot report capacity.
                 let capacity = (|| {
-                    let physical = catalog.physical_remotes()?;
+                    let mut physical = catalog.physical_remotes()?;
+                    physical.extend(
+                        crypt_remotes
+                            .iter()
+                            .filter(|r| catalog.capacity(r).is_ok())
+                            .cloned(),
+                    );
                     let remotes = catalog.capacity_remotes(&physical)?;
                     collect_quota_reports(admin.as_ref(), &remotes, workers.max(1))
                 })();
@@ -164,6 +175,16 @@ mod tests {
     use super::*;
     use crate::storage::admin::RemoteCatalog;
     use std::sync::{mpsc, Barrier};
+    #[test]
+    fn multiple_locations_stay_under_one_connection_and_are_individually_selectable() {
+        let c=RemoteCatalog::parse(&serde_json::json!({"nas":{"type":"sftp"},"one":{"type":"crypt","remote":"nas:/disk1"},"two":{"type":"crypt","remote":"nas:/disk2"}})).unwrap();
+        let crypts = c.crypt_remotes();
+        let d = ProviderDetails::from_catalog(&c, &c.backing_remotes(), &crypts);
+        assert_eq!(d.crypts["nas"], vec!["one:", "two:"]);
+        assert_eq!(d.locations["one:"], "nas:/disk1");
+        assert_eq!(d.locations["two:"], "nas:/disk2");
+        assert_eq!(crypts.len(), 2);
+    }
     struct CryptOnly;
     impl BackendAdmin for CryptOnly {
         fn catalog(&self) -> anyhow::Result<RemoteCatalog> {

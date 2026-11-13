@@ -180,6 +180,9 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         &mut state.providers.location,
         &state.settings.rclone,
         task,
+        &state.provider_details,
+        &state.settings.encryption,
+        state.providers.connection.is_none(),
     );
     storage_manager::show(
         ui.ctx(),

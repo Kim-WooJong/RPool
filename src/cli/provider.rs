@@ -63,6 +63,9 @@ pub(crate) enum ProviderCommands {
         /// Existing non-crypt remote name, without colon.
         #[arg(long)]
         provider: String,
+        /// Physical folder on that same connection; omitted = existing default.
+        #[arg(long, allow_hyphen_values = true)]
+        path: Option<String>,
         /// Random password entropy; does not change rclone's encryption algorithm.
         #[arg(long, default_value_t = 1024)]
         entropy_bits: usize,

@@ -2,7 +2,8 @@
 use crate::prelude::*;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-/// User-declared identities of one backing remote.
+/// User-declared identities. A crypt location may override capacity only;
+/// its outage identity always comes from the concrete backing connection.
 pub(crate) struct DomainIdentity {
     /// Capacity domain id; remotes with the same id share one quota.
     pub capacity: String,
@@ -15,7 +16,7 @@ pub(crate) struct DomainIdentity {
 pub(crate) struct DomainStore {
     /// File format version; only 1 is accepted.
     pub version: u32,
-    /// Identities keyed by backing remote name (no colon or path).
+    /// Identities keyed by backing remote or crypt location name (no path).
     pub remotes: BTreeMap<String, DomainIdentity>,
 }
 impl Default for DomainStore {

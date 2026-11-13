@@ -390,5 +390,20 @@
   "If the current folder already holds files, RPool refuses unless you move them along. Moving needs an empty new folder and may take long for large data; stop mounts and uploads that use this provider first.": "如果当前文件夹已有文件，除非一并移动，否则 RPool 会拒绝。移动需要空的新文件夹，数据量大时可能耗时较长；请先停止使用此提供商的挂载和上传。",
   "Move files already stored to the new folder": "将已存储的文件移动到新文件夹",
   "Change location": "更改位置",
-  "Changing the location of {provider}. See Jobs for the result.": "正在更改 {provider} 的位置。结果见作业。"
+  "Changing the location of {provider}. See Jobs for the result.": "正在更改 {provider} 的位置。结果见作业。",
+  "Storage locations": "存储位置",
+  "One connection can use several disks. Adding a location keeps existing roots, keys and files unchanged.": "一个连接可使用多个磁盘。添加位置不会更改现有路径、密钥或文件。",
+  "Existing storage locations": "现有存储位置",
+  "Disk capacity group (optional)": "磁盘容量组（可选）",
+  "Empty: share the provider capacity": "留空：共享供应商容量",
+  "Use the same group for paths on the same disk; different groups only for truly independent disks. Outage protection still uses the original connection.": "同一磁盘的路径使用相同组，仅真正独立的磁盘使用不同组。故障保护仍以原连接为准。",
+  "This backend keeps provider-wide capacity; per-location capacity groups are unavailable.": "此后端共享整个供应商容量，不支持位置级容量组。",
+  "Capacity declarations are local to this PC and are not exported. Re-declare them after importing on another PC.": "容量声明仅保存在本机，不包含在导出中。导入其他电脑后请重新声明。",
+  "Save disk capacity groups": "保存磁盘容量组",
+  "Capacity declarations saved. Recalculate pool capacity to validate the selected roots.": "容量声明已保存。请重新计算池容量以验证所选路径。",
+  "Add storage location": "添加存储位置",
+  "Location name (new encrypted remote)": "位置名称（新的加密目标）",
+  "Physical folder on this connection": "此连接上的实际文件夹路径",
+  "Select the new location in the pool or upload destination list after creation. No existing pool is changed automatically.": "创建后，在池或上传目标列表中选择新位置。现有池不会自动改变。",
+  "Change the existing default location": "更改现有默认位置"
 }

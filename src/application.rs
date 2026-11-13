@@ -315,6 +315,7 @@ fn dispatch(cli: Cli) -> Result<()> {
             ProviderCommands::Encrypt {
                 name,
                 provider,
+                path,
                 entropy_bits,
                 filename_encryption,
                 directory_encryption,
@@ -325,6 +326,7 @@ fn dispatch(cli: Cli) -> Result<()> {
                     &crate::config_sync::provision::CryptSetup {
                         name,
                         provider,
+                        path,
                         entropy_bits,
                         filename_encryption,
                         directory_encryption,

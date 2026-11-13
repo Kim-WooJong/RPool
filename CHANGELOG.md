@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.23.0-rc.1 — 2026-11-13 (prerelease)
+
+- Add multiple named encrypted disk locations on one connected provider, using
+  explicit physical roots in CLI and GUI without moving existing data or
+  replacing authentication, defaults or existing keys. Locations remain
+  individually selectable in pools and uploads.
+- Add explicit filesystem-location capacity groups while preserving the backing
+  connection's outage identity, rate limits and shard caps. Shared/account-wide
+  quotas are not multiplied; conflicting identities for one root are rejected.
+  Capacity declarations remain PC-local (not carried by portable configuration
+  packages). Import restores keys only into matching target crypt names and
+  structures; recreate locations with matching explicit paths first. Existing
+  defaults, keys, pool membership and stored data remain unchanged.
+  See docs/PROVIDER_LOCATIONS.md.
+- Includes the 2.22.2 off-lock immutable event-projection and recovery-adoption
+  improvements below, accumulated since the latest public release, 2.22.1.
+
+Limits: Windows runtime and GUI interaction have not been validated for this
+release candidate. The cause of intermittent disconnects remains unconfirmed;
+no fix for those disconnects or Windows/cloud performance gain is claimed.
+
 ## 2.22.2 — 2026-11-09
 
 - Pool status and capacity reuse immutable full event projections outside the
