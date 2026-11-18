@@ -1,8 +1,8 @@
-# rpool v2.23.0-rc.1
+# rpool v2.23.0-rc.2
 
 **Prerelease:** Windows runtime validation is still pending. The cause of
 intermittent disconnects remains unconfirmed; this release does not claim to
-resolve them. See [release notes](CHANGELOG.md#2230-rc1--2026-11-13-prerelease).
+resolve them. See [release notes](CHANGELOG.md#2230-rc2--2026-11-18-prerelease).
 
 `rpool` is a Rust storage layer that stripes files across several
 **explicitly supplied rclone `crypt` remotes**, optionally with

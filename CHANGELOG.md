@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.23.0-rc.2 — 2026-11-18 (prerelease)
+
+- Restore the existing GUI window directly from tray actions before resuming
+  rendering/background polling, and handle macOS Dock reopen through the same
+  path. Mounted drives and running jobs are left untouched.
+- Retain the multiple encrypted provider locations and capacity-group features
+  introduced in 2.23.0-rc.1 below.
+
+Limits: The reported long-background GUI restoration failure's cause and runtime
+resolution remain unconfirmed. This release does not claim to resolve off-screen
+window placement, renderer failures or intermittent disconnects. Windows runtime
+and GUI interaction validation remain pending.
+
 ## 2.23.0-rc.1 — 2026-11-13 (prerelease)
 
 - Add multiple named encrypted disk locations on one connected provider, using

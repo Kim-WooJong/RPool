@@ -69,8 +69,12 @@ pub(crate) fn launch(startup_rclone: &str) -> Result<()> {
         Box::new(move |cc| {
             theme::apply(&cc.egui_ctx);
             let mut app = RpoolGui::new(&startup_rclone);
+            let restore = super::window_lifecycle::restore_callback(cc);
+            #[cfg(target_os = "macos")]
+            super::window_lifecycle::dock::install(&restore);
             // Inside the running event loop, as the tray needs on macOS.
-            app.tray = super::tray::Tray::new(&cc.egui_ctx);
+            app.tray = super::tray::Tray::new(&cc.egui_ctx, restore.clone());
+            app.restore_window = Some(restore);
             super::i18n::fonts::install(&cc.egui_ctx, super::i18n::language());
             Ok(Box::new(app))
         }),
@@ -103,6 +107,8 @@ struct RpoolGui {
     tray: Option<super::tray::Tray>,
     /// The window is hidden in the tray.
     hidden: bool,
+    /// Native restoration shared with callbacks, independent of rendering.
+    restore_window: Option<super::window_lifecycle::RestoreWindow>,
     /// The tray's Quit started the close: do not hide again.
     quitting: bool,
     /// Whether something ran at the previous tick (see `handle_tray`).
@@ -129,6 +135,7 @@ impl RpoolGui {
             snapshots: super::snapshot::Snapshots::from_env(),
             tray: None,
             hidden: false,
+            restore_window: None,
             quitting: false,
             was_busy: false,
         }
@@ -144,9 +151,13 @@ impl RpoolGui {
     /// minimized window, macOS an invisible one).
     fn show_window(&mut self, ctx: &egui::Context) {
         self.hidden = false;
-        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        if let Some(restore) = &self.restore_window {
+            restore();
+        } else {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
     }
 
     /// Handles tray clicks and keeps the tray status current. Viewport
@@ -299,7 +310,16 @@ impl RpoolGui {
 }
 
 impl eframe::App for RpoolGui {
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // Dock/native restoration bypasses the tray command queue. Synchronize
+        // our bookkeeping before completion handling can decide to show again.
+        if self.hidden
+            && frame.winit_window().is_some_and(|window| {
+                window.is_visible() == Some(true) && window.is_minimized() != Some(true)
+            })
+        {
+            self.hidden = false;
+        }
         // eframe calls logic even when a minimized window has no UI pass.
         // Keep draining child output and handling completion while hidden,
         // instead of leaving the whole backlog for the first restored frame.

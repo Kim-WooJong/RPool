@@ -1,6 +1,6 @@
 # Project State
 
-Updated: 2026-11-13
+Updated: 2026-11-18
 
 ## Project
 
@@ -9,9 +9,22 @@ rclone remotes. Canonical source: `artifacts/rpool`. Build/test only in isolated
 working copies under `projects/rpool`, with targets/logs/temp data outside source.
 Windows is the primary GUI platform; support macOS and Linux too. This Mac has no
 live user pool: local fixtures are not evidence of live-pool or Windows behavior.
-Version 2.23.0-rc.1 is the owner-authorized prerelease candidate (2026-11-13).
+Current candidate: 2.23.0-rc.2 (2026-11-18), owner-authorized for prerelease.
+The prior 2.23.0-rc.1 prerelease remains published.
 
 ## Current Status
+
+GUI restoration candidate 2.23.0-rc.2 (2026-11-18): tray actions now show/unminimize/
+focus the existing native window before relying on egui repaint or background
+polling. macOS Dock reopen uses the same callback without replacing winit's
+application delegate. No drive/job restart or settings changes. Both macOS release
+binaries and Windows GNU release binaries built successfully; the Windows build
+used --no-default-features (WinFsp excluded). Runtime reproduction of the reported
+long-background symptom is not established. No tests, GUI exercise or independent
+review ran, per the owner's build-only policy. The owner authorized publishing
+v2.23.0-rc.2, and both local release binaries built and report that version.
+Source and release metadata are prepared for commit/tag/publication; installation
+and user remount are not authorized.
 
 Multiple storage locations on one provider connection are implemented and locally
 validated in `projects/rpool/provider-multi-locations-20261113`, based on ae385eb.
@@ -19,8 +32,11 @@ They reuse named crypt remotes and existing authentication, discovery and picker
 CLI and GUI can add explicit physical roots without relocating existing data or
 changing old crypt keys/defaults/pool membership. The owner authorized GitHub
 prerelease v2.23.0-rc.1. Both local release binaries built successfully and report
-that version. Source and release metadata are synchronized for the release commit.
-GitHub build/publication is the remaining step; user installation is not authorized.
+that version. Commit 18c91c3 and tag v2.23.0-rc.1 were pushed. GitHub Actions run
+43364891114 succeeded on Windows, Linux and both macOS architectures and published
+the prerelease with four archives plus SHA256SUMS.txt. User installation/remount
+was not performed. Publication observation is recorded under
+projects/rpool/.project/releases/v2.23.0-rc.1/.
 
 The prior off-lock projection remediation was committed as c7e4d67; release
 metadata deb218b and tag v2.22.2 were pushed. Workflow repair ae385eb changed the
@@ -57,12 +73,12 @@ feature task; do not claim the release is published or move/recreate its tag.
 
 ## Next
 
-1. Publish the owner-authorized v2.23.0-rc.1 prerelease via a new tag and GitHub
+1. Publish the owner-authorized v2.23.0-rc.2 prerelease via its new tag and GitHub
    Actions. Preserve existing tags; do not install or remount user systems.
 2. If requested, confirm Windows binary/version/mount identity before a bounded
    runtime test. Obtain deployment/remount authority separately.
-3. Resume the earlier release dispatch only after resolving its recorded Actions
-   authentication blocker and inspecting live release state; preserve the tag.
+3. Preserve the older v2.22.2 tag. Its changes are included in the published
+   2.23 prerelease; do not automatically retry the old publication workflow.
 
 ## Known Issues
 
@@ -72,8 +88,10 @@ feature task; do not claim the release is published or move/recreate its tag.
   independently configured connections. User disk declarations must be truthful.
 - GUI domain edits reject stale rows and preserve other mappings, but independent
   processes can still race between load/save; no cross-process transaction added.
-- Earlier minimized-GUI freeze, cross-PC empty-folder behavior and Windows WinFsp
-  runtime need targeted user-PC verification; do not claim the feature fixes them.
+- Long-background GUI restoration has a native-window fix in candidate rc.2,
+  but the user symptom is not runtime-confirmed. Offscreen placement and renderer
+  failure are not claimed fixed. Cross-PC empty-folder and Windows WinFsp runtime
+  behavior remain separate, unverified items.
 - Pool sync is eventual, not distributed locking/open-handle coherence.
 - macOS NFS server serializes requests; whole-shard downloads can stall lookups.
   macFUSE kernel backend was fixture-tested previously, not FSKit/live cloud.
@@ -149,10 +167,10 @@ projects/rpool/.project/cleanup-20261113.json.
 
 ## Resume
 
-Current owner-authorized task: publish v2.23.0-rc.1 as a GitHub prerelease. Local
-release build succeeded. Latest owner directive (2026-11-13 13:15): build success
-only; no additional tests, smoke, cross-checks or independent review unless asked.
-Previously completed test evidence remains historical; do not rerun those gates.
-Commit/push the prepared source and new tag, then confirm GitHub build/publication
-completion. Live Windows intermittent disconnect remains unconfirmed; do not claim
-it fixed. Preserve current user mounts/configuration and all existing tags.
+Current owner-authorized task: publish v2.23.0-rc.2 as a GitHub prerelease with
+the native GUI restoration fix. Local release build succeeded (both binaries
+report 2.23.0-rc.2). Commit/push source and its new tag, then observe the GitHub
+platform build/publication result. Build-only policy applies: no tests, smoke,
+additional checks or independent review unless asked. Do not claim the reported
+long-idle symptom reproduced/resolved. Preserve all old tags and current user
+mounts/settings. No installation or remount was requested.

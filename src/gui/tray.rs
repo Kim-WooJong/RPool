@@ -61,7 +61,10 @@ pub(crate) struct Tray {
 impl Tray {
     /// Creates the icon. Call on the UI thread while the event loop runs (the
     /// eframe app creator). `None` when the OS refused: closing then quits.
-    pub(crate) fn new(ctx: &egui::Context) -> Option<Self> {
+    pub(crate) fn new(
+        ctx: &egui::Context,
+        restore: super::window_lifecycle::RestoreWindow,
+    ) -> Option<Self> {
         use crate::gui::i18n::tr;
         use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
         use tray_icon::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -83,6 +86,7 @@ impl Tray {
         let (sender, commands) = std::sync::mpsc::channel();
         let (open_id, quit_id) = (open.id().clone(), quit.id().clone());
         let (menu_sender, menu_ctx) = (sender.clone(), ctx.clone());
+        let menu_restore = restore.clone();
         // Handlers can be set once per process; this runs once per GUI.
         MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
             let command = if event.id == open_id {
@@ -92,6 +96,11 @@ impl Tray {
             } else {
                 return;
             };
+            // Restore natively in this user callback, before waiting for a
+            // hidden/occluded repaint or background polling to drain the queue.
+            if command == TrayCommand::Show {
+                menu_restore();
+            }
             let _ = menu_sender.send(command);
             // Wakes eframe, also while the window is hidden.
             menu_ctx.request_repaint();
@@ -111,6 +120,7 @@ impl Tray {
                 }
             );
             if left_click && !cfg!(target_os = "macos") {
+                restore();
                 let _ = sender.send(TrayCommand::Show);
                 click_ctx.request_repaint();
             }
@@ -145,7 +155,10 @@ pub(crate) struct Tray;
 #[cfg(not(any(windows, target_os = "macos")))]
 impl Tray {
     /// No tray on this platform.
-    pub(crate) fn new(_ctx: &egui::Context) -> Option<Self> {
+    pub(crate) fn new(
+        _ctx: &egui::Context,
+        _restore: super::window_lifecycle::RestoreWindow,
+    ) -> Option<Self> {
         None
     }
 

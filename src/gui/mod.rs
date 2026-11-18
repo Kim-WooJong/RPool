@@ -26,6 +26,8 @@ mod tray;
 mod usage_refresh;
 /// Reusable UI pieces (status badges, capacity bars, banners, task console).
 mod widgets;
+/// Native-first tray/Dock restoration of the existing GUI window.
+mod window_lifecycle;
 
 pub(crate) use app::launch;
 pub(crate) use settings::{load as load_settings, save as save_settings, GuiSettings};
