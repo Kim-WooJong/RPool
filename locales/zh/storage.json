@@ -405,5 +405,12 @@
   "Location name (new encrypted remote)": "位置名称（新的加密目标）",
   "Physical folder on this connection": "此连接上的实际文件夹路径",
   "Select the new location in the pool or upload destination list after creation. No existing pool is changed automatically.": "创建后，在池或上传目标列表中选择新位置。现有池不会自动改变。",
-  "Change the existing default location": "更改现有默认位置"
+  "Change the existing default location": "更改现有默认位置",
+  "New encrypted remote name": "新的加密远程名称",
+  "Rename storage location": "重命名存储位置",
+  "Copy, verify and change path": "复制、验证并更改路径",
+  "I stopped mounts, uploads and jobs on ALL PCs": "我已停止所有电脑上的挂载、上传及任务",
+  "Copy existing encrypted files (keep original source)": "复制现有加密文件（保留原始来源）",
+  "Renaming keeps the old name as an alias. Path changes copy encrypted bytes, download-check them, then switch; the original folder is never deleted.": "重命名后旧名称保留为兼容别名。更改路径时先复制加密数据并下载验证，再切换；绝不删除原始文件夹。",
+  "Editing storage location. See Jobs; providers refresh after completion.": "正在编辑存储位置。请在任务中查看结果，完成后自动刷新提供商。"
 }

@@ -29,7 +29,7 @@ pub(super) enum ConfigFormat {
 }
 
 /// Metadata of a regular, non-symlink file with a single hard link (Unix).
-pub(super) fn regular_file(path: &Path) -> Result<fs::Metadata> {
+pub(in crate::config_sync) fn regular_file(path: &Path) -> Result<fs::Metadata> {
     let meta =
         fs::symlink_metadata(path).map_err(|_| anyhow!("configuration file is inaccessible"))?;
     if !meta.is_file() || meta.file_type().is_symlink() {
@@ -54,7 +54,7 @@ pub(super) fn target_path(input: &Path) -> Result<PathBuf> {
 }
 
 /// `<target><suffix>` in the same directory.
-pub(super) fn sibling(target: &Path, suffix: &str) -> Result<PathBuf> {
+pub(in crate::config_sync) fn sibling(target: &Path, suffix: &str) -> Result<PathBuf> {
     let parent = target
         .parent()
         .ok_or_else(|| anyhow!("configuration parent is missing"))?;
@@ -67,12 +67,12 @@ pub(super) fn sibling(target: &Path, suffix: &str) -> Result<PathBuf> {
 }
 
 /// Recovery directory path: `<config>.rpool-restore`.
-pub(super) fn recovery_path(target: &Path) -> Result<PathBuf> {
+pub(in crate::config_sync) fn recovery_path(target: &Path) -> Result<PathBuf> {
     sibling(target, ".rpool-restore")
 }
 
 /// Whether anything exists at `path` (symlinks included).
-pub(super) fn exists(path: &Path) -> Result<bool> {
+pub(in crate::config_sync) fn exists(path: &Path) -> Result<bool> {
     match fs::symlink_metadata(path) {
         Ok(_) => Ok(true),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),

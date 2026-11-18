@@ -283,6 +283,34 @@ pub(super) fn verify_crypt_secrets(raw: &[u8], secrets: &SecretBundle) -> Result
     Ok(())
 }
 
+/// Edit one crypt section without reserializing any crypt option or key.
+pub(super) fn edit_location(original: &[u8], old: &str, new: Option<&str>, backing: Option<&str>) -> Result<SensitiveBytes> {
+    let mut lines = split_lines(original)?;
+    let ending = default_ending(&lines);
+    let (start, _) = find_section(&lines, old)?;
+    if let Some(name) = new {
+        if lines.iter().filter_map(|l| section_name(&l.body)).any(|n| n.eq_ignore_ascii_case(name.as_bytes())) {
+            bail!("remote name already exists (including case variants)");
+        }
+        lines[start].body = format!("[{name}]").into_bytes();
+        let mut result = encode(lines);
+        result.0.extend_from_slice(format!("
+[{old}]
+type = alias
+remote = {name}:
+").as_bytes());
+        return Ok(result);
+    }
+    if let Some(backing) = backing {
+        let (_, end) = find_section(&lines, old)?;
+        if find_key(&lines, start, end, b"remote")?.is_none() {
+            bail!("crypt backing setting is missing");
+        }
+        set_secret(&mut lines, old, b"remote", Some(backing), &ending)?;
+    }
+    Ok(encode(lines))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

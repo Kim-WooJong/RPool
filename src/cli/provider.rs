@@ -101,6 +101,32 @@ pub(crate) enum ProviderCommands {
         /// Print JSON instead of text.
         json: bool,
     },
+    /// Rename one existing crypt remote; keep the old name as a compatibility alias.
+    LocationRename {
+        #[arg(long)]
+        remote: String,
+        #[arg(long)]
+        name: String,
+        /// Confirm mounts, uploads and jobs stopped on every PC.
+        #[arg(long)]
+        all_pcs_stopped: bool,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Copy/check one crypt's encrypted folder, then switch only its backing path.
+    LocationPath {
+        #[arg(long)]
+        remote: String,
+        #[arg(long, allow_hyphen_values = true)]
+        path: String,
+        #[arg(long)]
+        copy_existing: bool,
+        /// Confirm mounts, uploads and jobs stopped on every PC.
+        #[arg(long)]
+        all_pcs_stopped: bool,
+        #[arg(long)]
+        json: bool,
+    },
     /// Change where a provider stores RPool data (its default path) and
     /// repoint the crypt remotes that wrap the old folder. A folder that
     /// already holds files is refused unless `--move-existing`, which moves

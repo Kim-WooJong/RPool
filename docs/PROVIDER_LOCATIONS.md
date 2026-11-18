@@ -64,3 +64,64 @@ It does not automatically create missing crypt configuration sections.
 Capacity/outage declarations remain PC-local, as
 before; they are not exported and must be reviewed/redeclared on another PC.
 No portable, pool, manifest or archive format was changed.
+
+## Edit an individual existing location
+
+Stop mounts, uploads and jobs on **every PC** first. Neither command automatically
+unmounts, kills, restarts or deletes anything. The GUI has prefilled name/path
+controls on each existing location row and requires the same confirmation.
+
+```sh
+rpool provider location-rename --remote disk2_crypt --name archive_crypt --all-pcs-stopped
+rpool provider location-path --remote archive_crypt --path /disk3/rpool --copy-existing --all-pcs-stopped
+```
+
+Both accept `--json`. The exact old name must be a crypt section, not a provider or
+alias. Rename changes the real crypt name, preserves every option/key byte, and
+leaves `disk2_crypt` as `type = alias; remote = archive_crypt:`. Keep that alias:
+old archives, drive events, pending plans and wrapper references are not rewritten.
+Pools, saved GUI destinations, per-remote roots and capacity declarations acquire
+the new name; old roots/domain identities remain for compatibility. The base
+account, failure domain, limits and shard policies do not change. The GUI refreshes
+provider discovery and selected picker targets. Case-only/same-name renames and
+case-insensitive collisions are refused; no section is overwritten.
+
+If a local settings write fails after the atomic crypt+alias install, the command
+reports failure and rolls earlier settings writes back when still unchanged.
+It deliberately retains both crypt and alias so either old or new references
+remain readable; inspect local settings instead of blindly retrying the rename.
+
+Path editing affects only the selected crypt's `remote`. First create a readable,
+empty destination folder on the **same direct connection**. Missing, denied and
+unknown listings are refused rather than treated as empty. Existing source data
+requires explicit `--copy-existing`. RPool copies raw encrypted bytes with
+`rclone copy --immutable`, compares through `rclone check --download`, and only then
+atomically switches the crypt backing. The original source remains after success;
+there is no delete-source option. On failure the configuration is not switched,
+and partial destination data is retained with manual recovery guidance. This
+runtime download check is a product safety gate, not a development QA command.
+
+Same/nested/shared/overlapping roots, connection/drive roots and ambiguous wrapper
+paths are refused. Paths containing dot components, colons or backslashes are
+also refused. Container/share backends require child folders within the same
+container/share, and source/target must use the same absolute/relative style. Comparison is conservative and case-insensitive. Distinct concrete
+connections can still refer to the same physical server; the operator must choose
+an independent folder and stop external rclone/cloud writers too. Local registry
+and saved-workspace locks/leases are checked without cleanup; unknown/unreadable
+state blocks the edit. New RPool CLI jobs share a per-PC kernel lease that
+excludes location edits for their entire lifetime. Older/external clients do not share this exclusion protocol.
+
+Encrypted rclone configs are conservatively refused, with no plaintext backup or
+automatic decryption. Provisioning and restore locks, original-byte optimistic
+checks and same-directory atomic config replacement protect edits; do not run
+other config editors concurrently. A private temporary staging file is used only
+for an already-plaintext config, reusing the existing provisioning contract.
+
+### Portable restore after a rename
+
+Portable JSON and the age vault formats are unchanged. Before import on another
+PC, provision the **matching target crypt name and structure**, and independently
+restore every required **legacy name-only alias** for old archives/events. Import
+does **not** automatically create those aliases. Back up the renamed rclone config
+(including aliases) alongside the encrypted vault; never remove an alias merely
+because it no longer appears in the new-location picker.

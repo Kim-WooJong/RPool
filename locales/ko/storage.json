@@ -405,5 +405,12 @@
   "Location name (new encrypted remote)": "위치 이름 (새 암호화 저장 대상)",
   "Physical folder on this connection": "이 연결에서 사용할 실제 폴더 경로",
   "Select the new location in the pool or upload destination list after creation. No existing pool is changed automatically.": "생성 후 풀이나 업로드 대상 목록에서 새 위치를 선택하세요. 기존 풀은 자동으로 바뀌지 않습니다.",
-  "Change the existing default location": "기존 기본 위치 변경"
+  "Change the existing default location": "기존 기본 위치 변경",
+  "New encrypted remote name": "새 암호화 remote 이름",
+  "Rename storage location": "저장 위치 이름 변경",
+  "Copy, verify and change path": "복사·검증 후 경로 변경",
+  "I stopped mounts, uploads and jobs on ALL PCs": "모든 PC에서 마운트·업로드·작업을 중지했습니다",
+  "Copy existing encrypted files (keep original source)": "기존 암호화 파일 복사 (원본 보존)",
+  "Renaming keeps the old name as an alias. Path changes copy encrypted bytes, download-check them, then switch; the original folder is never deleted.": "이름 변경 시 이전 이름을 호환 alias로 남깁니다. 경로 변경은 암호화 파일을 복사하고 다운로드 검증한 뒤 전환하며 원본 폴더는 삭제하지 않습니다.",
+  "Editing storage location. See Jobs; providers refresh after completion.": "저장 위치 편집 중입니다. 작업에서 결과를 확인하세요. 완료 후 공급자를 새로 고칩니다."
 }

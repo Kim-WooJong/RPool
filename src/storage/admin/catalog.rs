@@ -240,6 +240,31 @@ impl RemoteCatalog {
             domains: Default::default(),
         })
     }
+    /// Canonicalize only name-only alias chains that end at crypt (rename compatibility).
+    pub(crate) fn canonical_crypt_address(&self, raw: &str) -> Result<String> {
+        let (mut name, suffix) = raw.split_once(':').context("invalid crypt address")?;
+        let mut seen = BTreeSet::new();
+        loop {
+            if !seen.insert(name) { bail!("crypt alias cycle"); }
+            let entry = self.entries.get(name).context("crypt alias is unresolved")?;
+            match entry.kind.as_str() {
+                "crypt" if entry.encrypted => return Ok(format!("{name}:{suffix}")),
+                "alias" => {
+                    let backing = entry.backing.as_deref().context("crypt alias has no target")?;
+                    let Some((next, "")) = backing.split_once(':') else { bail!("not a name-only crypt alias"); };
+                    name = next;
+                }
+                _ => bail!("not an encrypted crypt address"),
+            }
+        }
+    }
+    /// Name-only aliases excluded from picker discovery, used to refresh selected drafts.
+    pub(crate) fn crypt_aliases(&self) -> BTreeMap<String, String> {
+        self.entries.iter().filter(|(_, e)| e.kind == "alias").filter_map(|(name, _)| {
+            self.canonical_crypt_address(&format!("{name}:")).ok().map(|to| (name.clone(), to))
+        }).collect()
+    }
+
     /// Physical/base providers not covered by an encrypted crypt remote.
     /// Wrapper chains are followed without treating folder suffixes as names.
     pub(crate) fn missing_encryption_remotes(&self) -> Vec<String> {

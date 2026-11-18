@@ -182,7 +182,7 @@ pub(crate) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         task,
         &state.provider_details,
         &state.settings.encryption,
-        state.providers.connection.is_none(),
+        state.providers.connection.is_none() && !state.mount.any_running() && !state.upload.batch_active,
     );
     storage_manager::show(
         ui.ctx(),

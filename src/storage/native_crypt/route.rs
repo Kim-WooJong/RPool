@@ -120,9 +120,8 @@ impl NativeCrypt {
     /// Builds the `CryptBackend` for crypt remote `alias`: validates the crypt
     /// options and base, derives the cipher and attributes base traffic to `alias`.
     fn build(&self, dump: &Value, alias: &str) -> Result<Arc<CryptBackend>, StorageError> {
-        let entry = dump
-            .get(alias)
-            .ok_or_else(|| invalid("rclone destination remote is not configured"))?;
+        let entry = crate::crypt::alias::crypt_entry(dump, alias)
+            .map_err(|_| invalid("unresolved crypt destination or compatibility alias"))?;
         let section = section(entry)?;
         if !section
             .get("type")

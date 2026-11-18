@@ -9,22 +9,39 @@ rclone remotes. Canonical source: `artifacts/rpool`. Build/test only in isolated
 working copies under `projects/rpool`, with targets/logs/temp data outside source.
 Windows is the primary GUI platform; support macOS and Linux too. This Mac has no
 live user pool: local fixtures are not evidence of live-pool or Windows behavior.
-Current candidate: 2.23.0-rc.2 (2026-11-18), owner-authorized for prerelease.
+Current candidate: 2.23.0-rc.3 (2026-11-18), owner-authorized for prerelease.
+The prior 2.23.0-rc.2 prerelease remains published.
 The prior 2.23.0-rc.1 prerelease remains published.
 
 ## Current Status
 
-GUI restoration candidate 2.23.0-rc.2 (2026-11-18): tray actions now show/unminimize/
+Individual storage-location editing candidate 2.23.0-rc.3 (2026-11-18): CLI and GUI now
+rename an existing crypt location or change its own backing path. Rename keeps
+the old name as an alias to the new crypt so existing archive/event references
+continue to resolve, and updates current local pool/GUI/root/domain references
+without changing keys. Path edits require a readable empty destination and copy
+encrypted bytes, check integrity by reading both sides, then repoint the selected
+crypt; source data is never automatically deleted. All PCs/external writers must
+be stopped and explicitly acknowledged. Ambiguous/nested/shared roots, unreadable
+paths and encrypted rclone configs are refused. Current clients use a per-PC use
+lease, but older clients do not honor it. Native macOS release bins built (exit 0);
+no tests, smoke, live storage operation or independent review ran. The owner
+authorized the rc.3 prerelease; both local release binaries built and report
+2.23.0-rc.3. Commit/tag publication is the remaining step, not user installation.
+
+GUI restoration prerelease 2.23.0-rc.2 (2026-11-18): tray actions now show/unminimize/
 focus the existing native window before relying on egui repaint or background
 polling. macOS Dock reopen uses the same callback without replacing winit's
 application delegate. No drive/job restart or settings changes. Both macOS release
 binaries and Windows GNU release binaries built successfully; the Windows build
 used --no-default-features (WinFsp excluded). Runtime reproduction of the reported
 long-background symptom is not established. No tests, GUI exercise or independent
-review ran, per the owner's build-only policy. The owner authorized publishing
-v2.23.0-rc.2, and both local release binaries built and report that version.
-Source and release metadata are prepared for commit/tag/publication; installation
-and user remount are not authorized.
+review ran, per the owner's build-only policy. Release v2.23.0-rc.2 is published
+from commit 943a2e0. GitHub Actions run 44206697230 succeeded for Windows MSVC
+(default WinFsp feature), Linux and both macOS architectures, then published
+four archives and SHA256SUMS.txt. The bounded observation and build records are
+in projects/rpool/.project/releases/v2.23.0-rc.2/. User installation/remount
+was not performed.
 
 Multiple storage locations on one provider connection are implemented and locally
 validated in `projects/rpool/provider-multi-locations-20261113`, based on ae385eb.
@@ -66,15 +83,21 @@ feature task; do not claim the release is published or move/recreate its tag.
 
 ## In Progress
 
+- A separate reported migration upload failed at provider-denied shard writes to
+  a new location while directory reads succeeded. Source tracing preserves the
+  full backing path; exact server ACL/read-only/metadata cause is unconfirmed.
+  No permissions, real storage, migrations or mounts were changed by diagnosis.
+  This release does not claim to fix the provider write denial.
 - Live Windows folder-browse stall/apparent mount interruption remains undiagnosed.
   The owner explicitly restarted/remounted, so PID replacement is not evidence
-  of automatic process termination. Last recorded installed version was 2.22.1.
+  of automatic process termination. The older investigation observed 2.22.1;
+  the latest installed binary observed for the new upload report was 2.23.0-rc.2.
   Application crash/hang and WinFsp event lookups did not establish a cause.
 
 ## Next
 
-1. Publish the owner-authorized v2.23.0-rc.2 prerelease via its new tag and GitHub
-   Actions. Preserve existing tags; do not install or remount user systems.
+1. Publish the owner-authorized v2.23.0-rc.3 prerelease with individual location
+   editing. Preserve all prior tags and do not install or remount user systems.
 2. If requested, confirm Windows binary/version/mount identity before a bounded
    runtime test. Obtain deployment/remount authority separately.
 3. Preserve the older v2.22.2 tag. Its changes are included in the published
@@ -88,7 +111,7 @@ feature task; do not claim the release is published or move/recreate its tag.
   independently configured connections. User disk declarations must be truthful.
 - GUI domain edits reject stale rows and preserve other mappings, but independent
   processes can still race between load/save; no cross-process transaction added.
-- Long-background GUI restoration has a native-window fix in candidate rc.2,
+- Long-background GUI restoration has a native-window fix in published rc.2,
   but the user symptom is not runtime-confirmed. Offscreen placement and renderer
   failure are not claimed fixed. Cross-PC empty-folder and Windows WinFsp runtime
   behavior remain separate, unverified items.
@@ -167,10 +190,10 @@ projects/rpool/.project/cleanup-20261113.json.
 
 ## Resume
 
-Current owner-authorized task: publish v2.23.0-rc.2 as a GitHub prerelease with
-the native GUI restoration fix. Local release build succeeded (both binaries
-report 2.23.0-rc.2). Commit/push source and its new tag, then observe the GitHub
-platform build/publication result. Build-only policy applies: no tests, smoke,
-additional checks or independent review unless asked. Do not claim the reported
-long-idle symptom reproduced/resolved. Preserve all old tags and current user
-mounts/settings. No installation or remount was requested.
+Current owner-authorized task: publish v2.23.0-rc.3 with individual storage-location
+rename/path editing. Local release build succeeded; commit/push its new tag and
+observe GitHub platform builds/publication. Build-only policy: no tests, smoke,
+extra checks or independent review. The parallel upload diagnosis found provider
+write denial with directory reads working; exact server permissions/read-only
+cause is not established and no server change is authorized. Do not claim this
+release fixes that environment issue. Preserve all old tags and user mounts/data.

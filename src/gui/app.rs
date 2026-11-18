@@ -215,6 +215,13 @@ impl RpoolGui {
             if let Ok(store) = crate::remote_root::load_remote_root_store() {
                 self.state.remote_roots = store.roots;
             }
+            if let Ok(store) = crate::pool::load_pool_store() {
+                self.state.pool_definitions = store.pools;
+                self.state.pool_names = self.state.pool_definitions.keys().cloned().collect();
+            }
+            // Preserve unsaved drafts; name-only aliases canonicalize their selected targets.
+            self.state.settings = crate::gui::load_settings(&self.state.settings.rclone);
+            self.state.providers.location = Default::default();
             self.refresh_pending = true;
         }
         if provisioning && task_finished == Some(JobStatus::Completed) {
@@ -260,6 +267,15 @@ impl RpoolGui {
                     self.state.usage_reports = snapshot.reports;
                     self.state.crypt_remotes = snapshot.crypt_remotes;
                     self.state.backing_remotes = snapshot.backing_remotes;
+                    for (old, new) in &snapshot.providers.aliases {
+                        let rewrite = |value: &mut String| {
+                            if let Some(path) = value.strip_prefix(&format!("{old}:")) { *value = format!("{new}{path}"); }
+                        };
+                        for value in &mut self.state.settings.remotes { rewrite(value); }
+                        for value in &mut self.state.pools.remotes { rewrite(value); }
+                        rewrite(&mut self.state.pools.manual_remote);
+                        rewrite(&mut self.state.upload.manual_remote);
+                    }
                     self.state.provider_details = snapshot.providers;
                     self.state.providers.missing_encryption = snapshot.missing_encryption;
                     self.state.providers.discovery_known = true;

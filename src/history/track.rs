@@ -129,6 +129,12 @@ pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> 
                 "provider-name-encoding".to_string(),
                 Some(format!("{remote}: {encoding}")),
             ),
+            ProviderCommands::LocationRename { remote, name, .. } => (
+                "provider-location-rename".into(), Some(format!("{remote} -> {name}")),
+            ),
+            ProviderCommands::LocationPath { remote, path, .. } => (
+                "provider-location-path".into(), Some(format!("{remote}: {path}")),
+            ),
             ProviderCommands::Location { remote, path, .. } => (
                 "provider-location".to_string(),
                 Some(format!("{remote}: {path}")),

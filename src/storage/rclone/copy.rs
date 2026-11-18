@@ -107,9 +107,8 @@ impl RcloneContext {
     ) -> Result<CryptCopyCapabilities, StorageError> {
         let name = remote_name(address)?;
         let config = self.config_dump(ctx)?;
-        let entry = config
-            .get(name)
-            .ok_or_else(|| invalid("rclone remote is not configured"))?;
+        let entry = crate::crypt::alias::crypt_entry(&config, name)
+            .map_err(|_| invalid("unresolved crypt destination or compatibility alias"))?;
         if !entry
             .get("type")
             .and_then(Value::as_str)

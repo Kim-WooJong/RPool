@@ -405,5 +405,12 @@
   "Location name (new encrypted remote)": "場所の名前（新しい暗号化保存先）",
   "Physical folder on this connection": "この接続で使う物理フォルダーパス",
   "Select the new location in the pool or upload destination list after creation. No existing pool is changed automatically.": "作成後、プールまたはアップロード先の一覧で新しい場所を選択してください。既存のプールは自動変更されません。",
-  "Change the existing default location": "既存の既定の場所を変更"
+  "Change the existing default location": "既存の既定の場所を変更",
+  "New encrypted remote name": "新しい暗号化リモート名",
+  "Rename storage location": "保存場所の名前を変更",
+  "Copy, verify and change path": "コピー・検証してパスを変更",
+  "I stopped mounts, uploads and jobs on ALL PCs": "すべてのPCでマウント・アップロード・ジョブを停止しました",
+  "Copy existing encrypted files (keep original source)": "既存の暗号化ファイルをコピー（元データを保持）",
+  "Renaming keeps the old name as an alias. Path changes copy encrypted bytes, download-check them, then switch; the original folder is never deleted.": "名前変更後も旧名は互換エイリアスとして残ります。パス変更は暗号化データのコピーとダウンロード検証後に切り替え、元フォルダーは削除しません。",
+  "Editing storage location. See Jobs; providers refresh after completion.": "保存場所を編集中です。結果はジョブを確認してください。完了後にプロバイダーを更新します。"
 }

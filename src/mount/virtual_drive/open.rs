@@ -199,7 +199,23 @@ impl VirtualDrive {
                 binding.version
             );
         }
-        let changed = binding.shared != shared || binding.metadata_roots != auto_roots;
+        // Renames do not change physical membership. Compare via validated name-only aliases;
+        // leave persisted bindings, epochs, journals and pending plans untouched.
+        let catalog = crate::storage::admin::BackendAdmin::catalog(
+            &crate::storage::admin::RcloneAdmin::inherited(rclone),
+        )?;
+        let canonical = |raw: &str| catalog.canonical_crypt_address(raw);
+        let mut comparison_policy = binding.policy.clone();
+        comparison_policy.remotes = comparison_policy.remotes.iter().map(|r| canonical(r)).collect::<Result<Vec<_>>>()?;
+        let mut comparison_current = current_policy.clone();
+        comparison_current.remotes = comparison_current.remotes.iter().map(|r| canonical(r)).collect::<Result<Vec<_>>>()?;
+        let mut comparison_roots = binding.metadata_roots.iter().map(|r| canonical(r)).collect::<Result<Vec<_>>>()?;
+        let mut comparison_auto = auto_roots.iter().map(|r| canonical(r)).collect::<Result<Vec<_>>>()?;
+        comparison_roots.sort();
+        comparison_auto.sort();
+        // The first replica can change order after a rename; it is not new membership.
+        let shared_valid = binding.shared.as_deref().map(canonical).transpose()?.is_none_or(|r| comparison_roots.contains(&r));
+        let changed = !shared_valid || comparison_roots != comparison_auto;
         // Accounts only added: the metadata is copied to them below.
         let adding = changed
             && add_accounts
@@ -212,7 +228,7 @@ impl VirtualDrive {
             bail!("workspace pool changed; keep this workspace and use Apply pool changes to transition its account membership (adding accounts only needs a normal mount). Reprocess alone does not update mount metadata");
         }
         if !adding {
-            crate::mount::layout_refresh::validate_membership(&binding.policy, &current_policy)?;
+            crate::mount::layout_refresh::validate_membership(&comparison_policy, &comparison_current)?;
         }
         for name in ["spool", "clean-cache", "anchor", ".rpool"] {
             fs::create_dir_all(root.join(name))?;

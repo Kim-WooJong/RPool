@@ -41,6 +41,7 @@ pub(crate) struct ProviderDetails {
     pub(crate) crypts: std::collections::BTreeMap<String, Vec<String>>,
     /// Crypt remote address -> configured physical backing, without credentials.
     pub(crate) locations: std::collections::BTreeMap<String, String>,
+    pub(crate) aliases: std::collections::BTreeMap<String, String>,
 }
 
 impl ProviderDetails {
@@ -51,7 +52,7 @@ impl ProviderDetails {
         backing: &[String],
         crypts: &[String],
     ) -> Self {
-        let mut details = Self::default();
+        let mut details = Self { aliases: catalog.crypt_aliases(), ..Self::default() };
         for name in backing {
             if let Some(kind) = catalog.backend_kind(name) {
                 details.kinds.insert(name.clone(), kind.to_string());

@@ -35,3 +35,8 @@ pub(crate) mod transaction;
 pub(crate) mod provision;
 /// Changing a provider's storage location with its crypt remotes.
 pub(crate) mod relocate;
+
+/// Safe individual crypt location rename and copy/check/repoint.
+pub(crate) mod location_edit;
+/// Per-PC operation lease for individual location edits.
+pub(crate) mod location_use;

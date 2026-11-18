@@ -24,6 +24,11 @@ pub(crate) fn run() -> Result<()> {
         return gui::launch(&cli.rclone);
     };
 
+    // Every non-GUI command owns a shared per-PC lease. Individual edits take
+    // the exclusive side in their transaction, so no new command can race them.
+    let edit = matches!(command, Commands::Provider(crate::cli::ProviderArgs { command: ProviderCommands::LocationRename { .. } | ProviderCommands::LocationPath { .. } }));
+    let gui = matches!(command, Commands::Gui);
+    let _use_lease = if edit || gui { None } else { Some(crate::config_sync::location_use::acquire(false)?) };
     let pending = history::describe_command(command);
     let result = dispatch(cli);
 
@@ -359,6 +364,18 @@ fn dispatch(cli: Cli) -> Result<()> {
                 } else {
                     println!("{}: names already use {}.", change.remote, change.to);
                 }
+                Ok(())
+            }
+            ProviderCommands::LocationRename { remote, name, all_pcs_stopped, json } => {
+                let change = crate::config_sync::location_edit::rename(std::path::Path::new(&cli.rclone), &remote, &name, all_pcs_stopped)?;
+                if json { println!("{}", serde_json::to_string(&change)?); }
+                else { println!("Crypt renamed: {} -> {}. Compatibility alias: {}. Keys/options and files preserved.", change.from, change.to, change.alias.as_deref().unwrap_or_default()); }
+                Ok(())
+            }
+            ProviderCommands::LocationPath { remote, path, copy_existing, all_pcs_stopped, json } => {
+                let change = crate::config_sync::location_edit::path(std::path::Path::new(&cli.rclone), &remote, &path, copy_existing, all_pcs_stopped)?;
+                if json { println!("{}", serde_json::to_string(&change)?); }
+                else { println!("{}: {} -> {}. Copied/verified {} files ({} bytes). ORIGINAL SOURCE RETAINED; nothing deleted.", change.remote, change.from, change.to, change.copied_files, change.copied_bytes); }
                 Ok(())
             }
             ProviderCommands::Location {

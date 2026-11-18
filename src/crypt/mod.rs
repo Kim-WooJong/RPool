@@ -20,6 +20,7 @@ mod encoding;
 mod names;
 pub(crate) mod obscure;
 pub(crate) mod options;
+pub(crate) mod alias;
 
 #[cfg(test)]
 mod oracle_tests;

@@ -25,6 +25,9 @@ pub(crate) struct Editor {
     domains_loaded: bool,
     groups: BTreeMap<String, String>,
     notice: Option<String>,
+    edits: BTreeMap<String, (String, String)>,
+    all_pcs_stopped: bool,
+    copy_existing: bool,
 }
 impl Editor {
     pub(crate) fn open_for(provider: &str, root: Option<&str>) -> Self {
@@ -151,11 +154,31 @@ pub(crate) fn show(
         egui::ScrollArea::vertical().max_height(580.0).show(ui, |ui| {
             ui.label(tr("One connection can use several disks. Adding a location keeps existing roots, keys and files unchanged."));
             ui.heading(tr("Existing storage locations"));
+            ui.small(tr("Renaming keeps the old name as an alias. Path changes copy encrypted bytes, download-check them, then switch; the original folder is never deleted."));
+            ui.checkbox(&mut editor.all_pcs_stopped, tr("I stopped mounts, uploads and jobs on ALL PCs"));
+            ui.checkbox(&mut editor.copy_existing, tr("Copy existing encrypted files (keep original source)"));
             for crypt in &crypts {
                 ui.group(|ui| {
                     ui.monospace(crypt);
                     if let Some(backing) = details.locations.get(crypt) { ui.monospace(backing); }
                     let name = crypt.trim_end_matches(':');
+                    let (new_name, new_path) = editor.edits.entry(name.into()).or_insert_with(|| (
+                        name.into(),
+                        details.locations.get(crypt).and_then(|p| p.split_once(':')).map(|(_, p)| p.to_owned()).unwrap_or_default(),
+                    ));
+                    ui.label(tr("New encrypted remote name"));
+                    ui.add_enabled(ready, egui::TextEdit::singleline(new_name));
+                    if ui.add_enabled(ready && editor.all_pcs_stopped && new_name != name, egui::Button::new(tr("Rename storage location"))).clicked() {
+                        let a: Vec<OsString> = vec!["provider".into(), "location-rename".into(), format!("--remote={name}").into(), format!("--name={new_name}").into(), "--all-pcs-stopped".into()];
+                        editor.notice = Some(match task.start_rpool(LOCATION_TASK, rclone, a) { Ok(()) => tr("Editing storage location. See Jobs; providers refresh after completion.").into(), Err(e) => e });
+                    }
+                    ui.label(tr("Physical folder on this connection"));
+                    ui.add_enabled(ready, egui::TextEdit::singleline(new_path));
+                    if ui.add_enabled(ready && editor.all_pcs_stopped && !new_path.is_empty(), egui::Button::new(tr("Copy, verify and change path"))).clicked() {
+                        let mut a: Vec<OsString> = vec!["provider".into(), "location-path".into(), format!("--remote={name}").into(), format!("--path={new_path}").into(), "--all-pcs-stopped".into()];
+                        if editor.copy_existing { a.push("--copy-existing".into()); }
+                        editor.notice = Some(match task.start_rpool(LOCATION_TASK, rclone, a) { Ok(()) => tr("Editing storage location. See Jobs; providers refresh after completion.").into(), Err(e) => e });
+                    }
                     ui.label(tr("Disk capacity group (optional)"));
                     if let Some(value) = editor.groups.get_mut(name) {
                         ui.add_enabled(ready && supported, egui::TextEdit::singleline(value).hint_text(tr("Empty: share the provider capacity")));

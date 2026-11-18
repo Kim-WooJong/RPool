@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.23.0-rc.3 — 2026-11-18 (prerelease)
+
+- Add individual crypt storage-location rename in CLI and GUI: change the real
+  crypt name while preserving every encryption option and key. Retain the old
+  name as a compatibility alias for legacy archives, drive events, journals and
+  wrapper references; update current mutable pool/GUI targets, remote roots and
+  capacity declarations without changing the backing account or outage policy.
+- Add individual path editing: copy encrypted bytes, perform a download-based
+  runtime integrity check, then atomically repoint only the selected crypt.
+  Keep the original source after success; never automatically delete partial
+  destinations after failure. Require a direct, readable empty destination and
+  mounts/uploads/jobs stopped on all clients. Refuse encrypted configs and
+  ambiguous, nested, overlapping or shared roots. Storage permissions are never
+  changed automatically; this feature does not fix provider write-permission
+  failures. See docs/PROVIDER_LOCATIONS.md for compatibility and restore limits.
+- Continue to include the GUI tray/Dock restoration and multiple encrypted
+  provider locations/capacity groups from the previous release candidates.
+
+Limits: Local pre-release builds for these edits ran on macOS. No runtime or GUI
+validation is claimed; platform release builds are produced by GitHub Actions. Windows runtime validation remains pending.
+Intermittent-disconnect causality remains unconfirmed. Portable formats are
+unchanged; import requires matching target crypt definitions and independently
+restored legacy aliases, which import does not create automatically.
+
 ## 2.23.0-rc.2 — 2026-11-18 (prerelease)
 
 - Restore the existing GUI window directly from tray actions before resuming
