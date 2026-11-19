@@ -28,6 +28,7 @@ pub(crate) struct Editor {
     independent: BTreeSet<String>,
     catalog: Option<RemoteCatalog>,
     notice: Option<String>,
+    capacity_notice: Option<String>,
     edits: BTreeMap<String, (String, String)>,
     all_pcs_stopped: bool,
     copy_existing: bool,
@@ -122,7 +123,8 @@ pub(crate) fn show(
     task: &mut TaskRunner,
     details: &ProviderDetails,
     defaults: &EncryptionDefaults,
-    editable: bool,
+    capacity_editable: bool,
+    storage_editable: bool,
 ) {
     if !editor.open {
         return;
@@ -133,11 +135,11 @@ pub(crate) fn show(
             Ok(store) => {
                 match RcloneAdmin::inherited(rclone).catalog() {
                     Ok(mut catalog) => { catalog.set_domains(store.clone()); editor.catalog = Some(catalog); }
-                    Err(e) => editor.notice = Some(format!("{e:#}")),
+                    Err(e) => editor.capacity_notice = Some(format!("{e:#}")),
                 }
                 editor.domains = Some(store);
             },
-            Err(e) => editor.notice = Some(format!("{e:#}")),
+            Err(e) => editor.capacity_notice = Some(format!("{e:#}")),
         }
     }
     let crypts = details
@@ -167,7 +169,10 @@ pub(crate) fn show(
             .map(String::as_str)
             .unwrap_or_default(),
     );
-    let ready = editable && !task.is_running();
+    // Capacity declarations affect only new jobs/plans, not active mounts/uploads.
+    // Keep catalog-changing connection/task operations mutually excluded.
+    let capacity_ready = capacity_editable && !task.is_running();
+    let ready = storage_editable && !task.is_running();
     let mut open = true;
     egui::Window::new(tr("Storage locations")).id(egui::Id::new("provider-location"))
         .open(&mut open).resizable(true).default_width(560.0).show(ctx, |ui| {
@@ -176,14 +181,28 @@ pub(crate) fn show(
             ui.heading(tr("Existing storage locations"));
             ui.small(tr("Renaming keeps the old name as an alias. Path changes copy encrypted bytes, download-check them, then switch; the original folder is never deleted."));
             ui.small(tr("Capacity changes need no stop or restart. Only new jobs and newly calculated plans use them; existing immutable plans are not relocated."));
+            if !capacity_editable {
+                ui.small(tr("Capacity editing is disabled while provider connection setup is active. Finish or close setup first."));
+            } else if task.is_running() {
+                ui.small(tr("Capacity editing is disabled while a job is running. Wait for it to finish. Mounts and uploads alone do not block capacity editing."));
+            }
+            if editor.domains.is_none() || editor.catalog.is_none() {
+                ui.small(tr("Capacity editing is unavailable because local declarations or the provider catalog could not be loaded. Close and reopen this window to retry."));
+            }
             for crypt in &crypts {
                 ui.group(|ui| {
                     ui.monospace(crypt);
                     if let Some(backing) = details.locations.get(crypt) { ui.monospace(backing); }
                     let name = crypt.trim_end_matches(':');
-                    capacity_row(ui, editor, name, ready);
+                    capacity_row(ui, editor, name, capacity_ready);
                     egui::CollapsingHeader::new(tr("Rename or relocate this location (requires stopped jobs)")).id_salt(("location-edit", name)).show(ui, |ui| {
+                    if !ready {
+                        ui.small(tr("Storage changes are disabled while connection setup, mounts, uploads or a job are active. Stop them first."));
+                    }
                     ui.checkbox(&mut editor.all_pcs_stopped, tr("I stopped mounts, uploads and jobs on ALL PCs"));
+                    if !editor.all_pcs_stopped {
+                        ui.small(tr("Rename and path changes require confirming that mounts, uploads and jobs are stopped on ALL PCs."));
+                    }
                     ui.checkbox(&mut editor.copy_existing, tr("Copy existing encrypted files (keep original source)"));
                     let (new_name, new_path) = editor.edits.entry(name.into()).or_insert_with(|| (
                         name.into(),
@@ -209,35 +228,49 @@ pub(crate) fn show(
             ui.small(tr("Suggestions are not disk detection. Nothing is written until you choose Save disk capacity groups."));
             if !supported { ui.small(tr("This backend keeps provider-wide capacity; per-location capacity groups are unavailable.")); }
             ui.small(tr("Capacity declarations are local to this PC and are not exported. Re-declare them after importing on another PC."));
-            if ui.add_enabled(ready && supported && editor.domains.is_some() && editor.catalog.is_some(), egui::Button::new(tr("Save disk capacity groups"))).clicked() {
-                let result = (|| -> anyhow::Result<(DomainStore, RemoteCatalog)> {
-                    let before = editor.domains.as_ref().unwrap();
-                    let groups = crypts.iter().filter_map(|c| {
-                        let name = c.trim_end_matches(':');
-                        let group = editor.independent.contains(name).then(|| editor.groups.get(name).cloned().unwrap_or_default().trim().to_owned());
-                        let old = before.remotes.get(name).filter(|d| !d.capacity.is_empty()).map(|d| d.capacity.clone());
-                        (old != group).then(|| (name.to_owned(), group))
-                    }).collect::<BTreeMap<_, _>>();
-                    let mut catalog = RcloneAdmin::inherited(rclone).catalog()?;
-                    let next = location_capacity::merged(DomainStore::load()?, before, &catalog, editor.catalog.as_ref().unwrap(), &groups)?;
-                    if !groups.is_empty() { next.save()?; }
-                    catalog.set_domains(next.clone());
-                    Ok((next, catalog))
-                })();
-                match result {
-                    Ok((next, catalog)) => {
-                        for (name, value) in &mut editor.groups {
-                            *value = next.remotes.get(name).map(|d| d.capacity.clone()).unwrap_or_default();
-                        }
-                        editor.independent = editor.groups.iter().filter(|(_, value)| !value.is_empty()).map(|(name, _)| name.clone()).collect();
-                        editor.domains = Some(next); editor.catalog = Some(catalog);
-                        editor.notice = Some(tr("Capacity declarations saved. Recalculate pool capacity to validate the selected roots.").into());
-                    },
-                    Err(e) => editor.notice = Some(format!("{e:#}")),
+            ui.horizontal_wrapped(|ui| {
+                if !capacity_ready {
+                    ui.small(tr("Save is disabled until provider connection setup and the running job finish. Mounts and uploads alone do not block it."));
                 }
-            }
+                if ui.add_enabled(capacity_ready && supported && editor.domains.is_some() && editor.catalog.is_some(), egui::Button::new(tr("Save disk capacity groups"))).clicked() {
+                    let result = (|| -> anyhow::Result<(DomainStore, RemoteCatalog, bool)> {
+                        let before = editor.domains.as_ref().unwrap();
+                        let groups = crypts.iter().filter_map(|c| {
+                            let name = c.trim_end_matches(':');
+                            let group = editor.independent.contains(name).then(|| editor.groups.get(name).cloned().unwrap_or_default().trim().to_owned());
+                            let old = before.remotes.get(name).filter(|d| !d.capacity.is_empty()).map(|d| d.capacity.clone());
+                            (old != group).then(|| (name.to_owned(), group))
+                        }).collect::<BTreeMap<_, _>>();
+                        let mut catalog = RcloneAdmin::inherited(rclone).catalog()?;
+                        let next = location_capacity::merged(DomainStore::load()?, before, &catalog, editor.catalog.as_ref().unwrap(), &groups)?;
+                        let changed = !groups.is_empty();
+                        if changed { next.save()?; }
+                        catalog.set_domains(next.clone());
+                        Ok((next, catalog, changed))
+                    })();
+                    match result {
+                        Ok((next, catalog, changed)) => {
+                            for (name, value) in &mut editor.groups {
+                                *value = next.remotes.get(name).map(|d| d.capacity.clone()).unwrap_or_default();
+                            }
+                            editor.independent = editor.groups.iter().filter(|(_, value)| !value.is_empty()).map(|(name, _)| name.clone()).collect();
+                            editor.domains = Some(next); editor.catalog = Some(catalog);
+                            editor.capacity_notice = Some(tr(if changed {
+                                "Capacity declarations saved. Recalculate pool capacity to validate the selected roots."
+                            } else {
+                                "No capacity changes to save. Nothing was written."
+                            }).into());
+                        },
+                        Err(e) => editor.capacity_notice = Some(format!("{e:#}")),
+                    }
+                }
+                if let Some(notice) = &editor.capacity_notice { ui.label(notice); }
+            });
             ui.separator();
             ui.heading(tr("Add storage location"));
+            if !ready {
+                ui.small(tr("Storage changes are disabled while connection setup, mounts, uploads or a job are active. Stop them first."));
+            }
             ui.label(tr("Location name (new encrypted remote)"));
             ui.add(egui::TextEdit::singleline(&mut editor.new_name));
             ui.label(tr("Physical folder on this connection"));
@@ -254,6 +287,9 @@ pub(crate) fn show(
             }
             ui.separator();
             ui.collapsing(tr("Change the existing default location"), |ui| {
+                if !ready {
+                    ui.small(tr("Storage changes are disabled while connection setup, mounts, uploads or a job are active. Stop them first."));
+                }
                 ui.label(tr("The folder on this provider where RPool stores its encrypted data. Encrypted providers that use the current folder move with it; keys stay the same."));
                 ui.monospace(&editor.current);
                 ui.label(trf("New folder on {provider}:", &[("provider", &editor.provider)]));

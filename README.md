@@ -1,10 +1,10 @@
-# rpool v2.23.0-rc.4
+# rpool v2.23.0-rc.5
 
-**Prerelease:** Windows runtime validation is still pending. The cause of
+**EXPERIMENTAL / TESTING ONLY — NOT all issues are fixed.** Back up first and review cleanup previews. Validation is release-build-only; runtime/GUI behavior and the reported capacity-save failure remain unverified. Windows runtime validation is still pending. The cause of
 intermittent disconnects remains unconfirmed; this release does not claim to
 resolve them. Individual location edits preserve legacy aliases and keys; path
 changes copy and verify encrypted data before switching, retaining the original.
-Storage permissions are never changed automatically. See [release notes](CHANGELOG.md#2230-rc3--2026-11-18-prerelease).
+Storage permissions are never changed automatically. See [release notes](CHANGELOG.md#2230-rc5--2026-11-19-experimentaltesting-prerelease).
 
 `rpool` is a Rust storage layer that stripes files across several
 **explicitly supplied rclone `crypt` remotes**, optionally with

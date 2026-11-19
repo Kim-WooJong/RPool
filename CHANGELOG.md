@@ -2,7 +2,44 @@
 
 ## Unreleased
 
-- No changes recorded yet.
+## 2.23.0-rc.5 — 2026-11-19 (experimental/testing prerelease)
+
+**EXPERIMENTAL / TESTING ONLY — NOT all issues are fixed. Back up first,
+review the cleanup preview, and never confirm an unreviewed deletion. A stable
+release requires user feedback; this candidate is not a production qualification.**
+
+- Allow harmless capacity-only GUI edits and saves while mounts/uploads are
+  active; mounts/uploads no longer block this settings-only path. Preserve
+  provider-connection/task synchronization guards. Rename and root/path changes
+  still require stopping relevant work and all-PC acknowledgements; stale-row,
+  backing-root and same-root collision checks remain in force.
+- Show disabled reasons and capacity save errors/results beside the controls
+  (KO/JA/ZH). Unchanged saves explicitly report that nothing was written.
+  Existing jobs and immutable plans remain unchanged. This does not establish
+  the cause of the user's reported runtime save failure or verify its resolution.
+
+### Known limitations and validation scope
+
+- Legacy copies without pre-write absence evidence and creation receipts are
+  **not cleanup eligible**. Mixed base32/base32768 namespaces block cleanup.
+  The seven-day abandonment grace, all-writers-stopped acknowledgement and
+  complete workspace/reference review remain mandatory. Never bypass the
+  preview or confirm an unreviewed deletion; keep independent backups.
+- No automatic conversion of existing encoded data is provided. **Do not blindly
+  flip filename encoding.** Encoding inventory/guards are limited to direct
+  SFTP/SMB/local standard-crypt locations; they are not a repair or integrity claim.
+- NAS limits of 1 archive / 1 shard transfer are a conservative mitigation, not
+  an under-load-proven root-cause fix. Protected PC-sync conflicts remain
+  unresolved. Capacity declarations are PC-local and must be redeclared on
+  other PCs.
+- Runtime, GUI and actual cleanup behavior have not been validated for these
+  changes. Per owner request, validation is **release builds only**, with no
+  automated tests or independent QA. The local Windows GNU build excludes
+  WinFsp; distributed Windows binaries use the existing default-feature MSVC
+  workflow with WinFsp. CI builds are not Windows/runtime qualification.
+- An already running rc.3 process cannot gain later live tuning retroactively.
+  Intermittent-disconnect causality and Windows runtime behavior remain
+  unconfirmed; this release does not claim that all errors are resolved.
 
 ## 2.23.0-rc.4 — 2026-11-19 (experimental/testing prerelease)
 
