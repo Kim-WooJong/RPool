@@ -102,13 +102,15 @@ pub(crate) fn merged(
     }).collect::<Result<_>>()?;
     let mut scopes = BTreeMap::<String, String>::new();
     for raw in next.capacity_locations() {
-        let base = next.placement_target(&raw)?;
-        if !super::catalog::path_capacity_supported(next.backend_kind(&base).unwrap_or_default()) {
-            continue;
-        }
-        let binding = next.capacity(&raw)?;
-        let scope = next.quota_scope_key(&binding.target);
+        // Discover roots structurally before validating declarations. A broken
+        // unrelated crypt must not block every save, but matching peers (also
+        // wrappers and encryption-off rows) still fail closed on capacity errors.
+        let Some(scope) = next.filesystem_quota_scope(&raw) else { continue; };
         if !edited_scopes.contains(&scope) { continue; }
+        let binding = next.capacity(&raw)
+            .with_context(|| format!("Invalid capacity peer {raw}"))?;
+        anyhow::ensure!(next.quota_scope_key(&binding.target) == scope,
+            "Capacity peer root changed during validation");
         let group = binding.domain.context("unresolved location capacity")?.as_str().to_owned();
         if let Some(previous) = scopes.insert(scope.clone(), group.clone()) {
             if previous != group {

@@ -185,6 +185,41 @@ impl RemoteCatalog {
         self.capacity(&format!("{name}:"))
     }
 
+    /// Identify a concrete filesystem quota root without interpreting domain
+    /// declarations. Unresolved/cyclic/aggregate and non-filesystem chains have
+    /// no root comparable to an editable location. This is peer discovery only:
+    /// callers must still strictly validate capacity for every matching root.
+    pub(crate) fn filesystem_quota_scope(&self, raw: &str) -> Option<String> {
+        let mut address = raw.to_owned();
+        let mut seen = BTreeSet::new();
+        loop {
+            let (name, suffix) = address.split_once(':')?;
+            if !seen.insert(name.to_owned()) { return None; }
+            let entry = self.entries.get(name)?;
+            match entry.kind.as_str() {
+                "crypt" | "chunk" | "chunker" => {
+                    // Encrypted/chunked suffixes are not physical path suffixes.
+                    address = entry.backing.as_ref()?.clone();
+                }
+                "alias" => {
+                    let backing = entry.backing.as_deref()?;
+                    let suffix = suffix.trim_start_matches('/');
+                    let (_, path) = backing.split_once(':')?;
+                    address = if suffix.is_empty() {
+                        backing.to_owned()
+                    } else {
+                        let separator = if path.is_empty() || path.ends_with('/') { "" } else { "/" };
+                        format!("{backing}{separator}{suffix}")
+                    };
+                }
+                kind if path_capacity_supported(kind) => {
+                    return Some(self.quota_scope_key(&address));
+                }
+                _ => return None,
+            }
+        }
+    }
+
     /// Conservative lexical key for duplicate quota targets, not a server realpath.
     pub(crate) fn quota_scope_key(&self, raw: &str) -> String {
         let Some((name, path)) = raw.split_once(':') else {

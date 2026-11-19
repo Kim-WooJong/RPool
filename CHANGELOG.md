@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+## 2.23.0-rc.6 — 2026-11-20 (experimental/testing prerelease)
+
+**EXPERIMENTAL / TESTING ONLY — NOT all issues are fixed. Back up first,
+review the cleanup preview, and never confirm an unreviewed deletion. A stable
+release requires user feedback; this candidate is not a production qualification.**
+
+- Fix shared GUI/CLI capacity-save validation: an unrelated crypt pointing to
+  a missing backing section (for example, a dangling Box remote) no longer
+  blocks valid filesystem location edits. Discover concrete quota roots before
+  validating peer declarations, then strictly validate every matching peer.
+  Unrelated unsupported, native-path, cyclic and cloud-wrapper locations do not
+  globally block a save. Selected locations still require valid direct encrypted
+  filesystem backing; backing changes, stale rows and same-root conflicts remain
+  rejected. Simultaneous consistent edits and unrelated/failure metadata are
+  preserved. No config repair, relogin, key/path change or data write is performed.
+- Capacity changes apply only to new jobs/newly calculated plans. Existing
+  immutable plans are not automatically rebalanced. No rebalance speed improvement
+  is included or claimed in this candidate.
+
+### Known limitations and validation scope
+
+- Legacy copies without pre-write absence evidence and creation receipts remain
+  **ineligible for cleanup**. Mixed base32/base32768 namespaces block cleanup.
+  The seven-day grace, all-writers-stopped acknowledgement and complete workspace/
+  reference review remain mandatory. Back up and review previews before deletion.
+- No automatic encoding conversion is provided; do not blindly switch encoding.
+  NAS limits of 1 archive / 1 shard transfer are mitigation, not root-cause proof.
+  Protected PC-sync conflicts and intermittent-disconnect causality remain unresolved.
+- Capacity declarations are PC-local and must be redeclared on other PCs.
+- Validation is **release builds only**: no automated tests, independent QA, GUI
+  runtime save exercise, cleanup or rebalance execution. Regression cases are
+  added but not executed. The local Windows GNU build excludes WinFsp; distributed
+  Windows binaries use native MSVC with default WinFsp features in the unchanged
+  release workflow. Successful builds are not Windows/runtime qualification.
+
 ## 2.23.0-rc.5 — 2026-11-19 (experimental/testing prerelease)
 
 **EXPERIMENTAL / TESTING ONLY — NOT all issues are fixed. Back up first,
