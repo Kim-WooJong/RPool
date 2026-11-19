@@ -1,4 +1,5 @@
 {
+  "Archives complete; drive pending": "アーカイブ完了・ドライブ準備未完了",
   "Adopt the drive of migration {id}": "移行 {id} のドライブを採用",
   "Adopt the new drive layout": "新しいドライブ構成を採用",
   "Adopted by {pc}: {files} files in the new layout, {dropped} unrecoverable left out.": "{pc} が採用しました: 新しい構成に {files} 個のファイル、復元できない {dropped} 個は除外しました。",
@@ -50,5 +51,24 @@
   "{failed} failed · {retries} retries": "失敗 {failed} 件 · 再試行 {retries} 回",
   "Checks every archive without changing its data, then saves the plan in the cloud journal.": "すべてのアーカイブをデータを変更せずに確認し、計画をクラウドジャーナルに保存します。",
   "Totals include metadata and verification reads.": "累計にはメタデータと検証のための再読み込みも含まれます。",
-  "Copy transfer bytes appear after each shard finishes.": "コピー転送量は各シャードの完了後に反映されます。"
+  "Copy transfer bytes appear after each shard finishes.": "コピー転送量は各シャードの完了後に反映されます。",
+  "Discard unused NEW copies": "未使用の新規コピーを整理",
+  "Copy preview stopped; no deletion was started.": "コピーのプレビューが中断しました。削除は開始されていません。",
+  "Deletion task ended. Check the console, then preview again; unknown outcomes require reconciliation.": "削除タスクが終了しました。コンソールを確認して再プレビューしてください。不明な結果は照合が必要です。",
+  "Only new objects proven to belong exclusively to this abandoned migration may be deleted. Originals, adopted/history references, other jobs and uncertain legacy writes are kept. This is not completed-original cleanup.": "この破棄済み移行だけが新規作成したと証明されたオブジェクトのみ削除できます。元データ、採用・履歴参照、他のジョブ、不確かな旧書き込みは保持します。完了した移行の元データ整理とは別機能です。",
+  "This mode requires an already abandoned migration; it never abandons or stops jobs automatically.": "既に破棄された移行が必要です。ジョブの破棄や停止を自動では行いません。",
+  "All local workspaces and backups (one path per line)": "すべてのローカル作業領域とバックアップ（1行に1パス）",
+  "Preview unused copies (read-only)": "未使用コピーをプレビュー（読み取り専用）",
+  "Reading bounded namespace and reference views; nothing is being written or deleted.": "上限付きで名前空間と参照を読み取り中です。書き込みや削除は行いません。",
+  "{n} exact candidate objects ({bytes})": "正確な候補オブジェクト {n} 個（{bytes}）",
+  "Preview expires after 15 minutes. Confirmation re-reads all state, references and exact object bytes. A seven-day abandonment grace is mandatory.": "プレビューは15分で失効します。確認時に全状態・参照・正確なバイト列を再読します。破棄後7日間の猶予が必須です。",
+  "Deletion blocked": "削除不可",
+  "Numerical deletion guard": "削除数・容量ガード",
+  "I checked count and bytes; override ONLY the numerical guard": "数と容量を確認し、数値ガードだけを上書きします",
+  "Exact objects and preservation reasons": "正確なオブジェクトと保持理由",
+  "This pool is still mounted or busy in this GUI. Stop it first.": "このGUIでプールがマウント中または処理中です。先に停止してください。",
+  "All PCs: every mount, upload, migration and other writer is stopped and will remain stopped": "すべてのPCのマウント・アップロード・移行・他の書き込みを停止し、停止したままにします",
+  "I supplied every local workspace and backup, including old copies (or none exist)": "古いコピーも含め、全ローカル作業領域とバックアップを指定しました（または存在しません）",
+  "I reviewed this exact preview and confirm permanent deletion of only its unused NEW objects": "この正確なプレビューを確認し、表示された未使用の新規オブジェクトのみの完全削除に同意します",
+  "Delete these unused NEW copies permanently": "これらの未使用の新規コピーを完全削除"
 }

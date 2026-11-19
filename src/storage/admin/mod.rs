@@ -3,6 +3,8 @@
 pub(crate) mod budget;
 pub(crate) mod catalog;
 pub(crate) mod domains;
+/// PC-local per-crypt disk capacity declarations (no storage I/O).
+pub(crate) mod location_capacity;
 /// Parsing of `rclone about --json` output into [`QuotaReport`].
 mod quota;
 use super::error::StorageError;

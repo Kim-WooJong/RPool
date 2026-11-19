@@ -40,3 +40,6 @@ pub(crate) mod relocate;
 pub(crate) mod location_edit;
 /// Per-PC operation lease for individual location edits.
 pub(crate) mod location_use;
+
+/// Private snapshot and bounded read-only crypt namespace probes.
+pub(crate) mod encoding_probe;

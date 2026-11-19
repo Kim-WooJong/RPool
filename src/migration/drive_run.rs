@@ -10,8 +10,9 @@
 use super::drive_journal::{freeze, load_adoption, load_plan};
 use super::drive_model::{entry_key, units, DriveEntry, DriveFile, DriveFreeze};
 use super::drive_source::{CloudDrive, DriveSource};
-use super::execute::{run_core, Effects, Replacement, RunOptions, RunSummary};
+use super::execute::{run_core_with, Effects, Replacement, RunOptions, RunSummary};
 use super::journal::Journal;
+use super::live_control::LiveControl;
 use super::model::{Action, Entry, Plan, Record};
 use crate::prelude::*;
 
@@ -119,12 +120,20 @@ pub(super) fn run_entries(
         work_root,
         stop_file: options.stop_file.clone(),
         take_over: options.take_over,
+        live: options.live.as_deref(),
     };
     let work = Plan {
         entries,
         ..plan.clone()
     };
-    run_core(&work, &journal.records()?, pc, &effects, options.parallel)
+    run_core_with(
+        &work,
+        &journal.records()?,
+        pc,
+        &effects,
+        options.parallel,
+        options.live.as_deref(),
+    )
 }
 
 /// Adds the drive part's outcome to the archive run's summary.
@@ -162,6 +171,8 @@ struct DriveEffects<'a> {
     stop_file: Option<PathBuf>,
     /// Take over other PCs' unexpired claims.
     take_over: bool,
+    /// Live controls of the run (`None` for adoption: fixed values).
+    live: Option<&'a LiveControl>,
 }
 
 impl DriveEffects<'_> {
@@ -185,14 +196,23 @@ impl Effects for DriveEffects<'_> {
         if crate::manifest::manifest_fingerprint(&file.manifest)? != entry.fingerprint {
             bail!("drive file payload changed since planning");
         }
+        super::discard::record_creation(self.rclone, self.journal, entry, &file.manifest, self.target, new_archive_id);
         let work = self.work_root.join(new_archive_id);
         fs::create_dir_all(&work)?;
+        // Shard transfers are fixed for this archive when it starts.
+        let target = LiveControl::target_for_next_archive(self.live, self.target);
+        if self.live.is_some() {
+            println!(
+                "  shard transfers: {} ({})",
+                target.workers, entry.original_name
+            );
+        }
         let (produced, locations) = match entry.action {
             Action::Relocate => {
                 let r = super::relocate::relocate(
                     self.rclone,
                     &file.manifest,
-                    self.target,
+                    &target,
                     &entry.moves,
                     new_archive_id,
                     &work,
@@ -209,7 +229,7 @@ impl Effects for DriveEffects<'_> {
                 self.rclone,
                 &entry.source,
                 &file.manifest,
-                self.target,
+                &target,
                 &work,
                 new_archive_id,
             )?,

@@ -9,6 +9,8 @@ mod cleanup_step;
 #[cfg(test)]
 pub(crate) mod cleanup_tests;
 mod drive_part;
+mod discard_copies;
+mod live_controls;
 mod lost;
 mod plan_step;
 mod review_step;
@@ -38,7 +40,7 @@ pub(crate) fn card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         }
     }
     form.watch_task(task);
-    let busy = form.poll() | form.cleanup.poll();
+    let busy = form.poll() | form.cleanup.poll() | form.discard_copies.poll();
     if form.status_due(std::time::Instant::now()) {
         form.start_status(&state.settings.rclone);
     }
@@ -67,6 +69,7 @@ pub(crate) fn card(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 Step::Adopt => adopt_step::show(ui, state, task),
                 Step::Lost => lost::show(ui, state),
                 Step::Cleanup => cleanup_step::show(ui, state, task),
+                Step::DiscardCopies => discard_copies::show(ui, state, task),
             }
             if matches!(state.migration.step, Step::Plan) {
                 ui.separator();
@@ -87,6 +90,7 @@ fn steps_bar(ui: &mut egui::Ui, step: Step) {
             (Step::Adopt, tr("Adopt drive")),
             (Step::Lost, tr("Lost files")),
             (Step::Cleanup, tr("Clean up")),
+            (Step::DiscardCopies, tr("Discard unused NEW copies")),
         ]
         .into_iter()
         .enumerate()

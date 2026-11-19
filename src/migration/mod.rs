@@ -8,6 +8,7 @@
 //! CONTRACT between the work packages: `model` types and the signatures in
 //! `plan`, `journal`, `relocate`, `speed`, `execute` and `status` are shared; keep them stable.
 mod classify;
+pub(crate) mod discard;
 pub(crate) mod drive_adopt;
 mod drive_adopt_live;
 pub(crate) mod drive_generations;
@@ -23,6 +24,7 @@ pub(crate) mod enumerate;
 mod estimate;
 pub(crate) mod execute;
 pub(crate) mod journal;
+pub(crate) mod live_control;
 pub(crate) mod model;
 pub(crate) mod plan;
 mod probe;

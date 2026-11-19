@@ -5,9 +5,11 @@
 //! (see [`progress`]) and every decision is idempotent. The run never deletes
 //! anything; old archives stay readable, replacements always get a new id.
 use super::journal::Journal;
+use super::live_control::{LiveControl, LiveRun};
 use super::model::{self, Action, Entry, GroupLoss, Plan, Record, RecordState};
 use super::plan::PlanOptions;
 use crate::prelude::*;
+use crate::storage::error::{StorageError, StorageErrorKind, FailureDiagnostic};
 
 /// Advisory lease: another PC's claim younger than this is left alone.
 pub(crate) const CLAIM_LEASE_SECONDS: u64 = 2 * 60 * 60;
@@ -52,6 +54,12 @@ pub(crate) struct RunOptions {
     pub transfers: Option<usize>,
     /// Bandwidth limit of the whole run (`--bwlimit` timetable syntax).
     pub bwlimit: Option<String>,
+    /// Folder of the run's live controls (`--control-dir`); `None`: an
+    /// automatic folder under `<config>/migrations/<id>/live`.
+    pub control_dir: Option<PathBuf>,
+    /// Live controls of this run (set by [`run`]; `None` keeps the values
+    /// fixed, e.g. for adoption).
+    pub live: Option<Arc<LiveControl>>,
 }
 
 impl RunOptions {
@@ -127,9 +135,13 @@ pub(crate) fn run(
     {
         eprintln!("[warning] saved pool placement differs from this migration's frozen target; this run keeps the planned placement. Make a new plan to use the saved placement");
     }
+    // What `--transfers 0` / no `--transfers` means, before throttling.
+    let pool_workers = plan.target.workers.max(1);
     let parallel = options.throttle(&mut plan)?;
+    let live_run = open_live(options, parallel, pool, migration_id, pool_workers)?;
     let options = &RunOptions {
         parallel,
+        live: live_run.as_ref().map(LiveRun::control),
         ..options.clone()
     };
     let records = journal.records()?;
@@ -145,17 +157,32 @@ pub(crate) fn run(
         stop_file: options.stop_file.clone(),
         take_over: options.take_over,
         switch_lock: Mutex::new(()),
+        first_failure: Mutex::new(None),
+        live: options.live.as_deref(),
     };
     println!(
         "migration_parallel={}",
         effective_parallel(options.parallel, order(&plan.entries).len())
     );
     let pc = pc_id();
-    let mut summary = run_core(&plan, &records, &pc, &effects, options.parallel)?;
+    let live = options.live.as_deref();
+    let mut summary = run_core_with(&plan, &records, &pc, &effects, options.parallel, live)?;
     if !summary.stopped && !summary.unknown.is_empty() {
-        // A provider error on one attempt is often transient: give the
-        // archives that ended unknown in this run one fresh attempt.
-        let retry = unknown_entries(&plan, &journal.records()?);
+        // Only proven not-performed failures may receive a fresh automatic
+        // attempt; ambiguous writes remain pending for explicit review.
+        let retry_records = journal.records()?;
+        let retry_state = progress(&retry_records);
+        // A fresh archive id is not permission to automatically repeat an
+        // ambiguous mutation. Keep those failures pending for explicit review.
+        let retry: Vec<_> = unknown_entries(&plan, &retry_records).into_iter().filter(|entry| {
+            match retry_state.get(&entry.archive_id) {
+                Some(Progress::Unknown(r)) => r.detail.as_deref().is_some_and(|note| {
+                    crate::storage::error::FailureDiagnostic::from_note(note, r.ts_unix).outcome
+                        != crate::storage::error::FailureOutcome::Unknown
+                }),
+                _ => false,
+            }
+        }).collect();
         if !retry.is_empty() {
             println!("migration_retry_unknown={}", retry.len());
             std::thread::sleep(RETRY_UNKNOWN_DELAY);
@@ -164,12 +191,13 @@ pub(crate) fn run(
                 entries: retry,
                 ..plan.clone()
             };
-            let second = run_core(
+            let second = run_core_with(
                 &retry_plan,
                 &journal.records()?,
                 &pc,
                 &effects,
                 options.parallel,
+                live,
             )?;
             summary.unknown.retain(|u| !names.contains(u));
             summary.unknown.extend(second.unknown);
@@ -186,11 +214,52 @@ pub(crate) fn run(
             Ok(None) => {}
             Err(error) => {
                 let _ = summary.finish();
-                return Err(error.context("drive part of the migration"));
+                let error = error.context("drive part of the migration");
+                let first = effects.first_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+                return Err(match first {
+                    Some(cause) => error.context(format!("first provider cause={cause}; final termination follows")),
+                    None => error,
+                });
             }
         }
     }
-    summary.finish()
+    let result = summary.finish();
+    let first = effects.first_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+    match first {
+        Some(cause) => result.map_err(|termination| termination.context(format!("first provider cause={cause}; final termination follows"))),
+        None => result,
+    }
+}
+
+/// Opens the run's live controls. With an explicit `--control-dir` a
+/// failure stops the run (the caller asked for that folder); otherwise the
+/// run goes on with fixed values and says so.
+fn open_live(
+    options: &RunOptions,
+    parallel: Option<usize>,
+    pool: &str,
+    migration_id: &str,
+    pool_workers: usize,
+) -> Result<Option<LiveRun>> {
+    let initial = super::live_control::initial_settings(
+        parallel,
+        options.transfers,
+        options.bwlimit.as_deref(),
+    );
+    match LiveRun::open(
+        options.control_dir.as_deref(),
+        pool,
+        migration_id,
+        pool_workers,
+        initial,
+    ) {
+        Ok(run) => Ok(Some(run)),
+        Err(error) if options.control_dir.is_some() => Err(error.context("--control-dir")),
+        Err(error) => {
+            eprintln!("[warning] live controls are off for this run (values stay fixed): {error:#}");
+            Ok(None)
+        }
+    }
 }
 
 /// Movable entries whose latest attempt ended unknown, in dispatch order.
@@ -388,6 +457,8 @@ pub(crate) struct Replacement {
 /// Shared by all run workers, hence `&self` and `Sync`: implementations
 /// serialize whatever must not run concurrently (see [`LiveEffects`]).
 pub(crate) trait Effects: Sync {
+    /// Capture safe metadata; later stop errors must not replace it.
+    fn note_failure(&self, _diagnostic: &FailureDiagnostic) {}
     /// Must be safe to call concurrently for records of different entries.
     fn append(&self, record: &Record) -> Result<()>;
     /// Fingerprint of the entry's current source manifest (Err: provider error).
@@ -522,12 +593,32 @@ enum Outcome {
 /// loop. An error that is not about one archive (e.g. the journal refusing
 /// appends) stops dispatching, lets in-flight archives finish, and is
 /// returned; the first such error wins.
+///
+/// Fixed-concurrency form (no live controls), kept as the shared contract
+/// the fake-effects tests drive; [`run`] uses [`run_core_with`].
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn run_core(
     plan: &Plan,
     records: &[Record],
     pc: &str,
     effects: &dyn Effects,
     parallel: Option<usize>,
+) -> Result<RunSummary> {
+    run_core_with(plan, records, pc, effects, parallel, None)
+}
+
+/// [`run_core`] with optional live controls: then enough workers wait for
+/// up to [`MAX_PARALLEL`] archives, and each archive is admitted only while
+/// fewer than the current "archives at once" are in progress (re-read for
+/// every admission). Lowering the value never interrupts an archive in
+/// progress; raising it admits waiting archives within a moment.
+pub(crate) fn run_core_with(
+    plan: &Plan,
+    records: &[Record],
+    pc: &str,
+    effects: &dyn Effects,
+    parallel: Option<usize>,
+    live: Option<&LiveControl>,
 ) -> Result<RunSummary> {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst};
     use std::sync::PoisonError;
@@ -563,7 +654,10 @@ pub(crate) fn run_core(
     let work = order(&plan.entries);
     summary.total = work.len();
     let total = work.len();
-    let workers = effective_parallel(parallel, total);
+    let workers = match live {
+        Some(_) => MAX_PARALLEL.min(total).max(1),
+        None => effective_parallel(parallel, total),
+    };
 
     let next = AtomicUsize::new(0);
     let stopped = AtomicBool::new(false);
@@ -574,6 +668,27 @@ pub(crate) fn run_core(
         if halted.load(SeqCst) || stopped.load(SeqCst) {
             break;
         }
+        // Live admission: wait for a slot under the current limit.
+        let _slot = match live {
+            Some(live) => {
+                let abort = || {
+                    halted.load(SeqCst)
+                        || stopped.load(SeqCst)
+                        || next.load(SeqCst) >= total
+                        || effects.stop_requested()
+                };
+                match live.admit(&abort) {
+                    Some(slot) => Some(slot),
+                    None => {
+                        if effects.stop_requested() && !stopped.swap(true, SeqCst) {
+                            effects.say("migration_stop_requested=true");
+                        }
+                        break;
+                    }
+                }
+            }
+            None => None,
+        };
         let index = next.fetch_add(1, SeqCst);
         let Some(entry) = work.get(index) else {
             break;
@@ -599,7 +714,7 @@ pub(crate) fn run_core(
             }
         }
     };
-    if workers == 1 {
+    if workers == 1 && live.is_none() {
         worker();
     } else {
         std::thread::scope(|scope| {
@@ -828,10 +943,27 @@ fn unknown(
         &attempt,
         pc,
     );
-    r.detail = Some(format!("{error:#}"));
+    use crate::storage::error::{FailureCode, FailureDiagnostic, FailureOutcome, FailurePhase};
+    let storage_error = error.chain().find_map(|cause| cause.downcast_ref::<StorageError>());
+    let diagnostic = storage_error.and_then(StorageError::diagnostic).cloned().unwrap_or_else(|| {
+        let outcome = match storage_error.map(StorageError::kind) {
+            Some(StorageErrorKind::RateLimited) => FailureOutcome::NotPerformed,
+            // This boundary cannot prove other errors preceded mutation.
+            _ => FailureOutcome::Unknown,
+        };
+        let mut d = FailureDiagnostic::classify(format!("{error:#}").as_bytes(), FailurePhase::Migration, outcome, None);
+        if matches!(storage_error.map(StorageError::kind), Some(StorageErrorKind::Cancelled)) {
+            d.code = FailureCode::Interrupted;
+        }
+        d
+    });
+    // Existing optional detail field keeps old journal readers compatible.
+    // Store only enums/numbers, never the raw error chain or provider stderr.
+    effects.note_failure(&diagnostic);
+    r.detail = Some(format!("rpool_failure={diagnostic}"));
     effects.append(&r)?;
     effects.say(&format!(
-        "migration_entry_unknown={} error={error:#}",
+        "migration_entry_unknown={} error={diagnostic}",
         entry.archive_id
     ));
     Ok(Outcome::Unknown(entry.original_name.clone()))
@@ -858,6 +990,9 @@ struct LiveEffects<'a> {
     /// replacement log. Cheap next to a build, and it does not rely on the
     /// inventory file lock excluding threads of the same process.
     switch_lock: Mutex<()>,
+    first_failure: Mutex<Option<FailureDiagnostic>>,
+    /// Live controls: shard transfers of an archive starting now.
+    live: Option<&'a LiveControl>,
 }
 
 impl LiveEffects<'_> {
@@ -870,6 +1005,13 @@ impl LiveEffects<'_> {
 }
 
 impl Effects for LiveEffects<'_> {
+    fn note_failure(&self, diagnostic: &FailureDiagnostic) {
+        if diagnostic.code == crate::storage::error::FailureCode::Interrupted { return; }
+        let mut first = self.first_failure.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if first.as_ref().is_none_or(|old| diagnostic.ts_unix < old.ts_unix) {
+            *first = Some(diagnostic.clone());
+        }
+    }
     fn append(&self, record: &Record) -> Result<()> {
         self.journal.append(record)
     }
@@ -881,14 +1023,23 @@ impl Effects for LiveEffects<'_> {
         if crate::manifest::manifest_fingerprint(&manifest)? != entry.fingerprint {
             bail!("source manifest changed since planning");
         }
+        super::discard::record_creation(self.rclone, self.journal, entry, &manifest, &self.plan.target, new_archive_id);
         let work = self.work_root.join(new_archive_id);
         fs::create_dir_all(&work)?;
+        // Shard transfers are fixed for this archive when it starts.
+        let target = LiveControl::target_for_next_archive(self.live, &self.plan.target);
+        if self.live.is_some() {
+            println!(
+                "  shard transfers: {} ({})",
+                target.workers, entry.original_name
+            );
+        }
         let (produced, locations) = match entry.action {
             Action::Relocate => {
                 let r = super::relocate::relocate(
                     self.rclone,
                     &manifest,
-                    &self.plan.target,
+                    &target,
                     &entry.moves,
                     new_archive_id,
                     &work,
@@ -906,7 +1057,7 @@ impl Effects for LiveEffects<'_> {
                 self.rclone,
                 &entry.source,
                 &manifest,
-                &self.plan.target,
+                &target,
                 &work,
                 new_archive_id,
             )?,

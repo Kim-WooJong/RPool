@@ -12,6 +12,16 @@ const CHILD_TIMEOUT: Duration = Duration::from_secs(120);
 /// Upper bound on secret output read into memory (32 MiB); vault inputs may be twice this.
 pub(super) const MAX_SECRET_BYTES: usize = 32 * 1024 * 1024;
 
+/// Typed exit code for exact cleanup reconciliation; diagnostics stay redacted.
+#[derive(Debug)]
+pub(super) struct SecretExit(pub(super) Option<i32>);
+impl std::fmt::Display for SecretExit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("secret subprocess returned failure")
+    }
+}
+impl std::error::Error for SecretExit {}
+
 /// Where a secret child's stdout goes.
 pub(super) enum Output {
     /// Read into memory, at most this many bytes.
@@ -97,8 +107,9 @@ where
         // Join both workers even on errors; do not detach a secret-bearing writer.
         let written = writer_thread.join();
         let read = reader_thread.join();
-        if !status?.success() {
-            bail!("secret subprocess returned failure");
+        let status = status?;
+        if !status.success() {
+            return Err(SecretExit(status.code()).into());
         }
         written.map_err(|_| anyhow!("secret subprocess input worker failed"))??;
         read.map_err(|_| anyhow!("secret subprocess output worker failed"))?

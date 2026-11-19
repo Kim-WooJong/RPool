@@ -234,6 +234,10 @@ pub(crate) struct MigrationStatus {
     pub verified: usize,
     /// Entries whose last attempt ended unknown.
     pub failed_unknown: usize,
+    /// Earliest bounded provider causes, separate from a later user stop.
+    /// Optional for compatibility with older status JSON.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failures: Vec<crate::storage::error::FailureDiagnostic>,
     /// Unrecoverable files (from plan and run).
     pub lost: Vec<LostFile>,
     /// The migration was abandoned.

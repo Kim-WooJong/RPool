@@ -136,7 +136,7 @@ impl RemoteCatalog {
             if !seen.insert(name) {
                 return false;
             }
-            if self.domains.remotes.contains_key(name) {
+            if self.domains.remotes.get(name).is_some_and(|i| !i.capacity.is_empty()) {
                 return true;
             }
             let Some(entry) = self.entries.get(name) else {
@@ -160,6 +160,31 @@ impl RemoteCatalog {
             .then_some(entry.backing.as_deref())
             .flatten()
     }
+    /// All crypt sections, including ones not eligible as upload destinations.
+    pub(crate) fn capacity_locations(&self) -> Vec<String> {
+        self.entries.iter().filter(|(_, e)| e.kind == "crypt")
+            .map(|(name, _)| format!("{name}:")).collect()
+    }
+
+    /// Only direct encrypting filesystem crypts are editable here. Wrapper
+    /// chains are deliberately refused rather than guessing their disk scope.
+    pub(crate) fn editable_capacity_location(&self, name: &str) -> Result<CapacityBinding> {
+        if name.is_empty() || name.trim() != name || name.contains(':') || name.contains('/') || name.contains(char::from(92_u8))
+            || name.chars().any(char::is_control) {
+            bail!("expected an exact crypt remote name without a colon or path");
+        }
+        let entry = self.entries.get(name).context("unknown crypt location")?;
+        if entry.kind != "crypt" || !entry.encrypted {
+            bail!("location capacity requires an encrypting crypt remote");
+        }
+        let backing = entry.backing.as_deref().context("missing crypt backing")?;
+        let (base, _) = backing.split_once(':').context("ambiguous crypt backing")?;
+        if !path_capacity_supported(self.backend_kind(base).unwrap_or_default()) {
+            bail!("location capacity requires a direct SFTP, SMB or local filesystem backing; wrappers and account-wide cloud quotas are not editable");
+        }
+        self.capacity(&format!("{name}:"))
+    }
+
     /// Conservative lexical key for duplicate quota targets, not a server realpath.
     pub(crate) fn quota_scope_key(&self, raw: &str) -> String {
         let Some((name, path)) = raw.split_once(':') else {
@@ -393,7 +418,7 @@ impl RemoteCatalog {
                 if binding.domain.is_none() {
                     bail!("alias capacity scope is unresolved for this backend");
                 }
-                if let Some(identity) = self.domains.remotes.get(name) {
+                if let Some(identity) = self.domains.remotes.get(name).filter(|i| !i.capacity.is_empty()) {
                     let base = self.placement_target(raw)?;
                     if !path_capacity_supported(self.backend_kind(&base).unwrap_or_default()) {
                         bail!("per-location capacity identity requires a filesystem backend; declare shared account quota on the backing provider");
@@ -411,6 +436,7 @@ impl RemoteCatalog {
                 // not a provider allowlist. Undeclared identities share a
                 // conservative overlap group rather than pretending independence.
                 let domain = identity
+                    .filter(|i| !i.capacity.is_empty())
                     .map(|i| i.capacity.clone())
                     .unwrap_or_else(|| "unverified-accounts".into());
                 Ok(CapacityBinding {

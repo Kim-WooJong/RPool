@@ -84,7 +84,7 @@ impl RcloneContext {
             inner: &mut hashing,
             bytes: 0,
         };
-        // A stalled transfer is killed and reported as a retriable timeout.
+        // A stalled dispatched transfer is unknown; it must not be re-sent.
         let mut command = self.command_for(address, &args, TpsLane::Upload);
         if let Some((base, _)) = &account {
             // One shard is one upload: no chunk fan-out inside rclone, so
@@ -439,7 +439,7 @@ fn stored_hash_cache() -> &'static std::sync::Mutex<HashKindCache> {
 
 /// A small upload through the daemon: reads the whole `source` (paced like
 /// the subprocess path) and sends it with its size. When the daemon cannot
-/// answer definitely, or the source is not `size` bytes long, the same bytes
+/// connect before dispatch, or the source is not `size` bytes long, the same bytes
 /// go through `command` (`rcat`), which reports exactly as before.
 fn upload_buffered(
     daemon: &daemon::Daemon,

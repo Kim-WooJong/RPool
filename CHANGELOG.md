@@ -1,5 +1,95 @@
 # Changelog
 
+## Unreleased
+
+- No changes recorded yet.
+
+## 2.23.0-rc.4 — 2026-11-19 (experimental/testing prerelease)
+
+**EXPERIMENTAL / TESTING ONLY — NOT all issues are fixed. Back up first,
+review the cleanup preview, and never confirm an unreviewed deletion. A stable
+release requires user feedback; this candidate is not a production qualification.**
+
+- Separate CLI `pool migrate discard-copies` (alias `cleanup-abandoned`)
+  and abandoned-row GUI read-only preview / explicit deletion, with KO/JA/ZH
+  labels. Completed-original retire is unchanged.
+- Require creation evidence, reference closure, exact preview/state/bytes
+  fingerprints, seven-day abandonment grace and global writer-stop/workspace
+  acknowledgements. Reuse count/byte guards; exact deletes have immutable local
+  intent/outcome receipts and unknown-outcome reconciliation.
+- Preserve legacy copies lacking pre-write evidence, originals, adopted/history
+  references, unsupported probes and mixed base32/base32768 namespaces. No
+  automatic namespace repair or stop/adopt/abandon. Scope/limits documented in
+  `docs/ABANDONED_COPY_CLEANUP.md`. Build-only is not live execution verification.
+
+- Preserve uncertain write outcomes across daemon/subprocess and relocation
+  fallbacks: lost acknowledgements, invalid upload responses and stalled writes
+  no longer trigger blind replay. Automatic migration retries require confirmed
+  non-performance. Keep allowlisted first-cause diagnostics separate from a later
+  pause/stop, expose up to 16 causes in status/CLI/GUI, and never persist raw
+  provider stderr, command arguments, credentials or physical paths.
+- Add bounded read-only `provider encoding-inventory` for direct filesystem
+  standard crypt locations, reporting encoding provenance, overlaps, failures
+  and incomplete listings without claiming integrity or data recovery. Restrict
+  ordinary filename-encoding changes to empty physical locations; nonempty
+  recovery settings require explicit all-PC-stop, inventory-review and
+  non-conversion acknowledgements. Remove the GUI one-click nonempty override.
+  This does not copy, rename, merge or delete existing objects or journals.
+
+- Make per-location disk capacity explicit in GUI: provider-shared inheritance
+  versus independent physical disk groups, saved effective group and peers,
+  opt-in group-name suggestions, and a pool-side settings link (KO/JA/ZH).
+  Add mount-free `provider location-capacity --remote <crypt> [--group <id> |
+  --inherit] [--json]`; read-only queries do not create history/settings/locks.
+  Restrict editing to direct SFTP/SMB/local crypts, reject conflicting groups
+  on the same normalized quota root before save, merge latest declarations
+  with stale-row/backing checks, preserve legacy failure fields, and atomically
+  replace the local store. Capacity-only changes leave outage/account limits,
+  keys, encoding, paths and bytes untouched; no stop/restart or relocation.
+  Only new jobs/new plans use changes; immutable existing plans stay unchanged.
+  Declarations remain PC-local/not exported and must be repeated on other PCs.
+
+- Fix GUI migration resume controls in both the active view and existing-migration
+  list when archives are complete but drive archives are not ready or adopted.
+  Clarify that only the archive phase is complete while the drive remains pending.
+  No automatic retry, drive adoption, cleanup or storage-path changes are made.
+- Add live controls to `pool migrate run`: archives at once, shard transfers
+  and the run bandwidth limit can change while it runs, in the GUI run step
+  ("Change while running") or with the new `pool migrate tune`, without
+  restarting the run or touching the plan, journal or ids. Each run has its
+  own control folder (`--control-dir`, GUI per-run folder) with a
+  run-id/sequence-checked request and an ack; requests for another run, old
+  requests and invalid values (e.g. a bad timetable) are rejected and the
+  previous values stay. Archives at once apply at the next archive admission
+  (lowering never cancels archives in progress), shard transfers to archives
+  started afterwards, bandwidth to RPool's own transfers within about a
+  second (open streams included) and to rclone copies between accounts from
+  their next copy. Runs of earlier versions (e.g. 2.23.0-rc.3) are not
+  controllable this way.
+
+### Known limitations and validation scope
+
+- Legacy copies without pre-write absence evidence and creation receipts are
+  **not cleanup eligible**. Mixed base32/base32768 namespaces block cleanup.
+  The seven-day abandonment grace, all-writers-stopped acknowledgement and
+  complete workspace/reference review remain mandatory. Never bypass the
+  preview or confirm a deletion you have not reviewed; keep independent backups.
+- No automatic conversion of existing encoded data is provided. **Do not blindly
+  flip filename encoding.** Encoding inventory/guards are limited to direct
+  SFTP/SMB/local standard-crypt locations; they are not a repair or integrity claim.
+- NAS limits of 1 archive / 1 shard transfer are a conservative mitigation, not
+  an under-load-proven root-cause fix. Protected PC-sync conflicts remain
+  unresolved. Capacity declarations are PC-local and must be redeclared on
+  other PCs.
+- Runtime, GUI and actual cleanup behavior have not been validated for these
+  changes. Per owner request, validation is **release builds only**, with no
+  automated tests or independent QA. The local Windows GNU build excludes
+  WinFsp; distributed Windows binaries use the existing default-feature MSVC
+  workflow with WinFsp. CI builds are not Windows/runtime qualification.
+- An already running rc.3 process cannot gain rc.4 live tuning retroactively.
+  Intermittent-disconnect causality and Windows runtime behavior remain
+  unconfirmed; this release does not claim that all errors are resolved.
+
 ## 2.23.0-rc.3 — 2026-11-18 (prerelease)
 
 - Add individual crypt storage-location rename in CLI and GUI: change the real

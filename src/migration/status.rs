@@ -102,6 +102,7 @@ pub(crate) fn summarize(plan: &Plan, records: &[Record]) -> MigrationStatus {
         switched,
         verified,
         failed_unknown,
+        failures: failure_causes(records),
         lost: lost.into_values().collect(),
         abandoned,
         complete: !abandoned && movable_left == 0,
@@ -112,6 +113,21 @@ pub(crate) fn summarize(plan: &Plan, records: &[Record]) -> MigrationStatus {
             .max()
             .unwrap_or(plan.created_unix),
     }
+}
+
+/// Preserve the first real causes even when a later pause/stop is recorded.
+/// The list contains enums/numbers only, never journal/provider free text.
+fn failure_causes(records: &[Record]) -> Vec<crate::storage::error::FailureDiagnostic> {
+    use crate::storage::error::{FailureCode, FailureDiagnostic};
+    let mut causes: Vec<_> = records.iter()
+        .filter(|r| r.state == super::model::RecordState::Unknown)
+        .filter_map(|r| r.detail.as_deref().map(|note| FailureDiagnostic::from_note(note, r.ts_unix)))
+        .filter(|d| d.code != FailureCode::Interrupted)
+        .collect();
+    causes.sort_by_key(|d| d.ts_unix);
+    causes.dedup();
+    causes.truncate(16);
+    causes
 }
 
 #[cfg(test)]

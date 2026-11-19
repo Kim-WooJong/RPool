@@ -1,4 +1,4 @@
-# rpool v2.23.0-rc.3
+# rpool v2.23.0-rc.4
 
 **Prerelease:** Windows runtime validation is still pending. The cause of
 intermittent disconnects remains unconfirmed; this release does not claim to
@@ -239,7 +239,8 @@ After removing an account or changing K/M, shard size or native crypt with
 
 ```text
 rpool pool migrate plan <POOL>            # what moves, bytes, ETA, unrecoverable files
-rpool pool migrate run <POOL> --id <ID> [--parallel N] [--transfers N] [--bwlimit RATE] [--stop-file PATH]
+rpool pool migrate run <POOL> --id <ID> [--parallel N] [--transfers N] [--bwlimit RATE] [--stop-file PATH] [--control-dir DIR]
+rpool pool migrate tune <POOL> --id <ID> [--control-dir DIR] [--parallel N] [--transfers N] [--bwlimit RATE|off]
 rpool pool migrate status|lost|abandon <POOL> --id <ID>
 rpool pool migrate adopt <POOL> --id <ID>  # publish the migrated drive as a new generation
 rpool pool migrate retire <POOL> --id <ID> [--dry-run|--confirm]   # clean up, with quarantine
@@ -251,6 +252,14 @@ To spread existing data onto a newly added account, plan with `--rebalance`
 `--transfers N` moves N shards at once (archives one at a time), and
 `--bwlimit` caps the whole run in rclone syntax with timetables, e.g.
 `--bwlimit "01:00,20M 08:00,2M"`; both are in the GUI run step.
+While a run goes on, the three values can change without a restart (GUI run
+step "Change while running", or `migrate tune`); the run confirms or rejects
+each change and invalid values never replace the ones in force. Archives at
+once apply when the next archive starts (lowering never cancels archives in
+progress), shard transfers apply to archives that start afterwards, and the
+bandwidth limit reaches RPool's own transfers within about a second (open
+streams too) and rclone's own copies between accounts from their next copy.
+Runs started by an older RPool cannot be changed this way.
 `--rebalance` moves shards for account limits; with the even-spread method it
 then spreads each coding group's data shards evenly over the accounts (reads
 fetch data shards first, so this is what makes them parallel); last it closes
@@ -855,3 +864,10 @@ Build, test and repository rules: [DEVELOPMENT.md](DEVELOPMENT.md). Local CI:
 [scripts/linux-docker/README.md](scripts/linux-docker/README.md). Plan:
 [ROADMAP.md](ROADMAP.md); release notes: [CHANGELOG.md](CHANGELOG.md); version
 policy: [docs/VERSIONING.md](docs/VERSIONING.md).
+
+Abandoned migration **new-copy** cleanup is a separate, fail-closed
+`pool migrate discard-copies POOL --id ID --json` read-only preview (GUI:
+**Discard unused NEW copies**), not completed-original `retire`.
+See [scope, confirmation and limitations](docs/ABANDONED_COPY_CLEANUP.md).
+Legacy outputs without pre-write ownership evidence and mixed filename-encoding
+namespaces remain protected; this worktree implementation is not deployed.

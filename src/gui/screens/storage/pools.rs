@@ -372,6 +372,10 @@ fn identities(ui: &mut egui::Ui, state: &mut GuiState, draft: &PoolDefinition, e
         state.pools.identity_source = source;
     }
     ui.separator();
+    ui.small(tr("Locations on one provider share capacity unless you explicitly declare independent physical disks. Same-disk folders must keep the same capacity group."));
+    if ui.small_button(tr("Configure disk capacity groups in Providers → Storage locations")).clicked() {
+        state.storage_section = StorageSection::Providers;
+    }
     ui.strong(tr("Account identities"));
     ui.small(tr("Which accounts are independent (their free space adds up) and which can fail together. The estimate above uses these."));
     if editor(

@@ -1,4 +1,5 @@
 {
+  "Archives complete; drive pending": "아카이브 완료 · 드라이브 준비 미완료",
   "Adopt the drive of migration {id}": "이전 {id}의 드라이브 채택",
   "Adopt the new drive layout": "새 드라이브 구성 채택",
   "Adopted by {pc}: {files} files in the new layout, {dropped} unrecoverable left out.": "{pc}에서 채택했어요: 새 구성에 파일 {files}개, 복구할 수 없는 파일 {dropped}개는 제외했어요.",
@@ -50,5 +51,24 @@
   "{failed} failed · {retries} retries": "실패 {failed}건 · 재시도 {retries}건",
   "Checks every archive without changing its data, then saves the plan in the cloud journal.": "모든 아카이브를 데이터 변경 없이 검사한 다음 계획을 클라우드 저널에 저장해요.",
   "Totals include metadata and verification reads.": "누적량에는 메타데이터와 검증을 위한 다시 읽기도 포함돼요.",
-  "Copy transfer bytes appear after each shard finishes.": "복사 전송량은 각 샤드의 복사가 끝난 뒤 반영돼요."
+  "Copy transfer bytes appear after each shard finishes.": "복사 전송량은 각 샤드의 복사가 끝난 뒤 반영돼요.",
+  "Discard unused NEW copies": "미사용 새 복사본 정리",
+  "Copy preview stopped; no deletion was started.": "복사본 미리보기가 중단됐어요. 삭제는 시작하지 않았어요.",
+  "Deletion task ended. Check the console, then preview again; unknown outcomes require reconciliation.": "삭제 작업이 끝났어요. 콘솔을 확인하고 다시 미리보세요. 결과가 불명확하면 재확인이 필요해요.",
+  "Only new objects proven to belong exclusively to this abandoned migration may be deleted. Originals, adopted/history references, other jobs and uncertain legacy writes are kept. This is not completed-original cleanup.": "폐기한 이 이전 작업만 새로 만든 것으로 증명된 객체만 삭제할 수 있어요. 원본, 채택·이력 참조, 다른 작업의 참조와 증거가 부족한 이전 쓰기는 보존해요. 완료한 이전의 원본 정리와는 달라요.",
+  "This mode requires an already abandoned migration; it never abandons or stops jobs automatically.": "이미 폐기한 이전에서만 사용할 수 있어요. 작업을 자동으로 폐기하거나 중지하지 않아요.",
+  "All local workspaces and backups (one path per line)": "모든 로컬 작업 폴더와 백업(한 줄에 경로 하나)",
+  "Preview unused copies (read-only)": "미사용 복사본 미리보기(읽기 전용)",
+  "Reading bounded namespace and reference views; nothing is being written or deleted.": "제한된 범위에서 이름 공간과 참조를 읽고 있어요. 기록하거나 삭제하지 않아요.",
+  "{n} exact candidate objects ({bytes})": "정확한 후보 객체 {n}개({bytes})",
+  "Preview expires after 15 minutes. Confirmation re-reads all state, references and exact object bytes. A seven-day abandonment grace is mandatory.": "미리보기는 15분 후 만료돼요. 확인 시 모든 상태·참조·객체 바이트를 다시 읽어요. 폐기 후 7일의 유예 기간은 필수예요.",
+  "Deletion blocked": "삭제 차단",
+  "Numerical deletion guard": "삭제 개수·용량 보호",
+  "I checked count and bytes; override ONLY the numerical guard": "개수와 용량을 확인했으며 숫자 제한만 재정의해요",
+  "Exact objects and preservation reasons": "정확한 객체와 보존 사유",
+  "This pool is still mounted or busy in this GUI. Stop it first.": "이 GUI에서 풀이 아직 마운트되어 있거나 작업 중이에요. 먼저 중지하세요.",
+  "All PCs: every mount, upload, migration and other writer is stopped and will remain stopped": "모든 PC의 마운트·업로드·이전 및 다른 쓰기 작업을 중지했고 계속 중지 상태로 유지해요",
+  "I supplied every local workspace and backup, including old copies (or none exist)": "이전 복사본을 포함한 모든 로컬 작업 폴더와 백업을 입력했어요(또는 없어요)",
+  "I reviewed this exact preview and confirm permanent deletion of only its unused NEW objects": "이 미리보기를 확인했으며 표시된 미사용 새 객체만 영구 삭제하는 데 동의해요",
+  "Delete these unused NEW copies permanently": "이 미사용 새 복사본 영구 삭제"
 }

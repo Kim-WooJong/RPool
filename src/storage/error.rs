@@ -10,6 +10,74 @@
 use std::fmt;
 use std::time::Duration;
 
+/// Persistable diagnostics: enums and numbers only, never provider text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum FailureCode {
+    ConnectionReset, ConnectionRefused, ConnectionFailed, SshHandshake, Eof, Auth, Permission,
+    NoSpace, PathNotFound, Timeout, BrokenPipe, NoRoute, Modtime,
+    ResponseLost, InvalidResponse, Interrupted, RateLimited, Unknown,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum FailurePhase { Subprocess, DaemonUpload, Verification, Migration }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum FailureOutcome { Unknown, NotPerformed, ReadFailed }
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FailureDiagnostic {
+    pub code: FailureCode,
+    pub phase: FailurePhase,
+    pub outcome: FailureOutcome,
+    pub exit_code: Option<i32>,
+    pub ts_unix: u64,
+}
+impl FailureDiagnostic {
+    pub(crate) fn new(code: FailureCode, phase: FailurePhase, outcome: FailureOutcome, exit_code: Option<i32>) -> Self {
+        Self { code, phase, outcome, exit_code, ts_unix: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() }
+    }
+    /// First recognized cause in line order; no untrusted bytes escape.
+    pub(crate) fn classify(text: &[u8], phase: FailurePhase, outcome: FailureOutcome, exit_code: Option<i32>) -> Self {
+        let code = String::from_utf8_lossy(text).lines().find_map(|line| {
+            let t = line.to_ascii_lowercase();
+            let rules: &[(FailureCode, &[&str])] = &[
+                (FailureCode::Modtime, &["setmodtime", "chtimes", "set modification time"]),
+                (FailureCode::NoSpace, &["storagequotaexceeded", "storage quota exceeded", "storage quota has been exceeded", "insufficient storage", "no space left on device", "disk quota exceeded"]),
+                (FailureCode::Permission, &["permission denied", "access denied", "forbidden"]),
+                (FailureCode::Auth, &["unauthorized", "authentication", "invalid_grant", "token expired"]),
+                (FailureCode::ConnectionFailed, &["connection to the provider failed"]),
+                (FailureCode::ConnectionRefused, &["connection refused"]),
+                (FailureCode::ConnectionReset, &["connection reset"]),
+                (FailureCode::SshHandshake, &["handshake failed", "ssh handshake", "kex_exchange_identification", "maxstartups"]),
+                (FailureCode::BrokenPipe, &["broken pipe"]),
+                (FailureCode::NoRoute, &["no route to host"]),
+                (FailureCode::Eof, &["unexpected eof", " eof"]),
+                (FailureCode::PathNotFound, &["directory not found", "no such file", "file does not exist"]),
+                (FailureCode::Timeout, &["timeout", "timed out"]),
+                (FailureCode::RateLimited, &["too many requests", "rate limit", "too_many_write_operations"]),
+            ];
+            rules.iter().find(|(_, needles)| needles.iter().any(|n| t.contains(n))).map(|(code, _)| *code)
+        }).unwrap_or(FailureCode::Unknown);
+        Self::new(code, phase, outcome, exit_code)
+    }
+    /// Legacy notes become allowlisted codes, never verbatim GUI text.
+    pub(crate) fn from_note(note: &str, ts_unix: u64) -> Self {
+        if let Some(json) = note.strip_prefix("rpool_failure=") {
+            if let Ok(d) = serde_json::from_str::<Self>(json) { return d; }
+        }
+        let mut d = Self::classify(note.as_bytes(), FailurePhase::Migration, FailureOutcome::Unknown, None);
+        d.ts_unix = ts_unix;
+        d
+    }
+}
+impl fmt::Display for FailureDiagnostic {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", serde_json::to_string(self).map_err(|_| fmt::Error)?)
+    }
+}
+
 /// Stable classification used by callers that must branch on error kind without
 /// matching the full variant (retry policy, repair policy, resume policy).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -132,6 +200,7 @@ pub(crate) enum StorageError {
     /// A remote write whose response was lost. This is NOT "nothing happened":
     /// the write may already have committed. It must not be retried blindly.
     UnknownOutcome {
+        diagnostic: Option<FailureDiagnostic>,
         /// Sanitized description of the lost response.
         detail: String,
     },
@@ -203,9 +272,16 @@ impl StorageError {
         }
     }
 
+    pub(crate) fn diagnosed_unknown(detail: impl Into<String>, diagnostic: FailureDiagnostic) -> Self {
+        Self::UnknownOutcome { detail: detail.into(), diagnostic: Some(diagnostic) }
+    }
+    pub(crate) fn diagnostic(&self) -> Option<&FailureDiagnostic> {
+        match self { Self::UnknownOutcome { diagnostic, .. } => diagnostic.as_ref(), _ => None }
+    }
     /// Convenience constructor for `UnknownOutcome`.
     pub(crate) fn unknown_outcome(detail: impl Into<String>) -> Self {
         Self::UnknownOutcome {
+            diagnostic: None,
             detail: detail.into(),
         }
     }
@@ -239,7 +315,11 @@ impl fmt::Display for StorageError {
                 write!(f, "corrupt data: found {found}, expected {expected}")
             }
             Self::TransientIo { detail } => write!(f, "transient I/O error: {detail}"),
-            Self::UnknownOutcome { detail } => write!(f, "unknown outcome: {detail}"),
+            Self::UnknownOutcome { detail, diagnostic } => {
+                write!(f, "unknown outcome: {detail}")?;
+                if let Some(d) = diagnostic { write!(f, " [diagnostic={d}]")?; }
+                Ok(())
+            },
             Self::Other { detail } => write!(f, "storage error: {detail}"),
         }
     }

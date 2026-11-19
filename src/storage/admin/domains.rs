@@ -37,7 +37,12 @@ impl DomainStore {
             if remote.is_empty() || remote.contains(':') || remote.chars().any(char::is_control) {
                 bail!("identity key must be a backing remote name, not a path");
             }
-            crate::models::volume::CapacityDomainId::new(identity.capacity.clone())?;
+            // Failure-only rows retain legacy metadata when capacity is inherited.
+            if !identity.capacity.is_empty() {
+                crate::models::volume::CapacityDomainId::new(identity.capacity.clone())?;
+            } else if identity.failure.is_empty() {
+                bail!("identity must declare capacity or failure");
+            }
             if !identity.failure.is_empty() {
                 crate::models::volume::FailureDomainId::new(identity.failure.clone())?;
             }
@@ -59,7 +64,10 @@ impl DomainStore {
         self.validate()?;
         let dir = crate::config::app_config_dir()?;
         fs::create_dir_all(&dir)?;
-        crate::utils::save_json_atomic(&dir.join("provider_domains.json"), self)
+        let mut stage = tempfile::NamedTempFile::new_in(&dir)?;
+        serde_json::to_writer_pretty(&mut stage, self)?;
+        stage.as_file().sync_all()?;
+        crate::utils::persist_replacing(stage, &dir.join("provider_domains.json"))
     }
 }
 

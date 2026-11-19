@@ -6,6 +6,7 @@ use crate::gui::state::GuiState;
 use crate::gui::task::TaskRunner;
 use crate::gui::theme;
 use crate::gui::widgets::{status_badge, StatusTone};
+use crate::migration::drive_model::DriveStatus;
 use crate::migration::model::MigrationStatus;
 use eframe::egui;
 
@@ -19,6 +20,28 @@ pub(super) fn state_label(status: &MigrationStatus) -> (&'static str, StatusTone
         (tr("In progress"), StatusTone::Info)
     } else {
         (tr("Not started"), StatusTone::Warning)
+    }
+}
+
+/// A drive still needs the run phase until its new archives are ready or adopted.
+fn drive_run_pending(drive: Option<&DriveStatus>) -> bool {
+    drive.is_some_and(|drive| !drive.ready && drive.adopted.is_none())
+}
+
+/// Archive completion alone must not prevent resuming the drive part.
+fn can_resume(status: &MigrationStatus, drive: Option<&DriveStatus>) -> bool {
+    !status.abandoned && (!status.complete || drive_run_pending(drive))
+}
+
+/// Avoid presenting archive-only completion as completion of a pending drive.
+fn combined_state_label(
+    status: &MigrationStatus,
+    drive: Option<&DriveStatus>,
+) -> (&'static str, StatusTone) {
+    if !status.abandoned && status.complete && drive_run_pending(drive) {
+        (tr("Archives complete; drive pending"), StatusTone::Info)
+    } else {
+        state_label(status)
     }
 }
 
@@ -56,7 +79,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 StatusTone::Info,
             );
         } else if let Some(status) = state.migration.active_status() {
-            let (label, tone) = state_label(status);
+            let (label, tone) = combined_state_label(status, state.migration.active_drive_status());
             status_badge(ui, label, tone);
         }
         if state.migration.status_loading() {
@@ -100,6 +123,16 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                     );
                 }
             });
+            if !status.failures.is_empty() {
+                egui::CollapsingHeader::new("Provider failure causes (first cause retained)")
+                    .id_salt("migration-provider-failures")
+                    .show(ui, |ui| {
+                        for cause in &status.failures {
+                            ui.monospace(cause.to_string());
+                        }
+                        theme::hint(ui, "Unknown writes are not automatically re-sent. A later pause/stop does not replace these causes.");
+                    });
+            }
             if !status.pcs.is_empty() {
                 theme::hint(
                     ui,
@@ -135,7 +168,8 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
     }
 
     let idle = !task.is_running();
-    let finished = status.as_ref().is_some_and(|s| s.complete || s.abandoned);
+    let resumable = state.migration.status_error.is_none()
+        && status.as_ref().is_some_and(|s| can_resume(s, drive.as_ref()));
     ui.horizontal_wrapped(|ui| {
         if running {
             if ui
@@ -148,7 +182,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
                 }
             }
         } else {
-            if theme::primary_button(ui, idle && !finished, tr("Resume")).clicked() {
+            if theme::primary_button(ui, idle && resumable, tr("Resume")).clicked() {
                 if let Err(error) = state.migration.start_run(task, &state.settings.rclone, &id) {
                     state.migration.error = Some(error);
                 }
@@ -213,10 +247,16 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         {
             state.migration.step = Step::Cleanup;
         }
+        if status.as_ref().is_some_and(|s|s.abandoned) && ui.add_enabled(!running,egui::Button::new(tr("Discard unused NEW copies"))).clicked() {
+            state.migration.step=Step::DiscardCopies;
+        }
         if ui.button(tr("Back to plan")).clicked() {
             state.migration.reset_to_plan();
         }
     });
+    if running {
+        super::live_controls::show(ui, &mut state.migration, &id);
+    }
     if drive.is_none() {
         theme::hint(
             ui,
@@ -295,15 +335,19 @@ pub(super) fn existing(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskR
                         None => ui.label(progress_text(status)),
                     };
                     ui.label(status.lost.len().to_string());
-                    let (label, tone) = state_label(status);
+                    let (label, tone) = combined_state_label(status, drive);
                     status_badge(ui, label, tone);
                     ui.horizontal(|ui| {
-                        let open = !status.abandoned && !status.complete;
+                        let open = state.migration.status_error.is_none()
+                            && can_resume(status, drive);
                         if ui
                             .add_enabled(idle && open, egui::Button::new(tr("Resume")))
                             .clicked()
                         {
                             action = Some((0, status.migration_id.clone()));
+                        }
+                        if status.abandoned && ui.add_enabled(idle,egui::Button::new(tr("Discard unused NEW copies"))).clicked() {
+                            action=Some((3,status.migration_id.clone()));
                         }
                         if ui.button(tr("Open")).clicked() {
                             action = Some((1, status.migration_id.clone()));
@@ -329,6 +373,7 @@ pub(super) fn existing(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskR
             state.migration.open(&id);
             Ok(())
         }
+        Some((3,id))=>{state.migration.open(&id);state.migration.step=Step::DiscardCopies;Ok(())}
         Some((_, id)) => state.migration.start_abandon(task, &rclone, &id),
         None => Ok(()),
     };

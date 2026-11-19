@@ -1,4 +1,5 @@
 {
+  "Archives complete; drive pending": "归档已完成；驱动器准备未完成",
   "Adopt the drive of migration {id}": "采用迁移 {id} 的驱动器",
   "Adopt the new drive layout": "采用新的驱动器布局",
   "Adopted by {pc}: {files} files in the new layout, {dropped} unrecoverable left out.": "由 {pc} 采用：新布局中有 {files} 个文件，{dropped} 个无法恢复的文件已排除。",
@@ -50,5 +51,24 @@
   "{failed} failed · {retries} retries": "失败 {failed} 次 · 重试 {retries} 次",
   "Checks every archive without changing its data, then saves the plan in the cloud journal.": "在不更改数据的情况下检查每个归档，然后将计划保存到云端日志。",
   "Totals include metadata and verification reads.": "累计量包含元数据和验证性读取。",
-  "Copy transfer bytes appear after each shard finishes.": "复制传输量会在每个分片完成后更新。"
+  "Copy transfer bytes appear after each shard finishes.": "复制传输量会在每个分片完成后更新。",
+  "Discard unused NEW copies": "清理未使用的新副本",
+  "Copy preview stopped; no deletion was started.": "副本预览已停止；未开始删除。",
+  "Deletion task ended. Check the console, then preview again; unknown outcomes require reconciliation.": "删除任务已结束。请检查控制台后重新预览；未知结果必须先核对。",
+  "Only new objects proven to belong exclusively to this abandoned migration may be deleted. Originals, adopted/history references, other jobs and uncertain legacy writes are kept. This is not completed-original cleanup.": "仅可删除已证明由此已放弃迁移独占新建的对象。保留原件、采用及历史引用、其他任务引用和证据不足的旧写入。这不同于已完成迁移的原件清理。",
+  "This mode requires an already abandoned migration; it never abandons or stops jobs automatically.": "此模式要求迁移已被放弃；不会自动放弃或停止任务。",
+  "All local workspaces and backups (one path per line)": "所有本地工作区和备份（每行一个路径）",
+  "Preview unused copies (read-only)": "预览未使用副本（只读）",
+  "Reading bounded namespace and reference views; nothing is being written or deleted.": "正在有界读取命名空间和引用；不会写入或删除。",
+  "{n} exact candidate objects ({bytes})": "精确候选对象 {n} 个（{bytes}）",
+  "Preview expires after 15 minutes. Confirmation re-reads all state, references and exact object bytes. A seven-day abandonment grace is mandatory.": "预览在15分钟后过期。确认时将重读全部状态、引用及对象字节。必须经过放弃后的七天宽限期。",
+  "Deletion blocked": "删除已阻止",
+  "Numerical deletion guard": "删除数量与容量保护",
+  "I checked count and bytes; override ONLY the numerical guard": "已核对数量与字节数，仅覆盖数值限制",
+  "Exact objects and preservation reasons": "精确对象与保留原因",
+  "This pool is still mounted or busy in this GUI. Stop it first.": "此池在本GUI中仍已挂载或忙碌。请先停止。",
+  "All PCs: every mount, upload, migration and other writer is stopped and will remain stopped": "所有PC的挂载、上传、迁移及其他写入均已停止，并将保持停止",
+  "I supplied every local workspace and backup, including old copies (or none exist)": "已提供包括旧副本在内的所有本地工作区和备份（或不存在）",
+  "I reviewed this exact preview and confirm permanent deletion of only its unused NEW objects": "已核对此精确预览，确认仅永久删除其中未使用的新对象",
+  "Delete these unused NEW copies permanently": "永久删除这些未使用的新副本"
 }

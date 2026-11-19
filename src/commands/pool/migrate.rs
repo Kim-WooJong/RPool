@@ -47,6 +47,7 @@ pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
             parallel,
             transfers,
             bwlimit,
+            control_dir,
         } => {
             let _traffic = crate::progress::TrafficReporter::start();
             execute::run(
@@ -59,9 +60,28 @@ pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
                     parallel,
                     transfers: transfers.map(|n| n as usize),
                     bwlimit,
+                    control_dir,
+                    live: None,
                 },
             )
         }
+        MigrateCommands::Tune {
+            pool,
+            id,
+            control_dir,
+            parallel,
+            transfers,
+            bwlimit,
+            wait,
+        } => tune(
+            &pool,
+            &id,
+            control_dir.as_deref(),
+            parallel.map(|n| n as usize),
+            transfers.map(|n| n as usize),
+            bwlimit,
+            wait,
+        ),
         MigrateCommands::Status { pool, id, json } => {
             let list = status::status(rclone, &pool, id.as_deref())?;
             let rows = list
@@ -108,6 +128,29 @@ pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
             Ok(())
         }
         MigrateCommands::Abandon { pool, id } => execute::abandon(rclone, &pool, &id),
+        MigrateCommands::DiscardCopies { pool, id, dry_run: _, confirm, all_pcs_stopped,
+            all_local_workspaces_listed, preview_token, workspaces, force, json } => {
+            let report = crate::migration::discard::run(rclone, &pool, &id,
+                &crate::migration::discard::Options { workspaces, confirm, all_pcs_stopped,
+                    all_local_workspaces_listed, preview_token, force })?;
+            if json { println!("{}", serde_json::to_string_pretty(&report)?); }
+            else {
+                println!("abandoned={} plan={} bounded_complete={} deletion_ready={}", report.migration_id,
+                    report.plan_fingerprint, report.bounded_completion, report.deletion_ready);
+                println!("{} candidate objects ({}); preview_token={}",report.candidate_count,
+                    format_bytes(report.candidate_bytes),report.preview_token);
+                println!("scope: {}",report.scope);
+                for copy in &report.copies {
+                    println!("copy {} entry={}",copy.archive_id,copy.entry);
+                    for object in &copy.objects { println!("  object {} {} blake3={}",object.address,object.size,object.blake3); }
+                    for why in &copy.keep_reasons { println!("  KEEP: {why}"); }
+                }
+                for why in &report.uncertainties { println!("BLOCKED: {why}"); }
+                if let Some(why)=&report.guard_refusal { println!("MASS-DELETE GUARD: {why}"); }
+                for (object,outcome) in &report.outcomes { println!("{object}: {outcome}"); }
+            }
+            Ok(())
+        }
         MigrateCommands::Retire {
             pool,
             id,
@@ -164,6 +207,128 @@ pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
             },
         ),
     }
+}
+
+/// `migrate tune`: sends new runtime values to a live run on this PC and
+/// waits for its ack. Values not given keep the ones in force.
+fn tune(
+    pool: &str,
+    id: &str,
+    control_dir: Option<&std::path::Path>,
+    parallel: Option<usize>,
+    transfers: Option<usize>,
+    bwlimit: Option<String>,
+    wait: u64,
+) -> Result<()> {
+    use crate::migration::live_control::{self, AckState};
+    let now = crate::utils::now_unix();
+    let (dir, state) = match control_dir {
+        Some(dir) => {
+            let state = live_control::read_state(dir)?.ok_or_else(|| {
+                anyhow!("no live run reports in {} (not started there, or an RPool version without live controls)", dir.display())
+            })?;
+            (dir.to_path_buf(), state)
+        }
+        None => {
+            let mut found = live_control::discover(pool, id)?;
+            match found.len() {
+                0 => bail!("no live run of migration {id} on this PC with live controls; a run started by the GUI or with --control-dir needs --control-dir <dir> (printed as migration_live_control dir=...)"),
+                1 => found.remove(0),
+                _ => bail!(
+                    "{} live runs of migration {id}; choose one with --control-dir: {}",
+                    found.len(),
+                    found
+                        .iter()
+                        .map(|(dir, _)| dir.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            }
+        }
+    };
+    if state.migration_id != id || state.pool != pool {
+        bail!(
+            "the run in {} is migration {} of pool {}, not {id} of {pool}",
+            dir.display(),
+            state.migration_id,
+            state.pool
+        );
+    }
+    if !state.is_live(now) {
+        bail!(
+            "the run {} is not running any more (ended or no heartbeat for over {}s); nothing was changed",
+            state.run_id,
+            live_control::STALE_SECONDS
+        );
+    }
+    print_live(&state);
+    if parallel.is_none() && transfers.is_none() && bwlimit.is_none() {
+        return Ok(());
+    }
+    let mut settings = state.applied.clone();
+    if let Some(parallel) = parallel {
+        settings.parallel = parallel;
+    }
+    if let Some(transfers) = transfers {
+        settings.transfers = transfers;
+    }
+    if let Some(bwlimit) = bwlimit {
+        settings.bwlimit = bwlimit;
+    }
+    let seq = live_control::submit(&dir, &state, settings)?;
+    println!("live_control_sent seq={seq} run_id={}", state.run_id);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(wait);
+    loop {
+        if let Some(now_state) = live_control::read_state(&dir)? {
+            if now_state.run_id != state.run_id {
+                bail!("another run took over {}; nothing applied", dir.display());
+            }
+            match now_state.ack_of(seq) {
+                AckState::Applied => {
+                    println!("live_control_applied seq={seq}");
+                    print_live(&now_state);
+                    return Ok(());
+                }
+                AckState::Rejected(error) => {
+                    bail!("the run rejected the change (previous values kept): {error}")
+                }
+                AckState::Superseded => {
+                    println!("live_control_superseded seq={seq} (a later change was handled)");
+                    print_live(&now_state);
+                    return Ok(());
+                }
+                AckState::Pending if now_state.ended => {
+                    bail!("the run ended before reading the change; nothing applied")
+                }
+                AckState::Pending => {}
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            bail!("the run did not confirm within {wait}s; the change stays pending until it reads it (check with migrate tune without values)");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    }
+}
+
+/// Prints the values a live run uses now.
+fn print_live(state: &crate::migration::live_control::RunState) {
+    println!(
+        "live_run run_id={} pid={} pc={} parallel={} active_archives={} transfers={} (next archives: {}; 0 = pool workers {}) bwlimit={} applied_seq={}",
+        state.run_id,
+        state.pid,
+        state.pc_id,
+        state.applied.parallel,
+        state.active_archives,
+        state.applied.transfers,
+        state.effective_transfers(),
+        state.pool_workers,
+        if state.applied.bwlimit.is_empty() {
+            "off"
+        } else {
+            state.applied.bwlimit.as_str()
+        },
+        state.applied_seq
+    );
 }
 
 /// `status --json` row: the archive status with the drive part beside it.
@@ -247,9 +412,11 @@ pub(crate) fn history_label(args: &MigrateArgs) -> (String, Option<String>) {
         MigrateCommands::Status { pool, id, .. } => ("status", pool, id.as_ref()),
         MigrateCommands::Lost { pool, id, .. } => ("lost", pool, Some(id)),
         MigrateCommands::Abandon { pool, id } => ("abandon", pool, Some(id)),
+        MigrateCommands::DiscardCopies { pool, id, .. } => ("discard-copies", pool, Some(id)),
         MigrateCommands::Retire { pool, id, .. } => ("retire", pool, Some(id)),
         MigrateCommands::Restore { pool, id, .. } => ("restore", pool, Some(id)),
         MigrateCommands::Adopt { pool, id, .. } => ("adopt", pool, Some(id)),
+        MigrateCommands::Tune { pool, id, .. } => ("tune", pool, Some(id)),
     };
     let target = match id {
         Some(id) => format!("{pool}/{id}"),
@@ -497,6 +664,9 @@ fn print_status(s: &MigrationStatus) {
         s.last_activity_unix,
         s.pcs.join(",")
     );
+    for (index, cause) in s.failures.iter().enumerate() {
+        println!("  migration_failure={} first={} diagnostic={cause}", index + 1, index == 0);
+    }
 }
 
 /// Prints unrecoverable files with their groups and missing shards, and the count on stderr.

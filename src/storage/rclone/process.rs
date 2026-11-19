@@ -1,7 +1,7 @@
 //! Portable direct-child runner. No shell, platform-specific pipe APIs or borrowed
 //! callback Send bounds. Supervisor kills a stalled child on deadline/cancellation.
 //! Callbacks themselves must cooperate; descendant process trees are not managed.
-use crate::storage::error::StorageError;
+use crate::storage::error::{StorageError, FailureDiagnostic, FailureCode, FailurePhase, FailureOutcome};
 use crate::storage::traits::OperationContext;
 use std::io::{Read, Write};
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -94,6 +94,13 @@ const REJECTED_WRITE_SIGNALS: &[&str] = &[
 /// performed" rate-limit signal. The stderr itself is never exposed.
 pub(super) fn mutation_rejected(stderr: &[u8]) -> bool {
     let text = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    // A refusal mixed with a lost connection/acknowledgement is not proof
+    // that the whole mutation was rejected before execution.
+    if ["connection reset", "connection refused", "handshake failed", "broken pipe",
+        "unexpected eof", "timeout", "timed out", "setmodtime", "chtimes"]
+        .iter().any(|signal| text.contains(signal)) {
+        return false;
+    }
     REJECTED_WRITE_SIGNALS.iter().any(|signal| {
         text.match_indices(signal).any(|(at, _)| {
             !signal.ends_with(|c: char| c.is_ascii_digit())
@@ -138,7 +145,7 @@ pub(super) fn is_upload_limit(error: &StorageError) -> bool {
 /// Only explicit storage-capacity evidence qualifies for a full-storage
 /// diagnostic. Generic API quota and daily upload limits do not.
 pub(crate) fn is_storage_full(error: &StorageError) -> bool {
-    matches!(error, StorageError::UnknownOutcome { detail }
+    matches!(error, StorageError::UnknownOutcome { detail, .. }
         if detail == "rclone mutation did not acknowledge success (provider storage is full)")
 }
 
@@ -214,12 +221,12 @@ pub(super) fn classify_mutation(text: &[u8]) -> StorageError {
             detail: "rclone write rejected by provider rate limit (not performed)".into(),
         };
     }
-    match mutation_hint(text) {
-        Some(hint) => StorageError::unknown_outcome(format!(
-            "rclone mutation did not acknowledge success ({hint})"
-        )),
-        None => StorageError::unknown_outcome("rclone mutation did not acknowledge success"),
-    }
+    let detail = match mutation_hint(text) {
+        Some(hint) => format!("rclone mutation did not acknowledge success ({hint})"),
+        None => "rclone mutation did not acknowledge success".into(),
+    };
+    StorageError::diagnosed_unknown(detail, FailureDiagnostic::classify(
+        text, FailurePhase::DaemonUpload, FailureOutcome::Unknown, None))
 }
 
 /// A fixed-vocabulary reason for a failed write, read from rclone's error
@@ -264,7 +271,11 @@ fn mutation_hint(text: &[u8]) -> Option<&'static str> {
 /// rate limits, timeouts and exit 5 (I/O). Used by every subprocess call.
 pub(super) fn classify(status: ExitStatus, stderr: &[u8], mutation: bool) -> StorageError {
     if mutation {
-        return classify_mutation(stderr);
+        let mut error = classify_mutation(stderr);
+        if let StorageError::UnknownOutcome { diagnostic, .. } = &mut error {
+            *diagnostic = Some(FailureDiagnostic::classify(stderr, FailurePhase::Subprocess, FailureOutcome::Unknown, status.code()));
+        }
+        return error;
     }
     let text = String::from_utf8_lossy(stderr).to_ascii_lowercase();
     if let Some(error) = denial(&text) {
@@ -312,9 +323,8 @@ pub(super) fn run_metered(
     run_supervised(command, ctx, source, sink, mutation, meter, None)
 }
 
-/// A streamed upload (`rcat`): [`run_metered`] plus stall detection
-/// (`stall`). A stalled rclone is killed and reported as a retriable
-/// `Timeout`, never as an unknown outcome.
+/// A streamed upload with stall detection. A stalled dispatched mutation
+/// remains unknown: a lost acknowledgement cannot authorize re-send.
 pub(super) fn run_upload(
     command: &mut Command,
     ctx: &OperationContext,
@@ -332,9 +342,6 @@ pub(super) fn run_upload(
         Some(&stall),
     )
 }
-
-/// Detail of the retriable error of a stalled upload.
-pub(super) const STALLED_DETAIL: &str = "rclone upload stalled; stopped so it can be re-sent";
 
 /// Shared body of [`run_metered`] and [`run_upload`]: spawns `command`, streams
 /// `source` to stdin or stdout to `sink`, while a supervisor thread kills the child
@@ -497,20 +504,38 @@ fn run_supervised(
         }
         drop(guard); // Reap before joining stderr, also on callback failures.
         stopped.store(true, Ordering::Release);
-        let stderr = errors.join().map_err(|_| io_error())?;
+        let stderr = errors.join().map_err(|_| if mutation {
+            StorageError::diagnosed_unknown("rclone stderr capture lost after dispatch",
+                FailureDiagnostic::new(FailureCode::ResponseLost, FailurePhase::Subprocess, FailureOutcome::Unknown, None))
+        } else { io_error() })?;
         let stalled = stall.is_some_and(Stall::fired);
         match result {
             Ok((_, status)) if stdin_broken && status.success() => Err(
-                StorageError::unknown_outcome("rclone stopped reading the upload stream"),
+                StorageError::diagnosed_unknown("rclone stopped reading the upload stream",
+                    FailureDiagnostic::new(FailureCode::BrokenPipe, FailurePhase::Subprocess, FailureOutcome::Unknown, status.code())),
             ),
             Ok((total, status)) if status.success() => Ok(total),
-            // Killed by the stall deadline: the shard is re-sent by the caller.
-            _ if stalled => Err(StorageError::Timeout {
-                detail: STALLED_DETAIL.into(),
-            }),
+            // Killed after dispatch: the provider may already have committed.
+            _ if stalled => Err(StorageError::diagnosed_unknown(
+                "rclone upload stalled after dispatch; automatic re-send refused",
+                {
+                    let mut diagnostic = FailureDiagnostic::classify(&stderr, FailurePhase::Subprocess, FailureOutcome::Unknown, None);
+                    if diagnostic.code == FailureCode::Unknown { diagnostic.code = FailureCode::Timeout; }
+                    diagnostic
+                },
+            )),
             Ok((_, status)) => Err(classify(status, &stderr, mutation)),
-            Err(_) if mutation => Err(StorageError::unknown_outcome(
+            Err(_) if mutation => Err(StorageError::diagnosed_unknown(
                 "rclone mutation interrupted after spawn",
+                {
+                    let mut diagnostic = FailureDiagnostic::classify(&stderr, FailurePhase::Subprocess, FailureOutcome::Unknown, None);
+                    if diagnostic.code == FailureCode::Unknown {
+                        diagnostic.code = if ctx.is_cancelled() { FailureCode::Interrupted }
+                            else if ctx.deadline_passed() { FailureCode::Timeout }
+                            else { FailureCode::ResponseLost };
+                    }
+                    diagnostic
+                },
             )),
             Err(error) => Err(check(ctx).err().unwrap_or(error)),
         }
@@ -543,12 +568,12 @@ mod stall_tests {
     }
 
     #[test]
-    fn a_stalled_upload_is_killed_and_reported_retriable() {
+    fn a_stalled_upload_is_killed_without_automatic_replay() {
         // Accepts every byte, then hangs like a stalled provider connection.
         let (result, took) = upload("cat >/dev/null; exec sleep 30", 64 * 1024);
         let error = result.unwrap_err();
-        assert_eq!(error.kind(), StorageErrorKind::Timeout);
-        assert!(error.is_retriable(), "the scheduler re-sends the shard");
+        assert_eq!(error.kind(), StorageErrorKind::UnknownOutcome);
+        assert!(!error.is_retriable(), "an unacknowledged write must not be replayed");
         assert!(
             took < Duration::from_secs(10),
             "killed, not waited: {took:?}"
@@ -556,7 +581,7 @@ mod stall_tests {
         // Never reads stdin: feeding makes no progress.
         let (result, took) = upload("exec sleep 30", 4 * 1024 * 1024);
         let error = result.unwrap_err();
-        assert_eq!(error.kind(), StorageErrorKind::Timeout);
+        assert_eq!(error.kind(), StorageErrorKind::UnknownOutcome);
         assert!(took < Duration::from_secs(10), "{took:?}");
     }
 

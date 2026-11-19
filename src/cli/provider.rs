@@ -82,11 +82,12 @@ pub(crate) enum ProviderCommands {
         #[arg(long, default_value = "base32")]
         filename_encoding: String,
     },
+    /// Read-only, bounded namespace inventory; never verifies or converts stored data.
+    EncodingInventory(crate::commands::provider::EncodingInventoryArgs),
     /// Change how an existing crypt remote stores its names
     /// (`filename_encoding`). Keys and stored bytes are kept, but files
     /// written with the old encoding are not listed or readable until it is
-    /// switched back, so a remote that already holds files is refused unless
-    /// `--existing-files-ok`.
+    /// switched back. Nonempty locations require explicit stopped-PC and no-conversion acknowledgements.
     NameEncoding {
         /// Crypt remote name, without colon.
         #[arg(long)]
@@ -95,10 +96,39 @@ pub(crate) enum ProviderCommands {
         #[arg(long)]
         encoding: String,
         #[arg(long)]
-        /// Allow the change even though the remote already holds files.
+        /// Legacy opt-in; alone now fails. Recovery requires all four explicit acknowledgements.
         existing_files_ok: bool,
+        /// Confirm mounts, uploads and jobs are stopped on EVERY PC (including offline PCs).
+        #[arg(long)]
+        all_pcs_stopped: bool,
+        /// Acknowledge stored names are NOT converted; changing settings can hide old/new data.
+        #[arg(long)]
+        old_names_not_converted: bool,
+        /// Recovery-only override for mixed views, after inspecting encoding-inventory.
+        /// Does NOT merge data or restore visibility of both encodings.
+        #[arg(long)]
+        recovery_override: bool,
+        /// Confirm a read-only encoding-inventory report was reviewed; it is NOT integrity proof.
+        #[arg(long)]
+        inventory_reviewed: bool,
         #[arg(long)]
         /// Print JSON instead of text.
+        json: bool,
+    },
+    /// Query or edit a PC-local crypt disk capacity group without starting a mount.
+    /// Only direct SFTP/SMB/local crypt locations; affects new jobs/plans only.
+    /// Re-declare on other PCs: capacity declarations are not exported.
+    LocationCapacity {
+        /// Exact crypt name, without colon or path.
+        #[arg(long)]
+        remote: String,
+        /// Explicitly declare a physical disk group; same disk = same group.
+        #[arg(long, conflicts_with = "inherit")]
+        group: Option<String>,
+        /// Remove only the capacity override; inherit the provider capacity.
+        #[arg(long, conflicts_with = "group")]
+        inherit: bool,
+        #[arg(long)]
         json: bool,
     },
     /// Rename one existing crypt remote; keep the old name as a compatibility alias.

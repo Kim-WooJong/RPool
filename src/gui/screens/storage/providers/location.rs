@@ -4,9 +4,10 @@ use crate::config_sync::provision::EncryptionDefaults;
 use crate::gui::i18n::{tr, trf};
 use crate::gui::task::TaskRunner;
 use crate::gui::usage_refresh::ProviderDetails;
-use crate::storage::admin::domains::{DomainIdentity, DomainStore};
+use crate::storage::admin::domains::DomainStore;
+use crate::storage::admin::{BackendAdmin, RcloneAdmin, RemoteCatalog, location_capacity};
 use eframe::egui;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 
 pub(crate) const LOCATION_TASK: &str = "Change provider location";
@@ -24,6 +25,8 @@ pub(crate) struct Editor {
     domains: Option<DomainStore>,
     domains_loaded: bool,
     groups: BTreeMap<String, String>,
+    independent: BTreeSet<String>,
+    catalog: Option<RemoteCatalog>,
     notice: Option<String>,
     edits: BTreeMap<String, (String, String)>,
     all_pcs_stopped: bool,
@@ -74,35 +77,42 @@ fn add_args(
     ]
 }
 
-/// Merge only this dialog's declarations into the latest snapshot; reject stale rows.
-fn merged_groups(
-    mut live: DomainStore,
-    before: &DomainStore,
-    groups: &BTreeMap<String, String>,
-) -> anyhow::Result<DomainStore> {
-    for (name, group) in groups {
-        let same = |a: Option<&DomainIdentity>, b: Option<&DomainIdentity>| {
-            a.map(|x| (&x.capacity, &x.failure)) == b.map(|x| (&x.capacity, &x.failure))
-        };
-        if !same(live.remotes.get(name), before.remotes.get(name)) {
-            anyhow::bail!(
-                "Capacity identities changed elsewhere; reopen Storage locations before saving"
-            );
-        }
-        if group.trim().is_empty() {
-            live.remotes.remove(name);
-        } else {
-            live.remotes.insert(
-                name.clone(),
-                DomainIdentity {
-                    capacity: group.trim().into(),
-                    failure: String::new(),
-                },
-            );
-        }
+/// Suggestions are only installed after explicit selection; names/paths never
+/// cause automatic independence declarations or writes.
+fn suggested_group(name: &str) -> String {
+    let safe: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).take(220).collect();
+    format!("disk-{safe}")
+}
+
+/// Saved accounting identity and explicit, unsaved independence controls.
+fn capacity_row(ui: &mut egui::Ui, editor: &mut Editor, name: &str, ready: bool) {
+    ui.strong(tr("Disk capacity accounting"));
+    let view = editor.catalog.as_ref().zip(editor.domains.as_ref())
+        .map(|(c, s)| location_capacity::describe(c, s, name));
+    let supported = matches!(&view, Some(Ok(_)));
+    if let Some(Ok(view)) = &view {
+        ui.label(trf("Current saved capacity group: {group}", &[("group", &view.effective_group)]));
+        ui.small(trf("Locations sharing this group: {locations}", &[("locations", &view.same_group_locations.join(", "))]));
     }
-    live.validate()?;
-    Ok(live)
+    let mut independent = editor.independent.contains(name);
+    ui.add_enabled_ui(ready && supported, |ui| {
+        ui.radio_value(&mut independent, false, tr("Share provider capacity (inherit)"));
+        if ui.radio_value(&mut independent, true, tr("Independent physical disk capacity group")).clicked() {
+            let value = editor.groups.entry(name.into()).or_default();
+            if value.is_empty() { *value = suggested_group(name); }
+        }
+        if independent {
+            editor.independent.insert(name.into());
+            ui.label(tr("Disk group ID (same physical disk = same ID)"));
+            let value = editor.groups.entry(name.into()).or_default();
+            ui.text_edit_singleline(value);
+            ui.small(tr("Group IDs use ASCII letters, digits, dots, underscores or hyphens (up to 256 characters)."));
+            if ui.small_button(tr("Suggest group ID")).clicked() { *value = suggested_group(name); }
+        } else {
+            editor.independent.remove(name);
+        }
+    });
+    if !supported { ui.small(tr("Capacity editing requires a direct SFTP, SMB or local crypt location; wrappers and cloud account quotas cannot be split here.")); }
 }
 
 pub(crate) fn show(
@@ -120,7 +130,13 @@ pub(crate) fn show(
     if !editor.domains_loaded {
         editor.domains_loaded = true;
         match DomainStore::load() {
-            Ok(store) => editor.domains = Some(store),
+            Ok(store) => {
+                match RcloneAdmin::inherited(rclone).catalog() {
+                    Ok(mut catalog) => { catalog.set_domains(store.clone()); editor.catalog = Some(catalog); }
+                    Err(e) => editor.notice = Some(format!("{e:#}")),
+                }
+                editor.domains = Some(store);
+            },
             Err(e) => editor.notice = Some(format!("{e:#}")),
         }
     }
@@ -131,6 +147,10 @@ pub(crate) fn show(
         .unwrap_or_default();
     for crypt in &crypts {
         let name = crypt.trim_end_matches(':');
+        if !editor.groups.contains_key(name) && editor.domains.as_ref()
+            .and_then(|s| s.remotes.get(name)).is_some_and(|d| !d.capacity.is_empty()) {
+            editor.independent.insert(name.into());
+        }
         editor.groups.entry(name.into()).or_insert_with(|| {
             editor
                 .domains
@@ -155,13 +175,16 @@ pub(crate) fn show(
             ui.label(tr("One connection can use several disks. Adding a location keeps existing roots, keys and files unchanged."));
             ui.heading(tr("Existing storage locations"));
             ui.small(tr("Renaming keeps the old name as an alias. Path changes copy encrypted bytes, download-check them, then switch; the original folder is never deleted."));
-            ui.checkbox(&mut editor.all_pcs_stopped, tr("I stopped mounts, uploads and jobs on ALL PCs"));
-            ui.checkbox(&mut editor.copy_existing, tr("Copy existing encrypted files (keep original source)"));
+            ui.small(tr("Capacity changes need no stop or restart. Only new jobs and newly calculated plans use them; existing immutable plans are not relocated."));
             for crypt in &crypts {
                 ui.group(|ui| {
                     ui.monospace(crypt);
                     if let Some(backing) = details.locations.get(crypt) { ui.monospace(backing); }
                     let name = crypt.trim_end_matches(':');
+                    capacity_row(ui, editor, name, ready);
+                    egui::CollapsingHeader::new(tr("Rename or relocate this location (requires stopped jobs)")).id_salt(("location-edit", name)).show(ui, |ui| {
+                    ui.checkbox(&mut editor.all_pcs_stopped, tr("I stopped mounts, uploads and jobs on ALL PCs"));
+                    ui.checkbox(&mut editor.copy_existing, tr("Copy existing encrypted files (keep original source)"));
                     let (new_name, new_path) = editor.edits.entry(name.into()).or_insert_with(|| (
                         name.into(),
                         details.locations.get(crypt).and_then(|p| p.split_once(':')).map(|(_, p)| p.to_owned()).unwrap_or_default(),
@@ -179,27 +202,37 @@ pub(crate) fn show(
                         if editor.copy_existing { a.push("--copy-existing".into()); }
                         editor.notice = Some(match task.start_rpool(LOCATION_TASK, rclone, a) { Ok(()) => tr("Editing storage location. See Jobs; providers refresh after completion.").into(), Err(e) => e });
                     }
-                    ui.label(tr("Disk capacity group (optional)"));
-                    if let Some(value) = editor.groups.get_mut(name) {
-                        ui.add_enabled(ready && supported, egui::TextEdit::singleline(value).hint_text(tr("Empty: share the provider capacity")));
-                    }
+                    });
                 });
             }
             ui.small(tr("Use the same group for paths on the same disk; different groups only for truly independent disks. Outage protection still uses the original connection."));
+            ui.small(tr("Suggestions are not disk detection. Nothing is written until you choose Save disk capacity groups."));
             if !supported { ui.small(tr("This backend keeps provider-wide capacity; per-location capacity groups are unavailable.")); }
             ui.small(tr("Capacity declarations are local to this PC and are not exported. Re-declare them after importing on another PC."));
-            if ui.add_enabled(ready && supported && editor.domains.is_some(), egui::Button::new(tr("Save disk capacity groups"))).clicked() {
-                let result = (|| -> anyhow::Result<DomainStore> {
+            if ui.add_enabled(ready && supported && editor.domains.is_some() && editor.catalog.is_some(), egui::Button::new(tr("Save disk capacity groups"))).clicked() {
+                let result = (|| -> anyhow::Result<(DomainStore, RemoteCatalog)> {
+                    let before = editor.domains.as_ref().unwrap();
                     let groups = crypts.iter().filter_map(|c| {
                         let name = c.trim_end_matches(':');
-                        editor.groups.get(name).map(|g| (name.to_owned(), g.clone()))
-                    }).collect();
-                    let next = merged_groups(DomainStore::load()?, editor.domains.as_ref().unwrap(), &groups)?;
-                    next.save()?;
-                    Ok(next)
+                        let group = editor.independent.contains(name).then(|| editor.groups.get(name).cloned().unwrap_or_default().trim().to_owned());
+                        let old = before.remotes.get(name).filter(|d| !d.capacity.is_empty()).map(|d| d.capacity.clone());
+                        (old != group).then(|| (name.to_owned(), group))
+                    }).collect::<BTreeMap<_, _>>();
+                    let mut catalog = RcloneAdmin::inherited(rclone).catalog()?;
+                    let next = location_capacity::merged(DomainStore::load()?, before, &catalog, editor.catalog.as_ref().unwrap(), &groups)?;
+                    if !groups.is_empty() { next.save()?; }
+                    catalog.set_domains(next.clone());
+                    Ok((next, catalog))
                 })();
                 match result {
-                    Ok(next) => { editor.domains = Some(next); editor.notice = Some(tr("Capacity declarations saved. Recalculate pool capacity to validate the selected roots.").into()); },
+                    Ok((next, catalog)) => {
+                        for (name, value) in &mut editor.groups {
+                            *value = next.remotes.get(name).map(|d| d.capacity.clone()).unwrap_or_default();
+                        }
+                        editor.independent = editor.groups.iter().filter(|(_, value)| !value.is_empty()).map(|(name, _)| name.clone()).collect();
+                        editor.domains = Some(next); editor.catalog = Some(catalog);
+                        editor.notice = Some(tr("Capacity declarations saved. Recalculate pool capacity to validate the selected roots.").into());
+                    },
                     Err(e) => editor.notice = Some(format!("{e:#}")),
                 }
             }
@@ -243,6 +276,7 @@ pub(crate) fn show(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::admin::domains::DomainIdentity;
     use clap::Parser;
     #[test]
     fn dialog_commands_parse() {
@@ -297,10 +331,15 @@ mod tests {
             },
         );
         let groups = BTreeMap::from([("disk2_crypt".into(), "disk2".into())]);
-        let next = merged_groups(live, &before, &groups).unwrap();
+        let catalog = RemoteCatalog::parse(&serde_json::json!({
+            "nas": {"type": "sftp"},
+            "disk2_crypt": {"type": "crypt", "remote": "nas:/disk2"}
+        })).unwrap();
+        let groups = groups.into_iter().map(|(n, g)| (n, Some(g))).collect();
+        let next = location_capacity::merged(live, &before, &catalog, &catalog, &groups).unwrap();
         assert_eq!(next.remotes["nas"].failure, "host");
         assert!(next.remotes.contains_key("other"));
         assert_eq!(next.remotes["disk2_crypt"].failure, "");
-        assert!(merged_groups(next, &before, &groups).is_err());
+        assert!(location_capacity::merged(next, &before, &catalog, &catalog, &groups).is_err());
     }
 }

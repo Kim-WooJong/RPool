@@ -97,6 +97,7 @@ pub(crate) fn sample_status(pool: &str) -> MigrationStatus {
         switched: 1,
         verified: 2,
         failed_unknown: 1,
+        failures: Vec::new(),
         lost: sample_lost(),
         abandoned: false,
         complete: false,

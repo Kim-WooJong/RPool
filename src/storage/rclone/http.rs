@@ -41,6 +41,8 @@ pub(super) enum Endpoint {
 /// Why a request produced no usable response; mapped to `daemon::Failure` by the daemon.
 #[derive(Debug)]
 pub(super) enum HttpError {
+    /// Connection setup failed before any request bytes were sent.
+    NotDispatched,
     /// No usable answer (connect/I/O/protocol failure). Retrying a read
     /// through another transport is safe.
     Transport,
@@ -228,7 +230,7 @@ pub(super) fn send_parts(
     body: Option<&[&[u8]]>,
 ) -> Result<Response, HttpError> {
     stopped(ctx)?;
-    let mut stream = connect(endpoint).map_err(|_| HttpError::Transport)?;
+    let mut stream = connect(endpoint).map_err(|_| HttpError::NotDispatched)?;
     let mut head =
         format!("{method} {target} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n");
     #[allow(irrefutable_let_patterns)] // Windows has only the TCP endpoint.

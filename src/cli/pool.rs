@@ -283,6 +283,41 @@ pub(crate) enum MigrateCommands {
         /// copies between accounts and RPool's own transfers.
         #[arg(long, value_name = "RATE")]
         bwlimit: Option<String>,
+        /// Local folder of this run's live controls (`migrate tune`, GUI).
+        /// Default: a new folder under the config folder, printed at start.
+        #[arg(long, value_name = "DIR")]
+        control_dir: Option<std::path::PathBuf>,
+    },
+    /// Change archives at once, shard transfers or the bandwidth limit of a
+    /// run in progress on this PC, without restarting it. Values not given
+    /// stay. Archives at once: next archive admission (archives in progress
+    /// are never cancelled). Shard transfers: archives started afterwards.
+    /// Bandwidth: RPool's own transfers within about a second (open streams
+    /// too); rclone copies between accounts from their next copy.
+    Tune {
+        /// Saved pool name.
+        pool: String,
+        #[arg(long)]
+        /// Migration id of the run.
+        id: String,
+        /// Control folder of the run (`run --control-dir`, or the one it
+        /// printed). Default: the only live run of this migration found in
+        /// the config folder.
+        #[arg(long, value_name = "DIR")]
+        control_dir: Option<std::path::PathBuf>,
+        /// New archives at once (1..=16).
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=16))]
+        parallel: Option<u32>,
+        /// New shard transfers per archive; 0 = the pool's workers.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(0..=256))]
+        transfers: Option<u32>,
+        /// New bandwidth limit in rclone `--bwlimit` syntax (timetables
+        /// included); `off` = no limit.
+        #[arg(long, value_name = "RATE")]
+        bwlimit: Option<String>,
+        /// Seconds to wait for the run to confirm.
+        #[arg(long, value_name = "SECONDS", default_value_t = 10)]
+        wait: u64,
     },
     /// Show migrations recorded in the cloud (all, or one).
     Status {
@@ -313,6 +348,40 @@ pub(crate) enum MigrateCommands {
         #[arg(long)]
         /// Migration id.
         id: String,
+    },
+    /// Preview or delete only proven-unused NEW copies of one abandoned job.
+    /// Originals, references, adopted drives and uncertain legacy writes stay.
+    #[command(alias = "cleanup-abandoned")]
+    DiscardCopies {
+        /// Saved pool name.
+        pool: String,
+        /// Exact abandoned migration id (not a prefix).
+        #[arg(long)]
+        id: String,
+        /// Read-only report (the default). No cloud/local state writes.
+        #[arg(long, conflicts_with = "confirm")]
+        dry_run: bool,
+        /// Explicit permanent deletion after a matching recent preview.
+        #[arg(long)]
+        confirm: bool,
+        /// All mounts/uploads/migrations/writers on EVERY PC remain stopped.
+        #[arg(long)]
+        all_pcs_stopped: bool,
+        /// All local workspaces (including old/backups) were supplied with --workspace.
+        #[arg(long)]
+        all_local_workspaces_listed: bool,
+        /// Exact timestamp:fingerprint from a preview, valid for fifteen minutes.
+        #[arg(long)]
+        preview_token: Option<String>,
+        /// Local workspace, repeat for all; scanned read-only for live references.
+        #[arg(long = "workspace", value_name = "DIR")]
+        workspaces: Vec<std::path::PathBuf>,
+        /// Override ONLY retire's numerical count/bytes guard. Never safety checks.
+        #[arg(long)]
+        force: bool,
+        /// Print the full machine-readable report.
+        #[arg(long)]
+        json: bool,
     },
     /// Clean up after a completed migration. Without --confirm (the
     /// default, same as --dry-run) only lists what could be deleted and what
@@ -604,7 +673,7 @@ mod capacity_tests {
         .is_err());
         assert!(matches!(
             migrate(&["run", "p", "--id", "m1", "--stop-file", "/tmp/stop"]),
-            M::Run { ref pool, ref id, stop_file: Some(ref s), take_over: false, parallel: None, transfers: None, bwlimit: None } if pool == "p" && id == "m1" && s.ends_with("stop")
+            M::Run { ref pool, ref id, stop_file: Some(ref s), take_over: false, parallel: None, transfers: None, bwlimit: None, control_dir: None } if pool == "p" && id == "m1" && s.ends_with("stop")
         ));
         assert!(matches!(
             migrate(&["run", "p", "--id", "m1", "--transfers", "2", "--bwlimit", "01:00,20M 08:00,2M"]),

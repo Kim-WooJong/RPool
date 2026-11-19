@@ -37,6 +37,8 @@ pub(crate) enum Step {
     Lost,
     /// After completion: quarantine and delete what the migration left behind.
     Cleanup,
+    /// NEW copies of an abandoned job, never replaced originals.
+    DiscardCopies,
 }
 
 /// Result of the planning thread.
@@ -155,12 +157,17 @@ pub(crate) struct MigrationForm {
     pub(crate) pausing: bool,
     /// The "Clean up" step (`pool migrate retire|restore`).
     pub(crate) cleanup: super::cleanup_state::CleanupForm,
+    /// Separate abandoned-copy preview/confirmation state.
+    pub(crate) discard_copies: super::discard_copies::Form,
     /// Channel of a planning thread in progress.
     planning: Option<Receiver<PlanOutcome>>,
     /// Channel of a status listing in progress.
     status_pending: Option<Receiver<StatusOutcome>>,
     /// Temporary folder holding the run's stop file; writing `stop` pauses the run.
+    /// For a run it is also the run's live-controls folder (`--control-dir`).
     control: Option<tempfile::TempDir>,
+    /// Live controls of the run this window started.
+    pub(crate) live: super::live_controls::LiveView,
 }
 
 impl MigrationForm {
@@ -441,7 +448,7 @@ impl MigrationForm {
                     &[("error", &e)],
                 )
             })?;
-        let args = run_args(
+        let mut args = run_args(
             &self.pool,
             id,
             &control.path().join("stop"),
@@ -452,12 +459,26 @@ impl MigrationForm {
                 bwlimit: self.bwlimit.trim(),
             },
         );
+        // Live controls in the same per-run folder, before `-- <pool>`.
+        let at = args.len().saturating_sub(2);
+        args.insert(at, control.path().as_os_str().to_owned());
+        args.insert(at, OsString::from("--control-dir"));
         task.start_rpool(RUN_TASK, rclone, args)?;
         self.control = Some(control);
+        self.live.reset(true);
         self.pausing = false;
         self.watched = Some(Watched::Run(id.to_string()));
         self.open(id);
         Ok(())
+    }
+
+    /// Control folder of the migration run this window started, while it is
+    /// the watched task (live controls).
+    pub(crate) fn run_control_dir(&self) -> Option<&Path> {
+        if !matches!(self.watched, Some(Watched::Run(_))) {
+            return None;
+        }
+        self.control.as_ref().map(tempfile::TempDir::path)
     }
 
     /// Asks the running migration to stop after the current entry.
@@ -580,6 +601,7 @@ impl MigrationForm {
                     (false, _) => tr("The run stopped with an error or was cancelled; see the console. Resume retries the remaining entries.").into(),
                 });
                 self.control = None;
+                self.live.reset(false);
                 self.pausing = false;
             }
             Watched::Adopt(_) => {

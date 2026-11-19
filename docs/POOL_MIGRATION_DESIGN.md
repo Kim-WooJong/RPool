@@ -30,6 +30,30 @@ the proposal:
   The stop file stops dispatching; in-flight archives finish. A non-entry
   error (e.g. the journal refusing appends) stops dispatching and fails the
   run once in-flight archives finish.
+- Live run controls (`migration::live_control`): archives at once, shard
+  transfers (`--transfers`, 0 = the pool's workers) and the run bandwidth
+  limit change while the run goes on, without touching the plan, target,
+  keys, journal or ids. Each run owns a local control folder (the GUI's
+  per-run temporary folder, `run --control-dir`, or
+  `<config>/migrations/<id>/live/<run-id>`): the run writes
+  `live-state.json` (migration, pool, random run id, pid, PC, heartbeat,
+  values in force, ack of the last request); a controller (GUI, `migrate
+  tune`) writes `live-control.json` (migration, run id, sequence number,
+  values), both replaced atomically. The run polls about once a second and
+  rejects requests for another migration or run, old sequence numbers and
+  invalid values (e.g. a timetable that does not parse) before applying
+  anything, keeping the previous values. A folder another live run reports
+  in is refused; a request left in a folder is deleted when a new run takes
+  it; a heartbeat older than 15 s means the run is gone. Effect points:
+  archives at once at each admission (the workers wait for a free slot
+  under the current limit; lowering it never cancels archives in progress);
+  shard transfers per archive when it starts (in-progress archives keep
+  theirs); bandwidth at the next pacer chunk of RPool's own transfers (open
+  streams included) and at the start of the next rclone `copyto` between
+  accounts (per-stream share of limit / (archives x transfers)). Global and
+  account bandwidth settings, caps and outage policies are unchanged; the
+  run limit only tightens them. Runs of older binaries write no state file,
+  so controllers report them as not controllable.
 - Originals already replaced by an earlier migration are skipped by later
   plans.
 - Native crypt is not a re-encode reason: the on-disk format is the same.
@@ -488,3 +512,13 @@ Answered from the code (2026-10-01, phase 3):
   a new generation may reference an unchanged archive. Any drive data
   reclamation (see `DRIVE_HISTORY_DESIGN.md`) must therefore treat every
   generation's events as references, as `retire` does.
+
+## Separate abandoned-output cleanup
+
+`discard-copies` / `cleanup-abandoned` never relaxes completed-original retire.
+It requires exact abandoned-ID ownership, pre-write absence receipts, reference
+closure, seven-day abandonment grace, pinned single-encoding views, recent
+preview fingerprint and global writer-stop/workspace acknowledgements.
+Exact-file deletion uses local immutable reservations and per-object
+unknown-outcome reconciliation. Legacy/unprovable and mixed-view objects stay.
+See [ABANDONED_COPY_CLEANUP.md](ABANDONED_COPY_CLEANUP.md).

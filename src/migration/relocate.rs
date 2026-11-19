@@ -293,11 +293,14 @@ enum Failure {
     Write(anyhow::Error),
 }
 
-/// True when `error` is a `StorageError` of kind `AlreadyExists`.
-fn is_already_exists(error: &anyhow::Error) -> bool {
-    error
-        .downcast_ref::<StorageError>()
-        .is_some_and(|e| e.kind() == StorageErrorKind::AlreadyExists)
+/// Fallback is allowed only for a known pre-dispatch failure. In particular,
+/// timeout, readback failure and unknown outcomes never authorize another write.
+fn safe_copy_fallback(error: &anyhow::Error) -> bool {
+    match error.downcast_ref::<StorageError>() {
+        Some(StorageError::Unsupported { .. }) => true,
+        Some(StorageError::Other { detail }) => detail == "could not start rclone executable",
+        _ => false,
+    }
 }
 
 /// Transfer primitives of one relocation, with byte counters.
@@ -386,7 +389,13 @@ impl Work<'_> {
         if provider && self.same_ciphertext(copier, from, to) {
             return Ok(Verified::StoredHash);
         }
-        self.reader.verify(to, true)?;
+        self.reader.verify(to, true).map_err(|error| StorageError::diagnosed_unknown(
+            "copy acknowledged but full content verification failed; automatic re-send refused",
+            crate::storage::error::FailureDiagnostic::classify(
+                format!("{error:#}").as_bytes(),
+                crate::storage::error::FailurePhase::Verification,
+                crate::storage::error::FailureOutcome::Unknown, None),
+        ))?;
         self.readback.fetch_add(to.size, Ordering::Relaxed);
         Ok(Verified::ReadBack)
     }
@@ -417,7 +426,7 @@ impl Work<'_> {
         if self.copier.is_some() {
             match self.copy(i) {
                 Ok(how) => return Ok(how),
-                Err(error) if is_already_exists(&error) => return Err(Failure::Write(error)),
+                Err(error) if !safe_copy_fallback(&error) => return Err(Failure::Write(error)),
                 Err(error) => eprintln!(
                     "[relocate] copy of shard {:08} failed, downloading instead: {error:#}",
                     self.source.shards[i].index
@@ -952,7 +961,7 @@ pub(super) fn relocate_with_storage(
                             if copyable(i) {
                                 match work.copy(i) {
                                     Ok(how) => return Ok(how),
-                                    Err(error) if is_already_exists(&error) => return Err(error),
+                                    Err(error) if !safe_copy_fallback(&error) => return Err(error),
                                     Err(error) => eprintln!(
                                         "[relocate] server-side copy of shard {:08} failed, uploading instead: {error:#}",
                                         source.shards[i].index

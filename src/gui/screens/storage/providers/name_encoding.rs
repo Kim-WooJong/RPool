@@ -59,22 +59,19 @@ pub(crate) struct Editor {
     crypt: String,
     /// Chosen index into `FILENAME_ENCODINGS`.
     encoding: usize,
-    /// Pass `--existing-files-ok`: change even if the remote already holds files.
-    existing_files_ok: bool,
     /// Start result, shown in the dialog.
     notice: Option<String>,
 }
 
 impl Editor {
-    /// Opens the dialog for a provider's crypts, preselecting base32768.
+    /// Opens the empty-location setting dialog; recovery requires the explicit CLI path.
     pub(crate) fn open_for(crypts: &[String]) -> Self {
         let crypt = crypts.first().cloned().unwrap_or_default();
         Self {
             open: true,
             crypts: crypts.to_vec(),
             crypt,
-            // Most often opened to fix long paths.
-            encoding: index_of("base32768"),
+            encoding: index_of("base32"),
             ..Self::default()
         }
     }
@@ -117,18 +114,18 @@ pub(crate) fn show(ctx: &egui::Context, editor: &mut Editor, rclone: &str, task:
                 });
             combo(ui, "name-encoding-choice", &mut editor.encoding);
             ui.separator();
-            ui.label(tr("Files already stored with the old encoding are not deleted, but they are not listed or readable until you switch back. If the provider already holds files, RPool refuses unless you confirm below."));
-            ui.checkbox(
-                &mut editor.existing_files_ok,
-                tr("Change even if the provider already holds files"),
-            );
+            ui.label(tr("Only empty locations can be changed here. Changing the setting does NOT convert stored names: old and new encoding views can hide each other. This is not data recovery."));
+            ui.label(tr("For a nonempty or mixed location, run the read-only encoding inventory first. Counts and overlaps do not verify file contents or completed archives."));
+            ui.monospace("rpool provider encoding-inventory --remote <crypt> --encodings base32,base32768 --json --output <new-report.json>");
+            ui.label(tr("Recovery-only setting restoration remains available in the CLI, after report review and stopping every PC. It never merges or renames stored data."));
+            ui.monospace("rpool provider name-encoding --remote <crypt> --encoding <correct-encoding> --existing-files-ok --all-pcs-stopped --old-names-not-converted --inventory-reviewed --recovery-override");
             let encoding = FILENAME_ENCODINGS[editor.encoding.min(FILENAME_ENCODINGS.len() - 1)];
             let ready = !editor.crypt.is_empty() && !task.is_running();
             if ui
-                .add_enabled(ready, egui::Button::new(tr("Change name encoding")))
+                .add_enabled(ready, egui::Button::new(tr("Change setting (empty location only)")))
                 .clicked()
             {
-                let args = args(&editor.crypt, encoding, editor.existing_files_ok);
+                let args = args(&editor.crypt, encoding, false);
                 editor.notice = Some(match task.start_rpool(tr("Change name encoding"), rclone, args) {
                     Ok(()) => trf(
                         "Changing {crypt} to {encoding}. See Jobs for the result.",

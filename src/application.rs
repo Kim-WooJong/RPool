@@ -24,11 +24,27 @@ pub(crate) fn run() -> Result<()> {
         return gui::launch(&cli.rclone);
     };
 
+    // Discard previews are fully read-only; confirmed discard owns its own
+    // exclusive local writer fence and durable exact-object receipts.
+    if matches!(command, Commands::Pool(crate::cli::PoolArgs {
+        command: PoolCommands::Migrate(crate::cli::pool::MigrateArgs {
+            command: crate::cli::pool::MigrateCommands::DiscardCopies { .. }
+        })
+    })) { return dispatch(cli); }
+
+    // Inventory deliberately bypasses lease/history/identity creation.
+    if matches!(command, Commands::Provider(crate::cli::ProviderArgs { command: ProviderCommands::EncodingInventory(_) })) {
+        return dispatch(cli);
+    }
+
     // Every non-GUI command owns a shared per-PC lease. Individual edits take
     // the exclusive side in their transaction, so no new command can race them.
-    let edit = matches!(command, Commands::Provider(crate::cli::ProviderArgs { command: ProviderCommands::LocationRename { .. } | ProviderCommands::LocationPath { .. } }));
+    let edit = matches!(command, Commands::Provider(crate::cli::ProviderArgs { command: ProviderCommands::LocationRename { .. } | ProviderCommands::LocationPath { .. } | ProviderCommands::NameEncoding { .. } }));
+    let capacity_query = matches!(command, Commands::Provider(crate::cli::ProviderArgs {
+        command: ProviderCommands::LocationCapacity { group: None, inherit: false, .. }
+    }));
     let gui = matches!(command, Commands::Gui);
-    let _use_lease = if edit || gui { None } else { Some(crate::config_sync::location_use::acquire(false)?) };
+    let _use_lease = if edit || gui || capacity_query { None } else { Some(crate::config_sync::location_use::acquire(false)?) };
     let pending = history::describe_command(command);
     let result = dispatch(cli);
 
@@ -342,10 +358,17 @@ fn dispatch(cli: Cli) -> Result<()> {
                 println!("Back up the rclone configuration / encrypted secret vault before storing data. Losing these keys loses access to the data.");
                 Ok(())
             }
+            ProviderCommands::EncodingInventory(args) => {
+                commands::provider::encoding_inventory(&cli.rclone, args)
+            }
             ProviderCommands::NameEncoding {
                 remote,
                 encoding,
                 existing_files_ok,
+                all_pcs_stopped,
+                old_names_not_converted,
+                recovery_override,
+                inventory_reviewed,
                 json,
             } => {
                 let change = crate::config_sync::provision::set_name_encoding(
@@ -353,18 +376,25 @@ fn dispatch(cli: Cli) -> Result<()> {
                     remote.trim_end_matches(':'),
                     &encoding,
                     existing_files_ok,
+                    all_pcs_stopped,
+                    old_names_not_converted,
+                    recovery_override,
+                    inventory_reviewed,
                 )?;
                 if json {
                     println!("{}", serde_json::to_string(&change)?);
                 } else if change.changed {
                     println!(
-                        "{}: names now use {} (were {}). {} file(s) already under its folder; those written with another encoding are not listed until you switch back.",
+                        "{}: setting now uses {} (was {}). {} existing top-level item(s). Stored names NOT converted; other encoding views may be hidden. This is NOT recovery completion.",
                         change.remote, change.to, change.from, change.existing_files
                     );
                 } else {
                     println!("{}: names already use {}.", change.remote, change.to);
                 }
                 Ok(())
+            }
+            ProviderCommands::LocationCapacity { remote, group, inherit, json } => {
+                commands::provider::location_capacity(&cli.rclone, &remote, group, inherit, json)
             }
             ProviderCommands::LocationRename { remote, name, all_pcs_stopped, json } => {
                 let change = crate::config_sync::location_edit::rename(std::path::Path::new(&cli.rclone), &remote, &name, all_pcs_stopped)?;

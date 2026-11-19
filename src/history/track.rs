@@ -129,6 +129,12 @@ pub(crate) fn describe_command(command: &Commands) -> Option<PendingTaskRecord> 
                 "provider-name-encoding".to_string(),
                 Some(format!("{remote}: {encoding}")),
             ),
+            // A read-only capacity query must not append history or create local state.
+            ProviderCommands::EncodingInventory(_) => return None,
+            ProviderCommands::LocationCapacity { group: None, inherit: false, .. } => return None,
+            ProviderCommands::LocationCapacity { remote, .. } => (
+                "provider-location-capacity".into(), Some(remote.clone()),
+            ),
             ProviderCommands::LocationRename { remote, name, .. } => (
                 "provider-location-rename".into(), Some(format!("{remote} -> {name}")),
             ),

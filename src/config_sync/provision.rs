@@ -374,84 +374,60 @@ pub(crate) struct NameEncodingChange {
     pub(crate) from: String,
     /// Requested encoding.
     pub(crate) to: String,
-    /// Objects already stored under the crypt remote's backing location.
+    /// Existing top-level items, including directories, under the physical backing location.
     pub(crate) existing_files: u64,
-    /// Total size of those objects in bytes.
+    /// Reported top-level file bytes only; not recursive usage or integrity evidence.
     pub(crate) existing_bytes: u64,
     /// Whether the config was updated (false when already using `to`).
     pub(crate) changed: bool,
 }
 
-/// Switches an existing crypt remote's `filename_encoding`. Keys, the
-/// backing location and stored bytes stay as they are, but names written
-/// with the old encoding are not listed or readable until it is switched
-/// back. Refused while the backing location holds files unless
-/// `existing_files_ok`.
+/// Change the setting only, never stored names. A nonempty backing requires
+/// the recovery-only override and independent stopped-PC/no-conversion/report acknowledgements.
+/// Legacy --existing-files-ok alone is deliberately rejected, including on empty locations.
 pub(crate) fn set_name_encoding(
     executable: &Path,
     name: &str,
     encoding: &str,
     existing_files_ok: bool,
+    all_pcs_stopped: bool,
+    old_names_not_converted: bool,
+    recovery_override: bool,
+    inventory_reviewed: bool,
 ) -> Result<NameEncodingChange> {
     validate_remote_name(name)?;
     validate_filename_encoding(encoding)?;
-    let config = config_path(executable)?;
-    let dump = read_dump(executable, &config)?;
-    let remote = dump
-        .get(name)
-        .ok_or_else(|| anyhow!("crypt remote {name} is not configured"))?;
-    if remote.kind != "crypt" {
-        bail!("{name} is not a crypt remote");
+    if existing_files_ok && !(all_pcs_stopped && old_names_not_converted && recovery_override && inventory_reviewed) {
+        bail!("--existing-files-ok alone is no longer sufficient. Run provider encoding-inventory first. Nonempty recovery setting changes require --existing-files-ok --all-pcs-stopped --old-names-not-converted --inventory-reviewed --recovery-override. Stored names are NOT converted; neither encoding exposes both namespaces. Stop every PC before acknowledging.");
     }
-    let from = if remote.filename_encoding.is_empty() {
-        DEFAULT_FILENAME_ENCODING.to_owned()
-    } else {
-        remote.filename_encoding.clone()
-    };
+    if (all_pcs_stopped || old_names_not_converted || recovery_override || inventory_reviewed) && !existing_files_ok {
+        bail!("recovery acknowledgements require --existing-files-ok; no setting changed");
+    }
+    // Exclusive local lease; all-PC acknowledgement remains a human safety decision.
+    let _edit = super::location_use::acquire(true)?;
+    let probe = super::encoding_probe::Probe::new(executable, name)?;
+    let from = probe.current_encoding.clone();
     let mut change = NameEncodingChange {
-        remote: name.to_owned(),
-        from: from.clone(),
-        to: encoding.to_owned(),
-        existing_files: 0,
-        existing_bytes: 0,
-        changed: false,
+        remote: name.to_owned(), from: from.clone(), to: encoding.to_owned(),
+        existing_files: 0, existing_bytes: 0, changed: false,
     };
-    if from == encoding {
-        return Ok(change);
+    if from == encoding { return Ok(change); }
+    // Physical backing, not the currently visible crypt namespace: hidden old names
+    // and empty directories must both prevent an ordinary encoding change.
+    let found = probe.backing_top(1024 * 1024)?;
+    change.existing_files = found.len() as u64;
+    change.existing_bytes = found.iter().filter_map(|e| u64::try_from(e.size).ok()).fold(0u64, u64::saturating_add);
+    if !found.is_empty() && !existing_files_ok {
+        bail!("Location is not empty (including hidden encoding views or empty directories). Ordinary encoding change refused. Run provider encoding-inventory --remote <crypt> --encodings base32,base32768 --json --output <new-report.json>. Recovery-only setting restoration requires --existing-files-ok --all-pcs-stopped --old-names-not-converted --inventory-reviewed --recovery-override. This does NOT convert names, merge namespaces or complete recovery.");
     }
-    let mut size = clean_command(executable);
-    size.args(["size", "--json", "--"]).arg(&remote.remote);
-    let raw = execute(&mut size, |_| Ok(()), Output::Memory(64 * 1024))
-        .with_context(|| format!("cannot list {name}'s backing location"))?;
-    #[derive(serde::Deserialize)]
-    struct Size {
-        count: u64,
-        bytes: u64,
-    }
-    let found: Size = serde_json::from_slice(&raw.0).context("invalid rclone size response")?;
-    change.existing_files = found.count;
-    change.existing_bytes = found.bytes;
-    if found.count > 0 && !existing_files_ok {
-        bail!(
-            "{name} already holds {} file(s) ({} bytes); after switching from {from} to {encoding}, files written with {from} names are not listed or readable until you switch back. Confirm to change anyway (--existing-files-ok).",
-            found.count,
-            found.bytes
-        );
-    }
-    let mut update = clean_command(executable);
-    update.args([
-        "config",
-        "update",
-        name,
-        "filename_encoding",
-        encoding,
-        "--non-interactive",
-    ]);
+    probe.ensure_unchanged()?;
+    let mut update = super::secret_process::rclone_command(executable, probe.original_config());
+    update.args(["config", "update", name, "filename_encoding", encoding, "--non-interactive"]);
     execute(&mut update, |_| Ok(()), Output::Memory(64 * 1024))
-        .with_context(|| format!("rclone could not update {name}"))?;
-    let after = read_dump(executable, &config)?;
+        .map_err(|_| anyhow!("encoding setting update failed or outcome unknown; inspect config before retrying"))?;
+    let after = read_dump(executable, probe.original_config())?;
     if after.get(name).map(|r| r.filename_encoding.as_str()) != Some(encoding) {
-        bail!("rclone did not record the new name encoding for {name}");
+        bail!("encoding setting could not be verified; inspect config before retrying");
     }
     change.changed = true;
     Ok(change)

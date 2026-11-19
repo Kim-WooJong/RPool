@@ -125,3 +125,63 @@ restore every required **legacy name-only alias** for old archives/events. Impor
 does **not** automatically create those aliases. Back up the renamed rclone config
 (including aliases) alongside the encrypted vault; never remove an alias merely
 because it no longer appears in the new-location picker.
+
+## Edit capacity only (no mount, restart or relocation)
+
+Providers → **Storage locations & disk capacity** → Existing storage locations
+now shows capacity controls before the collapsed rename/path controls. Each row
+explicitly selects **Share provider capacity (inherit)** or **Independent physical
+disk capacity group**, and shows the current saved effective group and all crypt
+locations sharing it. Selecting independent or Suggest group ID only proposes
+a name in the form; **Save disk capacity groups** is the explicit write/confirmation.
+These names are not disk detection. The pool policy card links back to these controls.
+After creating a location, it inherits provider capacity until explicitly changed.
+
+Standalone CLI, with no mount or upload started:
+
+```sh
+# Read only: no local settings, history or lock file is created/updated.
+rpool provider location-capacity --remote nas_disk2_crypt --json
+# Explicitly declare a truly separate physical disk.
+rpool provider location-capacity --remote nas_disk2_crypt --group nas-disk2 --json
+# Remove only the per-location capacity override and inherit dynamically again.
+rpool provider location-capacity --remote nas_disk2_crypt --inherit --json
+```
+
+`--group` and `--inherit` are mutually exclusive. Without either, the command
+only reads sanitized local configuration and domain declarations (no quota probe).
+JSON reports `mode`, `declared_group`, `effective_group`, `backing`,
+`same_group_locations`, `failure_group`, `pc_local` and `applies_to`. Remote names
+must be exact crypt section names without a colon/path. Group IDs are 1–256
+ASCII letters, digits, dots, underscores or hyphens. Only encrypting crypts
+**directly** backed by SFTP, SMB or local filesystems can be queried/edited here;
+wrappers, aggregates, missing/ambiguous mappings and cloud quotas fail closed.
+
+A different name/path is never proof of an independent disk. Separate physical
+disks need separate explicit IDs; multiple folders on one disk need the same ID.
+Before saving, both interfaces compare all crypt locations on the same concrete
+quota root using the existing catalog quota-scope normalization and reject
+conflicting groups, including unchanged peers. If several crypts share one root,
+use the GUI to edit them together rather than temporarily assigning conflicting
+IDs one CLI row at a time. Lexical equality cannot identify symlinks, bind mounts
+or different connections to the same physical disk: the operator must know the
+actual disk layout. Provider-level quota probes/account admission remain conservative.
+
+Capacity edits merge only changed rows into the latest DomainStore; stale edited
+rows/backings are rejected and the store is atomically replaced. Existing
+`DomainIdentity.failure` metadata is preserved, including when removing capacity
+(a failure-only row has an empty capacity field and inherits dynamically). The
+crypt's effective outage group still comes from the underlying provider, not
+that crypt's legacy failure field. Unrelated declarations, provider/account
+limits, pacing, pools, keys, roots, filename encoding and stored bytes are not edited.
+Concurrent external config editors should still be avoided.
+
+**No stop/restart, remount, relocation, plan rewrite or automatic rebalance is
+performed or required to save capacity declarations. New jobs and newly
+calculated plans pick them up; existing immutable plans keep their original
+placement.** Recalculate the pool capacity preview after saving. Running jobs
+are not forced to reload their existing accounting snapshots.
+
+Declarations remain **PC-local and not exported**. On every other PC using these
+locations, explicitly review and declare the same physical-disk grouping there
+too. No portable/config-sync format or automatic cross-PC synchronization was added.

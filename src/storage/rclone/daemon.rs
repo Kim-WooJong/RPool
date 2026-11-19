@@ -32,7 +32,7 @@
 //! use subprocesses.
 use super::http::{self, Endpoint, HttpError};
 use super::{process, remote_name, BoundedVec, ConfigSelection, RcloneContext, ADMIN_LIMIT};
-use crate::storage::error::StorageError;
+use crate::storage::error::{StorageError, FailureDiagnostic, FailureCode, FailurePhase, FailureOutcome};
 use crate::storage::traits::OperationContext;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -687,7 +687,7 @@ impl Daemon {
         match error {
             HttpError::Stopped(error) => Failure::Definite(error),
             HttpError::Sink(error) => Failure::Definite(process::sink_error(error)),
-            HttpError::Transport => {
+            HttpError::Transport | HttpError::NotDispatched => {
                 let _ = self.is_dead(); // Marks a crashed daemon for restart.
                 Failure::Fallback
             }
@@ -877,14 +877,9 @@ impl Daemon {
 
 impl Daemon {
     /// Uploads `body` as the object at `address` (`operations/uploadfile`)
-    /// with a known size, on the upload daemon (rclone retries off), like
-    /// `rcat --size --low-level-retries 1`. Errors are classified like the
-    /// subprocess's (`process::classify_mutation`): a refusal is retriable,
-    /// anything else an unknown outcome. Once the request is sent, a stop or
-    /// deadline is an unknown outcome (the write may complete), and no answer
-    /// within the stall allowance is the retriable stall timeout (a re-send
-    /// overwrites the same object). Only a daemon that cannot take the
-    /// request (transport, an answer that is not rclone's) falls back.
+    /// with a known size, on the upload daemon (rclone retries off).
+    /// After dispatch, transport/protocol/stall failures remain unknown and
+    /// never fall back. Only a local connect failure proves no dispatch.
     pub(super) fn upload(&self, ctx: &OperationContext, address: &str, body: &[u8]) -> Outcome<()> {
         let (root, rel) = split(address).ok_or(Failure::Fallback)?;
         let (dir, name) = match rel.rsplit_once('/') {
@@ -914,16 +909,21 @@ impl Daemon {
             body.len() as u64 / super::stall::STALL_RATE,
         ));
         let bounded = ctx.with_earlier_deadline(Instant::now() + allowance);
+        // Only a failed local connect proves no dispatch. Once sending starts,
+        // a lost/invalid response may hide a completed provider write.
         let stopped = |error: HttpError| match error {
-            HttpError::Stopped(_) if ctx.is_cancelled() || ctx.deadline_passed() => {
-                Failure::Definite(StorageError::unknown_outcome(
-                    "daemon upload stopped before its answer",
+            HttpError::NotDispatched => Failure::Fallback,
+            other => {
+                let code = match other {
+                    HttpError::Stopped(_) if ctx.is_cancelled() => FailureCode::Interrupted,
+                    HttpError::Stopped(_) => FailureCode::Timeout,
+                    _ => FailureCode::ResponseLost,
+                };
+                Failure::Definite(StorageError::diagnosed_unknown(
+                    "daemon upload has no acknowledged result; automatic re-send refused",
+                    FailureDiagnostic::new(code, FailurePhase::DaemonUpload, FailureOutcome::Unknown, None),
                 ))
             }
-            HttpError::Stopped(_) => Failure::Definite(StorageError::Timeout {
-                detail: process::STALLED_DETAIL.into(),
-            }),
-            other => self.transport(other),
         };
         let mut response = http::send_parts(
             &self.endpoint,
@@ -935,7 +935,9 @@ impl Daemon {
         )
         .map_err(stopped)?;
         let reply = response.body(&bounded, ERROR_BODY_LIMIT).map_err(stopped)?;
-        if response.status == 200 {
+        if response.status == 200
+            && serde_json::from_slice::<Value>(&reply).is_ok_and(|v| v.is_object() && v.get("error").is_none())
+        {
             return Ok(());
         }
         Err(upload_failure(&reply))
@@ -966,9 +968,8 @@ fn multipart(name: &str) -> (String, Vec<u8>, Vec<u8>) {
     )
 }
 
-/// Classifies a failed upload reply like a failed `rcat`
-/// (`process::classify_mutation`). Only an answer that is not rclone's JSON
-/// error (the daemon itself misbehaving) falls back to the subprocess.
+/// Classifies a failed upload reply. Invalid or missing result JSON is
+/// unknown after dispatch, never permission to repeat via subprocess.
 fn upload_failure(body: &[u8]) -> Failure {
     let message = serde_json::from_slice::<Value>(body)
         .ok()
@@ -980,7 +981,10 @@ fn upload_failure(body: &[u8]) -> Failure {
         });
     match message {
         Some(message) => Failure::Definite(process::classify_mutation(message.as_bytes())),
-        None => Failure::Fallback,
+        None => Failure::Definite(StorageError::diagnosed_unknown(
+            "daemon upload response is not a valid rclone result; automatic re-send refused",
+            FailureDiagnostic::new(FailureCode::InvalidResponse, FailurePhase::DaemonUpload, FailureOutcome::Unknown, None),
+        )),
     }
 }
 
@@ -1059,8 +1063,9 @@ mod tests {
                 "{message}"
             );
         }
-        // Only an answer that is not rclone's falls back to the subprocess.
-        assert!(kind(upload_failure(b"<html>bad gateway</html>")).is_none());
+        // An invalid answer after dispatch must not replay the write.
+        assert_eq!(kind(upload_failure(b"<html>bad gateway</html>")).unwrap().kind(),
+            crate::storage::error::StorageErrorKind::UnknownOutcome);
     }
 
     #[test]
