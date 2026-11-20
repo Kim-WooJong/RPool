@@ -44,9 +44,7 @@ pub(crate) fn load_plan(journal: &Journal) -> Result<Option<DrivePlan>> {
         let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
             continue;
         };
-        let Ok(plan) = serde_json::from_value::<DrivePlan>(value.clone()) else {
-            continue;
-        };
+        let plan = serde_json::from_value::<DrivePlan>(value.clone()).context("unsupported or invalid drive-plan capability; cannot silently omit it")?;
         if plan.migration_id != journal.migration_id() {
             continue;
         }

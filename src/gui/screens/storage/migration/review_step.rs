@@ -90,6 +90,14 @@ pub(super) fn summary(ui: &mut egui::Ui, plan: &Plan) {
             status_badge(ui, label, tone);
             ui.end_row();
         });
+    if let Some(preview)=&plan.storage_preview {
+        ui.label(tr("Physical peak preview (originals retained; retire credit 0)"));
+        for disk in &preview.disks {
+            ui.label(format!("{}: current={:?} target-after-retire={:?} flow-in/out={:?}/{:?} actual-copy={:?} peak-extra={:?} reserved={} free={:?} headroom={:?}",disk.capacity_domain,disk.current_used_bytes,disk.logical_after_retire_used_bytes,disk.logical_move_in_bytes,disk.logical_move_out_bytes,disk.actual_copy_bytes,disk.additional_created_bytes,disk.reserved_bytes,disk.current_free_bytes,disk.headroom_bytes));
+            for reason in &disk.blocked_reasons { theme::hint(ui,reason); }
+        }
+        for reason in &preview.blocked_reasons {theme::hint(ui,reason);}
+    }
     for note in &plan.notes {
         theme::hint(ui, &format!("• {note}"));
     }

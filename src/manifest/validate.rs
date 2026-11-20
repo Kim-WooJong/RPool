@@ -6,9 +6,11 @@ use crate::prelude::*;
 
 /// Validates a version 1 or 2 manifest; other versions are rejected.
 pub(crate) fn validate_manifest(manifest: &Manifest) -> Result<()> {
+    if manifest.version != 3 && manifest.shared.is_some() { bail!("ownership metadata requires v3"); }
     match manifest.version {
         1 => validate_manifest_v1(manifest),
         2 => validate_manifest_v2(manifest),
+        3 => super::shared::validate_shared(manifest),
         other => bail!("unsupported manifest version: {other}"),
     }
 }

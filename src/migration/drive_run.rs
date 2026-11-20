@@ -83,6 +83,7 @@ pub(super) fn by_key(files: Vec<DriveFile>) -> BTreeMap<String, DriveFile> {
 /// A drive entry in the archive state machine's terms.
 pub(super) fn as_entry(entry: &DriveEntry) -> Entry {
     Entry {
+        exact: entry.exact.clone(),
         archive_id: entry.key.clone(),
         original_name: entry.path.clone(),
         size: entry.size,
@@ -193,12 +194,14 @@ impl Effects for DriveEffects<'_> {
     }
     fn build(&self, entry: &Entry, new_archive_id: &str) -> Result<Replacement> {
         let file = self.file(entry)?;
+        super::exact::validate(entry, &file.manifest, self.target)?;
         if crate::manifest::manifest_fingerprint(&file.manifest)? != entry.fingerprint {
             bail!("drive file payload changed since planning");
         }
         super::discard::record_creation(self.rclone, self.journal, entry, &file.manifest, self.target, new_archive_id);
         let work = self.work_root.join(new_archive_id);
         fs::create_dir_all(&work)?;
+        let admission=super::storage_preview::admit_entry(self.rclone,self.target,entry,new_archive_id,&work)?;
         // Shard transfers are fixed for this archive when it starts.
         let target = LiveControl::target_for_next_archive(self.live, self.target);
         if self.live.is_some() {
@@ -208,8 +211,12 @@ impl Effects for DriveEffects<'_> {
             );
         }
         let (produced, locations) = match entry.action {
-            Action::Relocate => {
-                let r = super::relocate::relocate(
+            Action::Relocate | Action::RelocateMinimal => {
+                let relocate = |rclone, source: &Manifest, target: &PoolDefinition, moves: &BTreeMap<u32,String>, id: &str, work: &Path| {
+                    if entry.action == Action::RelocateMinimal { let create=entry.exact.as_ref().context("missing exact spec")?.objects.iter().filter(|o|!o.keep_ref).map(|o|o.index).collect(); super::relocate::relocate_minimal(rclone,source,target,moves,id,work,&create) }
+                    else {super::relocate::relocate(rclone,source,target,moves,id,work)}
+                };
+                let r = relocate(
                     self.rclone,
                     &file.manifest,
                     &target,
@@ -245,6 +252,7 @@ impl Effects for DriveEffects<'_> {
             .into_iter()
             .next()
             .context("replacement has no manifest replica")?;
+        admission.written()?;
         let _ = fs::remove_dir_all(&work);
         Ok(Replacement {
             new_archive_id: new_archive_id.to_string(),

@@ -140,13 +140,20 @@ pub(crate) fn cloud_manifests(sources: &Sources<'_>, refs: &mut References) {
         .into_par_iter()
         .map(|(id, addresses)| {
             let mut errors = vec![];
+            let mut found:Option<Manifest>=None;
+            let mut fingerprint=None;
             for address in &addresses {
                 match crate::manifest::load_manifest_with_storage(sources.reader, address) {
-                    Ok(manifest) => return (id, Ok(manifest)),
+                    Ok(manifest) => {
+                        match crate::manifest::manifest_fingerprint(&manifest) {
+                            Ok(fp) if fingerprint.as_ref().is_none_or(|old|old==&fp) => {fingerprint=Some(fp);found=Some(manifest);},
+                            _=>errors.push(format!("{address}: replica mismatch")),
+                        }
+                    },
                     Err(error) => errors.push(format!("{address}: {error:#}")),
                 }
             }
-            (id, Err(errors.join("; ")))
+            (id, if errors.is_empty() {found.ok_or_else(||"no manifest replica".into())}else{Err(errors.join("; "))})
         })
         .collect();
     for (id, manifest) in loaded {
@@ -189,7 +196,7 @@ pub(crate) fn other_migrations(sources: &Sources<'_>, refs: &mut References) {
         for entry in &plan.entries {
             if matches!(
                 entry.action,
-                Action::Relocate | Action::Reencode | Action::ReapplyPlacement
+                Action::Relocate | Action::RelocateMinimal | Action::Reencode | Action::ReapplyPlacement
             ) {
                 refs.add_text(&label, &entry.archive_id);
             }

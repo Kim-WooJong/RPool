@@ -52,6 +52,7 @@ impl Fixture {
             temp,
             bytes,
             manifest: Manifest {
+                shared: None,
                 version: 2,
                 archive_id: "old".into(),
                 original_name: "source".into(),

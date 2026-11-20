@@ -50,7 +50,7 @@ pub(crate) fn summarize(
         }
         if !matches!(
             entry.action,
-            Action::Relocate | Action::Reencode | Action::ReapplyPlacement
+            Action::Relocate | Action::RelocateMinimal | Action::Reencode | Action::ReapplyPlacement
         ) {
             continue;
         }

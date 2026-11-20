@@ -58,6 +58,7 @@ pub(crate) fn drain_manifest_with_storage(
     delete_source: bool,
     allow_risky: bool,
 ) -> Result<Manifest> {
+    for shard in &manifest.shards { crate::manifest::object_fence::guard(storage.reader(), &shard.object)?; }
     if from == to {
         bail!("source and destination provider are identical");
     }

@@ -402,6 +402,7 @@ fn put_source(
     shards.sort_by_key(|s| s.index);
 
     let manifest = Manifest {
+        shared: None,
         version: 2,
         archive_id: archive_id.clone(),
         original_name: source

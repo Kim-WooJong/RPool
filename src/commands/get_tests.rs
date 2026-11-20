@@ -88,6 +88,7 @@ impl Fixture {
             content_root_v1(&shards)
         };
         let manifest = Manifest {
+            shared: None,
             version: if coded { 2 } else { 1 },
             archive_id: "fixture".into(),
             original_name: "input".into(),

@@ -382,6 +382,7 @@ fn upload_with(
         }
         shards.sort_by_key(|s| s.index);
         let manifest = Manifest {
+            shared: None,
             version: 2,
             archive_id: id.into(),
             original_name: source
@@ -526,6 +527,7 @@ mod tests {
             }
         }
         Manifest {
+            shared: None,
             version: 2,
             archive_id: id.into(),
             original_name: "file".into(),
@@ -847,6 +849,7 @@ mod tests {
             }
         }
         Manifest {
+            shared: None,
             version: 2,
             archive_id: "test".into(),
             original_name: "file".into(),

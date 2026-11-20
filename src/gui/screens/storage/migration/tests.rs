@@ -54,6 +54,7 @@ pub(crate) fn sample_plan(pool: &str) -> Plan {
         losses: vec![],
         detail: None,
         moves: Default::default(),
+        exact: None,
     };
     let mut lost_entry = entry(&lost.archive_id, Action::Lost);
     lost_entry.original_name = lost.original_name.clone();
@@ -67,6 +68,8 @@ pub(crate) fn sample_plan(pool: &str) -> Plan {
         created_by: "pc".into(),
         target: PoolDefinition::default(),
         reapply_placement: false,
+        minimal_ack: None,
+        storage_preview: None,
         entries: vec![entry("x", Action::Relocate), lost_entry],
         counts: Counts {
             unaffected: 4,
@@ -122,6 +125,7 @@ pub(crate) fn sample_drive_plan(pool: &str) -> DrivePlan {
         losses: vec![],
         detail: None,
         moves: Default::default(),
+        exact: None,
     };
     let mut gone = entry(
         "photos/a very long drive path that must wrap inside the pane.jpg",

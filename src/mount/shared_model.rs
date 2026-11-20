@@ -366,6 +366,7 @@ mod tests {
     use super::*;
     fn put(worker: &str, path: &str, parents: Vec<String>) -> Event {
         let manifest = Manifest {
+            shared: None,
             version: 2,
             archive_id: worker.into(),
             original_name: "empty".into(),
@@ -455,6 +456,7 @@ mod pack_tests {
                 hash: blake3::hash(b"").to_hex().to_string(),
                 size,
                 manifest: Manifest {
+                    shared: None,
                     version: 2,
                     archive_id: "virtual-pack-x".into(),
                     original_name: "pack".into(),

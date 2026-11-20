@@ -47,7 +47,7 @@ pub(crate) use integrity_snapshot::{GroupHealth, IntegritySnapshot, INTEGRITY_SN
 pub(crate) use inventory::{InventoryEntry, InventoryStore};
 pub(crate) use journal::UploadJournal;
 pub(crate) use maintenance::{ScrubReport, ShardHealth};
-pub(crate) use manifest::{Manifest, Shard};
+pub(crate) use manifest::{Manifest, Shard, SharedObjects, ObjectIdentity};
 pub(crate) use placement::{outage_protection_gap, Placement, PlacementMethod};
 pub(crate) use pool::{PoolDefinition, PoolStore};
 pub(crate) use portable_config::{

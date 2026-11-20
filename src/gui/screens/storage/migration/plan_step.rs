@@ -48,6 +48,13 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, _task: &mut TaskRunn
 
                 ui.label(tr("Placement"));
                 ui.vertical(|ui| {
+                    ui.checkbox(&mut state.migration.minimal_transfer, tr("Minimal transfer (immutable shared objects)"));
+                    if state.migration.minimal_transfer {
+                        state.migration.reapply_placement = false;
+                        ui.checkbox(&mut state.migration.all_pcs_upgraded, tr("All PCs upgraded; older clients must not reconnect"));
+                        ui.checkbox(&mut state.migration.all_pcs_stopped, tr("All PCs stopped (mounts, uploads and migrations)"));
+                        ui.label(tr("Shared originals remain protected; no reclaimed space is promised. Layout changes are blocked, never silently re-encoded."));
+                    }
                     if ui.checkbox(&mut state.migration.rebalance, tr("Rebalance existing data"))
                         .on_hover_text(tr("Moves shards when account limits call for it, then spreads each coding group's data shards evenly over the accounts (faster reads), then closes sufficiently large free-space ratio gaps without undoing that spread. The plan notes show every account before and after."))
                         .changed() && state.migration.rebalance

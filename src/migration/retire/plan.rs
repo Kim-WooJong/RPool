@@ -349,10 +349,10 @@ pub(crate) fn select(
     for entry in &plan.entries {
         match (entry.action, state.get(&entry.archive_id)) {
             (
-                Action::Relocate | Action::Reencode | Action::ReapplyPlacement,
+                Action::Relocate | Action::RelocateMinimal | Action::Reencode | Action::ReapplyPlacement,
                 Some(Progress::Switched(record)),
             ) => original(world, entry, record, include_removed, &mut out),
-            (Action::Relocate | Action::Reencode | Action::ReapplyPlacement | Action::Lost, _) => {
+            (Action::Relocate | Action::RelocateMinimal | Action::Reencode | Action::ReapplyPlacement | Action::Lost, _) => {
                 out.kept.push(kept(
                     &entry.archive_id,
                     ItemKind::Original,

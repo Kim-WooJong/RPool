@@ -70,5 +70,10 @@
   "All PCs: every mount, upload, migration and other writer is stopped and will remain stopped": "所有PC的挂载、上传、迁移及其他写入均已停止，并将保持停止",
   "I supplied every local workspace and backup, including old copies (or none exist)": "已提供包括旧副本在内的所有本地工作区和备份（或不存在）",
   "I reviewed this exact preview and confirm permanent deletion of only its unused NEW objects": "已核对此精确预览，确认仅永久删除其中未使用的新对象",
-  "Delete these unused NEW copies permanently": "永久删除这些未使用的新副本"
+  "Delete these unused NEW copies permanently": "永久删除这些未使用的新副本",
+  "Minimal transfer (immutable shared objects)": "最小传输（不可变共享对象）",
+  "All PCs upgraded; older clients must not reconnect": "所有电脑已升级；禁止旧客户端重新连接",
+  "All PCs stopped (mounts, uploads and migrations)": "所有电脑已停止（挂载、上传和迁移）",
+  "Shared originals remain protected; no reclaimed space is promised. Layout changes are blocked, never silently re-encoded.": "共享原件保持受保护，不承诺回收空间。布局变化将被阻止，不会静默重新编码。",
+  "Physical peak preview (originals retained; retire credit 0)": "物理峰值预览（保留原件；退役抵扣为零）"
 }

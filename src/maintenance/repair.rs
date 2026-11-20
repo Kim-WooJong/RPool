@@ -19,6 +19,8 @@ pub(crate) fn repair_manifest_with_storage(
     dry_run: bool,
     selected_groups: Option<&BTreeSet<u32>>,
 ) -> Result<usize> {
+    if manifest.version == 3 { bail!("v3 repair requires copy-on-write into a new archive; in-place repair unsupported; restore remains available"); }
+    for shard in &manifest.shards { crate::manifest::object_fence::guard(storage.reader(), &shard.object)?; }
     let in_scope = |shard: &Shard| {
         selected_groups
             .map(|groups| groups.contains(&shard.group))

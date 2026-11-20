@@ -45,6 +45,7 @@ fn event(worker: &str, path: &str, parents: Vec<String>, size: Option<u64>) -> T
                 slot: 0,
             }];
             let manifest = Manifest {
+                shared: None,
                 version: 2,
                 archive_id: "archive".into(),
                 original_name: "name".into(),

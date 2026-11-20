@@ -20,6 +20,9 @@ mod replicate;
 mod targets;
 /// Structural and checksum validation.
 mod validate;
+mod shared;
+pub(crate) mod object_fence;
+pub(crate) use shared::content_root_v3;
 
 pub(crate) use content_root::{content_root_v1, content_root_v2};
 pub(crate) use fingerprint::manifest_fingerprint;

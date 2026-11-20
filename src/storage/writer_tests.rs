@@ -118,6 +118,7 @@ impl Fixture {
         }
         shards.sort_by_key(|s| s.index);
         Manifest {
+            shared: None,
             version: 2,
             archive_id: "archive".into(),
             original_name: "source".into(),

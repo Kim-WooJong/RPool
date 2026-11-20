@@ -210,6 +210,7 @@ fn plain(payloads: &[&[u8]], configure: impl FnOnce(&mut Probe)) -> Plain {
         offset += bytes.len() as u64;
     }
     let manifest = Manifest {
+        shared: None,
         version: 1,
         archive_id: "probe".into(),
         original_name: "input".into(),

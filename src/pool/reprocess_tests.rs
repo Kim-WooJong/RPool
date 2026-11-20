@@ -5,6 +5,7 @@ fn recovery_lookup_requires_exact_completed_source_and_replacement_receipts() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("plan.json");
     let source = Manifest {
+        shared: None,
         version: 2,
         archive_id: "original".into(),
         original_name: "empty".into(),
@@ -88,6 +89,7 @@ fn estimate_includes_full_parity_for_partial_group() {
 #[test]
 fn fingerprint_detects_source_layout_change() {
     let mut manifest = Manifest {
+        shared: None,
         version: 2,
         archive_id: "original".into(),
         original_name: "file".into(),

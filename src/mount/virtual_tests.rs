@@ -50,6 +50,7 @@ pub(super) fn content(bytes: &[u8]) -> Content {
         hash,
         size: bytes.len() as u64,
         manifest: Manifest {
+            shared: None,
             version: 1,
             archive_id: "test".into(),
             original_name: "file".into(),

@@ -274,6 +274,7 @@ pub(super) fn group_manifest(m: &Manifest, group: u32) -> Result<Manifest> {
     let root =
         crate::manifest::content_root_v2(offset, m.shard_size, &Some(coding.clone()), &shards);
     let mini = Manifest {
+        shared: None,
         version: 2,
         archive_id: format!("{}-group-{group}", m.archive_id),
         original_name: m.original_name.clone(),

@@ -81,6 +81,7 @@ pub(crate) fn run(rclone: &str, pool: &str, id: &str, options: &Options) -> Resu
         create_only(&dir.join(format!("intent-{object_id}.json")), &Receipt {
             version:1,object:object.clone(),state:"delete-intent-unknown-until-observed".into(),observed_unix:crate::utils::now_unix() })?;
         let probe = fresh.probes.get(name).context("missing namespace")?;
+        crate::manifest::object_fence::guard(&crate::storage::reader::StorageReader::rclone(rclone), &object.address)?;
         let deletion = probe.cleanup_delete(path);
         // Even a successful child exit needs an exact not-found observation.
         match probe.cleanup_size(path) {

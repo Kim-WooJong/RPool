@@ -10,6 +10,10 @@ pub(crate) enum Action {
     /// Same coding, but shards sit on remotes no longer in the pool (or the
     /// placement is invalid): rebuild onto the new remotes.
     Relocate,
+    /// Old binaries reject this explicit immutable-object capability action.
+    RelocateMinimal,
+    /// Non-data capability sentinel, also rejects old drive-only plan execution.
+    ImmutableObjectCapability,
     /// Coding changed (K, M, shard size or native crypt): re-encode.
     Reencode,
     /// Explicit full re-upload to apply the current placement. Separate from
@@ -90,6 +94,8 @@ pub(crate) struct Entry {
     /// Rebalance destinations (shard index -> remote) the run must use.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub moves: BTreeMap<u32, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exact: Option<super::exact::ExactExecutionSpec>,
 }
 
 /// Number of plan entries per [`Action`].
@@ -106,6 +112,9 @@ pub(crate) struct Counts {
     /// Archives whose check hit a provider error.
     pub unknown: usize,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct MinimalAck { pub all_pcs_upgraded: bool, pub all_pcs_stopped: bool }
 
 /// A frozen migration plan.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,6 +134,10 @@ pub(crate) struct Plan {
     /// Catch-up drive files must also be re-uploaded under the target policy.
     #[serde(default)]
     pub reapply_placement: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimal_ack: Option<MinimalAck>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_preview: Option<super::storage_budget::StoragePreview>,
     /// One entry per archive of the pool.
     pub entries: Vec<Entry>,
     /// Entry counts per action.

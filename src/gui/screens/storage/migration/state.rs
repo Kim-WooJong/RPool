@@ -119,6 +119,9 @@ pub(crate) struct MigrationForm {
     pub(crate) rebalance: bool,
     /// Fully re-upload existing files under the saved pool placement.
     pub(crate) reapply_placement: bool,
+    pub(crate) minimal_transfer: bool,
+    pub(crate) all_pcs_upgraded: bool,
+    pub(crate) all_pcs_stopped: bool,
     /// Manual speeds, MiB/s; 0 = unknown.
     pub(crate) download_mib_s: f64,
     /// Manual upload speed, MiB/s; 0 = unknown.
@@ -212,6 +215,9 @@ impl MigrationForm {
             skip_drive: !self.include_drive.0,
             rebalance: self.rebalance,
             reapply_placement: self.reapply_placement,
+            minimal_transfer: self.minimal_transfer,
+            all_pcs_upgraded: self.all_pcs_upgraded,
+            all_pcs_stopped: self.all_pcs_stopped,
             ..Default::default()
         }
     }

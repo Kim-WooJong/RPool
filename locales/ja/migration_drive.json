@@ -70,5 +70,10 @@
   "All PCs: every mount, upload, migration and other writer is stopped and will remain stopped": "すべてのPCのマウント・アップロード・移行・他の書き込みを停止し、停止したままにします",
   "I supplied every local workspace and backup, including old copies (or none exist)": "古いコピーも含め、全ローカル作業領域とバックアップを指定しました（または存在しません）",
   "I reviewed this exact preview and confirm permanent deletion of only its unused NEW objects": "この正確なプレビューを確認し、表示された未使用の新規オブジェクトのみの完全削除に同意します",
-  "Delete these unused NEW copies permanently": "これらの未使用の新規コピーを完全削除"
+  "Delete these unused NEW copies permanently": "これらの未使用の新規コピーを完全削除",
+  "Minimal transfer (immutable shared objects)": "最小転送（不変共有オブジェクト）",
+  "All PCs upgraded; older clients must not reconnect": "全PC更新済み・旧クライアント再接続禁止",
+  "All PCs stopped (mounts, uploads and migrations)": "全PC停止済み（マウント・アップロード・移行）",
+  "Shared originals remain protected; no reclaimed space is promised. Layout changes are blocked, never silently re-encoded.": "共有元は保護され、容量回収は保証されません。構成変更は停止し、暗黙の再エンコードは行いません。",
+  "Physical peak preview (originals retained; retire credit 0)": "物理ピークのプレビュー（原本保持・削除予定分は加算しない）"
 }

@@ -1,10 +1,10 @@
-# rpool v2.23.0-rc.6
+# rpool v2.23.0-rc.7
 
-**EXPERIMENTAL / TESTING ONLY — NOT all issues are fixed.** Back up first and review cleanup previews. Validation is release-build-only; the unrelated broken-remote capacity-save blocker is fixed in code, but actual GUI saves and runtime behavior remain unverified. Windows runtime validation is still pending. The cause of
+**EXPERIMENTAL / TESTING ONLY — NOT all issues are fixed.** Back up first, review previews and test on disposable copies. Validation is release-build-only; the three rebalance improvements (independent same-backing disks, opt-in minimal transfer, exact layout/peak preview) are implemented but runtime/GUI behavior is unverified. Minimal transfer requires every PC upgraded and stopped, with older clients never reconnecting; borrowed sources are retained with no automatic space reclamation. Windows runtime validation is still pending. The cause of
 intermittent disconnects remains unconfirmed; this release does not claim to
 resolve them. Individual location edits preserve legacy aliases and keys; path
 changes copy and verify encrypted data before switching, retaining the original.
-Storage permissions are never changed automatically. See [release notes](CHANGELOG.md#2230-rc6--2026-11-20-experimentaltesting-prerelease).
+Storage permissions are never changed automatically. See [release notes](CHANGELOG.md#2230-rc7--2026-11-20-experimentaltesting-prerelease).
 
 `rpool` is a Rust storage layer that stripes files across several
 **explicitly supplied rclone `crypt` remotes**, optionally with

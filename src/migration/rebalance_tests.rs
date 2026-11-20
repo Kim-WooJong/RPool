@@ -2,6 +2,49 @@ use super::*;
 
 const GIB: u64 = 1 << 30;
 
+#[test]
+fn independent_disks_of_one_backing_can_balance_at_the_backing_cap() {
+    for manual_cap in [6, 5] {
+        let target = pool(Placement::FreeRatio, &["e", "f", "g"]);
+        let mut quotas = [quota("e", GIB, 10 * GIB),
+            quota("f", 8 * GIB, 10 * GIB), quota("g", 8 * GIB, 10 * GIB)];
+        for q in &mut quotas { q.backing = "gms2".into(); q.shard_cap = Some(manual_cap); }
+        let rb = Rebalancer::new(&target, &quotas, &|_| None).unwrap();
+        let m = manifest(&["e", "e", "e", "e", "e", "e"], GIB / 8);
+        let (moves, _) = rb.plan(&m, &BTreeSet::new());
+        assert!(!moves.is_empty(), "unchanged backing count at/over cap is not a new violation");
+        assert!(moves.values().all(|r| r == "f:" || r == "g:"));
+    }
+}
+
+#[test]
+fn resilient_same_failure_moves_do_not_consume_an_extra_failure_slot() {
+    let target = pool(Placement::Resilient, &["a", "a2", "b", "c"]);
+    let quotas = [quota("a", GIB, 10 * GIB), quota("a2", 9 * GIB, 10 * GIB),
+        quota("b", 5 * GIB, 10 * GIB), quota("c", 5 * GIB, 10 * GIB)];
+    let failure = |remote: &str| Some(if remote == "a:" || remote == "a2:" {
+        "shared".to_owned()
+    } else { remote.to_owned() });
+    let rb = Rebalancer::new(&target, &quotas, &failure).unwrap();
+    let m = manifest(&["a", "a", "b", "b", "c", "c"], GIB / 8);
+    let (moves, _) = rb.plan(&m, &BTreeSet::new());
+    assert!(count(&moves, "a2:") > 0);
+    assert!(moves.keys().all(|i| *i < 2), "other outage domains may not increase shared beyond M");
+}
+
+#[test]
+fn capacity_aliases_are_not_rebalance_destinations_even_when_forced() {
+    let target = pool(Placement::FreeRatioUnbounded, &["a", "alias"]);
+    let mut quotas = [quota("a", GIB, 10 * GIB), quota("alias", 9 * GIB, 10 * GIB)];
+    quotas[1].capacity_domain = quotas[0].capacity_domain.clone();
+    quotas[1].backing = quotas[0].backing.clone();
+    let rb = Rebalancer::new(&target, &quotas, &|_| None).unwrap();
+    let m = manifest(&["a", "a", "a", "a", "a", "a"], GIB / 8);
+    let (moves, reasons) = rb.plan(&m, &BTreeSet::from([0]));
+    assert!(moves.is_empty());
+    assert!(reasons.iter().any(|r| r.contains("mandatory")));
+}
+
 fn quota(name: &str, free: u64, total: u64) -> TargetBudget {
     TargetBudget {
         remote: format!("{name}:"),
@@ -35,6 +78,7 @@ fn manifest(remotes: &[&str], size: u64) -> Manifest {
         shard_size: size,
         created_unix: 0,
         content_root_blake3: String::new(),
+        shared: None,
         coding: Some(Coding {
             algorithm: RS_ALGORITHM.into(),
             data_shards: 4,

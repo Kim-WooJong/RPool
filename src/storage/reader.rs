@@ -791,6 +791,7 @@ mod recovery_exclusion_tests {
             });
         }
         let manifest = Manifest {
+            shared: None,
             version: 2,
             archive_id: "recovery-fixture".into(),
             original_name: "input".into(),

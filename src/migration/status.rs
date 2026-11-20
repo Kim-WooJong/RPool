@@ -56,7 +56,7 @@ pub(crate) fn summarize(plan: &Plan, records: &[Record]) -> MigrationStatus {
     for entry in &plan.entries {
         if !matches!(
             entry.action,
-            Action::Relocate | Action::Reencode | Action::ReapplyPlacement
+            Action::Relocate | Action::RelocateMinimal | Action::Reencode | Action::ReapplyPlacement
         ) {
             continue;
         }

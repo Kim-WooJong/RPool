@@ -19,6 +19,9 @@ use crate::storage::traits::OperationContext;
 pub(crate) struct PlanOptions {
     /// Hash every shard of affected archives instead of listing sizes.
     pub probe_full: bool,
+    pub minimal_transfer: bool,
+    pub all_pcs_upgraded: bool,
+    pub all_pcs_stopped: bool,
     /// Assumed aggregate download rate in MiB/s for the time estimate; `None`
     /// leaves the estimate open. Must be finite and positive.
     pub download_mib_s: Option<f64>,
@@ -49,6 +52,7 @@ pub(crate) fn plan_with_drive(
     pool: &str,
     options: &PlanOptions,
 ) -> Result<(Plan, Option<super::drive_model::DrivePlan>)> {
+    if options.minimal_transfer && (!options.all_pcs_upgraded || !options.all_pcs_stopped || options.reapply_placement) { bail!("minimal transfer requires all PCs upgraded and stopped; incompatible with reapply placement"); }
     if options.rebalance && options.reapply_placement {
         bail!("choose either rebalance or reapply placement, not both");
     }
@@ -89,9 +93,19 @@ pub(crate) fn plan_with_drive(
         let source = super::drive_source::CloudDrive::new(rclone, pool, &plan.target);
         super::drive_plan::plan_drive(&cloud, &source, &mut plan, &mut listed, options)?
     };
+    // A drive-only minimal plan must also carry an unknown enum in the main
+    // plan, because historical drive loaders silently skipped unknown actions.
+    if options.minimal_transfer && drive.as_ref().is_some_and(|d|d.entries.iter().any(|e|e.action==Action::RelocateMinimal)) && !plan.entries.iter().any(|e|e.action==Action::RelocateMinimal) {
+        plan.entries.push(Entry{archive_id:"capability-minimal-transfer".into(),original_name:"immutable-object capability".into(),size:0,source:"capability:immutable-borrowed-objects-v1".into(),fingerprint:String::new(),action:Action::ImmutableObjectCapability,download_bytes:0,upload_bytes:0,losses:Vec::new(),detail:Some("execution capability sentinel, no data".into()),moves:BTreeMap::new(),exact:None});
+    }
     if let Some(rebalancer) = &options.rebalancer {
         plan.notes.extend(rebalancer.summary());
     }
+    let mut combined=plan.entries.clone();
+    if let Some(d)=&drive { combined.extend(d.entries.iter().map(super::drive_run::as_entry)); }
+    let preview=super::storage_preview::preview(&cloud.quotas(&plan.target).unwrap_or_default(),combined);
+    plan.quota_ok=Some(preview.admitted);
+    plan.storage_preview=Some(preview);
     Ok((plan, drive))
 }
 
@@ -383,6 +397,7 @@ pub(super) fn plan_entry(
             }
         }
     }
+    if options.minimal_transfer && matches!(action, Action::Reencode | Action::ReapplyPlacement) { action = Action::Unknown; notes.push("Blocked: layout differs; minimal-transfer never silently re-encodes".into()); }
     let planned = match (action, base) {
         (Action::Lost, _) | (_, Action::Unaffected) => Ok(Transfer::default()),
         (_, Action::Relocate) => {
@@ -390,7 +405,7 @@ pub(super) fn plan_entry(
         }
         (_, _) => reencode_transfer(manifest, target),
     };
-    let transfer = match planned {
+    let mut transfer = match planned {
         Ok(transfer) => transfer,
         Err(error) => {
             notes.push(format!("estimate unavailable: {error:#}"));
@@ -420,7 +435,24 @@ pub(super) fn plan_entry(
         Action::Lost => notes.insert(0, "some group has fewer than K readable shards".into()),
         _ => {}
     }
+    if options.minimal_transfer && action == Action::Relocate { action = Action::RelocateMinimal; }
+    let exact = if matches!(action, Action::RelocateMinimal | Action::Relocate) {
+        match super::exact::freeze(manifest,target,&mut moves,options.minimal_transfer,&states.iter().enumerate().filter(|(_,s)|!s.is_ok()).map(|(i,_)|manifest.shards[i].index).collect()) {
+            Ok(mut spec) => {
+                if let Some(q)=cloud.quotas(target) { spec.bindings=q.into_iter().map(|q|(q.remote,(q.backing,q.capacity_domain,q.failure_domain))).collect(); }
+                transfer.new_storage = spec.additional_bytes;
+                if options.minimal_transfer {
+                    transfer.upload = spec.copied_bytes; transfer.download = spec.transfer_bytes.saturating_sub(spec.copied_bytes);
+                    transfer.specs = spec.objects.iter().filter(|o|!o.keep_ref).map(|o|PhysicalSpec{group:manifest.shards[o.index as usize].group,size:o.size}).collect();
+                }
+                Some(spec)
+            },
+            Err(e) if options.minimal_transfer => { action=Action::Unknown; notes.push(format!("blocked exact plan: {e:#}")); None },
+            Err(_) => None,
+        }
+    } else { None };
     let entry = Entry {
+        exact,
         archive_id: manifest.archive_id.clone(),
         original_name: manifest.original_name.clone(),
         size: manifest.original_size,
@@ -581,6 +613,7 @@ pub(super) fn plan_listed(
                     losses: Vec::new(),
                     detail: Some(detail.clone()),
                     moves: BTreeMap::new(),
+                    exact: None,
                 },
                 Transfer::default(),
             )),
@@ -600,15 +633,15 @@ pub(super) fn plan_listed(
     let (mut server_shards, mut server_bytes, mut server_readback) = (0usize, 0u64, 0usize);
     for (entry, transfer) in &results {
         match entry.action {
-            Action::Unaffected => counts.unaffected += 1,
-            Action::Relocate => counts.relocate += 1,
+            Action::Unaffected | Action::ImmutableObjectCapability => counts.unaffected += 1,
+            Action::Relocate | Action::RelocateMinimal => counts.relocate += 1,
             Action::Reencode | Action::ReapplyPlacement => counts.reencode += 1,
             Action::Lost => counts.lost += 1,
             Action::Unknown => counts.unknown += 1,
         }
         download = add(download, entry.download_bytes)?;
         upload = add(upload, entry.upload_bytes)?;
-        new_storage = add(new_storage, transfer.specs.iter().map(|s| s.size).sum())?;
+        new_storage = add(new_storage, transfer.new_storage)?;
         if entry.action == Action::Relocate {
             server_shards += transfer.server_side_shards;
             server_bytes = add(server_bytes, transfer.server_side_bytes)?;
@@ -666,7 +699,8 @@ pub(super) fn plan_listed(
             crate::presentation::format_bytes(server_bytes)
         ));
     }
-    notes.push("Estimates count Unknown archives as if they will move. Relocation moves only shards on removed remotes (or over the outage bound): kept shards are copied on their remote (server-side when the provider can), readable moving shards are streamed, unreadable ones are rebuilt from K shards per group; every shard is verified by ciphertext hash or readback. Remotes whose copy features are unknown are estimated as streamed copies. Originals are kept, so new_storage_bytes is additional space.".into());
+    notes.push("Physical admission uses exact object contracts and zero retirement credit. Minimal mode references verified unchanged objects without upload; only create actions allocate new namespaces. Unknown source/layout/capacity blocks execution. Whole-shard balancing is not exact uniformity (5 percentage-point threshold). Older clients must not reconnect after borrowing.".into());
+    notes.push("Legacy full-copy estimates count Unknown archives as if they will move. Relocation moves only shards on removed remotes (or over the outage bound): kept shards are copied on their remote (server-side when the provider can), readable moving shards are streamed, unreadable ones are rebuilt from K shards per group; every shard is verified by ciphertext hash or readback. Remotes whose copy features are unknown are estimated as streamed copies. Originals are kept, so new_storage_bytes is additional space.".into());
 
     let estimated_seconds = super::speed::estimate_seconds(
         download,
@@ -682,6 +716,8 @@ pub(super) fn plan_listed(
         created_by: pc_name(),
         target,
         reapply_placement: options.reapply_placement,
+        storage_preview: None,
+        minimal_ack: options.minimal_transfer.then(|| super::model::MinimalAck { all_pcs_upgraded: options.all_pcs_upgraded, all_pcs_stopped: options.all_pcs_stopped }),
         entries: results.into_iter().map(|(e, _)| e).collect(),
         counts,
         download_bytes: download,

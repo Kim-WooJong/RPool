@@ -151,6 +151,7 @@ impl StorageWriter {
         shard: &Shard,
         retries: u32,
     ) -> Result<()> {
+        crate::manifest::object_fence::guard(self.reader(), &shard.object)?;
         self.ensure_destination(&shard.object)?;
         // Own a stable, bounded disk spool so retries cannot read changing input.
         let spool = tempfile::tempdir()?;
@@ -263,6 +264,7 @@ impl StorageWriter {
     }
     /// Deletes the object `raw` and forgets any in-process proof for it.
     pub(crate) fn delete(&self, raw: &str) -> Result<()> {
+        crate::manifest::object_fence::guard(self.reader(), raw)?;
         let (backend, key) = self.reader.resolve(raw)?;
         self.reader.forget_verified(raw);
         backend.delete(self.reader.operation_context(), &key)?;

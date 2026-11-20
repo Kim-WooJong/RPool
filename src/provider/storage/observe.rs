@@ -198,7 +198,7 @@ fn migrations(
         let movable = plan.entries.iter().filter(|e| {
             matches!(
                 e.action,
-                Action::Relocate | Action::Reencode | Action::ReapplyPlacement
+                Action::Relocate | Action::RelocateMinimal | Action::Reencode | Action::ReapplyPlacement
             )
         });
         let copies = records.iter().filter_map(|r| r.new_archive_id.as_deref());

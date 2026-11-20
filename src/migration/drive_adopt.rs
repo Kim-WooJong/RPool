@@ -364,6 +364,7 @@ pub(crate) fn adopt(
     let plan = journal
         .load_plan()?
         .ok_or_else(|| anyhow!("migration not found in the cloud: {id}"))?;
+    super::exact::ack(&plan)?;
     if plan.pool != pool || plan.migration_id != id {
         bail!("journal plan does not belong to {pool}/{id}");
     }

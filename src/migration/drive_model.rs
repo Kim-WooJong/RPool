@@ -144,6 +144,8 @@ pub(crate) struct DriveEntry {
     /// Rebalance destinations (shard index -> remote) the run must use.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub moves: BTreeMap<u32, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exact: Option<super::exact::ExactExecutionSpec>,
 }
 
 /// The frozen drive part of a migration.

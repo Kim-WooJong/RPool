@@ -101,15 +101,15 @@ pub(crate) fn plan_drive(
     let mut specs = listed.specs.clone();
     for (entry, transfer) in &classified {
         match entry.action {
-            Action::Unaffected => counts.unaffected += 1,
-            Action::Relocate => counts.relocate += 1,
+            Action::Unaffected | Action::ImmutableObjectCapability => counts.unaffected += 1,
+            Action::Relocate | Action::RelocateMinimal => counts.relocate += 1,
             Action::Reencode | Action::ReapplyPlacement => counts.reencode += 1,
             Action::Lost => counts.lost += 1,
             Action::Unknown => counts.unknown += 1,
         }
         download = add(download, entry.download_bytes)?;
         upload = add(upload, entry.upload_bytes)?;
-        new_storage = add(new_storage, transfer.specs.iter().map(|s| s.size).sum())?;
+        new_storage = add(new_storage, transfer.new_storage)?;
         specs.push(transfer.specs.clone());
     }
     // Every visible file (pack members too) gets its own record.
@@ -248,6 +248,7 @@ pub(super) fn classify(
                     losses: entry.losses,
                     detail,
                     moves: entry.moves,
+                    exact: entry.exact,
                 },
                 transfer,
             ))

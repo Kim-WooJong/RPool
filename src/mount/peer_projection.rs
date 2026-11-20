@@ -217,6 +217,7 @@ mod tests {
                 hash: blake3::hash(text.as_bytes()).to_hex().to_string(),
                 size: 0,
                 manifest: Manifest {
+                    shared: None,
                     version: 2,
                     archive_id: format!("data-{}", blake3::hash(text.as_bytes())),
                     original_name: path.into(),

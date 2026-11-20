@@ -73,6 +73,7 @@ pub(crate) mod fixture {
                     hash: hash.clone(),
                     size,
                     manifest: Manifest {
+                        shared: None,
                         version: 2,
                         archive_id: format!("virtual-{hash}"),
                         original_name: path.rsplit('/').next().unwrap().into(),

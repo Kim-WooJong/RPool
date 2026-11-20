@@ -826,6 +826,7 @@ mod tests {
 
     fn empty_manifest(archive: &str) -> Manifest {
         Manifest {
+            shared: None,
             version: 2,
             archive_id: archive.into(),
             original_name: "file".into(),
@@ -930,6 +931,7 @@ mod tests {
             slot: 0,
         };
         let replacement = Manifest {
+            shared: None,
             version: 2,
             archive_id: "reprocess-independent".into(),
             original_name: "display-name".into(),

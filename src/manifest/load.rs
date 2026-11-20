@@ -7,10 +7,12 @@ use crate::storage::reader::StorageReader;
 pub(crate) fn load_manifest(rclone: &str, source: &str) -> Result<Manifest> {
     load_manifest_with_storage(&StorageReader::rclone(rclone), source)
 }
-/// Reads and parses a manifest (not validated) from `source`.
+/// Reads, parses and validates a manifest from `source`, including v3 ownership.
 pub(crate) fn load_manifest_with_storage(reader: &StorageReader, source: &str) -> Result<Manifest> {
     let bytes = load_manifest_bytes_with_storage(reader, source)?;
-    serde_json::from_slice(&bytes).context("invalid rpool manifest")
+    let manifest:Manifest=serde_json::from_slice(&bytes).context("invalid rpool manifest")?;
+    crate::manifest::validate_manifest(&manifest)?;
+    Ok(manifest)
 }
 
 /// Raw manifest bytes: from the local file when `source` exists on disk, else

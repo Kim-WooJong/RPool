@@ -272,6 +272,7 @@ mod tests {
             slot: 0,
         }];
         let manifest = Manifest {
+            shared: None,
             version: 1,
             archive_id: id,
             original_name: "file".into(),

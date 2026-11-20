@@ -70,5 +70,10 @@
   "All PCs: every mount, upload, migration and other writer is stopped and will remain stopped": "모든 PC의 마운트·업로드·이전 및 다른 쓰기 작업을 중지했고 계속 중지 상태로 유지해요",
   "I supplied every local workspace and backup, including old copies (or none exist)": "이전 복사본을 포함한 모든 로컬 작업 폴더와 백업을 입력했어요(또는 없어요)",
   "I reviewed this exact preview and confirm permanent deletion of only its unused NEW objects": "이 미리보기를 확인했으며 표시된 미사용 새 객체만 영구 삭제하는 데 동의해요",
-  "Delete these unused NEW copies permanently": "이 미사용 새 복사본 영구 삭제"
+  "Delete these unused NEW copies permanently": "이 미사용 새 복사본 영구 삭제",
+  "Minimal transfer (immutable shared objects)": "최소 전송(불변 공유 객체)",
+  "All PCs upgraded; older clients must not reconnect": "모든 PC 업그레이드 완료 · 구버전 재접속 금지",
+  "All PCs stopped (mounts, uploads and migrations)": "모든 PC 중지(마운트·업로드·이전)",
+  "Shared originals remain protected; no reclaimed space is promised. Layout changes are blocked, never silently re-encoded.": "공유 원본은 보호되며 공간 회수를 보장하지 않아요. 구성 변경은 차단하며 몰래 재인코딩하지 않아요.",
+  "Physical peak preview (originals retained; retire credit 0)": "물리 최대 사용량 미리보기(원본 보존·회수분 반영 0)"
 }

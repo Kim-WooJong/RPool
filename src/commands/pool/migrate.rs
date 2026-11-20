@@ -26,6 +26,7 @@ pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
             no_drive,
             rebalance,
             reapply_placement,
+            minimal_transfer, all_pcs_upgraded, all_pcs_stopped,
             json,
         } => plan(
             rclone,
@@ -37,6 +38,7 @@ pub(crate) fn run(rclone: &str, args: MigrateArgs) -> Result<()> {
             no_drive,
             rebalance,
             reapply_placement,
+            minimal_transfer, all_pcs_upgraded, all_pcs_stopped,
             json,
         ),
         MigrateCommands::Run {
@@ -447,6 +449,7 @@ fn plan(
     no_drive: bool,
     rebalance: bool,
     reapply_placement: bool,
+    minimal_transfer: bool, all_pcs_upgraded: bool, all_pcs_stopped: bool,
     json: bool,
 ) -> Result<()> {
     let definition = crate::pool::load_pool_store()?
@@ -486,6 +489,7 @@ fn plan(
         skip_drive: no_drive,
         rebalance,
         reapply_placement,
+        minimal_transfer, all_pcs_upgraded, all_pcs_stopped,
         ..Default::default()
     };
     let (plan, drive) = execute::create_with_drive(rclone, pool, &options)?;
@@ -627,6 +631,7 @@ fn print_plan(plan: &Plan) {
             None => "unknown",
         }
     );
+    if let Some(preview)=&plan.storage_preview { println!("same_storage_preview={}",serde_json::to_string(preview).unwrap_or_default()); }
     for note in &plan.notes {
         println!("note: {note}");
     }

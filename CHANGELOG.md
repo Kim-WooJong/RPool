@@ -2,6 +2,59 @@
 
 ## Unreleased
 
+## 2.23.0-rc.7 — 2026-11-20 (experimental/testing prerelease)
+
+**EXPERIMENTAL / TESTING ONLY — build-only validation. NOT all issues are fixed
+and nothing in this candidate has been runtime validated. Back up first, review
+every preview, and test only on disposable copies of your data. This candidate
+is not a production qualification; a stable release requires user feedback.**
+
+All three rebalance improvements are implemented (build-only, not runtime validated):
+
+- Separate physical capacity from failure-domain and account spread when
+  rebalancing. Independent disks behind the same backing server can now be
+  balanced against each other; aliases of one physical disk are not double
+  counted, and manual account limits and outage protection remain in force.
+- Opt-in minimal transfer: `pool migrate plan --minimal-transfer
+  --all-pcs-upgraded --all-pcs-stopped` (GUI: explicit confirmations) writes a
+  new archive ID with a v3 manifest holding immutable, hash-verified references
+  to unchanged healthy shards. Those shards are not re-uploaded; only moved or
+  damaged shards are written. The default remains FullCopy.
+- Exact execution contract and storage preview: plans pin the exact per-object
+  output layout (keep/create, source/destination, root, size, hash, group,
+  layout and backing/capacity/failure bindings). CLI and GUI show a same-storage
+  preview of current/after-retire usage, transfer flow, whole-copy bytes,
+  physical peak, fresh quota checks, a shared reservation, free space/headroom
+  and blocking reasons. Source retirement credit is always zero.
+
+### Requirements and known limitations
+
+- All PCs must be upgraded and stopped before a minimal-transfer run, and older
+  clients must never reconnect afterwards. Application fences cannot forcibly
+  stop an older client from deleting old v2 sources.
+- Borrowed source folders stay protected as whole, sticky namespaces: there is
+  **NO automatic source space reclamation**.
+- In-place repair of v3 archives is blocked (read/restore are supported).
+  Uncertain re-encoding and coding/layout changes are blocked in minimal mode
+  without a silent full-copy fallback. Legacy plans lacking an exact execution
+  contract must be re-planned.
+- Metadata sizes are conservative bounds, not exact provider billing. Balancing
+  moves whole shards within a 5% gap; it is not a perfect balance.
+- Reservations are process-only and do not guarantee correctness against other
+  PCs or provider quota lag. Persisted cross-process reconciliation of unknown
+  shadow writes is incomplete, so retries may be conservatively blocked.
+- Old-copy cleanup still requires creation evidence; mixed encodings block
+  cleanup; the seven-day grace, all-writers-stopped acknowledgement and
+  workspace/reference checks remain mandatory.
+- NAS limits of 1 archive / 1 shard transfer are a mitigation, not a proven root
+  cause. Protected PC-sync conflicts and intermittent-disconnect causality
+  remain unresolved; capacity declarations remain PC-local.
+- Validation is **release builds only**: no automated tests, smoke tests,
+  independent QA, GUI runtime, rebalance or cleanup execution. The local Windows
+  GNU build excludes WinFsp; distributed Windows binaries use native MSVC with
+  default WinFsp features in the unchanged release workflow. Successful builds
+  are not Windows/runtime qualification.
+
 ## 2.23.0-rc.6 — 2026-11-20 (experimental/testing prerelease)
 
 **EXPERIMENTAL / TESTING ONLY — NOT all issues are fixed. Back up first,

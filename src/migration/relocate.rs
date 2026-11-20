@@ -3,7 +3,7 @@
 //! archive on the new policy, moving as little as possible. The original
 //! archive is never modified or deleted.
 //!
-//! # Copy, not borrow (phase 1)
+//! # Default full-copy mode (legacy behavior)
 //!
 //! Every shard of the replacement is written under the new archive's own
 //! object paths (`<remote>/<new_archive_id>/...`); the new manifest never
@@ -42,6 +42,10 @@
 //! - group with an unreadable shard: `required` readable shards are
 //!   downloaded, the rest is rebuilt and uploaded (read back by the write);
 //!   kept readable shards of such a group are still copied server-side.
+//!
+//! Explicit `relocate_minimal` instead preserves exact unchanged addresses as
+//! read-only v3 immutable references; source namespaces get sticky retention
+//! fences and no borrowed object is a write/delete/rollback target.
 //!
 //! Every shard of the replacement has a verification record before the
 //! manifest is published; the old unconditional full scan is replaced by these.
@@ -158,7 +162,9 @@ pub(crate) fn relocate(
     // RPOOL_MIGRATE_NO_COPY=1: phase 1 behaviour (download + upload), e.g. to
     // compare transfers or to avoid a provider whose server-side copy misbehaves.
     let copier = (!env_flag("RPOOL_MIGRATE_NO_COPY")).then(|| RcloneCopier::new(rclone));
-    relocate_with_storage(
+    relocate_impl(
+        false,
+        &BTreeSet::new(),
         &pool_writer(rclone, target),
         copier.as_ref().map(|c| c as &dyn ShardCopier),
         source,
@@ -499,7 +505,7 @@ fn check_inputs(
     domains: &[String],
     new_archive_id: &str,
 ) -> Result<()> {
-    if source.version != 2 {
+    if !matches!(source.version, 2 | 3) {
         bail!("relocation requires a v2 manifest");
     }
     validate_manifest(source)?;
@@ -635,7 +641,18 @@ pub(super) fn relocate_with_storage(
     new_archive_id: &str,
     work_dir: &Path,
 ) -> Result<Relocated> {
+    relocate_impl(false, &BTreeSet::new(), storage, copier, source, target, remotes, domains, pinned, new_archive_id, work_dir)
+}
+
+fn relocate_impl(minimal: bool, force_create:&BTreeSet<u32>, storage: &StorageWriter, copier: Option<&dyn ShardCopier>, source: &Manifest, target: &PoolDefinition, remotes: &[String], domains: &[String], pinned: &BTreeMap<u32,String>, new_archive_id: &str, work_dir: &Path) -> Result<Relocated> {
     check_inputs(source, target, remotes, domains, new_archive_id)?;
+    if minimal {
+        // Verify every borrowed input BEFORE any new namespace write.
+        for shard in &source.shards {
+            if !force_create.contains(&shard.index) && pinned.get(&shard.index).is_none_or(|r|r==&shard.remote) { storage.reader().verify(shard,true).context("borrowed shard validation failed; no fallback copy")?; }
+        }
+        crate::manifest::object_fence::protect(storage, source)?;
+    }
     // A pinned shard is placed as if it already lived on its destination, so
     // the slot assignment keeps it there and the copy below moves it.
     let pin = |shard: &Shard| -> Result<Option<usize>> {
@@ -723,7 +740,25 @@ pub(super) fn relocate_with_storage(
         ),
         None => (usize::MAX, false),
     };
-    let assigned = assign_replacement_slots(domains, &slots, bound, strict)?;
+    let assigned = if pinned.len() == source.shards.len() {
+        // Exact plans freeze every shard, including keeps. Validate, do not
+        // feed frozen destinations back into a placement optimizer.
+        let assigned=source.shards.iter().map(|s|pin(s)?.context("missing frozen shard destination")).collect::<Result<Vec<_>>>()?;
+        if strict {
+            let mut counts=BTreeMap::<(u32,String),usize>::new();
+            for (s,&dst) in source.shards.iter().zip(&assigned) {
+                let n=counts.entry((s.group,domains[dst].clone())).or_default();*n+=1;
+                if *n>bound {bail!("frozen destination violates outage bound; replan");}
+            }
+        }
+        assigned
+    } else {assign_replacement_slots(domains, &slots, bound, strict)?};
+    // Never silently execute a different rebalance destination.
+    for (s, &dst) in source.shards.iter().zip(&assigned) {
+        if let Some(expected) = pinned.get(&s.index) {
+            if &remotes[dst] != expected { bail!("frozen destination conflicts with placement safety; replan, no objects written"); }
+        }
+    }
 
     let source_objects: BTreeSet<&str> = source.shards.iter().map(|s| s.object.as_str()).collect();
     let mut shards = Vec::with_capacity(source.shards.len());
@@ -735,12 +770,17 @@ pub(super) fn relocate_with_storage(
             remote,
             &relative_object(new_archive_id, shard, source.coding.as_ref()),
         );
-        if source_objects.contains(moved.object.as_str()) {
+        if minimal && !force_create.contains(&shard.index) && pinned.get(&shard.index).is_none_or(|r|r==&shard.remote) && probed[shard.index as usize].problem.is_some() { bail!("borrowed source changed after hash validation; replan, no fallback allocation"); }
+        if minimal && !force_create.contains(&shard.index) && remote == &shard.remote && probed[shard.index as usize].problem.is_none() {
+            moved.object = shard.object.clone();
+        }
+        if !minimal && source_objects.contains(moved.object.as_str()) {
             bail!("relocation destination {} is a source object", moved.object);
         }
         shards.push(moved);
     }
-    let manifest = Manifest {
+    let mut manifest = Manifest {
+        shared: None,
         version: 2,
         archive_id: new_archive_id.to_owned(),
         original_name: source.original_name.clone(),
@@ -757,6 +797,12 @@ pub(super) fn relocate_with_storage(
         coding: source.coding.clone(),
         shards,
     };
+    if minimal {
+        manifest.version = 3;
+        manifest.shared = Some(crate::models::SharedObjects { capability: "immutable-borrowed-objects-v1".into(), source_fingerprint: crate::manifest::manifest_fingerprint(source)?,
+            objects: manifest.shards.iter().map(|s| crate::models::ObjectIdentity { index:s.index, owner: if source_objects.contains(s.object.as_str()) { source.shared.as_ref().and_then(|x|x.objects.iter().find(|o|o.index==s.index)).map(|o|o.owner.clone()).unwrap_or_else(||source.archive_id.clone()) } else { new_archive_id.into() }, remote:s.remote.clone(),object:s.object.clone(),size:s.size,blake3:s.blake3.clone() }).collect() });
+        manifest.content_root_blake3 = crate::manifest::content_root_v3(&manifest)?;
+    }
     validate_manifest(&manifest)?;
     if let Some(coding) = &manifest.coding {
         let (safety, max) = manifest_single_provider_failure_safety(&manifest, coding);
@@ -769,6 +815,8 @@ pub(super) fn relocate_with_storage(
     }
     let publication = publication_remotes(&manifest, remotes, target.placement);
     let manifest_bytes = serde_json::to_vec_pretty(&manifest)?;
+    let metadata_bound=(serde_json::to_vec(source)?.len() as u64).checked_mul(8).and_then(|n|n.checked_add((source.shards.len() as u64).checked_mul(4096)?)).and_then(|n|n.checked_add(1024*1024)).context("metadata bound overflow")?;
+    if manifest_bytes.len() as u64 > metadata_bound {bail!("actual manifest exceeds frozen metadata bound; no output publication");}
 
     // 4. Never overwrite foreign data: an existing destination must already
     //    hold exactly the expected content (an earlier attempt of this id).
@@ -1030,6 +1078,10 @@ pub(super) fn relocate_with_storage(
     // 7. Publish the manifest replicas.
     let manifest_locations =
         replicate_manifest_with_storage(storage, &manifest, &publication, retries.max(1))?;
+    if minimal {
+        let reports = crate::manifest::verify_manifest_replicas_with_storage(reader, &manifest, &publication)?;
+        if reports.iter().any(|r| !r.healthy) { bail!("v3 manifest replica fresh-read mismatch; source retained"); }
+    }
     if manifest_locations.is_empty() {
         bail!("relocated archive {new_archive_id} has no manifest replica");
     }
@@ -1060,3 +1112,10 @@ pub(super) fn relocate_with_storage(
 #[cfg(test)]
 #[path = "relocate_tests.rs"]
 mod tests;
+
+/// Explicit immutable borrowing. Callers must validate acknowledgements and frozen spec.
+pub(crate) fn relocate_minimal(rclone:&str,source:&Manifest,target:&PoolDefinition,pinned:&BTreeMap<u32,String>,new_archive_id:&str,work_dir:&Path,force_create:&BTreeSet<u32>)->Result<Relocated> {
+ let remotes=crate::remote_root::apply_remote_roots(target.remotes.clone())?;
+ let domains=outage_domains(rclone,&remotes,target.placement)?;
+ relocate_impl(true,force_create,&pool_writer(rclone,target),None,source,target,&remotes,&domains,pinned,new_archive_id,work_dir)
+}

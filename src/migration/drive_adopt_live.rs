@@ -61,6 +61,7 @@ impl AdoptIo for LiveAdopt<'_> {
         crate::manifest::load_manifest(self.rclone, location)
     }
     fn catch_up(&self, files: &[DriveFile]) -> Result<(RunSummary, BTreeSet<String>)> {
+        super::exact::ack(self.plan)?;
         let target = &self.plan.target;
         let cloud = RcloneCloud::new(self.rclone, target.placement == Placement::Resilient);
         let target_set: BTreeSet<String> = target.remotes.iter().cloned().collect();
@@ -71,6 +72,9 @@ impl AdoptIo for LiveAdopt<'_> {
         let options = PlanOptions {
             workers,
             reapply_placement: self.plan.reapply_placement,
+            minimal_transfer: self.plan.minimal_ack.is_some(),
+            all_pcs_upgraded: self.plan.minimal_ack.as_ref().is_some_and(|a|a.all_pcs_upgraded),
+            all_pcs_stopped: self.plan.minimal_ack.as_ref().is_some_and(|a|a.all_pcs_stopped),
             ..Default::default()
         };
         let classified = classify(

@@ -35,6 +35,7 @@ mod tests {
     #[test]
     fn resilient_does_not_publish_metadata_to_unused_full_targets() {
         let manifest = Manifest {
+            shared: None,
             version: 1,
             archive_id: "test".into(),
             original_name: "file".into(),

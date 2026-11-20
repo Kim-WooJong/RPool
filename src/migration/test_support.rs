@@ -65,6 +65,7 @@ pub(crate) fn manifest(
         stripe_size: 1048576,
     });
     let mut out = Manifest {
+        shared: None,
         version: 2,
         archive_id: id.into(),
         original_name: format!("{id}.bin"),

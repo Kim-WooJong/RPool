@@ -22,6 +22,7 @@ pub(super) fn content(seed: &str, size: u64) -> Content {
         slot: 0,
     }];
     let manifest = Manifest {
+        shared: None,
         version: 2,
         archive_id: format!("virtual-{}", hex(seed)),
         original_name: format!("synthetic-{seed}.bin"),

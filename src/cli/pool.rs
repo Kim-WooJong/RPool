@@ -248,6 +248,13 @@ pub(crate) enum MigrateCommands {
         /// and new cloud space until the originals are retired.
         #[arg(long, conflicts_with = "rebalance")]
         reapply_placement: bool,
+        /// Reuse verified unchanged objects read-only; requires every PC upgraded and stopped.
+        #[arg(long, conflicts_with = "reapply_placement")]
+        minimal_transfer: bool,
+        #[arg(long, requires = "minimal_transfer")]
+        all_pcs_upgraded: bool,
+        #[arg(long, requires = "minimal_transfer")]
+        all_pcs_stopped: bool,
         #[arg(long)]
         /// Print JSON instead of text.
         json: bool,

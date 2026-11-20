@@ -125,6 +125,12 @@ pub(crate) fn run(
     let mut plan = journal
         .load_plan()?
         .ok_or_else(|| anyhow!("migration not found in the cloud: {migration_id}"))?;
+    super::exact::ack(&plan)?;
+    let mut combined=plan.entries.clone();
+    if let Some(d)=super::drive_journal::load_plan(&journal)? {combined.extend(d.entries.iter().map(super::drive_run::as_entry));}
+    let fresh=super::storage_preview::fresh(rclone,&plan.target)?;
+    let preview=super::storage_preview::preview(&fresh,combined);
+    if !preview.admitted {bail!("fresh physical peak admission blocked: {}",serde_json::to_string(&preview)?);}
     if plan.migration_id != migration_id || plan.pool != pool {
         bail!("journal plan does not belong to {pool}/{migration_id}");
     }
@@ -429,7 +435,7 @@ pub(crate) fn order(entries: &[Entry]) -> Vec<&Entry> {
         .filter(|e| {
             matches!(
                 e.action,
-                Action::Relocate | Action::Reencode | Action::ReapplyPlacement
+                Action::Relocate | Action::RelocateMinimal | Action::Reencode | Action::ReapplyPlacement
             )
         })
         .collect();
@@ -761,7 +767,7 @@ fn process_entry(
         total,
         entry.original_name,
         match entry.action {
-            Action::Relocate => "relocate",
+            Action::Relocate | Action::RelocateMinimal => "relocate",
             _ => "reencode",
         }
     );
@@ -1020,12 +1026,14 @@ impl Effects for LiveEffects<'_> {
     }
     fn build(&self, entry: &Entry, new_archive_id: &str) -> Result<Replacement> {
         let manifest = self.load_source(entry)?;
+        super::exact::validate(entry, &manifest, &self.plan.target)?;
         if crate::manifest::manifest_fingerprint(&manifest)? != entry.fingerprint {
             bail!("source manifest changed since planning");
         }
         super::discard::record_creation(self.rclone, self.journal, entry, &manifest, &self.plan.target, new_archive_id);
         let work = self.work_root.join(new_archive_id);
         fs::create_dir_all(&work)?;
+        let admission=super::storage_preview::admit_entry(self.rclone,&self.plan.target,entry,new_archive_id,&work)?;
         // Shard transfers are fixed for this archive when it starts.
         let target = LiveControl::target_for_next_archive(self.live, &self.plan.target);
         if self.live.is_some() {
@@ -1035,8 +1043,12 @@ impl Effects for LiveEffects<'_> {
             );
         }
         let (produced, locations) = match entry.action {
-            Action::Relocate => {
-                let r = super::relocate::relocate(
+            Action::Relocate | Action::RelocateMinimal => {
+                let relocate = |rclone, source: &Manifest, target: &PoolDefinition, moves: &BTreeMap<u32,String>, id: &str, work: &Path| {
+                    if entry.action == Action::RelocateMinimal { let create=entry.exact.as_ref().context("missing exact spec")?.objects.iter().filter(|o|!o.keep_ref).map(|o|o.index).collect(); super::relocate::relocate_minimal(rclone,source,target,moves,id,work,&create) }
+                    else {super::relocate::relocate(rclone,source,target,moves,id,work)}
+                };
+                let r = relocate(
                     self.rclone,
                     &manifest,
                     &target,
@@ -1070,6 +1082,7 @@ impl Effects for LiveEffects<'_> {
             .into_iter()
             .next()
             .context("replacement has no manifest replica")?;
+        admission.written()?;
         // Best effort: the local copy is only a cache; failure is harmless.
         let _ = fs::remove_dir_all(&work);
         Ok(Replacement {
@@ -1146,6 +1159,7 @@ pub(crate) mod tests_support {
             losses: vec![],
             detail: None,
             moves: Default::default(),
+            exact: None,
         }
     }
 
@@ -1158,6 +1172,8 @@ pub(crate) mod tests_support {
             created_by: "pc1".into(),
             target: crate::models::PoolDefinition::default(),
             reapply_placement: false,
+            minimal_ack: None,
+            storage_preview: None,
             entries,
             counts: Counts::default(),
             download_bytes: 0,

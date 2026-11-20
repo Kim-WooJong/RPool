@@ -40,7 +40,7 @@ use std::collections::HashMap;
 use std::sync::Condvar;
 use std::time::{Duration, Instant};
 
-mod disk;
+pub(crate) mod disk;
 mod fetch;
 mod flight;
 mod index;
@@ -757,6 +757,7 @@ mod tests {
                 content_root_v1(&shards)
             };
             let manifest = Manifest {
+                shared: None,
                 version: if coded { 2 } else { 1 },
                 archive_id: "fixture".into(),
                 original_name: "input".into(),

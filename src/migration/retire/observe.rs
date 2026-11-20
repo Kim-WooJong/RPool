@@ -87,6 +87,9 @@ fn current_original(
         match parsed {
             Ok((fp, manifest)) if fp != entry.fingerprint => return Ok(Some(manifest)),
             Ok((_, manifest)) => {
+                for shard in &manifest.shards {
+                    if let Err(e)=crate::manifest::object_fence::guard(reader,&shard.object) {errors.push(format!("protected/shared source: {e:#}"));}
+                }
                 found.get_or_insert(manifest);
             }
             Err(error) => errors.push(format!("{address}: {error:#}")),
@@ -126,7 +129,7 @@ pub(crate) fn observe(
         .filter(|e| {
             matches!(
                 e.action,
-                Action::Relocate | Action::Reencode | Action::ReapplyPlacement
+                Action::Relocate | Action::RelocateMinimal | Action::Reencode | Action::ReapplyPlacement
             )
         })
         .filter_map(|e| match state.get(&e.archive_id) {

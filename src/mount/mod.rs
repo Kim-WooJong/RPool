@@ -44,7 +44,7 @@ pub(crate) mod peer_projection;
 pub(crate) mod pool_sync;
 mod pool_transition;
 pub(crate) mod rclone_import;
-mod shard_cache;
+pub(crate) mod shard_cache;
 mod shared_model;
 pub(crate) mod shutdown_signal;
 mod spool;
