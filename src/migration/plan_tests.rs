@@ -83,7 +83,8 @@ fn removing_one_remote_relocates_without_loss_and_lists_each_remote_once() {
     assert_eq!(f2.upload_bytes, 3 * MIB);
     assert_eq!(f2.download_bytes, 2 * MIB + 3 * MIB);
     assert_eq!(f2.losses[0].missing[0].reason, MissingReason::Missing);
-    assert_eq!(plan.new_storage_bytes, 6 * MIB);
+    assert_eq!(plan.new_storage_bytes,plan.entries.iter().filter_map(|e|e.exact.as_ref()).map(|s|s.additional_bytes).sum::<u64>());
+    assert!(plan.new_storage_bytes>=6*MIB);
     assert_eq!(plan.upload_bytes, 6 * MIB);
     assert_eq!(plan.migration_id.len(), 32);
     assert!(plan.estimated_seconds.is_none() || plan.download_mib_s.is_some());
@@ -131,7 +132,7 @@ fn server_side_copy_features_cut_the_estimate_and_add_a_note() {
     assert_eq!((f2.download_bytes, f2.upload_bytes), (2 * MIB, MIB));
     let f3 = plan.entries.iter().find(|e| e.archive_id == "f3").unwrap();
     assert_eq!((f3.download_bytes, f3.upload_bytes), (2 * MIB, MIB));
-    assert_eq!(plan.new_storage_bytes, 6 * MIB, "still a full copy");
+    assert!(plan.new_storage_bytes >= 6 * MIB, "full copy plus metadata/encryption bound");
     let note = plan
         .notes
         .iter()
@@ -353,7 +354,8 @@ fn rebalance_relocates_unaffected_archives_toward_an_empty_account() {
         .collect();
     assert!(!moved.is_empty());
     for entry in moved {
-        assert!(entry.moves.values().all(|r| r == "d:"), "{:?}", entry.moves);
+        assert!(entry.moves.values().any(|r| r == "d:"), "{:?}", entry.moves);
+        assert_eq!(entry.moves.len(),entry.exact.as_ref().unwrap().objects.len(),"whole output map must be frozen");
         assert!(entry.upload_bytes > 0);
     }
 }

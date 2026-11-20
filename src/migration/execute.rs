@@ -122,18 +122,7 @@ pub(crate) fn run(
     options: &RunOptions,
 ) -> Result<()> {
     let journal = Journal::open(rclone, pool, migration_id)?;
-    let mut plan = journal
-        .load_plan()?
-        .ok_or_else(|| anyhow!("migration not found in the cloud: {migration_id}"))?;
-    super::exact::ack(&plan)?;
-    let mut combined=plan.entries.clone();
-    if let Some(d)=super::drive_journal::load_plan(&journal)? {combined.extend(d.entries.iter().map(super::drive_run::as_entry));}
-    let fresh=super::storage_preview::fresh(rclone,&plan.target)?;
-    let preview=super::storage_preview::preview(&fresh,combined);
-    if !preview.admitted {bail!("fresh physical peak admission blocked: {}",serde_json::to_string(&preview)?);}
-    if plan.migration_id != migration_id || plan.pool != pool {
-        bail!("journal plan does not belong to {pool}/{migration_id}");
-    }
+    let (plan, records) = load_resume(&journal, pool, migration_id)?;
     if crate::pool::load_pool_store()
         .ok()
         .and_then(|store| store.pools.get(pool).cloned())
@@ -143,14 +132,14 @@ pub(crate) fn run(
     }
     // What `--transfers 0` / no `--transfers` means, before throttling.
     let pool_workers = plan.target.workers.max(1);
-    let parallel = options.throttle(&mut plan)?;
+    let mut runtime_plan=plan.clone();
+    let parallel = options.throttle(&mut runtime_plan)?;
     let live_run = open_live(options, parallel, pool, migration_id, pool_workers)?;
     let options = &RunOptions {
         parallel,
         live: live_run.as_ref().map(LiveRun::control),
         ..options.clone()
     };
-    let records = journal.records()?;
     let work_root = crate::config::app_config_dir()?
         .join("migrations")
         .join(migration_id);
@@ -165,6 +154,7 @@ pub(crate) fn run(
         switch_lock: Mutex::new(()),
         first_failure: Mutex::new(None),
         live: options.live.as_deref(),
+        runtime_target: &runtime_plan.target,
     };
     println!(
         "migration_parallel={}",
@@ -172,47 +162,7 @@ pub(crate) fn run(
     );
     let pc = pc_id();
     let live = options.live.as_deref();
-    let mut summary = run_core_with(&plan, &records, &pc, &effects, options.parallel, live)?;
-    if !summary.stopped && !summary.unknown.is_empty() {
-        // Only proven not-performed failures may receive a fresh automatic
-        // attempt; ambiguous writes remain pending for explicit review.
-        let retry_records = journal.records()?;
-        let retry_state = progress(&retry_records);
-        // A fresh archive id is not permission to automatically repeat an
-        // ambiguous mutation. Keep those failures pending for explicit review.
-        let retry: Vec<_> = unknown_entries(&plan, &retry_records).into_iter().filter(|entry| {
-            match retry_state.get(&entry.archive_id) {
-                Some(Progress::Unknown(r)) => r.detail.as_deref().is_some_and(|note| {
-                    crate::storage::error::FailureDiagnostic::from_note(note, r.ts_unix).outcome
-                        != crate::storage::error::FailureOutcome::Unknown
-                }),
-                _ => false,
-            }
-        }).collect();
-        if !retry.is_empty() {
-            println!("migration_retry_unknown={}", retry.len());
-            std::thread::sleep(RETRY_UNKNOWN_DELAY);
-            let names: Vec<String> = retry.iter().map(|e| e.original_name.clone()).collect();
-            let retry_plan = Plan {
-                entries: retry,
-                ..plan.clone()
-            };
-            let second = run_core_with(
-                &retry_plan,
-                &journal.records()?,
-                &pc,
-                &effects,
-                options.parallel,
-                live,
-            )?;
-            summary.unknown.retain(|u| !names.contains(u));
-            summary.unknown.extend(second.unknown);
-            summary.switched_now += second.switched_now;
-            summary.lost += second.lost;
-            summary.claimed_elsewhere += second.claimed_elsewhere;
-            summary.stopped = second.stopped;
-        }
-    }
+    let mut summary = resume_entries(&journal, &plan, &records, &pc, &effects, options.parallel, live)?;
     // Drive files go last (they switch only on adoption).
     if !summary.stopped {
         match super::drive_run::run(rclone, &journal, &plan, options, &pc) {
@@ -235,6 +185,83 @@ pub(crate) fn run(
         Some(cause) => result.map_err(|termination| termination.context(format!("first provider cause={cause}; final termination follows"))),
         None => result,
     }
+}
+
+/// Journal-authoritative resume inputs of [`run`]: the frozen plan and the
+/// records, read only. Never publishes or rewrites the immutable plan and
+/// never queries quotas; finished/Verified entries need no new reservation.
+pub(crate) fn load_resume(journal: &Journal, pool: &str, migration_id: &str) -> Result<(Plan, Vec<Record>)> {
+    let plan = journal
+        .load_plan()?
+        .ok_or_else(|| anyhow!("migration not found in the cloud: {migration_id}"))?;
+    super::exact::ack(&plan)?;
+    super::plan::ensure_complete(&plan)?;
+    // Journal completion is authoritative. Finished/Verified entries require
+    // no new output reservation; pending entries derive legacy contracts at build.
+    let records = journal.records()?;
+    if is_abandoned(&records) {bail!("migration was abandoned; create a new plan");}
+    if plan.migration_id != migration_id || plan.pool != pool {
+        bail!("journal plan does not belong to {pool}/{migration_id}");
+    }
+    Ok((plan, records))
+}
+
+/// The archive part of [`run`]: one resume pass over `records` plus the single
+/// automatic retry of proven not-performed failures (journal re-read). Every
+/// output preparation/admission happens inside `Effects::build` (production:
+/// `LiveEffects::build` → `exact::prepare` + `storage_preview::admit_entry`),
+/// so only entries that actually build are charged.
+pub(crate) fn resume_entries(
+    journal: &Journal,
+    plan: &Plan,
+    records: &[Record],
+    pc: &str,
+    effects: &dyn Effects,
+    parallel: Option<usize>,
+    live: Option<&LiveControl>,
+) -> Result<RunSummary> {
+    let mut summary = run_core_with(plan, records, pc, effects, parallel, live)?;
+    if !summary.stopped && !summary.unknown.is_empty() {
+        // Only proven not-performed failures may receive a fresh automatic
+        // attempt; ambiguous writes remain pending for explicit review.
+        let retry_records = journal.records()?;
+        let retry_state = progress(&retry_records);
+        // A fresh archive id is not permission to automatically repeat an
+        // ambiguous mutation. Keep those failures pending for explicit review.
+        let retry: Vec<_> = unknown_entries(plan, &retry_records).into_iter().filter(|entry| {
+            match retry_state.get(&entry.archive_id) {
+                Some(Progress::Unknown(r)) => r.detail.as_deref().is_some_and(|note| {
+                    crate::storage::error::FailureDiagnostic::from_note(note, r.ts_unix).outcome
+                        != crate::storage::error::FailureOutcome::Unknown
+                }),
+                _ => false,
+            }
+        }).collect();
+        if !retry.is_empty() {
+            println!("migration_retry_unknown={}", retry.len());
+            std::thread::sleep(RETRY_UNKNOWN_DELAY);
+            let names: Vec<String> = retry.iter().map(|e| e.original_name.clone()).collect();
+            let retry_plan = Plan {
+                entries: retry,
+                ..plan.clone()
+            };
+            let second = run_core_with(
+                &retry_plan,
+                &journal.records()?,
+                pc,
+                effects,
+                parallel,
+                live,
+            )?;
+            summary.unknown.retain(|u| !names.contains(u));
+            summary.unknown.extend(second.unknown);
+            summary.switched_now += second.switched_now;
+            summary.lost += second.lost;
+            summary.claimed_elsewhere += second.claimed_elsewhere;
+            summary.stopped = second.stopped;
+        }
+    }
+    Ok(summary)
 }
 
 /// Opens the run's live controls. With an explicit `--control-dir` a
@@ -980,6 +1007,7 @@ fn unknown(
 
 /// Production [`Effects`] for archives over rclone and the cloud journal.
 struct LiveEffects<'a> {
+    runtime_target: &'a PoolDefinition,
     /// rclone executable.
     rclone: &'a str,
     /// The migration's cloud journal.
@@ -1026,16 +1054,19 @@ impl Effects for LiveEffects<'_> {
     }
     fn build(&self, entry: &Entry, new_archive_id: &str) -> Result<Replacement> {
         let manifest = self.load_source(entry)?;
-        super::exact::validate(entry, &manifest, &self.plan.target)?;
+        let prepared=super::exact::prepare(self.rclone,entry,&manifest,&self.plan.target)?;
+        let entry=&prepared;
         if crate::manifest::manifest_fingerprint(&manifest)? != entry.fingerprint {
             bail!("source manifest changed since planning");
         }
-        super::discard::record_creation(self.rclone, self.journal, entry, &manifest, &self.plan.target, new_archive_id);
+
         let work = self.work_root.join(new_archive_id);
         fs::create_dir_all(&work)?;
+        crate::utils::save_json_atomic(&work.join("derived-execution-contract.json"),entry)?;
         let admission=super::storage_preview::admit_entry(self.rclone,&self.plan.target,entry,new_archive_id,&work)?;
+        super::discard::record_creation(self.rclone,self.journal,entry,&manifest, &self.plan.target,new_archive_id);
         // Shard transfers are fixed for this archive when it starts.
-        let target = LiveControl::target_for_next_archive(self.live, &self.plan.target);
+        let target = LiveControl::target_for_next_archive(self.live, self.runtime_target);
         if self.live.is_some() {
             println!(
                 "  shard transfers: {} ({})",
@@ -1065,16 +1096,18 @@ impl Effects for LiveEffects<'_> {
                 );
                 (r.manifest, r.manifest_locations)
             }
-            Action::Reencode | Action::ReapplyPlacement => crate::pool::reencode_manifest(
+            Action::Reencode | Action::ReapplyPlacement => crate::pool::reencode_manifest_frozen(
                 self.rclone,
                 &entry.source,
                 &manifest,
                 &target,
                 &work,
                 new_archive_id,
+                Some(&super::full_copy::upload_plan(entry,&target,new_archive_id)?),
             )?,
             other => bail!("entry {} is not movable ({other:?})", entry.archive_id),
         };
+        super::full_copy::verify_output(entry,&produced)?;
         if produced.archive_id != new_archive_id || produced.original_size != entry.size {
             bail!("replacement identity/size mismatch");
         }
@@ -1096,6 +1129,7 @@ impl Effects for LiveEffects<'_> {
         if manifest.archive_id != new_archive_id || manifest.original_size != entry.size {
             bail!("replacement manifest identity/size mismatch");
         }
+        crate::commands::verify(self.rclone,new_manifest,true,1)?;
         Ok(())
     }
     fn switch(&self, entry: &Entry, replacement: &Replacement) -> Result<()> {

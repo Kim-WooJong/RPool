@@ -1,10 +1,10 @@
-# rpool v2.23.0-rc.8
+# rpool v2.23.0-rc.9
 
-**EXPERIMENTAL / TESTING ONLY — NOT all issues are fixed.** Back up first, review previews and test on disposable copies. Validation is release-build-only; this candidate reduces duplicate migration-plan metadata reads (no plan, test or benchmark was run, so no speedup is claimed; recursive generation discovery and repeated bounded journal waits remain), on top of the rc.7 rebalance improvements (independent same-backing disks, opt-in minimal transfer, exact layout/peak preview), whose runtime/GUI behavior is unverified. Minimal transfer requires every PC upgraded and stopped, with older clients never reconnecting; borrowed sources are retained with no automatic space reclamation. Windows runtime validation is still pending. The cause of
+**EXPERIMENTAL / TESTING ONLY — NOT all issues are fixed.** Back up first, review previews and test on disposable copies. This candidate repairs rc.8 migration-planning regressions (validated by local automated tests and release builds only; not native Windows/WinFsp, GUI or real cloud runtime validation). **Known issue, not fixed:** on an affected SMB replica the quota query succeeds but the required drive metadata/events directory still fails with an SMB I/O error; this release does not repair that server/path and does not claim that operations or data health have recovered. Planning now stops as incomplete instead of producing an empty plan; once the metadata is readable again, create a fresh complete plan and do not run older plans that recorded 0 entries for the excluded drive. Minimal transfer (opt-in; default FullCopy) requires every PC upgraded and stopped, with older clients never reconnecting; borrowed sources are retained with no automatic space reclamation. Windows runtime validation is still pending. The cause of
 intermittent disconnects remains unconfirmed; this release does not claim to
 resolve them. Individual location edits preserve legacy aliases and keys; path
 changes copy and verify encrypted data before switching, retaining the original.
-Storage permissions are never changed automatically. See [release notes](CHANGELOG.md#2230-rc8--2026-11-20-experimentaltesting-prerelease).
+Storage permissions are never changed automatically. See [release notes](CHANGELOG.md#2230-rc9--2026-11-20-experimentaltesting-prerelease).
 
 `rpool` is a Rust storage layer that stripes files across several
 **explicitly supplied rclone `crypt` remotes**, optionally with

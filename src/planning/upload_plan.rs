@@ -18,6 +18,49 @@ pub(crate) fn build_upload_plan(
     placement: Placement,
     coding: Option<Coding>,
 ) -> Result<UploadPlan> {
+    let mut plan = upload_shape(
+        source_size,
+        shard_size,
+        archive_id,
+        remotes.clone(),
+        placement,
+        coding.clone(),
+    )?;
+    let specs = physical_specs(source_size, shard_size, coding.as_ref())?;
+    let indexes = assign_remotes(
+        rclone,
+        &remotes,
+        &specs,
+        placement,
+        coding.as_ref().map(|c| c.parity_shards),
+    )?;
+    // Shape is index-sorted; assignment consumes group-interleaved order.
+    let mut order: Vec<_> = (0..plan.shards.len()).collect();
+    order.sort_by_key(|&i| {
+        (
+            plan.shards[i].group,
+            plan.shards[i].kind == ShardKind::Parity,
+            plan.shards[i].index,
+        )
+    });
+    for (i, dst) in order.into_iter().zip(indexes) {
+        let s = &mut plan.shards[i];
+        s.remote = remotes[dst].clone();
+        s.object = remote_join(&s.remote, &s.object);
+    }
+    Ok(plan)
+}
+
+/// Pure writer shape, shared by frozen migration contracts and normal put.
+pub(crate) fn upload_shape(
+    source_size: u64,
+    shard_size: u64,
+    archive_id: String,
+    remotes: Vec<String>,
+    placement: Placement,
+    coding: Option<Coding>,
+) -> Result<UploadPlan> {
+    physical_specs(source_size, shard_size, coding.as_ref())?;
     let data_count = if source_size == 0 {
         1usize
     } else {
@@ -25,7 +68,6 @@ pub(crate) fn build_upload_plan(
     };
 
     let mut plan_shards = Vec::new();
-    let specs = physical_specs(source_size, shard_size, coding.as_ref())?;
 
     if let Some(coding) = &coding {
         let groups = coding_group_count(data_count, coding.data_shards);
@@ -87,20 +129,6 @@ pub(crate) fn build_upload_plan(
                 slot: 0,
             });
         }
-    }
-
-    let remote_indexes = assign_remotes(
-        rclone,
-        &remotes,
-        &specs,
-        placement,
-        coding.as_ref().map(|c| c.parity_shards),
-    )?;
-
-    for (shard, remote_index) in plan_shards.iter_mut().zip(remote_indexes) {
-        let remote = remotes[remote_index].clone();
-        shard.object = remote_join(&remote, &shard.object);
-        shard.remote = remote;
     }
 
     plan_shards.sort_by_key(|s| s.index);

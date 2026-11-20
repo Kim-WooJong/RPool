@@ -646,7 +646,7 @@ mod capacity_tests {
         use super::{MigrateCommands as M, ProbeMode};
         assert!(matches!(
             migrate(&["plan", "p", "--probe", "full", "--download-mib-s", "10", "--upload-mib-s", "5", "--json"]),
-            M::Plan { ref pool, probe: ProbeMode::Full, download_mib_s: Some(d), upload_mib_s: Some(u), measure_speed: false, json: true, no_drive: false, rebalance: false, reapply_placement: false }
+            M::Plan { ref pool, probe: ProbeMode::Full, download_mib_s: Some(d), upload_mib_s: Some(u), measure_speed: false, json: true, no_drive: false, rebalance: false, reapply_placement: false, .. }
                 if pool == "p" && d == 10.0 && u == 5.0
         ));
         assert!(matches!(

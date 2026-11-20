@@ -30,6 +30,6 @@ pub(crate) use validate::{validate_pool, validate_pool_name};
 
 mod reprocess;
 pub(crate) use reprocess::{
-    build_plan, completed_reprocess_replacements, execute_plan, load_plan, reencode_manifest,
+    build_plan, completed_reprocess_replacements, execute_plan, load_plan, reencode_manifest, reencode_manifest_frozen,
     ReprocessPlan,
 };

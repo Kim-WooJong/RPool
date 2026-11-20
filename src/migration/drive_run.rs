@@ -24,6 +24,7 @@ pub(crate) fn run(
     options: &RunOptions,
     pc: &str,
 ) -> Result<Option<RunSummary>> {
+    super::plan::ensure_complete(plan)?;
     let Some(drive) = load_plan(journal)? else {
         return Ok(None);
     };
@@ -113,10 +114,13 @@ pub(super) fn run_entries(
         .join(&plan.migration_id)
         .join("drive");
     fs::create_dir_all(&work_root)?;
+    let mut runtime_target=plan.target.clone();
+    if let Some(transfers)=options.transfers {runtime_target.workers=transfers.max(1);}
     let effects = DriveEffects {
         rclone,
         journal,
         target: &plan.target,
+        runtime_target: &runtime_target,
         files,
         work_root,
         stop_file: options.stop_file.clone(),
@@ -158,6 +162,7 @@ pub(super) fn new_archive_id() -> Result<String> {
 /// `virtual-*` archives from the planned files; the switch itself happens
 /// only at adoption.
 struct DriveEffects<'a> {
+    runtime_target: &'a PoolDefinition,
     /// rclone executable.
     rclone: &'a str,
     /// The migration's cloud journal (records are appended here).
@@ -194,16 +199,19 @@ impl Effects for DriveEffects<'_> {
     }
     fn build(&self, entry: &Entry, new_archive_id: &str) -> Result<Replacement> {
         let file = self.file(entry)?;
-        super::exact::validate(entry, &file.manifest, self.target)?;
+        let prepared=super::exact::prepare(self.rclone,entry,&file.manifest,self.target)?;
+        let entry=&prepared;
         if crate::manifest::manifest_fingerprint(&file.manifest)? != entry.fingerprint {
             bail!("drive file payload changed since planning");
         }
-        super::discard::record_creation(self.rclone, self.journal, entry, &file.manifest, self.target, new_archive_id);
+
         let work = self.work_root.join(new_archive_id);
         fs::create_dir_all(&work)?;
+        crate::utils::save_json_atomic(&work.join("derived-execution-contract.json"),entry)?;
         let admission=super::storage_preview::admit_entry(self.rclone,self.target,entry,new_archive_id,&work)?;
+        super::discard::record_creation(self.rclone,self.journal,entry,&file.manifest,self.target,new_archive_id);
         // Shard transfers are fixed for this archive when it starts.
-        let target = LiveControl::target_for_next_archive(self.live, self.target);
+        let target = LiveControl::target_for_next_archive(self.live, self.runtime_target);
         if self.live.is_some() {
             println!(
                 "  shard transfers: {} ({})",
@@ -232,19 +240,21 @@ impl Effects for DriveEffects<'_> {
                 );
                 (r.manifest, r.manifest_locations)
             }
-            Action::Reencode | Action::ReapplyPlacement => crate::pool::reencode_manifest(
+            Action::Reencode | Action::ReapplyPlacement => crate::pool::reencode_manifest_frozen(
                 self.rclone,
                 &entry.source,
                 &file.manifest,
                 &target,
                 &work,
                 new_archive_id,
+                Some(&super::full_copy::upload_plan(entry,&target,new_archive_id)?),
             )?,
             other => bail!(
                 "drive file {} is not movable ({other:?})",
                 entry.original_name
             ),
         };
+        super::full_copy::verify_output(entry,&produced)?;
         if produced.archive_id != new_archive_id || produced.original_size != entry.size {
             bail!("replacement identity/size mismatch");
         }
@@ -265,6 +275,7 @@ impl Effects for DriveEffects<'_> {
         if manifest.archive_id != new_archive_id || manifest.original_size != entry.size {
             bail!("replacement manifest identity/size mismatch");
         }
+        crate::commands::verify(self.rclone,new_manifest,true,1)?;
         Ok(())
     }
     /// The drive switches on adoption, all files at once.

@@ -118,11 +118,16 @@ fn reapply_placement_reuploads_visible_drive_files_without_moving_lost_ones() {
 }
 
 #[test]
-fn unreadable_drive_is_left_out_with_a_note() {
+fn unreadable_included_drive_is_structurally_blocked() {
     let (cloud, mut source) = drive();
     source.fail = true;
-    let (plan, drive) = plan_for(&cloud, &source);
-    assert!(drive.is_none());
+    let options=PlanOptions::default();
+    let (mut plan,mut listed)=plan_listed(&cloud,"main",policy(&["a:x","b:x","c:x"],MIB,2,1),&InventoryStore::default(),&options,&BTreeSet::new()).unwrap();
+    let error=plan_drive(&cloud,&source,&mut plan,&mut listed,&options).unwrap_err();
+    assert!(format!("{error:#}").contains("offline"));
+    assert_eq!(plan.quota_ok,Some(false));
+    assert!(super::super::plan::ensure_complete(&plan).is_err());
+    assert!(plan.storage_preview.as_ref().is_some_and(|p|!p.admitted && p.blocked_reasons.iter().any(|r|r.contains("offline"))));
     assert!(plan
         .notes
         .iter()

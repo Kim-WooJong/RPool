@@ -146,6 +146,7 @@ pub(super) fn show(ui: &mut egui::Ui, state: &mut GuiState, task: &mut TaskRunne
         // for the adoption.
         let can_start = idle
             && (movable > 0 || drive.is_some())
+            && crate::migration::plan::ensure_complete(&plan).is_ok()
             && plan.quota_ok != Some(false)
             && drive_quota != Some(false)
             && !stale_placement;

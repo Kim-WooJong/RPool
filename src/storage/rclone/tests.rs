@@ -947,7 +947,20 @@ fn failed_mutations_name_a_fixed_reason_without_rclone_text() {
     assert!(!denied.contains("secret-name"));
     assert!(text(b"sftp: SetModTime failed: permission denied").contains("modification time"));
     assert!(text(b"dial tcp: connection refused").contains("connection to the provider failed"));
-    assert!(text(b"something odd").ends_with("did not acknowledge success"));
+    // No recognized reason: fixed wording without a hint, an allowlisted
+    // `unknown` diagnostic code only, and still an unknown (not retried) outcome.
+    let odd = process::classify_mutation(b"something odd");
+    assert_eq!(odd.kind(), StorageErrorKind::UnknownOutcome);
+    assert_eq!(
+        odd.diagnostic().map(|d| d.code),
+        Some(crate::storage::error::FailureCode::Unknown)
+    );
+    let odd = odd.to_string();
+    assert!(
+        odd.starts_with("unknown outcome: rclone mutation did not acknowledge success [diagnostic="),
+        "{odd}"
+    );
+    assert!(!odd.contains("something odd"), "{odd}");
 }
 
 #[test]

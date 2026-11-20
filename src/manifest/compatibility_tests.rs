@@ -18,7 +18,7 @@ fn setup() -> (Arc<MemoryBackend>, StorageWriter) {
     let b = Arc::new(MemoryBackend::new(BackendId::new("fixture").unwrap()));
     let mut registry = BackendRegistry::new();
     registry.register(b.clone()).unwrap();
-    let bindings = BTreeMap::from([
+    let mut bindings = BTreeMap::from([
         (
             "src:golden/manifest.json".into(),
             ObjectRef::new(b.id(), ObjectKey::new("source").unwrap()),
@@ -32,6 +32,7 @@ fn setup() -> (Arc<MemoryBackend>, StorageWriter) {
             ObjectRef::new(b.id(), ObjectKey::new("data").unwrap()),
         ),
     ]);
+    crate::manifest::object_fence::bind_absent_fences(&mut registry, &mut bindings);
     (
         b,
         StorageWriter::synthetic(StorageReader::from_registry(

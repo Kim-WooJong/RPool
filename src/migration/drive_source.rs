@@ -39,7 +39,7 @@ impl CloudDrive {
 
 impl DriveSource for CloudDrive {
     fn generations(&self) -> Result<Vec<GenerationRef>> {
-        let listed = crate::pool::browse_generations::discover(
+        let listed = crate::pool::browse_generations::discover_strict(
             &self.rclone,
             &self.pool,
             &self.policy.remotes,

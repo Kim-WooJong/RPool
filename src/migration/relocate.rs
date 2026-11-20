@@ -157,7 +157,8 @@ pub(crate) fn relocate(
     new_archive_id: &str,
     work_dir: &Path,
 ) -> Result<Relocated> {
-    let remotes = crate::remote_root::apply_remote_roots(target.remotes.clone())?;
+    // Migration targets are resolved when planned; never reinterpret frozen roots.
+    let remotes = target.remotes.clone();
     let domains = outage_domains(rclone, &remotes, target.placement)?;
     // RPOOL_MIGRATE_NO_COPY=1: phase 1 behaviour (download + upload), e.g. to
     // compare transfers or to avoid a provider whose server-side copy misbehaves.
@@ -725,21 +726,7 @@ fn relocate_impl(minimal: bool, force_create:&BTreeSet<u32>, storage: &StorageWr
             })
         })
         .collect::<Result<_>>()?;
-    let (bound, strict) = match &source.coding {
-        Some(_)
-            if matches!(
-                target.placement,
-                Placement::FreeRatioUnbounded | Placement::CapacityFirst
-            ) =>
-        {
-            (usize::MAX, false)
-        }
-        Some(coding) => (
-            coding.parity_shards,
-            target.placement == Placement::Resilient,
-        ),
-        None => (usize::MAX, false),
-    };
+    let (bound, strict) = super::exact::relocation_bound(source,target);
     let assigned = if pinned.len() == source.shards.len() {
         // Exact plans freeze every shard, including keeps. Validate, do not
         // feed frozen destinations back into a placement optimizer.

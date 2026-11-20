@@ -2,6 +2,79 @@
 
 ## Unreleased
 
+## 2.23.0-rc.9 — 2026-11-20 (experimental/testing prerelease)
+
+**EXPERIMENTAL / TESTING ONLY — NOT all issues are fixed. Back up first, review
+every preview, and test only on disposable copies of your data. This candidate
+is not a production qualification and makes no claim that every operation is
+safe or fixed; a stable release requires user feedback.**
+
+Repairs for rc.8 migration regressions (verified with local fixture tests):
+
+- Normal (non-rebalance) relocation away from a removed root freezes its
+  planned destinations, so execution no longer requires a rebalance re-plan.
+- Normal Reencode/Reapply plans carry a full output contract that execution
+  checks against the same shared writer that performs the actual writes,
+  instead of being permanently rejected as needing a re-plan.
+- Resuming an older (legacy) plan is state-aware: already finished entries cost
+  nothing and are not rewritten, and the immutable plan bytes are preserved.
+- Runtime worker/retry settings are separated from the structural plan digest
+  (including compatibility with old v1 digests), so changing them no longer
+  invalidates a plan.
+- Peak scratch space is charged once per entry, and cipher metadata overhead is
+  no longer counted twice.
+- When a drive's required metadata cannot be read, planning stops and reports
+  the plan as incomplete instead of producing an empty "successful" plan. An
+  explicitly selected no-drive plan is still allowed.
+- Failures on shared metadata and generation listings name the failing replica
+  (safe name) and keep the original classified cause; raw provider stderr and
+  physical paths remain redacted.
+- Regression-test fixtures were corrected (crypt-over-local destinations and
+  absent-fence bindings) so tests reach the intended code paths; production
+  crypt and fence guards remain enforced. A previously deadlocking test is
+  re-enabled.
+
+Validation (local only):
+
+- macOS all-targets test run: 1256 passed, 0 failed, 66 ignored (unchanged
+  set), 0 filtered, including memory-backend writer readback/restore tests. The
+  top-level resume test counts admission/build calls at the execution-effects
+  boundary; it does not measure real provider quota.
+- Local release builds: macOS (no default features) and a Windows GNU cross
+  build without WinFsp. Distributed binaries come from the unchanged release
+  workflow (Windows: native MSVC with default WinFsp features). None of this is
+  native Windows/WinFsp, GUI or operational cloud validation.
+
+### Known issue (not fixed in this release)
+
+- On an affected SMB replica the account/quota query succeeds, but listing the
+  required drive metadata/events directory still fails with an SMB I/O error.
+  **This release does not repair the SMB server or path, and does not claim
+  that all operations have recovered or that data health is proven.** With this
+  candidate, planning stops as incomplete instead of creating an empty plan.
+  After the metadata is readable again, create a fresh complete plan; do not
+  run older plans that recorded 0 entries for the excluded drive. Do not skip
+  the replica or reinitialize storage to work around it.
+
+### Requirements and known limitations (carried from rc.8)
+
+- Minimal transfer remains opt-in; the default is still FullCopy. Before a
+  minimal-transfer run all related PCs must be upgraded and stopped, and older
+  clients must never reconnect afterwards.
+- Borrowed source folders stay protected as whole, sticky namespaces: there is
+  **NO automatic source space reclamation**.
+- In-place repair of v3 archives is blocked (read/restore are supported).
+  Uncertain re-encoding remains blocked in minimal mode.
+- Reservations and shadow-write quota accounting are process-local only; there
+  is no global cross-PC or provider quota guarantee.
+- Old-copy cleanup still requires creation evidence; mixed encodings block
+  cleanup; the seven-day grace, all-writers-stopped acknowledgement and
+  workspace/reference checks remain mandatory.
+- Protected PC-sync conflicts and intermittent-disconnect causality remain
+  unresolved; capacity declarations remain PC-local. The rc.8 planning latency
+  limitations (recursive generation discovery, repeated bounded journal waits)
+  remain.
+
 ## 2.23.0-rc.8 — 2026-11-20 (experimental/testing prerelease)
 
 **EXPERIMENTAL / TESTING ONLY — build-only validation. NOT all issues are fixed

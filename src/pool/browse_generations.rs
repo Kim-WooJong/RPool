@@ -57,6 +57,12 @@ pub(crate) fn discover(
     pool: &str,
     remotes: &[String],
 ) -> anyhow::Result<Vec<Generation>> {
+    discover_mode(rclone,pool,remotes,false)
+}
+
+/// Migration cannot infer an empty drive from a partial replica listing.
+pub(crate) fn discover_strict(rclone:&str,pool:&str,remotes:&[String])->anyhow::Result<Vec<Generation>> {discover_mode(rclone,pool,remotes,true)}
+fn discover_mode(rclone:&str,pool:&str,remotes:&[String],strict:bool)->anyhow::Result<Vec<Generation>> {
     let targets = crate::mount::pool_sync::roots(pool, remotes)?;
     let context = crate::storage::rclone::RcloneContext::inherited(rclone);
     let results: Vec<_> = std::thread::scope(|scope| {
@@ -67,7 +73,10 @@ pub(crate) fn discover(
                 scope.spawn(move || {
                     let listing = context
                         .list_recursive(&OperationContext::none(), root)
-                        .map_err(|e| anyhow::anyhow!("{root}: {e}"))
+                        .map_err(|e| {
+                            let replica = root.split_once(':').map_or("<unresolved>", |(name, _)| name);
+                            anyhow::anyhow!("metadata replica {replica}: generation listing failed: {e}")
+                        })
                         .and_then(|bytes| Ok(serde_json::from_slice::<Vec<Listed>>(&bytes)?));
                     listing
                 })
@@ -88,6 +97,7 @@ pub(crate) fn discover(
             }
             // A replica without this metadata kind is normal ("directory not found").
             Err(e) => {
+                if strict {return Err(e.context("included drive generation discovery requires every replica"));}
                 first_error.get_or_insert(e);
             }
         }

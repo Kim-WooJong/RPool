@@ -19,8 +19,8 @@ use crate::prelude::*;
 
 /// Plans the drive of `plan.pool` against `plan.target`, reusing the archive
 /// planner's listings (`listed`, extended with remotes only drive files use).
-/// `Ok(None)` when the pool has no drive, or it could not be read (a note is
-/// added to `plan` then).
+/// `Ok(None)` only when the pool has no drive. Every included-drive read
+/// failure is a structural blocker and preserves its complete error chain.
 pub(crate) fn plan_drive(
     cloud: &dyn Cloud,
     source: &dyn DriveSource,
@@ -33,14 +33,8 @@ pub(crate) fn plan_drive(
     let generations = match source.generations() {
         Ok(found) => found,
         Err(error) => {
-            if options.reapply_placement {
-                return Err(error)
-                    .context("cannot reapply placement: included drive could not be checked");
-            }
-            plan.notes.push(format!(
-                "the drive could not be checked ({error:#}); it is not part of this plan. Plan again when every account is reachable"
-            ));
-            return Ok(None);
+            super::plan::block_incomplete_drive(plan,format!("included drive could not be checked: {error:#}; remotes: {:?}",plan.target.remotes));
+            return Err(error).with_context(||format!("incomplete included drive discovery on {:?}; only explicit --no-drive permits archive-only planning",plan.target.remotes));
         }
     };
     let Some(generation) = generations.first().cloned() else {
@@ -60,15 +54,8 @@ pub(crate) fn plan_drive(
     let view = match source.view(&generation) {
         Ok(view) => view,
         Err(error) => {
-            if options.reapply_placement {
-                return Err(error)
-                    .context("cannot reapply placement: included drive could not be read");
-            }
-            plan.notes.push(format!(
-                "the drive ({}) could not be read ({error:#}); it is not part of this plan",
-                generation.label()
-            ));
-            return Ok(None);
+            super::plan::block_incomplete_drive(plan,format!("included drive ({}) could not be read: {error:#}; remotes: {:?}",generation.label(),plan.target.remotes));
+            return Err(error).with_context(||format!("incomplete included drive metadata on {:?}; create a fresh plan after replica recovery (only explicit --no-drive permits archive-only planning)",plan.target.remotes));
         }
     };
     phases.lap(&format!("drive records ({} file(s))", view.files.len()));

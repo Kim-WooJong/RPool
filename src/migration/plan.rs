@@ -105,7 +105,9 @@ pub(crate) fn plan_with_drive(
     }
     let mut combined=plan.entries.clone();
     if let Some(d)=&drive { combined.extend(d.entries.iter().map(super::drive_run::as_entry)); }
-    let preview=super::storage_preview::preview(&cloud.quotas(&plan.target).unwrap_or_default(),combined);
+    let mut preview=super::storage_preview::preview(&cloud.quotas(&plan.target).unwrap_or_default(),combined);
+    if let Some(previous)=&plan.storage_preview {preview.blocked_reasons.extend(previous.blocked_reasons.iter().filter(|r|r.starts_with("incomplete-drive:")).cloned());}
+    preview.admitted &= preview.blocked_reasons.is_empty();
     plan.quota_ok=Some(preview.admitted);
     plan.storage_preview=Some(preview);
     Ok((plan, drive))
@@ -444,7 +446,8 @@ pub(super) fn plan_entry(
     }
     if options.minimal_transfer && action == Action::Relocate { action = Action::RelocateMinimal; }
     let exact = if matches!(action, Action::RelocateMinimal | Action::Relocate) {
-        match super::exact::freeze_loaded(loaded,target,&mut moves,options.minimal_transfer,&states.iter().enumerate().filter(|(_,s)|!s.is_ok()).map(|(i,_)|manifest.shards[i].index).collect()) {
+        let domain_freeze=if target.placement==Placement::Resilient {cloud.quotas(target).context("Resilient frozen layout quota bindings unavailable").and_then(|q|super::exact::freeze_resilient_destinations(manifest,target,&mut moves,&q))}else{Ok(())};
+        match domain_freeze.and_then(|_|super::exact::freeze_loaded(loaded,target,&mut moves,options.minimal_transfer,&states.iter().enumerate().filter(|(_,s)|!s.is_ok()).map(|(i,_)|manifest.shards[i].index).collect())) {
             Ok(mut spec) => {
                 if let Some(q)=cloud.quotas(target) { spec.bindings=q.into_iter().map(|q|(q.remote,(q.backing,q.capacity_domain,q.failure_domain))).collect(); }
                 transfer.new_storage = spec.additional_bytes;
@@ -455,7 +458,12 @@ pub(super) fn plan_entry(
                 Some(spec)
             },
             Err(e) if options.minimal_transfer => { action=Action::Unknown; notes.push(format!("blocked exact plan: {e:#}")); None },
-            Err(_) => None,
+            Err(e) => { notes.push(format!("blocked exact full-copy plan: {e:#}")); None },
+        }
+    } else if matches!(action,Action::Reencode|Action::ReapplyPlacement) {
+        match cloud.quotas(target).context("full-copy quota/bindings unavailable").and_then(|q|super::full_copy::freeze(manifest,target,&q)) {
+            Ok(spec)=>{transfer.new_storage=spec.additional_bytes;Some(spec)},
+            Err(e)=>{notes.push(format!("blocked full-copy contract: {e:#}"));None}
         }
     } else { None };
     let entry = Entry {
@@ -749,3 +757,16 @@ pub(super) fn plan_listed(
 #[cfg(test)]
 #[path = "plan_tests.rs"]
 mod tests;
+
+pub(crate) fn block_incomplete_drive(plan:&mut Plan,reason:String){
+ let reason=format!("incomplete-drive: {reason}. Create a fresh plan when every replica is readable; only explicit --no-drive permits archive-only planning");
+ plan.notes.push(reason.clone());plan.quota_ok=Some(false);
+ let preview=plan.storage_preview.get_or_insert_with(||super::storage_preview::preview(&[],Vec::new()));
+ preview.admitted=false;preview.blocked_reasons.push(reason);
+}
+pub(crate) fn ensure_complete(plan:&Plan)->Result<()> {
+ if let Some(reason)=plan.storage_preview.as_ref().and_then(|p|p.blocked_reasons.iter().find(|r|r.starts_with("incomplete-drive:"))) {bail!("{reason}");}
+ // Historical plans encoded this omission only as a note. Do not silently run them.
+ if plan.notes.iter().any(|n|n.contains("it is not part of this plan") && (n.contains("drive could not") || n.contains("could not be read"))) {bail!("incomplete included drive in historical plan; make a fresh plan (or explicitly --no-drive)");}
+ Ok(())
+}

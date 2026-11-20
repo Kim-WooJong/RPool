@@ -486,8 +486,14 @@ pub(crate) fn reencode_manifest(
     item: &Path,
     archive_id: &str,
 ) -> Result<(Manifest, Vec<String>)> {
-    let mut target = target.clone();
-    target.remotes = crate::remote_root::apply_remote_roots(target.remotes)?;
+    let mut resolved=target.clone();
+    resolved.remotes=crate::remote_root::apply_remote_roots(resolved.remotes)?;
+    reencode_manifest_frozen(rclone,source,manifest,&resolved,item,archive_id,None)
+}
+
+pub(crate) fn reencode_manifest_frozen(rclone:&str,source:&str,manifest:&Manifest,target:&PoolDefinition,item:&Path,archive_id:&str,frozen:Option<&UploadPlan>)->Result<(Manifest,Vec<String>)> {
+    let target = target.clone();
+    // Migration targets already contain resolved roots; never reinterpret them.
     super::validate_pool(&target)?;
     validate_manifest(manifest)?;
     let entry = ReprocessEntry {
@@ -499,7 +505,7 @@ pub(crate) fn reencode_manifest(
     for remote in &target.remotes {
         writer.ensure_destination(remote)?;
     }
-    let locations = convert_one(&writer, rclone, &entry, &target, item, archive_id)?;
+    let locations = convert_one_frozen(&writer, rclone, &entry, &target, item, archive_id, frozen)?;
     let produced: Manifest = read_json(&item.join("manifest.json"))?;
     Ok((produced, locations))
 }
@@ -514,6 +520,10 @@ pub(crate) fn convert_one(
     item: &Path,
     archive_id: &str,
 ) -> Result<Vec<String>> {
+    convert_one_frozen(writer,rclone,entry,target,item,archive_id,None)
+}
+
+pub(crate) fn convert_one_frozen(writer:&StorageWriter,rclone:&str,entry:&ReprocessEntry,target:&PoolDefinition,item:&Path,archive_id:&str,frozen:Option<&UploadPlan>)->Result<Vec<String>> {
     let old = item.join("original-manifest.json");
     save_new(&old, &entry.manifest)?;
     let staging = tempfile::Builder::new().prefix("data-").tempdir_in(item)?;
@@ -525,6 +535,7 @@ pub(crate) fn convert_one(
         target.workers,
         target.retries,
     )?;
+    if let Some(plan)=frozen {save_new(&append_suffix(&source,".rpool.upload.json"),plan)?;}
     // The restored file is private to this conversion and cannot change while
     // it uploads. Avoid copying the whole file into a second temporary snapshot.
     crate::commands::put_sealed_with_storage(

@@ -5,11 +5,15 @@ use crate::storage::admin::budget::TargetBudget;
 
 pub(crate) fn specs(entry:&super::model::Entry,quotas:&[TargetBudget],attempt:&str)->Result<Vec<OutputSpec>> {
  let exact=entry.exact.as_ref().context("entry has no frozen output-size/destination contract; replan (no full-reencode fallback)")?;
+ if quotas.is_empty() || exact.bindings.len()!=quotas.len() || exact.bindings.keys().any(|r|!quotas.iter().any(|q|&q.remote==r)){bail!("frozen capacity binding set incomplete");}
  for q in quotas {
   if exact.bindings.get(&q.remote) != Some(&(q.backing.clone(),q.capacity_domain.clone(),q.failure_domain.clone())) {bail!("frozen backing/capacity/failure binding changed or unavailable; replan");}
  }
  let mode=if entry.action==super::model::Action::RelocateMinimal {ExecutionMode::Minimal}else{ExecutionMode::Full};
  let mut out=Vec::new();
+ let mut scratch_pending=true;
+ let payload_bound=exact.objects.iter().filter(|o|!o.keep_ref).try_fold(0u64,|a,o|a.checked_add(super::exact::stored_bound(o.size).ok()?)).context("payload bound overflow")?;
+ let metadata=exact.additional_bytes.checked_sub(payload_bound).context("metadata bound invalid")?;
  let mut group_counts=BTreeMap::<(u32,String),usize>::new();
  for o in &exact.objects {
   let q=quotas.iter().find(|q|q.remote==o.destination_root).context("destination binding missing")?;
@@ -23,12 +27,12 @@ pub(crate) fn specs(entry:&super::model::Entry,quotas:&[TargetBudget],attempt:&s
   let mut outgoing=BTreeMap::new();
   if !o.keep_ref && mode==ExecutionMode::Full || (!o.keep_ref && !o.source.starts_with(&crate::utils::remote_join(&o.destination_root,""))) {if let Some(src)=src {outgoing.insert(src,o.size);}}
   out.push(OutputSpec{entry_id:entry.archive_id.clone(),mode,destination_remote:o.destination_root.clone(),capacity_domain:q.capacity_domain.clone(),object_id:id.clone(),
-   ownership:if o.keep_ref {OutputOwnership::BorrowedReference}else{OutputOwnership::Created},method:if o.keep_ref {CreationMethod::Reference}else{CreationMethod::ClientCopy},
+   ownership:if o.keep_ref {OutputOwnership::BorrowedReference}else{OutputOwnership::Created},method:if o.keep_ref {CreationMethod::Reference}else if matches!(entry.action,super::model::Action::Reencode|super::model::Action::ReapplyPlacement){CreationMethod::Reencode}else{CreationMethod::ClientCopy},
    size:if o.keep_ref {ObjectSize::Stored{whole_object_bytes:o.size}}else{ObjectSize::Encrypted{plaintext_bytes:o.size,header_bytes:32,block_bytes:65536,overhead_per_block:16}},
-   borrowed_from:o.keep_ref.then(||(q.capacity_domain.clone(),id)),logical_move_in_bytes:if o.keep_ref {0}else{o.size},logical_move_out_bytes:outgoing,local_scratch_bytes:Some(if o.keep_ref {0}else{exact.local_scratch_bytes.checked_mul(3).context("scratch bound overflow")?})});
+   borrowed_from:o.keep_ref.then(||(q.capacity_domain.clone(),id)),logical_move_in_bytes:if o.keep_ref {0}else{o.size},logical_move_out_bytes:outgoing,local_scratch_bytes:Some(if !o.keep_ref && scratch_pending {scratch_pending=false;if exact.capability=="exact-full-copy-v2" {exact.local_scratch_bytes}else{exact.local_scratch_bytes.checked_mul(3).context("scratch bound overflow")?}}else{0})});
  }
  for q in quotas {
-  out.push(OutputSpec{entry_id:entry.archive_id.clone(),mode,destination_remote:q.remote.clone(),capacity_domain:q.capacity_domain.clone(),object_id:format!("{attempt}/metadata/{}",q.remote),ownership:OutputOwnership::Created,method:CreationMethod::Reencode,size:ObjectSize::Plain{whole_object_bytes:exact.additional_bytes.checked_sub(exact.copied_bytes).context("metadata bound invalid")?.div_ceil(quotas.len().max(1) as u64).max(1024*1024)},borrowed_from:None,logical_move_in_bytes:0,logical_move_out_bytes:BTreeMap::new(),local_scratch_bytes:Some(1024*1024)});
+  out.push(OutputSpec{entry_id:entry.archive_id.clone(),mode,destination_remote:q.remote.clone(),capacity_domain:q.capacity_domain.clone(),object_id:format!("{attempt}/metadata/{}",q.remote),ownership:OutputOwnership::Created,method:CreationMethod::Reencode,size:ObjectSize::Plain{whole_object_bytes:metadata.div_ceil(quotas.len().max(1) as u64).max(1024*1024)},borrowed_from:None,logical_move_in_bytes:0,logical_move_out_bytes:BTreeMap::new(),local_scratch_bytes:Some(1024*1024)});
  }
  Ok(out)
 }
@@ -41,7 +45,7 @@ pub(crate) fn preview(quotas:&[TargetBudget],entries:impl IntoIterator<Item=supe
   // A pack/archive payload is costed once even when several references name it.
   if e.fingerprint.is_empty(){reasons.push("unknown source fingerprint".into());continue;}
   if !seen.insert(e.fingerprint.clone()){continue;}
-  match specs(&e,quotas,&format!("planned/{}",e.fingerprint)){Ok(s)=>all.extend(s),Err(e)=>reasons.push(e.to_string())}
+  match specs(&e,quotas,&format!("planned/{}",e.fingerprint)){Ok(s)=>all.extend(s),Err(error)=>reasons.push(format!("{}: {error}; {}",e.original_name,e.detail.as_deref().unwrap_or("no additional diagnostic")))}
  }
  let mut p=preview_storage(&observations,&all);p.blocked_reasons.extend(reasons);p.admitted &= p.blocked_reasons.is_empty();p
 }
@@ -49,7 +53,7 @@ pub(crate) fn fresh(rclone:&str,target:&PoolDefinition)->Result<Vec<TargetBudget
  use crate::storage::admin::{BackendAdmin,RcloneAdmin};
  let admin=RcloneAdmin::inherited(rclone);let catalog=admin.catalog()?;
  let b=crate::storage::admin::budget::BudgetSnapshot::query(&admin,&catalog,&target.remotes);
- if !b.rejected.is_empty() || b.targets.len()!=target.remotes.len(){bail!("fresh quota/capacity identity incomplete; admission blocked");}
+ if !b.rejected.is_empty() || b.targets.len()!=target.remotes.len(){bail!("fresh quota/capacity identity incomplete; admission blocked: {:?}",b.rejected);}
  Ok(b.targets)
 }
 
@@ -73,6 +77,7 @@ pub(crate) fn admit_entry(rclone:&str,target:&PoolDefinition,entry:&super::model
  let mut keys=Vec::new();
  for (key,output) in keyed {
   let ticket=coordinator.begin_observation()?;let freshq=fresh(rclone,target)?;
+  specs(entry,&freshq,attempt)?; // Identity/domain drift never invalidates an earlier reservation silently.
   coordinator.admit(&key,&output,FreshQuota{ticket,quotas:freshq.into_iter().map(|q|CapacityObservation{remote:q.remote,capacity_domain:q.capacity_domain,total_bytes:Some(q.total),free_bytes:Some(q.free),metadata_reserve_bytes:0,reserved_bytes:0}).collect(),accounted_outputs:Vec::new()})?;
   keys.push(key);
  }

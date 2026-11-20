@@ -69,6 +69,7 @@ impl Fixture {
             };
             bindings.insert(target(remote), ObjectRef::new(backend, key(remote)));
         }
+        crate::manifest::object_fence::bind_absent_fences(&mut registry, &mut bindings);
         StorageWriter::synthetic(StorageReader::from_registry(
             registry,
             bindings,

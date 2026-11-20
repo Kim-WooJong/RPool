@@ -166,8 +166,10 @@ impl ConversionFixture {
                 .map(|s| s.object)
                 .chain(std::iter::once(format!("a:{id}/manifest.json")))
             {
-                let key = ObjectKey::new(format!("object-{}", bindings.len())).unwrap();
-                bindings.insert(object, ObjectRef::new(memory.id(), key));
+                let parts=object.split_once(':').unwrap().1.split('/').collect::<Vec<_>>();
+                let mut paths=vec![object.clone()];
+                for end in 1..parts.len(){paths.push(format!("a:{}/immutable-object-fence-v1.json",parts[..end].join("/")));}
+                for path in paths {if !bindings.contains_key(&path){let key=ObjectKey::new(format!("object-{}",bindings.len())).unwrap();bindings.insert(path,ObjectRef::new(memory.id(),key));}}
             }
         }
         let dir = tempfile::tempdir().unwrap();
@@ -241,7 +243,7 @@ impl ConversionFixture {
     fn snapshot_original(&self) -> Vec<Vec<u8>> {
         self.bindings
             .iter()
-            .filter(|(raw, _)| raw.starts_with("a:original/"))
+            .filter(|(raw, _)| raw.starts_with("a:original/") && !raw.ends_with("immutable-object-fence-v1.json"))
             .map(|(_, object)| {
                 self.memory
                     .read_all(&OperationContext::none(), object.key(), None)
@@ -462,4 +464,23 @@ fn saved_plan_load_accepts_legacy_and_rejects_tampering() {
     assert!(load_plan(&path).unwrap().change_summary.is_empty());
     fs::write(&path, b"tampered").unwrap();
     assert!(load_plan(&path).is_err());
+}
+
+#[test]
+fn migration_frozen_full_copy_uses_writer_shape_and_preserves_source(){
+ let mut f=ConversionFixture::new();
+ let target=ConversionFixture::target(true);
+ let q=crate::storage::admin::budget::TargetBudget{remote:"a:".into(),backing:"a:".into(),capacity_domain:"a:".into(),failure_domain:Some("a:".into()),declared:true,total:1<<40,free:1<<39,shard_cap:None};
+ let mut entry=crate::migration::execute::tests_support::entry("original",crate::migration::model::Action::Reencode,f.bytes.len() as u64);
+ entry.fingerprint=f.original.fingerprint.clone();
+ entry.exact=Some(crate::migration::full_copy::freeze(&f.original.manifest,&target,&[q]).unwrap());
+ let plan=crate::migration::full_copy::upload_plan(&entry,&target,"frozen-coded").unwrap();
+ let addresses=plan.shards.iter().map(|s|s.object.clone()).chain(std::iter::once("a:frozen-coded/manifest.json".into())).collect::<Vec<_>>();
+ for raw in addresses {let parts=raw.split_once(':').unwrap().1.split('/').collect::<Vec<_>>();let mut paths=vec![raw.clone()];for end in 1..parts.len(){paths.push(format!("a:{}/immutable-object-fence-v1.json",parts[..end].join("/")));}for path in paths{if !f.bindings.contains_key(&path){let key=ObjectKey::new(format!("object-{}",f.bindings.len())).unwrap();f.bindings.insert(path,ObjectRef::new(f.memory.id(),key));}}}
+ let writer=f.writer(vec![]);let before=f.snapshot_original();let item=f.dir.path().join("frozen-work");fs::create_dir(&item).unwrap();
+ convert_one_frozen(&writer,"no-rclone",&f.original,&target,&item,"frozen-coded",Some(&plan)).unwrap();
+ let produced:Manifest=read_json(&item.join("manifest.json")).unwrap();
+ crate::migration::full_copy::verify_output(&entry,&produced).unwrap();
+ assert_eq!(before,f.snapshot_original());
+ let restored=f.dir.path().join("frozen-restored");crate::commands::get_with_storage(writer.reader(),item.join("manifest.json").to_str().unwrap(),&restored,1,1).unwrap();assert_eq!(fs::read(restored).unwrap(),f.bytes);
 }

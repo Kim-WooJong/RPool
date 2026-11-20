@@ -549,9 +549,11 @@ mod tests {
         for _ in 0..8 {
             assert!(matches!(get(&endpoint), Err(HttpError::Transport)));
         }
-        handle.join().unwrap();
-        // Nobody listening.
-        assert!(matches!(get(&endpoint), Err(HttpError::Transport)));
+        // All eight requests were dispatched: a bad answer after sending is
+        // never reported as the pre-dispatch (fallback-safe) class.
+        assert_eq!(handle.join().unwrap().len(), 8);
+        // Nobody listening: the failed local connect proves nothing was sent.
+        assert!(matches!(get(&endpoint), Err(HttpError::NotDispatched)));
     }
 
     #[test]

@@ -38,3 +38,11 @@ pub(crate) mod speed;
 pub(crate) mod status;
 #[cfg(test)]
 pub(crate) mod test_support;
+
+#[cfg(test)]
+mod repair_tests;
+
+pub(crate) mod full_copy;
+
+#[cfg(test)]
+mod rc8_regression_tests;

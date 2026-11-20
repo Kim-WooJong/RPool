@@ -69,9 +69,11 @@ impl Fixture {
         let backend = Arc::new(FaultBackend::new(self.memory.clone(), rules).unwrap());
         let mut registry = BackendRegistry::new();
         registry.register(backend).unwrap();
+        let mut bindings = self.bindings.clone();
+        crate::manifest::object_fence::bind_absent_fences(&mut registry, &mut bindings);
         StorageWriter::synthetic(StorageReader::from_registry(
             registry,
-            self.bindings.clone(),
+            bindings,
             OperationContext::none(),
         ))
     }
@@ -159,6 +161,44 @@ fn data_and_parity_replace_same_size_corruption_and_reuse_only_hash_match() {
         call: 1,
         fault: Fault::Error(error(StorageErrorKind::Authentication)),
     }]));
+}
+
+#[test]
+fn fixture_fence_routes_are_typed_absence_not_a_guard_bypass() {
+    let f = Fixture::new(false);
+    let p = &f.plan.shards[0];
+    let probes = crate::manifest::object_fence::probe_addresses(&p.object);
+    assert!(!probes.is_empty(), "{}", p.object);
+    let mut registry = BackendRegistry::new();
+    registry.register(f.memory.clone()).unwrap();
+    let mut bindings = f.bindings.clone();
+    let fences = crate::manifest::object_fence::bind_absent_fences(&mut registry, &mut bindings);
+    let marker = bindings[&probes[0]].clone();
+    let writer = StorageWriter::synthetic(StorageReader::from_registry(
+        registry,
+        bindings,
+        OperationContext::none(),
+    ));
+    let absent = writer.reader().read_metadata(&probes[0]).unwrap_err();
+    assert_eq!(
+        absent.downcast_ref::<StorageError>().unwrap().kind(),
+        StorageErrorKind::NotFound
+    );
+    // A present marker still blocks the mutation before any object write.
+    fences
+        .write(
+            &OperationContext::none(),
+            marker.key(),
+            &mut std::io::Cursor::new(b"{}".to_vec()),
+            &WriteOptions::default(),
+        )
+        .unwrap();
+    let error = crate::storage::upload_one_data_shard(&writer, &f.source, p, 1).unwrap_err();
+    assert!(format!("{error:#}").contains("immutable shared-source namespace"), "{error:#}");
+    assert!(f
+        .memory
+        .read_all(&OperationContext::none(), f.bindings[&p.object].key(), None)
+        .is_err());
 }
 
 #[test]

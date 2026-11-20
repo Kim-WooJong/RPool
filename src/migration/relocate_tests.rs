@@ -110,6 +110,13 @@ impl Fixture {
         fixture
     }
     fn bind(&mut self, raw: &str) {
+        // A missing fence is a typed backend NotFound, never an unbound address.
+        if !raw.ends_with("immutable-object-fence-v1.json") {
+            if let Some((remote,path))=raw.split_once(':') {
+                let parts=path.split('/').collect::<Vec<_>>();
+                for end in 1..parts.len(){self.bind(&format!("{remote}:{}/immutable-object-fence-v1.json",parts[..end].join("/")));}
+            }
+        }
         if !self.bindings.contains_key(raw) {
             let key = ObjectKey::new(format!("object-{}", self.bindings.len())).unwrap();
             self.bindings
@@ -798,18 +805,16 @@ fn rebuild_downloads_only_k_shards_per_group() {
 }
 
 #[test]
-fn a_copy_that_does_not_match_is_replaced_by_a_verified_upload() {
+fn acknowledged_corrupt_copy_is_unknown_and_never_automatically_overwritten() {
     let fixture = Fixture::new(&["a:", "b:", "c:"], SIZE);
     let writer = fixture.writer();
     let mut copier = FakeCopier::new(&fixture, &[]);
     copier.corrupt = true;
     let pool = target(&["a:", "b:", "d:"], Placement::RoundRobin);
-    let relocated = run_with(&fixture, &writer, Some(&copier), &pool, &["a", "b", "d"]).unwrap();
-    assert_eq!(relocated.hash_verified_shards, 0);
-    for shard in &relocated.manifest.shards {
-        writer.reader().verify(shard, true).unwrap();
-    }
-    assert_eq!(fixture.restore(&writer, &relocated.manifest), fixture.bytes);
+    let before=fixture.old_objects();
+    let error = run_with(&fixture, &writer, Some(&copier), &pool, &["a", "b", "d"]).unwrap_err();
+    assert!(format!("{error:#}").contains("automatic re-send refused"));
+    assert_eq!(before,fixture.old_objects(),"unknown write cannot mutate originals");
 }
 
 #[test]
@@ -822,7 +827,7 @@ fn copies_never_overwrite_an_existing_destination() {
     copier.exists = true;
     let pool = target(&["a:", "b:", "d:"], Placement::RoundRobin);
     let error = run_with(&fixture, &writer, Some(&copier), &pool, &["a", "b", "d"]).unwrap_err();
-    assert!(is_already_exists(&error), "{error:#}");
+    assert!(error.chain().any(|e| e.downcast_ref::<crate::storage::error::StorageError>().is_some_and(|e| e.kind() == crate::storage::error::StorageErrorKind::AlreadyExists)), "{error:#}");
     assert_eq!(fixture.new_objects_written(), 0);
     // Foreign data found by the presence check is never touched either.
     let fixture = Fixture::new(&["a:", "b:", "c:"], SIZE);
@@ -843,7 +848,7 @@ fn copies_never_overwrite_an_existing_destination() {
 }
 
 #[test]
-fn unreadable_source_found_by_the_copy_is_rebuilt() {
+fn acknowledged_copy_of_corrupt_source_stays_unknown_without_resend() {
     // The size probe passes but the source object is corrupt: the copy (a
     // streamed one, so it is read back) fails, the fallback download fails,
     // and the group is rebuilt.
@@ -860,12 +865,10 @@ fn unreadable_source_found_by_the_copy_is_rebuilt() {
     let mut copier = FakeCopier::new(&fixture, &[]);
     copier.server_side = false;
     let pool = target(&["a:", "b:", "d:"], Placement::RoundRobin);
-    let relocated = run_with(&fixture, &writer, Some(&copier), &pool, &["a", "b", "d"]).unwrap();
-    assert_eq!(
-        relocated.manifest.shards[victim.index as usize].blake3,
-        victim.blake3
-    );
-    assert_eq!(fixture.restore(&writer, &relocated.manifest), fixture.bytes);
+    let before=fixture.old_objects();
+    let error=run_with(&fixture,&writer,Some(&copier),&pool,&["a","b","d"]).unwrap_err();
+    assert!(format!("{error:#}").contains("automatic re-send refused"));
+    assert_eq!(before,fixture.old_objects());
 }
 
 /// Docker e2e harness (scripts/linux-docker/migrate-relocate-e2e.sh): relocates

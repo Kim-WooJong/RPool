@@ -148,8 +148,14 @@ impl SharedTransport {
         known: &std::collections::BTreeSet<String>,
         budget: Option<(&mut usize, &mut usize)>,
     ) -> Result<Vec<(String, u64)>> {
-        self.entries_inner(known, budget)
-            .map_err(|error| self.explain_timeout(error))
+        self.entries_inner(known, budget).map_err(|error| {
+            let error = self.explain_timeout(error);
+            let replica = self.root.split_once(':').map_or("<unresolved>", |(name, _)| name);
+            // Retain the typed cause and its classified, already-sanitized
+            // display text for callers that show only the outer error.
+            let detail = error.to_string();
+            error.context(format!("metadata replica {replica}: listing failed: {detail}"))
+        })
     }
 
     /// Deadline context of one listing or read call.

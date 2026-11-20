@@ -88,6 +88,8 @@ fn plan(id: &str, created: u64) -> Plan {
         created_by: "pc-a".into(),
         target: policy(),
         reapply_placement: false,
+        minimal_ack: None,
+        storage_preview: None,
         entries: vec![],
         counts: Counts::default(),
         download_bytes: 1,
