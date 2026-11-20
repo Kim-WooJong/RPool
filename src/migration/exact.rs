@@ -10,6 +10,15 @@ pub(crate) struct ExactExecutionSpec {
  pub additional_bytes:u64,pub copied_bytes:u64,pub transfer_bytes:u64,pub local_scratch_bytes:u64,
 }
 pub(crate) fn freeze(source:&Manifest,target:&PoolDefinition,moves:&mut BTreeMap<u32,String>,minimal:bool,force_create:&BTreeSet<u32>)->Result<ExactExecutionSpec> {
+ let fp=crate::manifest::manifest_fingerprint(source)?;
+ freeze_with_fingerprint(source,target,moves,minimal,force_create,fp)
+}
+/// Planning already fingerprinted this exact immutable manifest during load.
+/// Execution uses `freeze` above and always recomputes the source fingerprint.
+pub(super) fn freeze_loaded(loaded:&super::enumerate::Loaded,target:&PoolDefinition,moves:&mut BTreeMap<u32,String>,minimal:bool,force_create:&BTreeSet<u32>)->Result<ExactExecutionSpec> {
+ freeze_with_fingerprint(&loaded.manifest,target,moves,minimal,force_create,loaded.fingerprint.clone())
+}
+fn freeze_with_fingerprint(source:&Manifest,target:&PoolDefinition,moves:&mut BTreeMap<u32,String>,minimal:bool,force_create:&BTreeSet<u32>,fp:String)->Result<ExactExecutionSpec> {
  if source.archive_id.len()>256 || target.remotes.iter().any(|r|r.len()>1024) || source.shards.iter().any(|s|s.object.len()>4096 || s.remote.len()>1024) {bail!("metadata address length exceeds conservative exact bound");}
  let remotes=&target.remotes;
  if remotes.is_empty(){bail!("no execution destinations");}
@@ -27,7 +36,6 @@ pub(crate) fn freeze(source:&Manifest,target:&PoolDefinition,moves:&mut BTreeMap
  // Replicas + source fence + journal/publication metadata, conservatively per root.
  let manifest_bound=(serde_json::to_vec(source)?.len() as u64).checked_mul(8).and_then(|n|n.checked_add((source.shards.len() as u64).checked_mul(4096)?)).and_then(|n|n.checked_add(1024*1024)).context("metadata bound overflow")?;
  extra=extra.checked_add(manifest_bound.checked_mul(remotes.len() as u64).context("metadata peak overflow")?).context("metadata peak overflow")?;
- let fp=crate::manifest::manifest_fingerprint(source)?;
  let digest=blake3::hash(&serde_json::to_vec(&(target,&objects))?).to_hex().to_string();
  Ok(ExactExecutionSpec{bindings:BTreeMap::new(),capability:"exact-immutable-execution-v1".into(),source_fingerprint:fp,layout_digest:digest,objects,additional_bytes:extra,copied_bytes:copied,transfer_bytes:copied.checked_mul(3).and_then(|n|n.checked_add(source.shards.iter().try_fold(0u64,|a,s|a.checked_add(s.size))?)).context("transfer overflow")?,local_scratch_bytes:source.shards.iter().try_fold(0u64,|a,s|a.checked_add(s.size)).context("scratch overflow")?})
 }

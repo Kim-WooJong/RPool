@@ -243,6 +243,19 @@ pub(crate) fn read_v6(
     policy: &PoolDefinition,
     epoch: Option<&str>,
 ) -> Result<BTreeMap<String, super::shared_model::Event>> {
+    Ok(read_v6_snapshot(rclone, pool, policy, epoch, false)?.events)
+}
+
+/// The same scoped, validated read as `read_v6`, retaining folder records so
+/// generation planning need not fetch those immutable objects a second time.
+/// Listings, cache validation and namespace-change detection are unchanged.
+pub(crate) fn read_v6_snapshot(
+    rclone: &str,
+    pool: &str,
+    policy: &PoolDefinition,
+    epoch: Option<&str>,
+    strict_folders: bool,
+) -> Result<super::metadata_browse::Snapshot> {
     use super::metadata_browse::{Snapshot, Source};
     let source = Source::open(rclone, pool, policy, epoch)?;
     let listed = source.list()?;
@@ -254,14 +267,18 @@ pub(crate) fn read_v6(
         Some(_) => (Snapshot::default(), false),
         None => (Snapshot::default(), true),
     };
-    let outcome = source.refresh(&listed, prior)?;
+    let outcome = if strict_folders {
+        source.refresh_strict(&listed, prior)?
+    } else {
+        source.refresh(&listed, prior)?
+    };
     if save && outcome.changed {
         if let Err(error) = crate::pool::browse_cache::save(pool, policy, epoch, &outcome.snapshot)
         {
             eprintln!("[warning] drive metadata cache not saved: {error:#}");
         }
     }
-    Ok(outcome.snapshot.events)
+    Ok(outcome.snapshot)
 }
 
 /// v6 events (including checkpointed ones) at explicit generation `roots`,

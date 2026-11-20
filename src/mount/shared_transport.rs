@@ -243,10 +243,12 @@ impl SharedTransport {
             bail!("invalid shared event identity");
         }
         let address = remote_join(&self.root, &format!("{}/{id}.json", self.dir));
-        // `read_metadata` stats the object itself and checks the length.
+        // Enforce the record bound before allocation as well as after the
+        // read; concurrent metadata readers must not each allocate 64 MiB
+        // for an object already limited to EVENT_LIMIT (8 MiB).
         let bytes = StorageReader::rclone(&self.rclone)
             .with_deadline(std::time::Instant::now() + self.read_timeout)
-            .read_metadata(&address)
+            .read_metadata_bounded(&address, EVENT_LIMIT)
             .map_err(|error| self.explain_timeout(error))?;
         if bytes.len() as u64 != size {
             bail!("shared event changed during listing");

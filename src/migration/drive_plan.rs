@@ -29,6 +29,7 @@ pub(crate) fn plan_drive(
     options: &PlanOptions,
 ) -> Result<Option<DrivePlan>> {
     let mut phases = super::plan::Phases::start();
+    super::plan::Phases::reading("drive generations and migration fences");
     let generations = match source.generations() {
         Ok(found) => found,
         Err(error) => {
@@ -55,6 +56,7 @@ pub(crate) fn plan_drive(
             others.join(", ")
         ));
     }
+    super::plan::Phases::reading("drive file and folder metadata");
     let view = match source.view(&generation) {
         Ok(view) => view,
         Err(error) => {
@@ -214,9 +216,7 @@ pub(super) fn classify(
     workers: usize,
     files: &[DriveFile],
 ) -> Result<Vec<(DriveEntry, Transfer)>> {
-    files
-        .par_iter()
-        .map(|file| {
+    let classify_one = |file: &DriveFile| {
             let fingerprint = crate::manifest::manifest_fingerprint(&file.manifest)?;
             let loaded = Loaded {
                 manifest: file.manifest.clone(),
@@ -252,8 +252,15 @@ pub(super) fn classify(
                 },
                 transfer,
             ))
-        })
-        .collect()
+        };
+    // Global rebalance budgets mutate after each unit. Follow the same stable
+    // unit order as the archive planner; parallel lock acquisition must never
+    // choose which file gets an account's remaining allocation.
+    if options.rebalancer.is_some() {
+        files.iter().map(classify_one).collect()
+    } else {
+        files.par_iter().map(classify_one).collect()
+    }
 }
 
 /// Appends `note` to an existing entry detail (`"; "`-separated).

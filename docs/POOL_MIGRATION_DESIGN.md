@@ -180,6 +180,43 @@ manifests) is published before `plan.json`, with its own counts, bytes, ETA
 metadata checkpoints.) The target epoch is
 deterministic, `blake3("rpool-migration-drive-epoch-v1", migration_id)`.
 
+### Planning I/O and progress (Unreleased; build-only)
+
+The CLI and GUI use the same planner. Quick probing uses remote listings for
+shard presence and size; `--probe-full` reads and hashes affected shards.
+Minimal transfer alone does not force a planning payload scan. Its execution
+still verifies borrowed objects by hash; no mtime/size substitution is made.
+
+Generation reading now requests a **strict snapshot** (events plus folders).
+Each replica's folder directory is listed once, and every unique listed
+folder record is read, size/hash checked and parsed once for that snapshot.
+The old path first read best-effort folders while reading events, discarded
+them, then listed and read them all again strictly. Strict reads do not trust
+the best-effort persistent folder cache, and any read/parse error fails the
+generation rather than returning a partial folder set. Existing event cache
+scope, immutable-id validation, checkpoint and namespace-change checks stay.
+
+Folder reads use batches of at most eight bounded objects (at most 64 MiB
+raw metadata), join all workers, and merge in record-id order. Storage leaf
+operations still enforce provider/account concurrency, pacing and deadlines.
+No whole-plan deadline or new cross-plan cache is introduced. Generation and
+journal discovery can still wait on slow replicas; repeated bounded journal
+calls are not a single overall phase timeout.
+
+Copy features use one in-flight query per plan/remote (unknown stays unknown,
+not empty success). Planning reuses the fingerprint of the exact loaded
+manifest; execution recomputes it. Drive rebalance classification follows
+stable unit order because its global allocation budgets mutate per unit.
+Classification, loss checks, destinations, exact layout, admission and fresh
+execution quotas are not bypassed.
+
+Stderr (also the GUI job log) announces phases without pretending to know a
+fixed total. Folder logs show only actual verified counts and elapsed time,
+not file paths or a fake percent. Source-level cold folder listing work falls
+from `2R` to `R`, and successful unique folder reads from `2F` to `F`; warm
+strict reads still verify all `F`. These are call-count reductions, **not a
+measured elapsed-time speedup**. No real plan was rerun for this change.
+
 **Run** (`migration/drive_run.rs`). After the archives, `pool migrate run`
 writes `drive-freeze.json` (the source generation is frozen), reads the
 source again and runs the planned entries whose revision is still current

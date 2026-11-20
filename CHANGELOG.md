@@ -2,6 +2,67 @@
 
 ## Unreleased
 
+## 2.23.0-rc.8 — 2026-11-20 (experimental/testing prerelease)
+
+**EXPERIMENTAL / TESTING ONLY — build-only validation. NOT all issues are fixed
+and nothing in this candidate has been runtime validated. Back up first, review
+every preview, and test only on disposable copies of your data. This candidate
+is not a production qualification; a stable release requires user feedback.**
+
+Migration-plan generation I/O reduction (build-only: no real plan, test or
+benchmark was run, so **no measured speedup and no full plan-output
+equivalence** is claimed):
+
+- Reduce duplicate migration-plan metadata I/O: read a drive generation's
+  folders once, strictly, together with its file snapshot; fetch up to eight
+  bounded folder objects concurrently under existing account limits. Never
+  accept a best-effort folder cache as a strict migration view.
+- Coalesce simultaneous copy-capability lookups per plan/remote, reuse the
+  loaded manifest fingerprint only during planning, and classify drive
+  rebalance units in stable order. Execution hash/layout/quota gates remain.
+- Log indeterminate planning phases before slow reads and actual verified
+  folder counts, without paths or invented percentages. Build-only validation;
+  no measured planning speedup or runtime qualification.
+- Source-level call counts only: cold folder listings per generation fall from
+  `2R` to `R` (R = replicas) and successful unique folder reads from `2F` to
+  `F`; warm strict reads still verify all `F`. Folder record reads are bounded
+  more tightly; existing account/backing download caps (NAS: 1), pacing and
+  leaf deadlines still apply. Hash, size, body and partial-read error checks
+  are retained; a failed or partial read is never treated as empty.
+
+### Known latency limitations (not fixed)
+
+- Generation discovery still lists roots recursively, and journal-document
+  lookups can still repeat bounded ~45 s waits on slow replicas. There is no
+  whole-phase deadline, so planning against slow or unreachable storage can
+  still take a long time.
+
+### Requirements and known limitations (carried from rc.7)
+
+- Minimal transfer remains opt-in; the default is still FullCopy. Before a
+  minimal-transfer run all related PCs must be upgraded and stopped, and older
+  clients must never reconnect afterwards. Application fences cannot forcibly
+  stop an older binary from deleting old v2 sources.
+- Borrowed source folders stay protected as whole, sticky namespaces: there is
+  **NO automatic source space reclamation**.
+- In-place repair of v3 archives is blocked (read/restore are supported).
+  Uncertain re-encoding is blocked in minimal mode, and legacy plans lacking an
+  exact execution contract must be re-planned.
+- Metadata sizes are conservative bounds, not exact provider billing.
+  Reservations and shadow-write accounting give no global cross-PC or provider
+  quota guarantee, and retries may be conservatively blocked.
+- Old-copy cleanup still requires creation evidence; mixed encodings block
+  cleanup; the seven-day grace, all-writers-stopped acknowledgement and
+  workspace/reference checks remain mandatory.
+- NAS limits of 1 archive / 1 shard transfer are a mitigation, not a proven root
+  cause. Protected PC-sync conflicts and intermittent-disconnect causality
+  remain unresolved; capacity declarations remain PC-local.
+- Validation is **release builds only**: no automated tests, smoke tests,
+  benchmarks, independent QA, GUI runtime, real planning, rebalance or cleanup
+  execution. The local Windows GNU build excludes WinFsp; distributed Windows
+  binaries use native MSVC with default WinFsp features in the unchanged
+  release workflow. Successful builds are not Windows/runtime qualification.
+
 ## 2.23.0-rc.7 — 2026-11-20 (experimental/testing prerelease)
 
 **EXPERIMENTAL / TESTING ONLY — build-only validation. NOT all issues are fixed

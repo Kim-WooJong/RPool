@@ -15,16 +15,13 @@ pub(crate) fn read(
     generation: &GenerationRef,
 ) -> Result<SourceView> {
     // Includes events kept only in checkpoints.
-    let events = super::metadata_pool::read_v6(rclone, pool, policy, generation.epoch.as_deref())
-        .context("drive (v6) metadata read failed")?;
-    let files = v6_view(&events)?;
-    let roots =
-        super::metadata_browse::generation_roots(pool, policy, generation.epoch.as_deref())?;
-    let transports = super::pool_sync::folder_transports(rclone, &roots, policy.native_crypt)?;
-    let stores: Vec<&dyn super::pool_sync::EventStore> =
-        transports.iter().map(|t| t as _).collect();
-    let unseen = super::pool_sync::list_unseen(&stores, &BTreeSet::new())?;
-    let records = super::pool_sync::read_folders(&stores, &unseen)?;
+    let snapshot = super::metadata_pool::read_v6_snapshot(
+        rclone, pool, policy, generation.epoch.as_deref(), true,
+    ).context("drive (v6) metadata read failed")?;
+    let files = v6_view(&snapshot.events)?;
+    // This refresh reads folders strictly, not the browse-only best-effort
+    // view. Its validated immutable records and current listing are one fence.
+    let records = snapshot.folders;
     let paths: BTreeSet<String> = files.iter().map(|f| f.path.clone()).collect();
     Ok(SourceView {
         folders: super::folders::projected(&records, &paths),

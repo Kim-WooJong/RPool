@@ -67,6 +67,7 @@ pub(crate) fn plan_with_drive(
     let inventory = crate::inventory::load_inventory()?;
     let mut phases = Phases::start();
     let cloud = RcloneCloud::new(rclone, target.placement == Placement::Resilient);
+    Phases::reading("earlier migration journals");
     let (replaced, mut note) = replaced_archives(rclone, pool);
     if options.reapply_placement {
         note.push("Reapply placement: every nonempty selected file is restored and fully re-uploaded using the saved pool placement. This requires temporary local disk and additional cloud space until the verified originals are retired; it does not merely move changed shards.".into());
@@ -74,6 +75,7 @@ pub(crate) fn plan_with_drive(
     phases.lap("earlier migrations");
     let mut options = options.clone();
     if options.rebalance {
+        Phases::reading("account quotas");
         let quotas = cloud
             .quotas(&target)
             .context("rebalance needs the quota of every pool account")?;
@@ -116,6 +118,10 @@ impl Phases {
     /// Starts timing the first phase.
     pub(super) fn start() -> Self {
         Self(std::time::Instant::now())
+    }
+    /// A phase without a fixed record total is indeterminate, not a percent.
+    pub(super) fn reading(phase: &str) {
+        eprintln!("[plan] reading {phase}...");
     }
     /// Reports the phase that just ended and starts the next one.
     pub(super) fn lap(&mut self, phase: &str) {
@@ -171,7 +177,7 @@ pub(super) struct RcloneCloud {
     /// when not needed or unavailable.
     catalog: Option<RemoteCatalog>,
     /// Copy features per rclone remote name, queried once per plan.
-    features: Mutex<BTreeMap<String, Option<CopyFeatures>>>,
+    features: Mutex<BTreeMap<String, Arc<std::sync::OnceLock<Option<CopyFeatures>>>>>,
     /// Account quotas of the last target asked (`None` inside: unavailable),
     /// so one plan queries every account's `about` once, not per phase.
     capacity: Mutex<Option<(Vec<String>, Option<crate::mount::capacity::CapacityStatus>)>>,
@@ -259,19 +265,20 @@ impl Cloud for RcloneCloud {
     /// (Hashes). Errors (including non-crypt remotes) mean unknown.
     fn copy_features(&self, remote: &str) -> Option<CopyFeatures> {
         let name = remote_name(remote).to_owned();
-        if let Some(known) = self.features.lock().ok()?.get(&name) {
-            return *known;
-        }
-        let found = self
-            .context
-            .crypt_copy_capabilities(&OperationContext::none(), &format!("{name}:"))
-            .ok()
-            .map(|c| CopyFeatures {
-                server_side_copy: c.server_side_copy,
-                ciphertext_hash: !c.hashes.is_empty(),
-            });
-        self.features.lock().ok()?.insert(name, found);
-        found
+        // A lookup followed by an unlocked fetch let concurrent drive entries
+        // all miss and repeat config/features calls for the same remote. Keep
+        // one in-flight result per plan/remote, without locking other accounts.
+        let slot = self.features.lock().ok()?
+            .entry(name.clone()).or_default().clone();
+        *slot.get_or_init(|| {
+            self.context
+                .crypt_copy_capabilities(&OperationContext::none(), &format!("{name}:"))
+                .ok()
+                .map(|c| CopyFeatures {
+                    server_side_copy: c.server_side_copy,
+                    ciphertext_hash: !c.hashes.is_empty(),
+                })
+        })
     }
 }
 
@@ -437,7 +444,7 @@ pub(super) fn plan_entry(
     }
     if options.minimal_transfer && action == Action::Relocate { action = Action::RelocateMinimal; }
     let exact = if matches!(action, Action::RelocateMinimal | Action::Relocate) {
-        match super::exact::freeze(manifest,target,&mut moves,options.minimal_transfer,&states.iter().enumerate().filter(|(_,s)|!s.is_ok()).map(|(i,_)|manifest.shards[i].index).collect()) {
+        match super::exact::freeze_loaded(loaded,target,&mut moves,options.minimal_transfer,&states.iter().enumerate().filter(|(_,s)|!s.is_ok()).map(|(i,_)|manifest.shards[i].index).collect()) {
             Ok(mut spec) => {
                 if let Some(q)=cloud.quotas(target) { spec.bindings=q.into_iter().map(|q|(q.remote,(q.backing,q.capacity_domain,q.failure_domain))).collect(); }
                 transfer.new_storage = spec.additional_bytes;
@@ -526,6 +533,7 @@ pub(super) fn plan_listed(
     };
     let target_set: BTreeSet<String> = target.remotes.iter().cloned().collect();
     let mut phases = Phases::start();
+    Phases::reading("account listings");
     let configured = cloud.configured();
     let mut listings = list_all(cloud, &target_set, configured.as_ref());
     // Remotes of pool archives in the inventory that left the pool.
@@ -538,6 +546,7 @@ pub(super) fn plan_listed(
         .collect();
     listings.extend(list_all(cloud, &extra, configured.as_ref()));
     phases.lap(&format!("list {} account(s)", listings.len()));
+    Phases::reading("archive manifests");
     let enumerated = enumerate(cloud, &target_set, inventory, &listings);
     // Shard remotes of manifests found only in the cloud.
     let extra: BTreeSet<String> = enumerated
@@ -573,6 +582,11 @@ pub(super) fn plan_listed(
         }
     }
 
+    Phases::reading(if options.probe_full {
+        "archive classification and affected-shard hashes"
+    } else {
+        "archive classification (presence and sizes, no payload hashing)"
+    });
     let mut results: Vec<(Entry, Transfer)> = Vec::new();
     let mut skipped_replaced = 0usize;
     for found in &enumerated.found {

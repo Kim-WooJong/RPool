@@ -143,6 +143,17 @@ impl Source {
 
     /// Brings `prior` up to date with `listed` (from [`Source::list`]).
     pub(crate) fn refresh(&self, listed: &Unseen, prior: Snapshot) -> Result<Outcome> {
+        self.refresh_inner(listed, prior, false)
+    }
+
+    /// Generation migration cannot accept the browse-only best-effort folder
+    /// view. List once and verify every listed folder strictly in this read,
+    /// then return those records together with the validated file snapshot.
+    pub(crate) fn refresh_strict(&self, listed: &Unseen, prior: Snapshot) -> Result<Outcome> {
+        self.refresh_inner(listed, prior, true)
+    }
+
+    fn refresh_inner(&self, listed: &Unseen, prior: Snapshot, strict: bool) -> Result<Outcome> {
         let before = prior.folders.clone();
         let replicas: Vec<_> = self.dirs.iter().map(ReplicaDirs::replica).collect();
         let read = |unseen: &Unseen, skip: &dyn Fn(&str) -> bool| {
@@ -154,7 +165,9 @@ impl Source {
         let complete = before
             .keys()
             .all(|id| listed_folders.entries.contains_key(id));
-        let mut folders = if complete {
+        // Strict reads do not treat a best-effort persistent cache as proof
+        // of current folder availability. Every listed id is read and hashed.
+        let mut folders = if complete && !strict {
             before.clone()
         } else {
             Default::default()
@@ -169,9 +182,11 @@ impl Source {
                 .collect(),
             gate: false,
         };
-        folders.extend(super::pool_sync::read_folders_best_effort(
-            &unread, &missing,
-        ));
+        if strict {
+            folders.extend(super::pool_sync::read_folders_parallel(&stores, &missing)?);
+        } else {
+            folders.extend(super::pool_sync::read_folders_best_effort(&unread, &missing));
+        }
         outcome.changed |= folders != before;
         outcome.full |= !complete;
         outcome.snapshot.folders = folders;

@@ -246,16 +246,23 @@ impl StorageReader {
     /// Reads a whole metadata object (at most [`METADATA_LIMIT`]) and checks its
     /// length against the stat size. Used by manifest load/recover/replica checks.
     pub(crate) fn read_metadata(&self, raw: &str) -> Result<Vec<u8>> {
+        self.read_metadata_bounded(raw, METADATA_LIMIT)
+    }
+    /// The same stat/length-checked read with a tighter caller budget. The
+    /// limit cannot exceed the global metadata bound; cancellation and the
+    /// reader deadline apply unchanged to both stat and body reads.
+    pub(crate) fn read_metadata_bounded(&self, raw: &str, limit: usize) -> Result<Vec<u8>> {
+        let limit = limit.min(METADATA_LIMIT);
         let (backend, key) = self.resolve(raw)?;
         let metadata = backend.stat(&self.context, &key)?;
-        if metadata.is_dir || metadata.size > METADATA_LIMIT as u64 {
+        if metadata.is_dir || metadata.size > limit as u64 {
             return Err(StorageError::invalid_input(
                 "metadata object exceeds bounds or is a directory",
             )
             .into());
         }
-        let bytes = backend.read_all(&self.context, &key, Some(METADATA_LIMIT + 1))?;
-        if bytes.len() > METADATA_LIMIT {
+        let bytes = backend.read_all(&self.context, &key, Some(limit + 1))?;
+        if bytes.len() > limit {
             return Err(StorageError::invalid_input("metadata object exceeds bounds").into());
         }
         if bytes.len() as u64 != metadata.size {

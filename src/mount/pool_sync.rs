@@ -269,6 +269,50 @@ pub(crate) fn read_folders(stores: &[&dyn EventStore], unseen: &Unseen) -> Resul
     Ok(records)
 }
 
+/// Strict generation read with at most eight metadata objects in flight.
+/// Leaf storage calls retain their backing-account permits, bandwidth limits
+/// and deadlines (including accounts capped at one download). Results and
+/// errors are merged in id order; all scoped workers are joined before exit.
+pub(crate) fn read_folders_parallel(
+    stores: &[&(dyn EventStore + Sync)],
+    unseen: &Unseen,
+) -> Result<Records> {
+    const PARALLEL: usize = 8;
+    let wanted: Vec<_> = unseen.entries.iter().collect();
+    let mut records = Records::new();
+    let started = std::time::Instant::now();
+    eprintln!("[plan] reading folder metadata ({} record(s))", wanted.len());
+    let mut reported = started;
+    for batch in wanted.chunks(PARALLEL) {
+        // Eight bounded objects fit within the existing metadata page budget.
+        // Reject oversized listings before allocating or starting any reads.
+        if batch.iter().any(|(_, (_, size))| *size > super::metadata_limits::RECORD_BYTES_MAX as u64) {
+            bail!("folder metadata object exceeds record size bound");
+        }
+        let fetched: Vec<_> = std::thread::scope(|scope| {
+            let jobs: Vec<_> = batch.iter().map(|(id, (index, size))| {
+                scope.spawn(move || {
+                    let bytes = stores[*index].read(id, *size)?;
+                    super::folders::parse(id, &bytes)
+                })
+            }).collect();
+            jobs.into_iter().map(|job| {
+                job.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            }).collect()
+        });
+        for ((id, _), record) in batch.iter().zip(fetched) {
+            records.insert((*id).clone(), record?);
+        }
+        if reported.elapsed() >= std::time::Duration::from_secs(2) {
+            eprintln!("[plan] folder metadata: {} / {} verified", records.len(), wanted.len());
+            reported = std::time::Instant::now();
+        }
+    }
+    eprintln!("[plan] folder metadata: {} / {} verified ({:.1} s)",
+        records.len(), wanted.len(), started.elapsed().as_secs_f64());
+    Ok(records)
+}
+
 /// Folder metadata must not make an otherwise healthy file pool unusable.
 /// Keep strict reads for generation migration, where an incomplete snapshot
 /// would silently omit folders from the adopted generation.
