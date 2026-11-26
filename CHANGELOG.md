@@ -31,10 +31,15 @@
   symlink guards. Replica-read tests prove overlap with bounded rendezvous and
   sequential negative controls instead of a disk-speed wall-time threshold.
 
+- Configuration-restore locks now explicitly release their owned OS lock at
+  scope exit even while a duplicated/inherited descriptor survives. A process
+  ownership check prevents an inherited guard from unlocking its active parent;
+  independent-owner exclusion and rollback protections remain enforced.
+
 ### Qualification and limitations
 
 Local macOS ARM64 validation on Rust 1.98.1: all-targets compile passed;
-1,276 unit/regression tests passed, 0 failed, 66 normally ignored. The selected
+1,278 unit/regression tests passed, 0 failed, 66 normally ignored. The selected
 real-rclone local crypt oracle (4 tests) and native-crypt core sync (2 tests)
 also passed. CLI and GUI release builds succeeded, and CLI reports 2.23.0.
 The frozen empty-layout test covers v2/v3, full/minimal, metadata-only/zero

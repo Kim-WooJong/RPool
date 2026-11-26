@@ -83,8 +83,10 @@ pub(in crate::config_sync) fn exists(path: &Path) -> Result<bool> {
 /// Exclusive OS lock on `<config>.rpool-lock`, held for the whole transaction
 /// or recovery; released when dropped. The lock file itself is kept.
 pub(super) struct ConfigLock {
-    /// Open lock file; the OS lock is released when it is closed.
+    /// Open lock file; explicitly unlocked before close by its owning process.
     _file: File,
+    /// Prevent an inherited guard in a forked child from unlocking its parent.
+    owner_pid: u32,
 }
 impl ConfigLock {
     /// Takes the lock without waiting; errors if another restore holds it or the
@@ -115,7 +117,17 @@ impl ConfigLock {
         }
         // Keep the sidecar inode permanently. Deleting it on unlock would permit
         // two lock owners on different inodes. Closing releases the OS lock.
-        Ok(Self { _file: file })
+        Ok(Self { _file: file, owner_pid: std::process::id() })
+    }
+}
+
+impl Drop for ConfigLock {
+    fn drop(&mut self) {
+        if self.owner_pid == std::process::id() {
+            // Close alone can retain flock when a duplicated/inherited handle
+            // survives. Unlock only our own acquired open-file description.
+            let _ = self._file.unlock();
+        }
     }
 }
 
@@ -418,5 +430,41 @@ pub(super) fn cleanup_recovery(path: &Path) -> bool {
                 .unwrap_or(false)
         }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod scope_release_tests {
+    use super::*;
+
+    #[test]
+    fn inherited_nonowner_drop_does_not_unlock_the_active_owner() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("fixture.conf");
+        fs::write(&target, b"fixture").unwrap();
+        let owner = ConfigLock::acquire(&target).unwrap();
+        let inherited = ConfigLock { _file: owner._file.try_clone().unwrap(),
+            owner_pid: std::process::id().wrapping_add(1) };
+        drop(inherited);
+        assert!(ConfigLock::acquire(&target).is_err());
+        drop(owner);
+        assert!(ConfigLock::acquire(&target).is_ok());
+    }
+
+    #[test]
+    fn config_lock_scope_releases_even_while_a_duplicated_handle_survives() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("fixture.conf");
+        fs::write(&target, b"fixture").unwrap();
+        let owner = ConfigLock::acquire(&target).unwrap();
+        let inherited = owner._file.try_clone().unwrap();
+        assert!(ConfigLock::acquire(&target).is_err());
+        drop(owner);
+        let next = ConfigLock::acquire(&target).expect("finished owner must release the lock before inherited handles close");
+        assert!(ConfigLock::acquire(&target).is_err());
+        drop(inherited);
+        assert!(ConfigLock::acquire(&target).is_err(), "old duplicate must not unlock the new owner");
+        drop(next);
+        assert!(ConfigLock::acquire(&target).is_ok());
     }
 }
