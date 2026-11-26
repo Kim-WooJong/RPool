@@ -427,7 +427,7 @@ fn resilient_relocation_respects_outage_groups() {
 #[test]
 fn unrecoverable_group_is_a_typed_error_and_writes_nothing() {
     let fixture = Fixture::new(&["a:", "b:", "c:"], SIZE);
-    // Group 0 loses its c: shard (remote removed) and another one (missing).
+    // Two configured objects are physically missing: definitive loss remains Lost.
     let victim = fixture
         .manifest
         .shards
@@ -435,9 +435,12 @@ fn unrecoverable_group_is_a_typed_error_and_writes_nothing() {
         .find(|s| s.group == 0 && s.remote != "c:")
         .unwrap()
         .clone();
+    let absent = fixture.manifest.shards.iter()
+        .find(|s| s.group == 0 && s.remote == "c:").unwrap();
+    fixture.delete(&absent.object);
     fixture.delete(&victim.object);
     let before = fixture.old_objects();
-    let writer = fixture.writer_without(&["c:"]);
+    let writer = fixture.writer();
     let pool = target(&["a:", "b:", "d:"], Placement::RoundRobin);
     let error = run(&fixture, &writer, &pool, &["a", "b", "d"]).unwrap_err();
     let typed = error.downcast_ref::<Unrecoverable>().unwrap();
@@ -452,7 +455,7 @@ fn unrecoverable_group_is_a_typed_error_and_writes_nothing() {
         .collect();
     assert_eq!(
         reasons,
-        BTreeSet::from(["Missing".to_owned(), "RemoteRemoved".to_owned()])
+        BTreeSet::from(["Missing".to_owned()])
     );
     assert_eq!(fixture.new_objects_written(), 0);
     assert_eq!(fixture.old_objects(), before);
@@ -903,4 +906,332 @@ fn e2e_relocate_with_rclone() {
         relocated.uploaded_bytes,
         relocated.manifest_locations.join(",")
     );
+}
+
+
+#[test]
+fn rc10_off_target_provider_error_classification() {
+    use crate::migration::model::MissingReason::{Corrupt, Missing, ProviderError};
+    let cases: Vec<(anyhow::Error, MissingReason, MissingReason)> = vec![
+        // (error, off-target reason, on-target reason)
+        (StorageError::not_found("x").into(), Missing, Missing),
+        (
+            StorageError::CorruptData {
+                found: "a".into(),
+                expected: "b".into(),
+            }
+            .into(),
+            Corrupt,
+            Corrupt,
+        ),
+        (
+            StorageError::Timeout { detail: "t".into() }.into(),
+            ProviderError,
+            ProviderError,
+        ),
+        (
+            anyhow::Error::from(StorageError::Timeout { detail: "t".into() }).context("stat"),
+            ProviderError,
+            ProviderError,
+        ),
+        (
+            StorageError::TransientIo {
+                detail: "io".into(),
+            }
+            .into(),
+            ProviderError,
+            ProviderError,
+        ),
+        (
+            StorageError::RateLimited {
+                retry_after: None,
+                detail: "429".into(),
+            }
+            .into(),
+            ProviderError,
+            ProviderError,
+        ),
+        (
+            StorageError::Cancelled { detail: "c".into() }.into(),
+            ProviderError,
+            ProviderError,
+        ),
+        (
+            StorageError::ReadExcluded {
+                remote: "gms_1_crypt".into(),
+            }
+            .into(),
+            ProviderError,
+            ProviderError,
+        ),
+        (
+            StorageError::Other {
+                detail: "rclone failed (exit 1)".into(),
+            }
+            .into(),
+            ProviderError,
+            ProviderError,
+        ),
+        (StorageError::unknown_outcome("lost response").into(), ProviderError, ProviderError),
+        (anyhow!("untyped failure"), ProviderError, ProviderError),
+        (
+            StorageError::invalid_input("remote is not configured").into(),
+            ProviderError,
+            ProviderError,
+        ),
+        (
+            StorageError::Authentication { detail: "d".into() }.into(),
+            ProviderError,
+            ProviderError,
+        ),
+        (
+            StorageError::PermissionDenied { path: "p".into() }.into(),
+            ProviderError,
+            ProviderError,
+        ),
+    ];
+    for (error, off, on) in &cases {
+        assert_eq!(
+            reason_for_error(error, false),
+            *off,
+            "off target: {error:#}"
+        );
+        assert_eq!(reason_for_error(error, true), *on, "on target: {error:#}");
+    }
+}
+
+/// Metadata-only or one-zero-byte-extent archive on the memory backend.
+fn empty_fixture(zero_on: Option<&str>) -> Fixture {
+    let mut fixture = Fixture {
+        memory: Arc::new(MemoryBackend::new(BackendId::new("relocate").unwrap())),
+        bindings: BTreeMap::new(),
+        temp: tempfile::tempdir().unwrap(),
+        bytes: Vec::new(),
+        manifest: Manifest {
+            shared: None,
+            version: 2,
+            archive_id: "old".into(),
+            original_name: "empty".into(),
+            original_size: 0,
+            shard_size: MIB,
+            created_unix: 7,
+            content_root_blake3: String::new(),
+            coding: None,
+            shards: vec![],
+        },
+    };
+    if let Some(remote) = zero_on {
+        let object = remote_join(remote, "old/shards/00000000.bin");
+        fixture.bind(&object);
+        fixture.seed(&object, b"");
+        fixture.manifest.shards.push(Shard {
+            index: 0,
+            offset: 0,
+            size: 0,
+            remote: remote.into(),
+            object,
+            blake3: blake3::hash(b"").to_hex().to_string(),
+            kind: ShardKind::Data,
+            group: 0,
+            slot: 0,
+        });
+    }
+    fixture.manifest.content_root_blake3 = content_root_v2(0, MIB, &None, &fixture.manifest.shards);
+    validate_manifest(&fixture.manifest).unwrap();
+    for remote in ALL_REMOTES {
+        for shard in fixture.manifest.shards.clone() {
+            fixture.bind(&remote_join(remote, &relative_object(NEW, &shard, None)));
+        }
+        fixture.bind(&remote_join(remote, &format!("{NEW}/manifest.json")));
+    }
+    fixture
+}
+
+#[test]
+fn rc10_metadata_only_empty_relocation_round_robin() {
+    let fixture = empty_fixture(None);
+    let pool = target(&["a:", "b:", "d:"], Placement::RoundRobin);
+    let relocated = run(&fixture, &fixture.writer(), &pool, &["a", "b", "d"]).unwrap();
+    assert!(relocated.manifest.shards.is_empty());
+    assert_eq!(relocated.manifest.original_size, 0);
+    assert_eq!(relocated.manifest_locations.len(), 3);
+    assert_eq!((relocated.downloaded_bytes, relocated.uploaded_bytes), (0, 0));
+    assert_eq!(fixture.restore(&fixture.writer(), &relocated.manifest), b"");
+}
+
+#[test]
+fn rc10_metadata_only_empty_relocation_quota_aware() {
+    let fixture = empty_fixture(None);
+    let pool = target(&["a:", "b:", "d:"], Placement::FreeRatio);
+    let relocated = run(&fixture, &fixture.writer(), &pool, &["a", "b", "d"]).unwrap();
+    assert!(relocated.manifest.shards.is_empty());
+    assert_eq!(relocated.manifest_locations.len(), 3);
+    for remote in ["a:", "b:", "d:"] {
+        assert!(fixture.read(&remote_join(remote, &format!("{NEW}/manifest.json"))).is_some());
+    }
+    assert_eq!(fixture.restore(&fixture.writer(), &relocated.manifest), b"");
+}
+
+#[test]
+fn rc10_zero_byte_extent_relocates_to_parity_pool() {
+    let fixture = empty_fixture(Some("c:"));
+    let before = fixture.old_objects();
+    let pool = target(&["a:", "b:", "d:"], Placement::RoundRobin);
+    let relocated = run(&fixture, &fixture.writer(), &pool, &["a", "b", "d"]).unwrap();
+    assert_eq!(relocated.manifest.shards.len(), 1);
+    let shard = &relocated.manifest.shards[0];
+    assert_ne!(shard.remote, "c:");
+    assert_eq!(shard.size, 0);
+    assert_eq!(shard.blake3, blake3::hash(b"").to_hex().to_string());
+    assert_eq!(fixture.read(&shard.object), Some(Vec::new()));
+    assert_eq!(fixture.old_objects(), before);
+    assert_eq!(fixture.restore(&fixture.writer(), &relocated.manifest), b"");
+}
+
+#[test]
+fn rc10_nonempty_uncoded_still_needs_reencode() {
+    let mut fixture = empty_fixture(Some("c:"));
+    let object = fixture.manifest.shards[0].object.clone();
+    fixture.seed(&object, b"x");
+    fixture.bytes = b"x".to_vec();
+    fixture.manifest.original_size = 1;
+    fixture.manifest.shards[0].size = 1;
+    fixture.manifest.shards[0].blake3 = blake3::hash(b"x").to_hex().to_string();
+    fixture.manifest.content_root_blake3 = content_root_v2(1, MIB, &None, &fixture.manifest.shards);
+    validate_manifest(&fixture.manifest).unwrap();
+    let before = fixture.old_objects();
+    let pool = target(&["a:", "b:", "d:"], Placement::RoundRobin);
+    let error = run(&fixture, &fixture.writer(), &pool, &["a", "b", "d"]).unwrap_err();
+    assert!(format!("{error:#}").contains("unchanged coding"), "{error:#}");
+    assert_eq!(fixture.new_objects_written(), 0);
+    assert_eq!(fixture.old_objects(), before);
+}
+
+#[test]
+fn rc10_stat_timeout_shortfall_is_unknown_before_writes() {
+    use crate::storage::memory::faults::{Fault, FaultBackend, Operation, Rule};
+    let fixture = Fixture::new(&["a:", "b:", "c:"], SIZE);
+    let before = fixture.old_objects();
+    let inner = Arc::new(MemoryBackend::new(BackendId::new("temporary-source-error").unwrap()));
+    let id = inner.id();
+    let mut bindings = BTreeMap::new();
+    for (raw, reference) in &fixture.bindings {
+        if raw.starts_with("b:") || raw.starts_with("c:") {
+            bindings.insert(raw.clone(), ObjectRef::new(id.clone(), reference.key().clone()));
+        } else {
+            bindings.insert(raw.clone(), reference.clone());
+        }
+    }
+    let rules = (1..=32).map(|call| Rule {
+        operation: Operation::Stat,
+        call,
+        fault: Fault::Error(StorageError::Timeout { detail: "temporary source outage".into() }),
+    }).collect();
+    let failing = Arc::new(FaultBackend::new(inner, rules).unwrap());
+    let mut registry = BackendRegistry::new();
+    registry.register(fixture.memory.clone()).unwrap();
+    registry.register(failing).unwrap();
+    let writer = StorageWriter::synthetic(StorageReader::from_registry(registry, bindings, OperationContext::none()));
+    let pool = target(&["a:", "d:", "e:"], Placement::RoundRobin);
+    let error = run(&fixture, &writer, &pool, &["a", "d", "e"]).unwrap_err();
+    assert!(error.downcast_ref::<Unrecoverable>().is_none(), "{error:#}");
+    let unknown = error.downcast_ref::<RelocateError>().expect("temporary source outage stays retryable");
+    assert!(unknown.losses.iter().flat_map(|g| &g.missing).all(|m| m.reason == MissingReason::ProviderError));
+    assert_eq!(fixture.new_objects_written(), 0);
+    assert_eq!(fixture.old_objects(), before);
+}
+
+#[test]
+fn stable_gate_empty_archive_changed_shard_size_must_relocate() {
+    let fixture = empty_fixture(None);
+    let mut pool = target(&["a:", "b:", "d:"], Placement::RoundRobin);
+    pool.shard_size = crate::models::shard_size::ShardSize::from_mib(2).unwrap();
+    assert!(crate::migration::classify::reencode_reason(&fixture.manifest, &pool).is_none());
+    let result = run(&fixture, &fixture.writer(), &pool, &["a", "b", "d"]);
+    assert!(result.is_ok(), "planner selected relocation for empty archive but execution refused: {result:?}");
+}
+
+#[test]
+fn stable_gate_unconfigured_source_and_missing_shard_remain_unknown() {
+    let fixture = Fixture::new(&["a:", "b:", "c:"], SIZE);
+    // Group 0 loses its c: shard (remote removed) and another one (missing).
+    let victim = fixture
+        .manifest
+        .shards
+        .iter()
+        .find(|s| s.group == 0 && s.remote != "c:")
+        .unwrap()
+        .clone();
+    fixture.delete(&victim.object);
+    let before = fixture.old_objects();
+    let writer = fixture.writer_without(&["c:"]);
+    let pool = target(&["a:", "b:", "d:"], Placement::RoundRobin);
+    let error = run(&fixture, &writer, &pool, &["a", "b", "d"]).unwrap_err();
+    assert!(error.downcast_ref::<Unrecoverable>().is_none());
+    let typed = error.downcast_ref::<RelocateError>().unwrap();
+    assert!(typed.losses.iter().flat_map(|g| &g.missing).any(|m| m.reason == MissingReason::ProviderError));
+    assert_eq!(fixture.new_objects_written(), 0);
+    assert_eq!(fixture.old_objects(), before);
+}
+
+#[test]
+fn stable_gate_empty_frozen_contracts_allow_only_layout_preserving_size_changes() {
+    use crate::migration::{exact, full_copy, model::Action};
+    for version in [2, 3] {
+        for source_mib in [1, 2] {
+            for zero_on in [None, Some("a:"), Some("c:")] {
+                for minimal in [false, true] {
+                    let mut f = empty_fixture(zero_on);
+                    f.manifest.shard_size = source_mib * MIB;
+                    f.manifest.content_root_blake3 = content_root_v2(0, f.manifest.shard_size, &None, &f.manifest.shards);
+                    if version == 3 {
+                        let fp = crate::manifest::manifest_fingerprint(&f.manifest).unwrap();
+                        f.manifest.version = 3;
+                        f.manifest.shared = Some(crate::models::SharedObjects {
+                            capability: "immutable-borrowed-objects-v1".into(), source_fingerprint: fp,
+                            objects: f.manifest.shards.iter().map(|s| crate::models::ObjectIdentity {
+                                index: s.index, owner: "old".into(), remote: s.remote.clone(), object: s.object.clone(), size: s.size, blake3: s.blake3.clone(),
+                            }).collect(),
+                        });
+                        f.manifest.content_root_blake3 = crate::manifest::content_root_v3(&f.manifest).unwrap();
+                    }
+                    validate_manifest(&f.manifest).unwrap();
+                    let before = f.old_objects();
+                    let fp = crate::manifest::manifest_fingerprint(&f.manifest).unwrap();
+                    let mut p = target(&["a:", "b:", "d:"], Placement::RoundRobin);
+                    p.shard_size = crate::models::shard_size::ShardSize::from_mib(if source_mib == 1 { 2 } else { 1 }).unwrap();
+                    let mut moves = BTreeMap::new();
+                    let spec = exact::freeze(&f.manifest, &p, &mut moves, minimal, &BTreeSet::new()).unwrap();
+                    let mut e = crate::migration::execute::tests_support::entry("old", if minimal { Action::RelocateMinimal } else { Action::Relocate }, 0);
+                    e.fingerprint = fp.clone(); e.moves = moves; e.exact = Some(spec.clone());
+                    exact::validate(&e, &f.manifest, &p).unwrap();
+                    let create = spec.objects.iter().filter(|o| !o.keep_ref).map(|o| o.index).collect();
+                    let writer = f.writer();
+                    let out = relocate_impl(minimal, &create, &writer, None, &f.manifest, &p, &p.remotes, &names(&["a", "b", "d"]), &e.moves, NEW, f.temp.path()).unwrap();
+                    full_copy::verify_output(&e, &out.manifest).unwrap();
+                    assert_eq!(out.manifest.original_size, 0);
+                    assert_eq!(out.manifest.shard_size, f.manifest.shard_size);
+                    assert_eq!(out.manifest.shards.len(), f.manifest.shards.len());
+                    assert_eq!(out.manifest.coding, None);
+                    for (s, frozen) in out.manifest.shards.iter().zip(&spec.objects) {
+                        assert_eq!(s.blake3, frozen.blake3);
+                        if frozen.keep_ref { assert_eq!(s.object, frozen.source); }
+                        else { assert!(s.object.contains(NEW)); assert_ne!(s.object, frozen.source); }
+                    }
+                    assert_eq!(f.old_objects(), before);
+                    assert_eq!(crate::manifest::manifest_fingerprint(&f.manifest).unwrap(), fp);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn stable_gate_missing_minimal_zero_extent_does_not_allocate_unplanned_objects() {
+    let f = empty_fixture(Some("a:"));
+    f.delete(&f.manifest.shards[0].object);
+    let p = target(&["a:", "b:", "d:"], Placement::RoundRobin);
+    let result = relocate_impl(true, &BTreeSet::new(), &f.writer(), None, &f.manifest, &p, &p.remotes, &names(&["a", "b", "d"]), &BTreeMap::new(), NEW, f.temp.path());
+    assert!(result.is_err());
+    assert_eq!(f.new_objects_written(), 0);
 }

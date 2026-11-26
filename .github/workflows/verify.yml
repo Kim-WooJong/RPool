@@ -1,0 +1,62 @@
+name: verify
+on:
+  push:
+    branches: ["release/**"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    name: verify ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-15, windows-latest]
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Rust stable
+        shell: bash
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+      - name: WinFsp SDK and driver
+        if: runner.os == 'Windows'
+        run: choco install winfsp -y --no-progress
+      - uses: Swatinem/rust-cache@v2
+      - name: Pinned local test dependency
+        run: python scripts/ci-install-rclone.py
+      - name: Record native environment
+        shell: bash
+        run: rustc -Vv && cargo -V && rclone version
+      - name: Compile all targets
+        run: cargo check --locked --all-targets
+      - name: Unit and regression tests
+        run: cargo test --locked --all-targets
+      - name: Local crypt compatibility
+        run: cargo test --locked --bin rpool crypt::oracle -- --ignored --test-threads=1
+      - name: Local encrypted core sync
+        run: cargo test --locked --bin rpool mount::native_sync_tests -- --ignored --test-threads=1
+      - name: Native release binaries
+        run: cargo build --release --locked --bin rpool --bin rpool-gui
+      - name: Windows native mounted I/O
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/ci-winfsp-smoke.ps1
+      - name: Preserve bounded smoke diagnostics
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: winfsp-smoke-logs
+          path: ${{ runner.temp }}/rpool-winfsp-smoke/*.log
+          if-no-files-found: ignore

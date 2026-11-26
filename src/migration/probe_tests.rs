@@ -43,17 +43,11 @@ fn quick_states_classify_presence_size_and_remote_status() {
         quick_states(&m, &listings, &target)[2],
         ShardState::Unknown(_)
     ));
-    // The same remote after it left the pool counts as removed.
+    // Leaving the pool does not turn a timeout into evidence of data loss.
     let target = set(&["a:", "b:"]);
-    assert_eq!(
-        quick_states(&m, &listings, &target)[2],
-        ShardState::Missing(MissingReason::RemoteRemoved)
-    );
+    assert!(matches!(quick_states(&m, &listings, &target)[2], ShardState::Unknown(_)));
     listings.insert("c:".into(), RemoteListing::NotConfigured);
-    assert_eq!(
-        quick_states(&m, &listings, &target)[2],
-        ShardState::Missing(MissingReason::RemoteRemoved)
-    );
+    assert!(matches!(quick_states(&m, &listings, &target)[2], ShardState::Unknown(_)));
     // A removed remote that is still readable is judged by its contents.
     let listings = listing(&m, &[], &[]);
     assert_eq!(quick_states(&m, &listings, &target)[2], ShardState::Ok);
@@ -105,7 +99,7 @@ fn uncoded_archive_needs_every_shard() {
 }
 
 #[test]
-fn full_probe_maps_errors_by_pool_membership() {
+fn full_probe_errors_are_unknown_regardless_of_pool_membership() {
     let m = manifest("x", 2 * MIB, MIB, 2, 1, &["a:", "b:", "c:"]);
     let probes = vec![
         (
@@ -121,5 +115,33 @@ fn full_probe_maps_errors_by_pool_membership() {
     let states = full_states(&m, &probes, &set(&["a:", "b:"]));
     assert_eq!(states[0], ShardState::Missing(MissingReason::Corrupt));
     assert!(matches!(states[1], ShardState::Unknown(_)));
-    assert_eq!(states[2], ShardState::Missing(MissingReason::RemoteRemoved));
+    assert!(matches!(states[2], ShardState::Unknown(_)));
+}
+
+#[test]
+fn stable_gate_off_pool_timeouts_must_remain_undetermined() {
+    let m = manifest("stable-gate", 2 * MIB, MIB, 2, 1, &["a:", "b:", "c:"]);
+    let target = set(&["a:", "d:", "e:"]);
+    let mut listings = listing(&m, &[], &[]);
+    listings.insert("b:".into(), RemoteListing::Failed("timeout".into()));
+    listings.insert("c:".into(), RemoteListing::Failed("timeout".into()));
+    let states = quick_states(&m, &listings, &target);
+    let result = assess(&m, &states);
+    assert!(!result.lost && result.undetermined, "temporary outages incorrectly prove loss: {result:?}");
+}
+
+#[test]
+fn stable_gate_unobserved_off_pool_sources_are_unknown_but_proof_is_kept() {
+    let m = manifest("gate", 2 * MIB, MIB, 2, 1, &["a:", "b:", "c:"]);
+    let target = set(&["new:"]);
+    assert!(quick_states(&m, &BTreeMap::new(), &target).iter().all(|s| matches!(s, ShardState::Unknown(_))));
+    assert!(full_states(&m, &[], &target).iter().all(|s| matches!(s, ShardState::Unknown(_))));
+    let l = listing(&m, &[0], &[1]);
+    let s = quick_states(&m, &l, &target);
+    assert_eq!(s[0], ShardState::Missing(MissingReason::Missing));
+    assert_eq!(s[1], ShardState::Missing(MissingReason::BadSize));
+    let probes = vec![(m.shards[0].clone(), Probe::Missing), (m.shards[1].clone(), Probe::Corrupt { found: "bad".into(), expected: "hash".into() })];
+    let s = full_states(&m, &probes, &target);
+    assert_eq!(s[0], ShardState::Missing(MissingReason::Missing));
+    assert_eq!(s[1], ShardState::Missing(MissingReason::Corrupt));
 }

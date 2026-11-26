@@ -335,6 +335,9 @@ fn resolve(
                 }
                 _ => pending(&mut out, "switched record without its new archive"),
             },
+            Some(Progress::Lost(r)) if super::execute::unconfirmed_loss(&r.losses) => {
+                pending(&mut out, "prior loss unconfirmed; create a fresh plan")
+            }
             Some(Progress::Lost(r)) => {
                 out.lost.insert(key.clone(), r.losses.clone());
             }

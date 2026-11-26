@@ -19,6 +19,8 @@ struct Fake {
     /// Entries whose build fails with a provider error / as unrecoverable.
     provider_error: BTreeSet<String>,
     unrecoverable: BTreeSet<String>,
+    /// Synthetic legacy error whose only evidence is remote unavailability.
+    unconfirmed_unrecoverable: BTreeSet<String>,
     reverify_fails: BTreeSet<String>,
     changed_source: BTreeSet<String>,
     /// Appends for these entries fail (a journal that refuses every store).
@@ -70,7 +72,7 @@ impl Effects for Fake {
         if self.provider_error.contains(&entry.archive_id) {
             bail!("rclone: 503");
         }
-        if self.unrecoverable.contains(&entry.archive_id) {
+        if self.unrecoverable.contains(&entry.archive_id) || self.unconfirmed_unrecoverable.contains(&entry.archive_id) {
             return Err(Unrecoverable(vec![GroupLoss {
                 group: 3,
                 required_k: 2,
@@ -78,7 +80,9 @@ impl Effects for Fake {
                 missing: vec![model::MissingShard {
                     index: 0,
                     remote: "gone:".into(),
-                    reason: MissingReason::RemoteRemoved,
+                    reason: if self.unconfirmed_unrecoverable.contains(&entry.archive_id) {
+                        MissingReason::RemoteRemoved
+                    } else { MissingReason::Missing },
                 }],
             }])
             .into());
@@ -594,4 +598,59 @@ fn only_entries_whose_latest_attempt_is_unknown_are_retried() {
         .collect();
     // b recovered later, c never ran, d is lost and e was not checked at plan time.
     assert_eq!(retry, vec!["a"]);
+}
+
+fn stable_gate_unconfirmed_groups() -> Vec<GroupLoss> {
+    vec![GroupLoss { group: 0, required_k: 2, available: 1,
+        missing: vec![model::MissingShard { index: 1, remote: "offline:".into(),
+            reason: MissingReason::RemoteRemoved }] }]
+}
+
+#[test]
+fn stable_gate_legacy_plan_loss_is_unknown_without_new_records() {
+    let mut lost = entry("old-plan", Action::Lost, 5);
+    lost.losses = stable_gate_unconfirmed_groups();
+    let p = plan(vec![lost]);
+    let json = serde_json::to_string(&p).unwrap();
+    assert!(json.contains("remote-removed"));
+    let restored: Plan = serde_json::from_str(&json).unwrap();
+    let f = fake();
+    let s = run_core(&restored, &[], "pc", &f, Some(1)).unwrap();
+    assert_eq!(s.lost, 0);
+    assert_eq!(s.unknown.len(), 1);
+    assert!(f.log().appended.is_empty() && f.log().built.is_empty());
+    let status = crate::migration::status::summarize(&restored, &[]);
+    assert!(!status.complete && status.lost.is_empty());
+    assert_eq!(status.failed_unknown, 1);
+    assert_eq!(serde_json::to_string(&restored).unwrap(), json);
+}
+
+#[test]
+fn stable_gate_legacy_recorded_loss_is_unknown_without_retry_or_rewrite() {
+    let p = plan(vec![entry("old-run", Action::Relocate, 5)]);
+    let mut r = rec("old-run", RecordState::Lost, 50, "old-pc");
+    r.losses = stable_gate_unconfirmed_groups();
+    let records = vec![r];
+    let before = serde_json::to_vec(&records).unwrap();
+    let f = fake();
+    let s = run_core(&p, &records, "pc", &f, Some(1)).unwrap();
+    assert_eq!(s.lost, 0);
+    assert_eq!(s.unknown.len(), 1);
+    assert!(f.log().appended.is_empty() && f.log().built.is_empty());
+    assert_eq!(serde_json::to_vec(&records).unwrap(), before);
+    let status = crate::migration::status::summarize(&p, &records);
+    assert!(!status.complete && status.lost.is_empty());
+    assert_eq!(status.failed_unknown, 1);
+}
+
+#[test]
+fn stable_gate_unconfirmed_runtime_loss_never_becomes_a_lost_record() {
+    let p = plan(vec![entry("x", Action::Relocate, 5)]);
+    let mut f = fake();
+    f.unconfirmed_unrecoverable.insert("x".into());
+    let s = run_core(&p, &[], "pc", &f, Some(1)).unwrap();
+    assert_eq!(s.lost, 0);
+    assert_eq!(s.unknown.len(), 1);
+    assert_eq!(states(&f, "x"), vec![RecordState::Claimed, RecordState::Unknown]);
+    assert!(f.log().switched.is_empty());
 }

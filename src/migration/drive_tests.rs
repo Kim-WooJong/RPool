@@ -672,3 +672,24 @@ fn a_lost_pack_drops_all_its_members() {
         vec!["small/x.txt".to_string(), "small/y.txt".to_string()]
     );
 }
+
+#[test]
+fn stable_gate_legacy_unconfirmed_drive_loss_cannot_be_accepted_as_lost() {
+    let w = world();
+    let key = entry_key("moved1.bin", "rev1-moved1.bin");
+    let mut r = crate::migration::execute::tests_support::rec(&key, RecordState::Lost, 1_001, "old-pc");
+    r.losses = vec![GroupLoss { group: 0, required_k: 2, available: 1,
+        missing: vec![crate::migration::model::MissingShard { index: 1, remote: "offline:".into(),
+            reason: crate::migration::model::MissingReason::RemoteRemoved }] }];
+    let journal = w.journal("legacy");
+    journal.append(&r).unwrap();
+    let before = w.drive.files.lock().unwrap().iter().map(|f| f.path.clone()).collect::<Vec<_>>();
+    let error = w.adopt("adopter", true).unwrap_err();
+    assert!(format!("{error:#}").contains("prior loss unconfirmed"), "{error:#}");
+    assert!(load_adoption(&journal).unwrap().is_none());
+    assert_eq!(w.drive.files.lock().unwrap().iter().map(|f| f.path.clone()).collect::<Vec<_>>(), before);
+    let status = summarize(&w.drive_plan, &journal.records().unwrap(), None, None);
+    assert!(!status.ready);
+    assert!(status.failed_unknown > 0);
+    assert!(status.lost.iter().all(|f| f.original_name != "moved1.bin"));
+}

@@ -190,7 +190,7 @@ fn provider_error_is_unknown_never_lost() {
 }
 
 #[test]
-fn unconfigured_removed_remote_is_not_called_and_counts_as_removed() {
+fn unconfigured_removed_remote_is_not_called_and_remains_unknown() {
     let (cloud, _) = fixture();
     let cloud = FakeCloud {
         configured: Some(["a", "b", "c"].iter().map(|s| s.to_string()).collect()),
@@ -199,7 +199,7 @@ fn unconfigured_removed_remote_is_not_called_and_counts_as_removed() {
     let plan = run(&cloud, &["a:", "b:", "c:"], 2, 1);
     let f2 = plan.entries.iter().find(|e| e.archive_id == "f2").unwrap();
     assert_eq!(f2.action, Action::Relocate);
-    assert_eq!(f2.losses[0].missing[0].reason, MissingReason::RemoteRemoved);
+    assert_eq!(f2.losses[0].missing[0].reason, MissingReason::ProviderError);
     assert!(!cloud.lists.lock().unwrap().iter().any(|r| r == "d:"));
 }
 
@@ -358,4 +358,15 @@ fn rebalance_relocates_unaffected_archives_toward_an_empty_account() {
         assert_eq!(entry.moves.len(),entry.exact.as_ref().unwrap().objects.len(),"whole output map must be frozen");
         assert!(entry.upload_bytes > 0);
     }
+}
+
+#[test]
+fn stable_gate_unconfigured_shortfall_is_unknown_not_lost() {
+    let mut cloud = FakeCloud { configured: Some(["a", "b", "c"].iter().map(|s| s.to_string()).collect()), ..Default::default() };
+    let m = manifest("gate-shortfall", 2 * MIB, MIB, 2, 1, &["a:", "d:", "e:"]);
+    cloud.store(&m, &["a:", "b:", "c:"]);
+    let p = run(&cloud, &["a:", "b:", "c:"], 2, 1);
+    assert_eq!(action(&p, "gate-shortfall"), Action::Unknown);
+    assert_eq!(p.counts.lost, 0);
+    assert_eq!(p.counts.unknown, 1);
 }

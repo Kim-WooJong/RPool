@@ -1,7 +1,7 @@
-//! Probe: decide per shard whether it is readable, and per Reed-Solomon group
-//! whether the archive can still be rebuilt. A provider error is never taken
-//! as a loss; only a remote that left the pool and cannot be read counts as
-//! gone (`RemoteRemoved`).
+//! Probe shard readability and Reed-Solomon recoverability. Only confirmed
+//! absence, size mismatch or corruption is an erasure. Listing/probe failures,
+//! unconfigured remotes and missing observations remain unknown regardless of
+//! current pool membership.
 use super::enumerate::RemoteListing;
 use super::model::{GroupLoss, MissingReason, MissingShard};
 use crate::manifest::{coding_group_count, data_shards};
@@ -32,13 +32,12 @@ impl ShardState {
 pub(crate) fn quick_states(
     manifest: &Manifest,
     listings: &BTreeMap<String, RemoteListing>,
-    target: &BTreeSet<String>,
+    _target: &BTreeSet<String>,
 ) -> Vec<ShardState> {
     manifest
         .shards
         .iter()
         .map(|shard| {
-            let in_pool = target.contains(&shard.remote);
             match listings.get(&shard.remote) {
                 Some(RemoteListing::Listed(files)) => {
                     match relative_remote_object(&shard.remote, &shard.object) {
@@ -52,7 +51,6 @@ pub(crate) fn quick_states(
                         Err(error) => ShardState::Unknown(format!("{error:#}")),
                     }
                 }
-                _ if !in_pool => ShardState::Missing(MissingReason::RemoteRemoved),
                 Some(RemoteListing::NotConfigured) => {
                     ShardState::Unknown(format!("{} is not configured", shard.remote))
                 }
@@ -67,7 +65,7 @@ pub(crate) fn quick_states(
 pub(crate) fn full_states(
     manifest: &Manifest,
     probes: &[(Shard, Probe)],
-    target: &BTreeSet<String>,
+    _target: &BTreeSet<String>,
 ) -> Vec<ShardState> {
     let by_index: BTreeMap<u32, &Probe> = probes.iter().map(|(s, p)| (s.index, p)).collect();
     manifest
@@ -78,9 +76,6 @@ pub(crate) fn full_states(
             Some(Probe::Missing) => ShardState::Missing(MissingReason::Missing),
             Some(Probe::BadSize { .. }) => ShardState::Missing(MissingReason::BadSize),
             Some(Probe::Corrupt { .. }) => ShardState::Missing(MissingReason::Corrupt),
-            Some(Probe::Error(_)) | None if !target.contains(&shard.remote) => {
-                ShardState::Missing(MissingReason::RemoteRemoved)
-            }
             Some(Probe::Error(error)) => ShardState::Unknown(error.clone()),
             None => ShardState::Unknown("shard was not probed".into()),
         })

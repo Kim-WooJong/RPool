@@ -667,6 +667,12 @@ pub(crate) fn run_core_with(
 
     // Plan-time losses are recorded once so every PC's status shows them.
     for entry in plan.entries.iter().filter(|e| e.action == Action::Lost) {
+        if unconfirmed_loss(&entry.losses) {
+            summary.unknown.push(format!(
+                "{} (legacy plan loss is unconfirmed; create a fresh plan)", entry.original_name
+            ));
+            continue;
+        }
         if !matches!(state.get(&entry.archive_id), Some(Progress::Lost(_))) {
             let attempt = effects.new_id()?;
             let mut r = record(effects, &entry.archive_id, RecordState::Lost, &attempt, pc);
@@ -803,6 +809,12 @@ fn process_entry(
             effects.say(&format!("{label} already switched"));
             return Ok(Outcome::AlreadySwitched);
         }
+        Some(Progress::Lost(r)) if unconfirmed_loss(&r.losses) => {
+            effects.say(&format!("{label} prior loss unconfirmed; create a fresh plan"));
+            return Ok(Outcome::Unknown(format!(
+                "{} (prior loss unconfirmed; create a fresh plan)", entry.original_name
+            )));
+        }
         Some(Progress::Lost(_)) => {
             effects.say(&format!("{label} lost (recorded earlier)"));
             return Ok(Outcome::Lost);
@@ -897,6 +909,10 @@ fn process_entry(
         Ok(r) => r,
         Err(e) => {
             if let Some(Unrecoverable(losses)) = e.downcast_ref::<Unrecoverable>() {
+                if unconfirmed_loss(losses) {
+                    return unknown(effects, entry, &attempt, pc,
+                        e.context("unconfirmed source loss; create a fresh plan"));
+                }
                 let mut r = record(effects, &entry.archive_id, RecordState::Lost, &attempt, pc);
                 r.losses = losses.clone();
                 r.new_archive_id = Some(new_archive_id.clone());
@@ -1239,4 +1255,13 @@ pub(crate) mod tests_support {
             detail: None,
         }
     }
+}
+
+/// Whether legacy loss evidence only says a source remote was unavailable.
+/// Shared by run/status/adoption/GUI so access failures never authorize loss.
+/// Immutable records remain readable; affected migrations need a fresh plan.
+pub(crate) fn unconfirmed_loss(losses: &[GroupLoss]) -> bool {
+    losses.iter().flat_map(|g| &g.missing).any(|m| {
+        m.reason == super::model::MissingReason::RemoteRemoved
+    })
 }

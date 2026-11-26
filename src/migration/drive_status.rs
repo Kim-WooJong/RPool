@@ -45,6 +45,11 @@ pub(crate) fn summarize(
     let (mut to_move, mut switched, mut verified, mut failed_unknown, mut left) = (0, 0, 0, 0, 0);
     for entry in &drive.entries {
         if entry.action == Action::Lost {
+            if super::execute::unconfirmed_loss(&entry.losses) {
+                failed_unknown += 1;
+                left += 1;
+                continue;
+            }
             lost.insert(entry.key.clone(), row(entry, entry.losses.clone(), "plan"));
             continue;
         }
@@ -59,6 +64,10 @@ pub(crate) fn summarize(
             Some(Progress::Switched(_)) => switched += 1,
             Some(Progress::Verified(_)) => {
                 verified += 1;
+                left += 1;
+            }
+            Some(Progress::Lost(r)) if super::execute::unconfirmed_loss(&r.losses) => {
+                failed_unknown += 1;
                 left += 1;
             }
             Some(Progress::Lost(r)) => {

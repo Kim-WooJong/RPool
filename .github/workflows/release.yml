@@ -17,14 +17,52 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   TAG: ${{ inputs.tag || github.ref_name }}
   CARGO_TERM_COLOR: always
 
 jobs:
+  qualification:
+    name: require native QA for tagged commit
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.q.outputs.sha }}
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/github-script@v7
+        id: q
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const tag = process.env.TAG;
+            if (tag.trim() !== tag || !/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/.test(tag)) {
+              throw new Error('Input must name an existing version tag, not a branch or SHA.');
+            }
+            let object = (await github.rest.git.getRef({owner, repo, ref: 'tags/' + tag})).data.object;
+            for (let depth = 0; object.type === 'tag' && depth < 8; depth++) {
+              object = (await github.rest.git.getTag({owner, repo, tag_sha: object.sha})).data.object;
+            }
+            if (object.type !== 'commit') throw new Error('Tag must resolve to a commit.');
+            const sha = object.sha;
+            const response = await github.rest.actions.listWorkflowRunsForRepo({owner, repo, event: 'push', per_page: 100});
+            const runs = response.data.workflow_runs.filter(r =>
+              r.head_sha === sha &&
+              r.path.split('@')[0] === '.github/workflows/verify.yml' &&
+              r.head_branch && r.head_branch.startsWith('release/') &&
+              r.head_repository && r.head_repository.full_name === owner + '/' + repo
+            ).sort((a, b) => b.id - a.id);
+            if (!runs.length || runs[0].status !== 'completed' || runs[0].conclusion !== 'success') {
+              core.setFailed('Exact tagged commit must pass the release-branch native verification workflow first.');
+              return;
+            }
+            core.setOutput('sha', sha);
+            core.info('Qualified ' + sha + ' by ' + runs[0].html_url);
   build:
+    needs: qualification
     name: build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -39,7 +77,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.TAG }}
+          ref: ${{ needs.qualification.outputs.sha }}
+          persist-credentials: false
 
       - name: Install Rust
         shell: bash
@@ -93,12 +132,15 @@ jobs:
           path: ${{ env.ASSET }}
 
   release:
-    needs: build
+    needs: [qualification, build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.TAG }}
+          ref: ${{ needs.qualification.outputs.sha }}
+          persist-credentials: false
 
       - uses: actions/download-artifact@v4
         with:
@@ -121,9 +163,29 @@ jobs:
             END { if (!found) exit 1 }
           ' CHANGELOG.md > RELEASE_NOTES.md
 
+      - name: Recheck immutable tag identity before publication
+        uses: actions/github-script@v7
+        env:
+          QUALIFIED_SHA: ${{ needs.qualification.outputs.sha }}
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const tag = process.env.TAG;
+            if (tag.trim() !== tag || !/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/.test(tag)) {
+              throw new Error('Input must name an existing version tag, not a branch or SHA.');
+            }
+            let object = (await github.rest.git.getRef({owner, repo, ref: 'tags/' + tag})).data.object;
+            for (let depth = 0; object.type === 'tag' && depth < 8; depth++) {
+              object = (await github.rest.git.getTag({owner, repo, tag_sha: object.sha})).data.object;
+            }
+            if (object.type !== 'commit') throw new Error('Tag must resolve to a commit.');
+            const sha = object.sha;
+            if (sha !== process.env.QUALIFIED_SHA) throw new Error('Tag changed after qualification; publication refused.');
+
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
+          target_commitish: ${{ needs.qualification.outputs.sha }}
           name: RPool ${{ env.TAG }}
           prerelease: ${{ contains(env.TAG, '-') }}
           make_latest: ${{ contains(env.TAG, '-') && 'false' || 'true' }}

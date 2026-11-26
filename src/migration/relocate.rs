@@ -453,25 +453,27 @@ struct Probed {
     problem: Option<MissingReason>,
 }
 
-/// Missing reason for a probe result; a provider error counts as a loss
-/// only off target (removed remote), otherwise as `ProviderError`.
-fn reason_for(probe: &Probe, on_target: bool) -> Option<MissingReason> {
-    match probe {
-        Probe::Ok => None,
-        Probe::Missing => Some(MissingReason::Missing),
-        Probe::BadSize { .. } => Some(MissingReason::BadSize),
-        Probe::Corrupt { .. } => Some(MissingReason::Corrupt),
-        Probe::Error(_) if !on_target => Some(MissingReason::RemoteRemoved),
-        Probe::Error(_) => Some(MissingReason::ProviderError),
+/// Stat-only source probe that preserves typed provider failures. Content is
+/// verified on download; a size mismatch remains BadSize.
+fn probe_reason(
+    reader: &crate::storage::reader::StorageReader,
+    shard: &Shard,
+    on_target: bool,
+) -> Option<MissingReason> {
+    match reader.stat(&shard.object) {
+        Ok(metadata) if metadata.size != shard.size => Some(MissingReason::BadSize),
+        Ok(_) => None,
+        Err(error) => Some(reason_for_error(&error, on_target)),
     }
 }
 
-/// Same classification as [`reason_for`] for a failed download.
-fn reason_for_error(error: &anyhow::Error, on_target: bool) -> MissingReason {
+/// Classify source failures without treating access, configuration or provider
+/// failures as proof of data loss. Only confirmed absence/corruption is loss,
+/// independent of current pool membership.
+fn reason_for_error(error: &anyhow::Error, _on_target: bool) -> MissingReason {
     match error.downcast_ref::<StorageError>().map(StorageError::kind) {
         Some(StorageErrorKind::NotFound) => MissingReason::Missing,
         Some(StorageErrorKind::CorruptData) => MissingReason::Corrupt,
-        _ if !on_target => MissingReason::RemoteRemoved,
         _ => MissingReason::ProviderError,
     }
 }
@@ -527,13 +529,18 @@ fn check_inputs(
         bail!("relocation target lists a remote more than once");
     }
     let shard_bytes = target.shard_bytes()?.get();
+    // Validated uncoded empties retain their frozen layout without encoding
+    // payload. This exception must not cover coded/parity or nonempty archives.
+    let empty_uncoded = source.original_size == 0
+        && source.coding.is_none()
+        && source.shards.iter().all(|s| s.kind == ShardKind::Data && s.size == 0);
     let same_coding = match &source.coding {
-        None => target.parity_shards == 0,
+        None => target.parity_shards == 0 || empty_uncoded,
         Some(coding) => {
             coding.data_shards == target.data_shards && coding.parity_shards == target.parity_shards
         }
     };
-    let same_shard = crate::models::shard_size::shard_size_matches(
+    let same_shard = empty_uncoded || crate::models::shard_size::shard_size_matches(
         source.shard_size,
         source.original_size,
         shard_bytes,
@@ -684,10 +691,9 @@ fn relocate_impl(minimal: bool, force_create:&BTreeSet<u32>, storage: &StorageWr
             .par_iter()
             .map(|shard| {
                 let on_target = remotes.iter().position(|r| r == &shard.remote);
-                let probe = reader.probe(shard, false);
                 Probed {
                     on_target,
-                    problem: reason_for(&probe, on_target.is_some()),
+                    problem: probe_reason(reader, shard, on_target.is_some()),
                 }
             })
             .collect()
@@ -800,7 +806,13 @@ fn relocate_impl(minimal: bool, force_create:&BTreeSet<u32>, storage: &StorageWr
             );
         }
     }
-    let publication = publication_remotes(&manifest, remotes, target.placement);
+    // A metadata-only archive has no shard remote for quota-aware selection.
+    // Its frozen metadata budget already covers every target root.
+    let publication = if manifest.original_size == 0 && manifest.shards.is_empty() {
+        remotes.to_vec()
+    } else {
+        publication_remotes(&manifest, remotes, target.placement)
+    };
     let manifest_bytes = serde_json::to_vec_pretty(&manifest)?;
     let metadata_bound=(serde_json::to_vec(source)?.len() as u64).checked_mul(8).and_then(|n|n.checked_add((source.shards.len() as u64).checked_mul(4096)?)).and_then(|n|n.checked_add(1024*1024)).context("metadata bound overflow")?;
     if manifest_bytes.len() as u64 > metadata_bound {bail!("actual manifest exceeds frozen metadata bound; no output publication");}

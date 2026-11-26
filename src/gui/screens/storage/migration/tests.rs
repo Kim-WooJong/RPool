@@ -27,7 +27,7 @@ pub(crate) fn sample_lost() -> Vec<LostFile> {
                 MissingShard {
                     index: 1,
                     remote: "gone-crypt:".into(),
-                    reason: MissingReason::RemoteRemoved,
+                    reason: MissingReason::Missing,
                 },
                 MissingShard {
                     index: 2,
@@ -453,7 +453,7 @@ fn lost_table_text() {
     assert_eq!(groups_text(&lost[0].groups), "g3: 1/3 available (K=2)");
     assert_eq!(
         missing_text(&lost[0].groups),
-        "gone-crypt: #1 (account removed), b-crypt: #2 (corrupt)"
+        "gone-crypt: #1 (missing), b-crypt: #2 (corrupt)"
     );
     let mut tabbed = lost.clone();
     tabbed[0].original_name = "a\tb\nc".into();
@@ -538,4 +538,16 @@ fn storage_strings_have_korean_translations() {
     assert_eq!(tr_in(Language::Japanese, "Lost files"), "損失ファイル");
     assert_eq!(tr_in(Language::Chinese, "Storage pools"), "存储池");
     assert_eq!(tr_in(Language::English, "Lost files"), "Lost files");
+}
+
+#[test]
+fn stable_gate_gui_does_not_present_unconfirmed_legacy_loss_as_lost() {
+    let mut p = sample_plan("p");
+    let e = p.entries.iter_mut().find(|e| e.action == Action::Lost).unwrap();
+    e.losses[0].missing[0].reason = MissingReason::RemoteRemoved;
+    assert!(lost_from_plan(&p).is_empty());
+    let mut d = sample_drive_plan("p");
+    let e = d.entries.iter_mut().find(|e| e.action == Action::Lost).unwrap();
+    e.losses[0].missing[0].reason = MissingReason::RemoteRemoved;
+    assert!(drive_lost_from_plan(&d).is_empty());
 }

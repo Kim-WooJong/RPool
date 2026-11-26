@@ -39,7 +39,14 @@ pub(crate) fn status(
 pub(crate) fn summarize(plan: &Plan, records: &[Record]) -> MigrationStatus {
     let state = progress(records);
     let mut lost: BTreeMap<String, LostFile> = BTreeMap::new();
+    let (mut to_move, mut switched, mut verified, mut failed_unknown, mut movable_left) =
+        (0, 0, 0, 0, 0);
     for entry in plan.entries.iter().filter(|e| e.action == Action::Lost) {
+        if super::execute::unconfirmed_loss(&entry.losses) {
+            failed_unknown += 1;
+            movable_left += 1;
+            continue;
+        }
         lost.insert(
             entry.archive_id.clone(),
             LostFile {
@@ -51,8 +58,6 @@ pub(crate) fn summarize(plan: &Plan, records: &[Record]) -> MigrationStatus {
             },
         );
     }
-    let (mut to_move, mut switched, mut verified, mut failed_unknown, mut movable_left) =
-        (0, 0, 0, 0, 0);
     for entry in &plan.entries {
         if !matches!(
             entry.action,
@@ -65,6 +70,10 @@ pub(crate) fn summarize(plan: &Plan, records: &[Record]) -> MigrationStatus {
             Some(Progress::Switched(_)) => switched += 1,
             Some(Progress::Verified(_)) => {
                 verified += 1;
+                movable_left += 1;
+            }
+            Some(Progress::Lost(r)) if super::execute::unconfirmed_loss(&r.losses) => {
+                failed_unknown += 1;
                 movable_left += 1;
             }
             Some(Progress::Lost(r)) => {

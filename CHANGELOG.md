@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+## 2.23.0 — 2026-11-26
+
+### Migration safety repairs
+
+- Planning and execution now preserve provider uncertainty independently of
+  pool membership. Failed/unobserved listings, unconfigured sources, timeouts,
+  authentication/permission errors and unclassified failures stay Unknown.
+  Confirmed missing objects, bad size and corrupt data retain loss semantics.
+- Legacy plan/journal losses based on RemoteRemoved are treated as unconfirmed.
+  Execution does not retry or overwrite their history; status/GUI no longer
+  present them as completed losses, and drive adoption refuses to drop them
+  even with accept-lost. Create a fresh plan using this version. All PCs that
+  run a shared migration must be upgraded first.
+- Validated uncoded empty archives may relocate after target shard-size/parity
+  changes without inventing extents or changing the frozen source layout.
+  Metadata-only archives publish to every budgeted target root, including
+  quota-aware placement. Full-copy/minimal v2/v3 contracts remain enforced.
+- No new CLI flags or persistent formats. Original archives and legacy journal
+  bytes remain unchanged; already-adopted generations are not rewritten.
+- Candidate-only source-exclusion/skip-Unknown options, local diagnostics,
+  empty-folder adoption preservation and reset prototypes remain excluded.
+
+### Qualification and limitations
+
+Local macOS ARM64 validation on Rust 1.98.1: all-targets compile passed;
+1,274 unit/regression tests passed, 0 failed, 66 normally ignored. The selected
+real-rclone local crypt oracle (4 tests) and native-crypt core sync (2 tests)
+also passed. CLI and GUI release builds succeeded, and CLI reports 2.23.0.
+The frozen empty-layout test covers v2/v3, full/minimal, metadata-only/zero
+extents and target-size increases/decreases without changing source bytes.
+Repository-wide formatting/lint diagnostics were not represented as clean;
+clippy remains report-only per DEVELOPMENT.md. No broad formatting was mixed
+into these behavioral repairs.
+
+Native Windows/Linux/macOS CI is required for the exact tagged commit before
+publication; Windows additionally runs disposable WinFsp mounted I/O with local
+crypt remotes. Release builds still include both CLI and GUI on four targets.
+These checks are not native macFUSE kernel, interactive GUI or live-cloud
+qualification and do not repair external SMB signing/server/path failures or
+claim every possible issue is fixed. Missing zero-byte source extents still
+require review/replanning rather than unplanned allocation or borrowing.
+
 ## 2.23.0-rc.9 — 2026-11-20 (experimental/testing prerelease)
 
 **EXPERIMENTAL / TESTING ONLY — NOT all issues are fixed. Back up first, review

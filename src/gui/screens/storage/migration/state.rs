@@ -737,7 +737,8 @@ pub(crate) fn drive_lost_from_plan(drive: &DrivePlan) -> Vec<LostFile> {
     drive
         .entries
         .iter()
-        .filter(|e| e.action == crate::migration::model::Action::Lost)
+        .filter(|e| e.action == crate::migration::model::Action::Lost
+            && !crate::migration::execute::unconfirmed_loss(&e.losses))
         .map(|e| LostFile {
             archive_id: e.source_archive_id.clone(),
             original_name: e.path.clone(),
@@ -752,7 +753,8 @@ pub(crate) fn drive_lost_from_plan(drive: &DrivePlan) -> Vec<LostFile> {
 pub(crate) fn lost_from_plan(plan: &Plan) -> Vec<LostFile> {
     plan.entries
         .iter()
-        .filter(|e| e.action == crate::migration::model::Action::Lost)
+        .filter(|e| e.action == crate::migration::model::Action::Lost
+            && !crate::migration::execute::unconfirmed_loss(&e.losses))
         .map(|e: &Entry| LostFile {
             archive_id: e.archive_id.clone(),
             original_name: e.original_name.clone(),
