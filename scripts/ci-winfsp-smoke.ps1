@@ -18,7 +18,8 @@ for($i=1;$i -le 3;$i++){
  $data=Join-Path $root ('data'+$i);New-Item $data -ItemType Directory|Out-Null
  $password=(& $rclone obscure ('public-ci-fixture-'+$i)|Out-String).Trim()
  if($LASTEXITCODE){throw 'Fixture key creation failed'}
- $lines+=@('[b'+$i+']','type = local','','[c'+$i+']','type = crypt',('remote = b'+$i+':'+$data.Replace('\','/')),'filename_encryption = standard','directory_name_encryption = true','filename_encoding = base32',('password = '+$password),'')
+ # Parenthesize concatenations: PowerShell's comma operator binds before +.
+ $lines+=@(('[b'+$i+']'),'type = local','',('[c'+$i+']'),'type = crypt',('remote = b'+$i+':'+$data.Replace('\','/')),'filename_encryption = standard','directory_name_encryption = true','filename_encoding = base32',('password = '+$password),'')
 }
 [IO.File]::WriteAllLines($env:RCLONE_CONFIG,$lines,[Text.UTF8Encoding]::new($false))
 function InvokeCli([string[]]$Arguments){
