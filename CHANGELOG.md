@@ -24,10 +24,17 @@
 - Candidate-only source-exclusion/skip-Unknown options, local diagnostics,
   empty-folder adoption preservation and reset prototypes remain excluded.
 
+- Recognize the OS-encoded Windows WebDAV cache namespace. Ambiguous
+  OS-escaped filenames remain preserved for review rather than being imported
+  under a different name. Portable Windows fixtures retain all recovery tests.
+- Native CI uses a physical private macOS temp directory without relaxing
+  symlink guards. Replica-read tests prove overlap with bounded rendezvous and
+  sequential negative controls instead of a disk-speed wall-time threshold.
+
 ### Qualification and limitations
 
 Local macOS ARM64 validation on Rust 1.98.1: all-targets compile passed;
-1,274 unit/regression tests passed, 0 failed, 66 normally ignored. The selected
+1,276 unit/regression tests passed, 0 failed, 66 normally ignored. The selected
 real-rclone local crypt oracle (4 tests) and native-crypt core sync (2 tests)
 also passed. CLI and GUI release builds succeeded, and CLI reports 2.23.0.
 The frozen empty-layout test covers v2/v3, full/minimal, metadata-only/zero

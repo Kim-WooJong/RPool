@@ -1,9 +1,17 @@
-//! Synthetic rclone caches in the layout rclone 1.75 writes (checked in
-//! Docker): `vfs/:webdav{id}/<path>` data and `vfsMeta/:webdav{id}/<path>`.
+//! Synthetic cache entries using accepted WebDAV namespace prefixes.
+//! Unix keeps colon-name coverage; Windows uses a legal namespace and a
+//! filesystem-valid control-name fixture that the logical path guard rejects.
 use super::*;
 use crate::mount::virtual_drive::{fixture, fixture_reopen};
 
+#[cfg(not(windows))]
 const FS: &str = ":webdav{vK-qC}";
+#[cfg(windows)]
+const FS: &str = "\u{ff1a}webdav{vK-qC}";
+#[cfg(not(windows))]
+const INVALID_PATH: &str = "CON.txt";
+#[cfg(windows)]
+const INVALID_PATH: &str = "A\u{7f}.txt";
 
 fn cache_file(root: &Path, rel: &str, data: Option<&[u8]>, meta: Option<&str>) {
     let cache = root.join("vfs-cache");
@@ -104,10 +112,10 @@ fn sparse_unknown_and_invalid_entries_are_kept_not_imported() {
     );
     cache_file(root.path(), "orphan.bin", Some(b"unsaved?"), None);
     cache_file(root.path(), "bad.json", Some(b"x"), Some("{not json"));
-    dirty(root.path(), "CON.txt", b"reserved name");
+    dirty(root.path(), INVALID_PATH, b"reserved name");
     let reports = drive.recover_previous_cache().unwrap();
     let kept: Vec<&str> = reports[0].kept.iter().map(|(p, _)| p.as_str()).collect();
-    assert_eq!(kept, ["CON.txt", "bad.json", "orphan.bin", "sparse.bin"]);
+    assert_eq!(kept, [INVALID_PATH, "bad.json", "orphan.bin", "sparse.bin"]);
     assert!(!reports[0].removed);
     assert!(drive.state.lock().unwrap().pending.is_empty());
     let dir = &reports[0].dir;
@@ -255,4 +263,35 @@ fn recovered_names_keep_folder_and_extension() {
         recovered_name(".env", "t", "abcdef"),
         ".env (recovered t-abcdef)"
     );
+}
+
+
+#[test]
+fn windows_encoded_webdav_namespace_preserves_names_and_unknown_bytes() {
+    for (namespace, name, should_import) in [
+        ("\u{ff1a}webdav{cache}", "document.txt", true),
+        ("\u{ff1a}webdav{cache}", "escaped\u{ff1a}name.txt", false),
+        ("\u{ff1a}sftp{cache}", "document.txt", false),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let drive = fixture(root.path());
+        let cache = root.path().join("vfs-cache");
+        let data = cache.join("vfs").join(namespace).join(name);
+        let metadata = cache.join("vfsMeta").join(namespace).join(name);
+        fs::create_dir_all(data.parent().unwrap()).unwrap();
+        fs::create_dir_all(metadata.parent().unwrap()).unwrap();
+        fs::write(&data, b"unsaved").unwrap();
+        fs::write(metadata, meta(7, 7, true)).unwrap();
+        let reports = drive.recover_previous_cache().unwrap();
+        assert_eq!(reports.len(), 1);
+        if should_import {
+            assert_eq!(reports[0].imported, vec![name]);
+            assert_eq!(contents(&drive, name), b"unsaved");
+            assert!(reports[0].removed);
+        } else {
+            assert!(reports[0].imported.is_empty() && reports[0].copied.is_empty());
+            assert!(!reports[0].kept.is_empty() && !reports[0].removed);
+            assert_eq!(fs::read(reports[0].dir.join("vfs").join(namespace).join(name)).unwrap(), b"unsaved");
+        }
+    }
 }

@@ -88,7 +88,9 @@ pub(crate) fn scan(dir: &Path) -> Result<std::result::Result<Vec<CacheEntry>, St
         _ => return Ok(Err("several rclone remotes in one cache".into())),
     };
     let name = root.to_string_lossy();
-    if !(name.starts_with(":webdav") || name.starts_with("webdav")) {
+    // rclone 1.75 OS-encodes the leading colon as U+FF1A on Windows.
+    let windows_namespace = name.starts_with("\u{ff1a}webdav");
+    if !(name.starts_with(":webdav") || name.starts_with("webdav") || windows_namespace) {
         return Ok(Err(format!("not a WebDAV mount cache ({name})")));
     }
     let mut rels = BTreeSet::new();
@@ -101,7 +103,11 @@ pub(crate) fn scan(dir: &Path) -> Result<std::result::Result<Vec<CacheEntry>, St
         let data = data_root.join(&root).join(&rel);
         let meta = meta_root.join(&root).join(&rel);
         let data_len = fs::symlink_metadata(&data).ok().map(|m| m.len());
-        let kind = if let Some(reason) = unknown.get(&rel) {
+        let kind = if windows_namespace && ambiguous_windows_cache_name(&rel) {
+            // Without an OS-name decoder, never import escaped paths under a
+            // different logical filename. Preserve the bytes for review.
+            EntryKind::Unknown("OS-escaped cache filename requires review".into())
+        } else if let Some(reason) = unknown.get(&rel) {
             EntryKind::Unknown(reason.clone())
         } else {
             classify(&meta, data_len)
@@ -187,4 +193,14 @@ fn walk(
         }
     }
     Ok(())
+}
+
+/// OS escapes and their quote marker cannot be interpreted as literal drive
+/// names. Keep these entries instead of silently changing an unsaved filename.
+fn ambiguous_windows_cache_name(path: &str) -> bool {
+    path.chars().any(|c| {
+        c == '\u{201b}' || c == '\u{fffd}'
+            || ('\u{2400}'..='\u{2420}').contains(&c)
+            || "＂＊／：＜＞？＼｜．".contains(c)
+    })
 }

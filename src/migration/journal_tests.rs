@@ -511,21 +511,16 @@ fn records_merge_concurrent_replicas_like_sequential_reads() {
     all.push(down);
 
     let dir = tempfile::tempdir().unwrap();
-    let j = slow_journal(&all, Some(dir.path()));
-    let started = std::time::Instant::now();
+    let (j, listing_overlap, read_overlap) = gated_journal(&all, dir.path());
     let mut got: Vec<u64> = j.records().unwrap().iter().map(|r| r.ts_unix).collect();
-    let elapsed = started.elapsed();
     got.sort_unstable();
     assert_eq!(got, vec![1, 2, 3, 4, 5, 6, 20, 30]);
     // 8 distinct records: each downloaded once (+1 retry of the corrupt copy),
     // spread over the replicas instead of all from the first one.
     let reads: usize = stores.iter().map(|s| s.reads.load(Ordering::SeqCst)).sum();
     assert_eq!(reads, 9);
-    // Sequential: 4 listings + 8 reads = 1.2 s at least.
-    assert!(
-        elapsed < std::time::Duration::from_millis(1000),
-        "{elapsed:?}"
-    );
+    assert!(listing_overlap.complete(), "replica listings must overlap");
+    assert!(read_overlap.complete(), "replica reads must overlap");
     // Everything is now cached: a second read downloads nothing.
     let before = reads;
     assert_eq!(j.records().unwrap().len(), 8);
@@ -582,5 +577,76 @@ esac
             text.contains("slow_crypt: did not answer within 1 s"),
             "{text}"
         );
+    }
+}
+
+
+/// Test-only rendezvous: records overlap, not filesystem or scheduler speed.
+struct OverlapGate {
+    expected: usize,
+    timeout: std::time::Duration,
+    state: Mutex<(usize, bool, bool)>, // arrivals, released, expired
+    wake: std::sync::Condvar,
+}
+impl OverlapGate {
+    fn new(expected: usize, timeout: std::time::Duration) -> Arc<Self> {
+        Arc::new(Self { expected, timeout, state: Mutex::new((0, false, false)), wake: std::sync::Condvar::new() })
+    }
+    fn arrive(&self) {
+        let mut state = self.state.lock().unwrap();
+        state.0 += 1;
+        if state.0 >= self.expected {
+            state.1 = true;
+            self.wake.notify_all();
+        }
+        if !state.1 {
+            let (mut state, timed) = self.wake.wait_timeout_while(state, self.timeout, |s| !s.1).unwrap();
+            if timed.timed_out() && !state.1 {
+                state.1 = true;
+                state.2 = true;
+                self.wake.notify_all();
+            }
+        }
+    }
+    fn complete(&self) -> bool {
+        let state = self.state.lock().unwrap();
+        state.0 == self.expected && state.1 && !state.2
+    }
+}
+
+struct GatedStore {
+    inner: Arc<Slow>,
+    listings: Arc<OverlapGate>,
+    reads: Arc<OverlapGate>,
+    first_read: AtomicBool,
+}
+impl JournalStore for GatedStore {
+    fn label(&self) -> String { self.inner.label() }
+    fn list_migrations(&self) -> Result<Vec<String>> { self.inner.list_migrations() }
+    fn read(&self, migration: &str, rel: &str) -> Result<Option<Vec<u8>>> {
+        if !self.first_read.swap(true, Ordering::SeqCst) { self.reads.arrive(); }
+        self.inner.read(migration, rel)
+    }
+    fn create(&self, migration: &str, rel: &str, bytes: &[u8]) -> Result<Option<Vec<u8>>> { self.inner.create(migration, rel, bytes) }
+    fn list_records(&self, migration: &str) -> Result<Vec<String>> {
+        self.listings.arrive();
+        self.inner.list_records(migration)
+    }
+}
+fn gated_journal(stores: &[Arc<Slow>], cache: &Path) -> (Journal, Arc<OverlapGate>, Arc<OverlapGate>) {
+    let listings = OverlapGate::new(stores.len(), std::time::Duration::from_secs(30));
+    let readable = stores.iter().filter(|s| !s.inner.down.load(Ordering::SeqCst)).count();
+    let reads = OverlapGate::new(readable, std::time::Duration::from_secs(30));
+    let cloud = stores.iter().map(|s| Arc::new(GatedStore { inner: Arc::clone(s), listings: Arc::clone(&listings), reads: Arc::clone(&reads), first_read: AtomicBool::new(false) }) as Arc<dyn JournalStore>).collect();
+    let cache = Arc::new(LocalStore::new(cache.join("p"))) as Arc<dyn JournalStore>;
+    (Journal::with_stores("p", "m1", cloud, Some(cache)).unwrap(), listings, reads)
+}
+
+#[test]
+fn overlap_gate_rejects_serial_listing_and_read_controls() {
+    for expected in [4, 3] {
+        let gate = OverlapGate::new(expected, std::time::Duration::from_millis(20));
+        for _ in 0..expected { gate.arrive(); }
+        assert!(!gate.complete(), "sequential arrivals must not prove overlap");
     }
 }

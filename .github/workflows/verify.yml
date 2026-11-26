@@ -24,6 +24,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Physical macOS test temp
+        if: runner.os == 'macOS'
+        run: python scripts/ci-prepare-temp.py
       - name: Rust stable
         shell: bash
         run: rustup toolchain install stable --profile minimal && rustup default stable
